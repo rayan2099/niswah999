@@ -1,0 +1,6 @@
+{
+  "name": "نسوة | Niswah",
+  "description": "Niswah: Empowering Muslim women with Fiqh-aligned health tracking. نسوة: تمكين الأخوات من خلال تتبع الصحة المتوافق مع الفقه.",
+  "version": "1.0.0",
+  "requestFramePermissions": ["geolocation"]
+}

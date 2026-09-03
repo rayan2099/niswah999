@@ -1,0 +1,132 @@
+import 'package:flutter/foundation.dart';
+
+import '../../../../core/errors/failures.dart';
+import '../../data/repositories/auth_repository_impl.dart';
+import '../../domain/entities/app_user.dart';
+import '../models/profile_form_data.dart';
+
+class ProfileViewModel extends ChangeNotifier {
+  ProfileViewModel({AuthRepositoryImpl? authRepository})
+    : _authRepository = authRepository ?? _safeAuthRepository();
+
+  final AuthRepositoryImpl? _authRepository;
+  AppUser? user;
+  bool isLoading = false;
+  bool isSaving = false;
+  String? errorMessage;
+
+  Future<void> loadCurrentUser() async {
+    if (_authRepository == null) {
+      user = null;
+      notifyListeners();
+      return;
+    }
+
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      user = await _authRepository.currentUser;
+    } catch (error) {
+      errorMessage = error.toString();
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateProfile(ProfileFormData formData) async {
+    final authRepository = _authRepository;
+    if (authRepository == null) {
+      throw const AuthFailure('Authentication is not available right now.');
+    }
+
+    final validationMessage = formData.validate();
+    if (validationMessage != null) {
+      throw FormatException(validationMessage);
+    }
+
+    isSaving = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updatedUser = await authRepository.updateProfile(
+        displayName: formData.displayName,
+        email: formData.email,
+        phoneNumber: formData.phoneNumber,
+        bio: formData.bio,
+      );
+
+      if (updatedUser != null) {
+        user = updatedUser;
+      }
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw const AuthFailure('Unable to update your profile right now.');
+    } finally {
+      isSaving = false;
+      notifyListeners();
+    }
+  }
+
+  /// Persists just the anonymous-mode toggle, reusing whatever
+  /// displayName/email are already on the loaded profile rather than
+  /// routing through [ProfileFormData]'s full-form validation for a
+  /// single boolean.
+  Future<void> setAnonymousMode(bool value) async {
+    final authRepository = _authRepository;
+    final currentUser = user;
+    if (authRepository == null || currentUser == null) {
+      throw const AuthFailure('Authentication is not available right now.');
+    }
+
+    try {
+      final updatedUser = await authRepository.updateProfile(
+        displayName: currentUser.displayName ?? '',
+        email: currentUser.email,
+        anonymousMode: value,
+      );
+
+      if (updatedUser != null) {
+        user = updatedUser;
+      }
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw const AuthFailure('Unable to update your profile right now.');
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<void> signOut() async {
+    final authRepository = _authRepository;
+    if (authRepository == null) {
+      throw const AuthFailure('Authentication is not available right now.');
+    }
+
+    try {
+      await authRepository.signOut();
+      user = null;
+    } on Failure {
+      rethrow;
+    } catch (_) {
+      throw const AuthFailure('Unable to sign out right now.');
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  static AuthRepositoryImpl? _safeAuthRepository() {
+    try {
+      return AuthRepositoryImpl();
+    } on StateError {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+}

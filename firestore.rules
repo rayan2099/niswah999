@@ -1,0 +1,124 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /users/{userId}
+    // Document ID: userId (Firebase Auth UID)
+    // Fields:
+    //   - id: string (required)
+    //   - email_hash: string
+    //   - display_name: string
+    //   - birth_year: number
+    //   - madhhab: string (required, enum)
+    //   - language: string (required, enum)
+    //   - avg_cycle_length: number
+    //   - avg_haid_duration: number
+    //   - goal_flags: list
+    //   - conditions: list
+    //   - notification_prefs: map
+    //   - anonymous_mode: bool
+    //   - premium_status: bool
+    //   - adah_confidence: number
+    //   - prayer_calculation_method: string
+    //   - location_lat: number
+    //   - location_lng: number
+    //   - created_at: string (ISO 8601)
+    //   - updated_at: string (ISO 8601)
+    //
+    // Collection: /users/{userId}/cycle_entries/{entryId}
+    // Document ID: entryId
+    // Fields:
+    //   - id: string
+    //   - user_id: string (required)
+    //   - date: string (required, ISO 8601 date)
+    //   - time_logged: string (ISO 8601 date-time)
+    //   - fiqh_state: string (required, enum)
+    //   - flow_intensity: string
+    //   - blood_color: string
+    //   - blood_thickness: string
+    //   - kursuf_used: bool
+    //   - discharge_internal: bool
+    //   - is_predicted: bool
+    //   - prediction_confidence: number
+    //   - is_dirty: bool
+    //   - created_at: string (ISO 8601)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "helpooclassmate@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['madhhab', 'language']) &&
+             data.madhhab in ['HANAFI', 'SHAFI', 'MALIKI', 'HANBALI'] &&
+             data.language in ['en', 'ar'];
+    }
+
+    function isValidCycleEntry(data) {
+      return data.keys().hasAll(['user_id', 'date', 'fiqh_state']) &&
+             data.fiqh_state in ['HAID', 'TUHR', 'ISTIHADAH', 'NIFAS'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+
+      match /cycle_entries/{entryId} {
+        allow read, delete: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidCycleEntry(request.resource.data);
+      }
+
+      match /symptoms_log/{logId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /prayer_log/{logId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /adah_ledger/{ledgerId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /nifas_records/{recordId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /ramadan_records/{recordId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /secret_vault/{entryId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    match /test/{docId} {
+      allow read: if true;
+    }
+  }
+}

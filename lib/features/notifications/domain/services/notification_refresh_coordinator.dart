@@ -1,0 +1,171 @@
+import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/preferences/notification_log_controller.dart';
+import '../../../../core/services/notification_service.dart';
+import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
+import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
+import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
+import '../../data/repositories/notification_repository_impl.dart';
+import '../entities/notification_preference.dart';
+import 'notification_scheduler.dart';
+
+/// The side-effecting glue between real app state and
+/// [NotificationService] — loads preferences + real data, asks the pure
+/// [NotificationScheduler] planners what should fire, and (re)schedules
+/// accordingly. Call at natural trigger points (app start, app resume) —
+/// once scheduled, the OS owns delivery, so no background polling is
+/// needed here.
+class NotificationRefreshCoordinator {
+  const NotificationRefreshCoordinator._();
+
+  static const wellbeingReminderId = 104;
+  static const _wellbeingReminderHour = 20;
+
+  static Future<void> refresh({
+    required String? userId,
+    CycleTrackingRepositoryImpl? cycleRepository,
+    PregnancyProfileRepository? pregnancyRepository,
+    NotificationRepositoryImpl? preferenceRepository,
+  }) async {
+    final preferences =
+        await (preferenceRepository ?? NotificationRepositoryImpl())
+            .loadPreferences();
+    final now = DateTime.now();
+
+    await _refreshCycle(
+      preferences: preferences,
+      cycleRepository: cycleRepository ?? CycleTrackingRepositoryImpl(),
+      now: now,
+    );
+    await _refreshPregnancyAndNifas(
+      preferences: preferences,
+      userId: userId,
+      pregnancyRepository: pregnancyRepository ?? PregnancyProfileRepository(),
+      now: now,
+    );
+    await _refreshWellbeingDaily(preferences: preferences);
+  }
+
+  static Future<void> _refreshCycle({
+    required Map<NotificationType, NotificationPreference> preferences,
+    required CycleTrackingRepositoryImpl cycleRepository,
+    required DateTime now,
+  }) async {
+    final enabled = preferences[NotificationType.cycle]?.enabled ?? false;
+    if (!enabled) {
+      await NotificationService.instance.cancel(
+        NotificationScheduler.cycleNotificationId,
+      );
+      return;
+    }
+
+    final logs = await cycleRepository.getCycleLogs(limit: 1000);
+    final calculation = const CycleCalculationService().calculate(
+      logs,
+      asOf: now,
+    );
+    final plan = NotificationScheduler.planCycleReminder(
+      calculation: calculation,
+      now: now,
+    );
+    await _apply(NotificationScheduler.cycleNotificationId, plan);
+  }
+
+  static Future<void> _refreshPregnancyAndNifas({
+    required Map<NotificationType, NotificationPreference> preferences,
+    required String? userId,
+    required PregnancyProfileRepository pregnancyRepository,
+    required DateTime now,
+  }) async {
+    final enabled = preferences[NotificationType.pregnancy]?.enabled ?? false;
+    if (!enabled || userId == null) {
+      await NotificationService.instance.cancel(
+        NotificationScheduler.pregnancyNotificationId,
+      );
+      await NotificationService.instance.cancel(
+        NotificationScheduler.nifasNotificationId,
+      );
+      return;
+    }
+
+    final profile = await pregnancyRepository.getForUser(userId);
+    final pregnancyPlan = NotificationScheduler.planPregnancyMilestone(
+      profile: profile,
+      now: now,
+    );
+    await _apply(NotificationScheduler.pregnancyNotificationId, pregnancyPlan);
+
+    final nifasPlan = NotificationScheduler.planNifasCountdown(
+      profile: profile,
+      now: now,
+    );
+    await _apply(NotificationScheduler.nifasNotificationId, nifasPlan);
+  }
+
+  static Future<void> _refreshWellbeingDaily({
+    required Map<NotificationType, NotificationPreference> preferences,
+  }) async {
+    final enabled = preferences[NotificationType.wellbeing]?.enabled ?? false;
+    if (!enabled) {
+      await NotificationService.instance.cancel(wellbeingReminderId);
+      return;
+    }
+
+    final isArabic = AppLocaleController.instance.isArabic;
+    await NotificationService.instance.scheduleDaily(
+      id: wellbeingReminderId,
+      title: isArabic ? 'كيف حالكِ اليوم؟' : 'How are you feeling today?',
+      body: isArabic
+          ? 'خذي لحظة لتسجيل حالتكِ النفسية اليوم.'
+          : 'Take a moment to log your wellbeing check-in today.',
+      hour: _wellbeingReminderHour,
+      minute: 0,
+    );
+  }
+
+  static Future<void> _apply(int id, PlannedNotification? plan) async {
+    if (plan == null) {
+      await NotificationService.instance.cancel(id);
+      return;
+    }
+
+    final isArabic = AppLocaleController.instance.isArabic;
+    await NotificationService.instance.scheduleAt(
+      id: id,
+      title: isArabic ? plan.titleAr : plan.titleEn,
+      body: isArabic ? plan.bodyAr : plan.bodyEn,
+      when: plan.fireAt,
+    );
+
+    // The same still-pending prediction gets rescheduled every refresh
+    // (app start/resume) — that's fine for the OS scheduler (replacing a
+    // notification under the same id is a no-op if unchanged), but it
+    // must NOT re-add a log entry each time. The log-entry id embeds the
+    // plan's fireAt, so an unchanged plan reuses the same id and this
+    // simply skips re-adding.
+    final logEntryId = '${id}_${plan.fireAt.millisecondsSinceEpoch}';
+    final alreadyLogged = NotificationLogController.instance.entries.any(
+      (entry) => entry.id == logEntryId,
+    );
+    if (alreadyLogged) return;
+
+    final type = switch (id) {
+      NotificationScheduler.cycleNotificationId => NotificationType.cycle,
+      NotificationScheduler.nifasNotificationId ||
+      NotificationScheduler.pregnancyNotificationId =>
+        NotificationType.pregnancy,
+      _ => NotificationType.wellbeing,
+    };
+
+    await NotificationLogController.instance.add(
+      NotificationLogEntry(
+        id: logEntryId,
+        type: type,
+        titleAr: plan.titleAr,
+        bodyAr: plan.bodyAr,
+        titleEn: plan.titleEn,
+        bodyEn: plan.bodyEn,
+        createdAt: DateTime.now(),
+      ),
+    );
+  }
+}

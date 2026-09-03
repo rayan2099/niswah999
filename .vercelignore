@@ -1,0 +1,28 @@
+.dart_tool
+.git
+.idea
+.flutter-plugins-dependencies
+build
+coverage
+node_modules
+
+# Flutter and native-platform sources are not part of the Vite deployment.
+lib
+test
+android
+ios
+linux
+macos
+windows
+web
+
+# Local verification material and generated diagnostics.
+docs
+*.iml
+*.md
+*.backup
+dart_test.yaml
+devtools_options.yaml
+pubspec.lock
+pubspec.yaml
+analysis_options.yaml

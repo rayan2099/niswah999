@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email_hash": { "type": "string" },
+        "display_name": { "type": "string" },
+        "birth_year": { "type": "integer" },
+        "madhhab": { "type": "string", "enum": ["HANAFI", "SHAFI", "MALIKI", "HANBALI"] },
+        "language": { "type": "string", "enum": ["en", "ar"] },
+        "avg_cycle_length": { "type": "integer" },
+        "avg_haid_duration": { "type": "integer" },
+        "goal_flags": { "type": "array", "items": { "type": "string" } },
+        "conditions": { "type": "array", "items": { "type": "string" } },
+        "notification_prefs": { "type": "object" },
+        "anonymous_mode": { "type": "boolean" },
+        "premium_status": { "type": "boolean" },
+        "adah_confidence": { "type": "number" },
+        "prayer_calculation_method": { "type": "string" },
+        "location_lat": { "type": "number" },
+        "location_lng": { "type": "number" },
+        "location_name": { "type": "string" },
+        "manual_prayer_offsets": { "type": "object" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "madhhab", "language"]
+    },
+    "CycleEntry": {
+      "title": "CycleEntry",
+      "description": "A daily log entry for cycle tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "time_logged": { "type": "string", "format": "date-time" },
+        "fiqh_state": { "type": "string", "enum": ["HAID", "TUHR", "ISTIHADAH", "NIFAS"] },
+        "flow_intensity": { "type": "string" },
+        "blood_color": { "type": "string" },
+        "blood_thickness": { "type": "string" },
+        "kursuf_used": { "type": "boolean" },
+        "discharge_internal": { "type": "boolean" },
+        "is_predicted": { "type": "boolean" },
+        "prediction_confidence": { "type": "number" },
+        "is_dirty": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "date", "fiqh_state"]
+    },
+    "AdahLedger": {
+      "title": "AdahLedger",
+      "description": "Historical cycle data",
+      "type": "object",
+      "properties": {
+        "cycle_number": { "type": "integer" },
+        "haid_start": { "type": "string", "format": "date-time" },
+        "haid_end": { "type": "string", "format": "date-time" },
+        "haid_duration_hours": { "type": "number" },
+        "tuhr_duration_days": { "type": "number" }
+      }
+    },
+    "PrayerLog": {
+      "title": "PrayerLog",
+      "description": "Log of prayers",
+      "type": "object",
+      "properties": {
+        "prayer_name": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["prayed", "missed", "qadha"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Individual user profiles"
+    },
+    "/users/{userId}/cycle_entries/{entryId}": {
+      "schema": "CycleEntry",
+      "description": "Cycle tracking entries for a specific user"
+    },
+    "/users/{userId}/adah_ledger/{ledgerId}": {
+      "schema": "AdahLedger",
+      "description": "Historical cycle data for adah calculation"
+    },
+    "/users/{userId}/prayer_log/{logId}": {
+      "schema": "PrayerLog",
+      "description": "Log of prayers performed or missed"
+    }
+  }
+}
