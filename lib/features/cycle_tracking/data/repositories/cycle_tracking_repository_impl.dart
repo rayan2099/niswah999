@@ -1,6 +1,6 @@
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../datasources/local_cycle_tracking_data_source.dart';
@@ -67,16 +67,26 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       final ordered = merged.values.toList()
         ..sort((a, b) => b.date.compareTo(a.date));
       return ordered;
-    } on PostgrestException catch (error) {
+    } on PostgrestException catch (error, stack) {
       // Local save is authoritative for the UI (see saveCycleLog below) —
       // a remote read failure here must never make an already-saved local
       // log disappear from the caller. This used to rethrow as a
       // NetworkFailure instead, which meant CycleTrackingViewModel.loadLogs
       // caught it *before* ever assigning `logs`, silently wiping out
-      // whatever had just been saved locally moments earlier.
-      debugPrint('[CycleTracking] getCycleLogs remote read failed: ${error.message}');
+      // whatever had just been saved locally moments earlier. Still
+      // reported (not silently discarded) so a real outage is observable.
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'CycleTrackingRepositoryImpl.getCycleLogs',
+      );
       return localLogs;
-    } catch (_) {
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'CycleTrackingRepositoryImpl.getCycleLogs',
+      );
       return localLogs;
     }
   }
@@ -112,17 +122,27 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   }
 
   @override
-  Future<void> saveCycleLog(CycleLog log) async {
+  Future<bool> saveCycleLog(CycleLog log) async {
     await _localDataSource.upsert(log);
     try {
       await upsertCycleLog(log);
-    } on NetworkFailure catch (error) {
+      return true;
+    } on NetworkFailure catch (error, stack) {
       // Local save is authoritative for the UI; remote sync is eventually-
-      // consistent (see SyncStatus.pending / syncPendingLogs()). Swallow
-      // here so a transient network/schema issue never hides an already-
-      // successful local save from the caller — see getCycleLogs() above,
-      // which already degrades the same way on a remote read failure.
-      debugPrint('[CycleTracking] saveCycleLog remote sync failed: $error');
+      // consistent (see SyncStatus.pending / syncPendingLogs()). The
+      // failure is never allowed to hide an already-successful local save
+      // from the caller — see getCycleLogs() above, which degrades the
+      // same way on a remote read failure — but it IS now reported (not
+      // silently discarded) and surfaced back to the caller via the
+      // return value, so the UI can show a non-blocking "not backed up
+      // yet" indication instead of the failure vanishing with zero trace
+      // (DI-002/PJ-002).
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'CycleTrackingRepositoryImpl.saveCycleLog',
+      );
+      return false;
     }
   }
 
@@ -139,7 +159,17 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     }
 
     try {
-      final payload = {...log.toJson(), 'user_id': sessionUser.id};
+      // Reaching this point without throwing IS the definition of "synced"
+      // — overridden unconditionally rather than passed through from
+      // log.toJson()'s local default (CycleLog() defaults to
+      // SyncStatus.pending, which — before this fix — was uploaded
+      // verbatim and then never updated, leaving every successfully
+      // synced row permanently marked 'pending' in the database).
+      final payload = {
+        ...log.toJson(),
+        'user_id': sessionUser.id,
+        'sync_status': 'synced',
+      };
 
       await client.from('cycle_entries').upsert(payload, onConflict: 'id');
     } on PostgrestException catch (error) {

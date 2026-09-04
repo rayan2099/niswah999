@@ -38,6 +38,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
   );
   bool isLoading = false;
   String? errorMessage;
+  String? warningMessage;
 
   String get currentUserId => _currentUserId;
   AppUser? get currentUser => _currentUser;
@@ -101,7 +102,10 @@ class CycleTrackingViewModel extends ChangeNotifier {
     final userId = existingLog?.userId ?? _currentUserId;
     final log = formData.toCycleLog(userId: userId, id: existingLog?.id);
 
-    await _repository.saveCycleLog(log);
+    final synced = await _repository.saveCycleLog(log);
+    warningMessage = synced
+        ? null
+        : 'Saved on this device, but could not be backed up to your account yet. It will sync automatically once you\'re back online.';
     await loadLogs();
   }
 

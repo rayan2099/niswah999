@@ -324,3 +324,95 @@ However, Flutter's own **release-mode** asset-bundling stage completed successfu
 | 8 | Remaining owner actions | (a) Rotate/revoke the Google Gemini API key; (b) resolve the Search-grounding quota/billing condition; (c) fix the Android desugaring gap to unblock a real signed release build (separate, Wave 4 item) |
 
 **Not started:** any other remediation root cause. Stopping here for review, as instructed.
+
+---
+
+## 12. Proposed Database-Backed AI Rate Limiter (design only — NOT implemented)
+
+Closes: `W1-001` (kept OPEN until this is implemented and load-tested), `SEC-005`, `AB-002` (rate-limit half), `AB-008`. Supersedes the in-memory approach (`_shared/rate_limit.ts`, proven ineffective in production — see `00_10`/checkpoint evidence). **Per explicit instruction: no further in-memory/process-local/per-instance/client-side throttling attempts.** This design requires a schema migration and is gated on Wave 0's approved database-mutation process — nothing below has been applied to any database.
+
+### Schema
+
+```sql
+CREATE TABLE public.ai_rate_limit_counters (
+  user_id       uuid NOT NULL,
+  function_name text NOT NULL,
+  window_start  timestamptz NOT NULL,
+  request_count integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, function_name, window_start)
+);
+-- No client-facing RLS policy at all (same pattern as flagged_conversations) —
+-- only the SECURITY DEFINER function below ever touches this table.
+ALTER TABLE public.ai_rate_limit_counters ENABLE ROW LEVEL SECURITY;
+```
+
+Fixed 5-minute window buckets (not a true sliding window) — a standard, well-understood simplification: simpler to make atomic, at the cost of allowing up to ~2x the configured burst right at a window boundary. Documented as an accepted tradeoff, not an oversight.
+
+### RPC — atomic increment/check in one statement
+
+```sql
+CREATE FUNCTION public.check_ai_rate_limit(
+  p_function_name text,
+  p_max_requests integer,
+  p_window_minutes integer
+) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $$
+DECLARE
+  v_window_start timestamptz;
+  v_count integer;
+BEGIN
+  -- Bucket "now" to a p_window_minutes-aligned boundary.
+  v_window_start := to_timestamp(
+    floor(extract(epoch FROM now()) / (p_window_minutes * 60)) * (p_window_minutes * 60)
+  );
+
+  INSERT INTO public.ai_rate_limit_counters (user_id, function_name, window_start, request_count)
+  VALUES (auth.uid(), p_function_name, v_window_start, 1)
+  ON CONFLICT (user_id, function_name, window_start)
+  DO UPDATE SET request_count = public.ai_rate_limit_counters.request_count + 1
+  RETURNING request_count INTO v_count;
+
+  -- Lazy, probabilistic cleanup (~1% of calls) instead of a scheduled job —
+  -- avoids a hard dependency on pg_cron availability being confirmed.
+  IF random() < 0.01 THEN
+    DELETE FROM public.ai_rate_limit_counters
+    WHERE window_start < now() - interval '1 day';
+  END IF;
+
+  RETURN v_count <= p_max_requests;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.check_ai_rate_limit FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.check_ai_rate_limit TO authenticated;
+```
+
+### Design properties (per the required checklist)
+
+- **Atomicity:** `INSERT ... ON CONFLICT ... DO UPDATE ... RETURNING` is Postgres's documented atomic upsert-and-increment pattern — safe under concurrent calls via the database's own row-level locking, no application-level locking needed. This is the property the in-memory version could never provide (`W1-001`).
+- **Identity:** keyed on `auth.uid()`, resolved server-side from the caller's verified JWT inside the `SECURITY DEFINER` function — never a client-supplied value. The client passes only `p_function_name`/`p_max_requests`/`p_window_minutes` (the *policy*, not the *identity*).
+- **Window/quota model:** fixed 5-minute buckets, 15 requests/window (matching the original in-memory design's intent) — configurable per call site; `dr-niswah-chat` still exempts urgent/red-flag messages by simply not calling this RPC for those.
+- **Concurrency:** correct by construction (see atomicity above) — two simultaneous requests from the same user cannot both see a stale count and both proceed past the limit.
+- **Cleanup/retention:** lazy, probabilistic (~1% of calls) deletion of buckets older than 1 day. No dependency on `pg_cron` or any external scheduler.
+- **Failure mode:** **fail open.** If the RPC call itself errors (network issue, unexpected DB error), the calling Edge Function should log it (`console.error`) and proceed with the request rather than block it — this is an abuse-prevention control, not a security boundary; a broken rate limiter must never take down a real feature (especially `dr-niswah-chat`, where a false block on a genuine safety message would be far worse than an occasional missed rate-limit check).
+- **RLS/security implications:** the table has RLS enabled with **zero** client-facing policies — no direct client read/write is possible at all, by design (matching `flagged_conversations`'s established pattern in this codebase). All access goes through the one `SECURITY DEFINER` function, which itself only ever reads/writes rows scoped to `auth.uid()`. A modified client cannot inflate its own quota or inspect/tamper with another user's counters.
+- **Rollout:** purely additive (new table + new function) — zero risk to any existing table, policy, or behavior. Each of the four Edge Functions calls `userClient.rpc('check_ai_rate_limit', {...})` right after their existing auth check, in place of the removed in-memory `checkRateLimit()` call.
+- **Rollback:** `DROP FUNCTION public.check_ai_rate_limit; DROP TABLE public.ai_rate_limit_counters;` — fully reversible, no data elsewhere depends on this table.
+- **Load test required for closure of `W1-001`:** repeat the exact test that disproved the in-memory version — ≥20 rapid requests (both sequential and concurrent) against a deployed function past the configured bound, against the **real deployed RPC this time**, confirming (a) a `429`/deny fires at the correct threshold and (b) concurrent bursts do not overshoot the limit beyond the single-bucket-boundary tradeoff already documented above. `W1-001` may only move to `VERIFIED_CLOSED` after this specific test passes against the deployed database function — not on the strength of the design alone.
+
+**Not implemented in this session.** Requires: (1) approval to proceed with a production schema migration under the Wave 0 process, (2) the migration itself, (3) redeploying all four Edge Functions to call the new RPC instead of the in-memory limiter, (4) the load test above.
+
+---
+
+## 13. Cross-reference: Android core-library-desugaring build failure
+
+Discovered during the Gemini trust-boundary checkpoint's Phase E (release-build verification): `flutter build apk --release` fails at `:app:checkReleaseAarMetadata` because `flutter_local_notifications` requires core library desugaring, not currently enabled in `android/app/build.gradle.kts`. **This belongs to Release Engineering (`DC`/`RD` domain, Wave 4) and was not modified as part of Gemini or silent-failure remediation.** Recorded here as a cross-reference so Wave 4 picks it up; it independently blocks producing any real signed release artifact, compounding `RD-001`/`DC-005`.
+
+---
+
+## 14. Gemini Trust-Boundary Remediation — Formally Closed Out
+
+Per the confirmed absence of any distributed build containing the old key, the credential is being treated as compromised and the release owner is proceeding with rotation directly in Google Cloud Console (outside this session's access). Once rotation is complete and the new value is set as the Edge Function secret (by either party, without printing it), this session will re-run the authenticated runtime-test pattern from the checkpoint against all four deployed functions and update `SEC-001`/`ROOT-002` based on that result — not before.
+
+**No further Gemini trust-boundary work begins without that verification.** Proceeding now to the silent-failure/data-durability remediation group.

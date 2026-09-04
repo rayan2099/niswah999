@@ -694,9 +694,19 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
       );
       if (mounted) {
         final messenger = ScaffoldMessenger.of(context);
+        final syncWarning = widget.viewModel.warningMessage;
         Navigator.pop(context);
         messenger.showSnackBar(
-          SnackBar(content: Text(_cl('Log saved.', 'تم حفظ السجل.'))),
+          SnackBar(
+            content: Text(
+              syncWarning != null
+                  ? _cl(
+                      'Log saved on this device. It will back up automatically once you\'re back online.',
+                      'تم حفظ السجل على هذا الجهاز. سيتم نسخه احتياطياً تلقائياً عند عودة الاتصال.',
+                    )
+                  : _cl('Log saved.', 'تم حفظ السجل.'),
+            ),
+          ),
         );
       }
     } catch (e) {

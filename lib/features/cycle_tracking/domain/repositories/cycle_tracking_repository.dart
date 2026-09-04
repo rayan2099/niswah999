@@ -9,7 +9,10 @@ abstract class CycleTrackingRepository {
 
   Future<CycleLog?> getCycleLogById(String id);
 
-  Future<void> saveCycleLog(CycleLog log);
+  /// Always saves locally first (authoritative for the UI). Returns `true`
+  /// if the remote sync also succeeded, `false` if it failed — local-only
+  /// saves are never silently indistinguishable from synced ones (DI-002).
+  Future<bool> saveCycleLog(CycleLog log);
 
   Future<void> upsertCycleLog(CycleLog log);
 

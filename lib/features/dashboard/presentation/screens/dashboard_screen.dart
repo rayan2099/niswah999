@@ -560,6 +560,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           cycleDay: cycleDay.clamp(1, 40),
         ),
       );
+      if (mounted && _viewModel.warningMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _l(
+                'Saved on this device. It will back up automatically once you\'re back online.',
+                'تم الحفظ على هذا الجهاز. سيتم النسخ الاحتياطي تلقائياً عند عودة الاتصال.',
+              ),
+            ),
+          ),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

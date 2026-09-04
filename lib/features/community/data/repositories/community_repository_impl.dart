@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/errors/failures.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../domain/entities/community_comment.dart';
@@ -99,8 +101,19 @@ class CommunityRepositoryImpl implements CommunityRepository {
           .toList();
 
       return CommunityFeedPage(posts: hydrated, hasMore: hasMore);
-    } on PostgrestException {
-      return _fallbackPage(category: category);
+    } on PostgrestException catch (error, stack) {
+      // A real backend error must never be masked as fabricated demo
+      // content in the production path (AB-010) — the fallback above
+      // (client == null) remains for the genuine "not configured / offline
+      // preview" case only. Reported and propagated so the UI's existing
+      // error state (already wired in community_feed_view_model.dart) shows
+      // instead of fake posts.
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'CommunityRepositoryImpl.getPosts',
+      );
+      throw NetworkFailure(error.message);
     }
   }
 
@@ -167,8 +180,14 @@ class CommunityRepositoryImpl implements CommunityRepository {
                 CommunityComment.fromJson(Map<String, dynamic>.from(item)),
           )
           .toList();
-    } on PostgrestException {
-      return _fallbackComments(postId: postId);
+    } on PostgrestException catch (error, stack) {
+      // Same principle as getPosts() above — see that comment.
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'CommunityRepositoryImpl.getComments',
+      );
+      throw NetworkFailure(error.message);
     }
   }
 

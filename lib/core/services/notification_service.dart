@@ -2,6 +2,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../errors/app_error_reporter.dart';
+
 /// Thin wrapper around `flutter_local_notifications` — the only file in
 /// this app that touches the plugin directly. Real OS-level notifications:
 /// once scheduled, the OS owns delivery even if the app is killed, so
@@ -97,13 +99,24 @@ class NotificationService {
     required String title,
     required String body,
   }) async {
-    if (!_initialized) return;
-    await _plugin.show(
-      id: id,
-      title: title,
-      body: body,
-      notificationDetails: _details(),
-    );
+    if (!_initialized) {
+      AppErrorReporter.report(
+        StateError('NotificationService.showNow called before initialize() succeeded'),
+        StackTrace.current,
+        context: 'NotificationService.showNow',
+      );
+      return;
+    }
+    try {
+      await _plugin.show(
+        id: id,
+        title: title,
+        body: body,
+        notificationDetails: _details(),
+      );
+    } catch (error, stack) {
+      AppErrorReporter.report(error, stack, context: 'NotificationService.showNow');
+    }
   }
 
   /// One-shot, fires at [when] even if the app isn't running. Scheduling
@@ -115,15 +128,26 @@ class NotificationService {
     required String body,
     required DateTime when,
   }) async {
-    if (!_initialized) return;
-    await _plugin.zonedSchedule(
-      id: id,
-      title: title,
-      body: body,
-      scheduledDate: tz.TZDateTime.from(when, tz.local),
-      notificationDetails: _details(),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-    );
+    if (!_initialized) {
+      AppErrorReporter.report(
+        StateError('NotificationService.scheduleAt called before initialize() succeeded'),
+        StackTrace.current,
+        context: 'NotificationService.scheduleAt',
+      );
+      return;
+    }
+    try {
+      await _plugin.zonedSchedule(
+        id: id,
+        title: title,
+        body: body,
+        scheduledDate: tz.TZDateTime.from(when, tz.local),
+        notificationDetails: _details(),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    } catch (error, stack) {
+      AppErrorReporter.report(error, stack, context: 'NotificationService.scheduleAt');
+    }
   }
 
   /// Repeats daily at the given local time (e.g. the wellbeing check-in
@@ -135,7 +159,14 @@ class NotificationService {
     required int hour,
     required int minute,
   }) async {
-    if (!_initialized) return;
+    if (!_initialized) {
+      AppErrorReporter.report(
+        StateError('NotificationService.scheduleDaily called before initialize() succeeded'),
+        StackTrace.current,
+        context: 'NotificationService.scheduleDaily',
+      );
+      return;
+    }
 
     final now = tz.TZDateTime.now(tz.local);
     var firstFire = tz.TZDateTime(
@@ -150,20 +181,28 @@ class NotificationService {
       firstFire = firstFire.add(const Duration(days: 1));
     }
 
-    await _plugin.zonedSchedule(
-      id: id,
-      title: title,
-      body: body,
-      scheduledDate: firstFire,
-      notificationDetails: _details(),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time,
-    );
+    try {
+      await _plugin.zonedSchedule(
+        id: id,
+        title: title,
+        body: body,
+        scheduledDate: firstFire,
+        notificationDetails: _details(),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+    } catch (error, stack) {
+      AppErrorReporter.report(error, stack, context: 'NotificationService.scheduleDaily');
+    }
   }
 
   Future<void> cancel(int id) async {
     if (!_initialized) return;
-    await _plugin.cancel(id: id);
+    try {
+      await _plugin.cancel(id: id);
+    } catch (error, stack) {
+      AppErrorReporter.report(error, stack, context: 'NotificationService.cancel');
+    }
   }
 
   NotificationDetails _details() => const NotificationDetails(

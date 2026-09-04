@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:niswah/core/errors/app_error_reporter.dart';
 import 'package:niswah/core/models/user_profile.dart';
 
 class UserProfileRepository {
@@ -14,11 +15,19 @@ class UserProfileRepository {
           .eq('id', userId)
           .single();
       return UserProfile.fromJson(response);
-    } on PostgrestException catch (e) {
-      print('Error fetching user profile: ${e.message}');
+    } on PostgrestException catch (e, stack) {
+      AppErrorReporter.report(
+        e,
+        stack,
+        context: 'UserProfileRepository.fetchUserProfile',
+      );
       return null;
-    } catch (e) {
-      print('An unexpected error occurred: $e');
+    } catch (e, stack) {
+      AppErrorReporter.report(
+        e,
+        stack,
+        context: 'UserProfileRepository.fetchUserProfile',
+      );
       return null;
     }
   }
@@ -31,11 +40,19 @@ class UserProfileRepository {
           .select()
           .single();
       return UserProfile.fromJson(response);
-    } on PostgrestException catch (e) {
-      print('Error inserting user profile: ${e.message}');
+    } on PostgrestException catch (e, stack) {
+      AppErrorReporter.report(
+        e,
+        stack,
+        context: 'UserProfileRepository.insertUserProfile',
+      );
       return null;
-    } catch (e) {
-      print('An unexpected error occurred: $e');
+    } catch (e, stack) {
+      AppErrorReporter.report(
+        e,
+        stack,
+        context: 'UserProfileRepository.insertUserProfile',
+      );
       return null;
     }
   }
@@ -49,11 +66,19 @@ class UserProfileRepository {
           .select()
           .single();
       return UserProfile.fromJson(response);
-    } on PostgrestException catch (e) {
-      print('Error updating user profile: ${e.message}');
+    } on PostgrestException catch (e, stack) {
+      AppErrorReporter.report(
+        e,
+        stack,
+        context: 'UserProfileRepository.updateUserProfile',
+      );
       return null;
-    } catch (e) {
-      print('An unexpected error occurred: $e');
+    } catch (e, stack) {
+      AppErrorReporter.report(
+        e,
+        stack,
+        context: 'UserProfileRepository.updateUserProfile',
+      );
       return null;
     }
   }
