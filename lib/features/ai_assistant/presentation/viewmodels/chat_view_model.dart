@@ -2,16 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
-import '../../../../core/services/gemini_service.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../notifications/domain/entities/notification_preference.dart';
 import '../../../ai_advisor/ai_advisor_service.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/chat_thread.dart';
 import '../../domain/repositories/chat_repository.dart';
-import '../../domain/services/dr_niswah_persona.dart';
 import '../../domain/services/dr_niswah_red_flags.dart';
 import '../../data/repositories/chat_repository_impl.dart';
 import '../../data/services/dr_niswah_backend_service.dart';
@@ -192,26 +192,43 @@ class ChatViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final useBackend =
-          threadType == ChatThreadType.drNiswah &&
-          DrNiswahBackendService.instance.isAvailable;
-
-      if (useBackend) {
-        await _sendViaDrNiswahBackend(
-          threadId: threadId,
-          userId: userId,
-          content: content,
-        );
-      } else {
-        await _sendViaDirectModel(
-          threadId: threadId,
-          userId: userId,
-          content: content,
-          threadType: threadType,
-        );
+      switch (threadType) {
+        case ChatThreadType.drNiswah:
+          // No direct-to-Gemini fallback: if the backend is unreachable,
+          // fail clearly rather than silently downgrading to an unaudited,
+          // client-side call for a safety-relevant conversation (closes
+          // SEC-001/AB-002 for this feature).
+          if (!DrNiswahBackendService.instance.isAvailable) {
+            throw StateError(
+              'Dr. Niswah chat is temporarily unavailable. Please try again shortly.',
+            );
+          }
+          await _sendViaDrNiswahBackend(
+            threadId: threadId,
+            userId: userId,
+            content: content,
+          );
+        case ChatThreadType.fiqhAdvisory:
+          await _sendViaFiqhAdvisor(
+            threadId: threadId,
+            userId: userId,
+            content: content,
+          );
+        case ChatThreadType.dreamInterpreter:
+        case ChatThreadType.general:
+          await _sendViaGeneralAssistant(
+            threadId: threadId,
+            userId: userId,
+            content: content,
+          );
       }
-    } catch (error) {
+    } catch (error, stack) {
       errorMessage = error.toString();
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'ChatViewModel.sendMessage',
+      );
     } finally {
       isSending = false;
       notifyListeners();
@@ -268,17 +285,54 @@ class ChatViewModel extends ChangeNotifier {
     }
   }
 
-  /// Direct-to-Gemini fallback, used for fiqh/general threads always, and
-  /// for Doctor Niswah when the Supabase backend isn't configured.
-  Future<void> _sendViaDirectModel({
+  /// Fiqh Advisor thread: server-side (`fiqh-advisor-chat` Edge Function)
+  /// via [AiAdvisorService], which owns the Google-Search-grounded system
+  /// prompt and the trusted-citation filter.
+  Future<void> _sendViaFiqhAdvisor({
     required String threadId,
     required String userId,
     required String content,
-    required ChatThreadType threadType,
   }) async {
-    final isRedFlag =
-        threadType == ChatThreadType.drNiswah &&
-        DrNiswahRedFlags.matches(content);
+    final persistUser = _repository
+        .sendMessage(
+          threadId: threadId,
+          userId: userId,
+          role: ChatRole.user,
+          content: content,
+        )
+        .then<ChatMessage?>((message) => message, onError: (_) => null);
+
+    final result = await AiAdvisorService.instance.askFiqh(
+      question: content,
+      madhhab: MadhhabController.instance.selected,
+    );
+
+    final metadata = {
+      'source': 'gemini',
+      'grounded': true,
+      'madhhab': MadhhabController.instance.selected.name,
+      'citations': result.citations.map((item) => item.toJson()).toList(),
+    };
+    await _showAssistantReplyAndPersist(
+      threadId: threadId,
+      userId: userId,
+      text: result.text,
+      metadata: metadata,
+      persistUser: persistUser,
+    );
+  }
+
+  /// General assistant / dream-interpreter thread types: server-side
+  /// (`ai-assistant-chat` Edge Function), which owns the system prompt.
+  Future<void> _sendViaGeneralAssistant({
+    required String threadId,
+    required String userId,
+    required String content,
+  }) async {
+    final client = NiswahSupabase.clientOrNull;
+    if (client == null) {
+      throw StateError('Supabase is not initialized.');
+    }
 
     final persistUser = _repository
         .sendMessage(
@@ -289,64 +343,40 @@ class ChatViewModel extends ChangeNotifier {
         )
         .then<ChatMessage?>((message) => message, onError: (_) => null);
 
-    // Shown regardless of whether the LLM call below succeeds or fails.
-    if (isRedFlag) {
-      final bannerMessage = ChatMessage(
-        id: 'local_urgent_${DateTime.now().microsecondsSinceEpoch}',
-        threadId: threadId,
-        userId: userId,
-        role: ChatRole.assistant,
-        content: DrNiswahRedFlags.bannerTextAr,
-        metadata: const {'urgent': true, 'source': 'red_flag_check'},
-        createdAt: DateTime.now(),
+    final response = await client.functions.invoke(
+      'ai-assistant-chat',
+      body: {'content': content},
+    );
+    final data = response.data;
+    if (data is! Map || response.status != 200) {
+      final error = data is Map ? data['error']?.toString() : null;
+      throw StateError(
+        error ?? 'AI assistant service failed (${response.status}).',
       );
-      messages = [...messages, bannerMessage];
-      _notifyUrgent();
-      notifyListeners();
-      unawaited(() async {
-        await persistUser;
-        try {
-          await _repository.sendMessage(
-            threadId: threadId,
-            userId: userId,
-            role: ChatRole.assistant,
-            content: bannerMessage.content,
-            metadata: bannerMessage.metadata,
-          );
-        } catch (_) {
-          // The live banner remains visible if history persistence fails.
-        }
-      }());
     }
 
-    final result = threadType == ChatThreadType.fiqhAdvisory
-        ? await AiAdvisorService.instance.askFiqh(
-            question: content,
-            madhhab: MadhhabController.instance.selected,
-          )
-        : await GeminiService.instance.generateText(
-            prompt: content,
-            systemInstruction: threadType == ChatThreadType.drNiswah
-                ? await DrNiswahPersona.buildSystemInstruction(userId: userId)
-                : '''
-You are Niswah AI, a concise and supportive general assistant. Do not provide medical diagnoses or definitive religious rulings; direct those questions to the dedicated advisors.
-Always reply in the same language the user's message is written in.
-Write in plain prose only. Never use markdown syntax: no #, ##, ###, **, *, or numbered/bulleted list characters. The app displays raw text, not rendered markdown.
-''',
-          );
+    await _showAssistantReplyAndPersist(
+      threadId: threadId,
+      userId: userId,
+      text: data['text']?.toString() ?? '',
+      metadata: const {'source': 'gemini', 'grounded': false},
+      persistUser: persistUser,
+    );
+  }
 
-    final metadata = {
-      'source': 'gemini',
-      'grounded': threadType == ChatThreadType.fiqhAdvisory,
-      'madhhab': MadhhabController.instance.selected.name,
-      'citations': result.citations.map((item) => item.toJson()).toList(),
-    };
+  Future<void> _showAssistantReplyAndPersist({
+    required String threadId,
+    required String userId,
+    required String text,
+    required Map<String, dynamic> metadata,
+    required Future<ChatMessage?> persistUser,
+  }) async {
     final optimisticAssistantMessage = ChatMessage(
       id: 'local_assistant_${DateTime.now().microsecondsSinceEpoch}',
       threadId: threadId,
       userId: userId,
       role: ChatRole.assistant,
-      content: result.text,
+      content: text,
       metadata: metadata,
       createdAt: DateTime.now(),
     );
@@ -360,7 +390,7 @@ Write in plain prose only. Never use markdown syntax: no #, ##, ###, **, *, or n
           threadId: threadId,
           userId: userId,
           role: ChatRole.assistant,
-          content: result.text,
+          content: text,
           metadata: metadata,
         );
       } catch (_) {

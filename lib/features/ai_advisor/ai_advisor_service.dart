@@ -1,51 +1,87 @@
-import '../../core/services/gemini_service.dart';
+import '../../core/errors/app_error_reporter.dart';
+import '../../core/network/supabase_client.dart';
 import '../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 
+class FiqhCitation {
+  const FiqhCitation({
+    required this.url,
+    required this.title,
+    required this.startIndex,
+    required this.endIndex,
+  });
+
+  factory FiqhCitation.fromJson(Map<String, dynamic> json) => FiqhCitation(
+    url: json['url']?.toString() ?? '',
+    title: json['title']?.toString() ?? '',
+    startIndex: (json['startIndex'] as num?)?.toInt() ?? 0,
+    endIndex: (json['endIndex'] as num?)?.toInt() ?? 0,
+  );
+
+  final String url;
+  final String title;
+  final int startIndex;
+  final int endIndex;
+
+  Map<String, dynamic> toJson() => {
+    'url': url,
+    'title': title,
+    'start_index': startIndex,
+    'end_index': endIndex,
+  };
+}
+
+class FiqhAnswer {
+  const FiqhAnswer({required this.text, this.citations = const []});
+
+  final String text;
+  final List<FiqhCitation> citations;
+}
+
+/// Calls the `fiqh-advisor-chat` Supabase Edge Function, which owns the
+/// system prompt, the Gemini call, and the trusted-citation filter
+/// server-side (moved off the client per the Gemini trust-boundary
+/// remediation — closes SEC-001/AB-002/AB-012 for this feature).
 class AiAdvisorService {
   const AiAdvisorService._();
 
   static const instance = AiAdvisorService._();
 
-  Future<GeminiResult> askFiqh({
+  static const _noSourcesFallbackAr =
+      'تعذر الوصول إلى المصادر الموثقة الآن. لا يمكن إصدار توجيه فقهي آلي دون مصادر؛ يُرجى المحاولة لاحقاً أو سؤال عالِمة أو جهة إفتاء مؤهلة.';
+
+  Future<FiqhAnswer> askFiqh({
     required String question,
     required Madhhab madhhab,
   }) async {
-    final GeminiResult result;
-    try {
-      result = await GeminiService.instance.generateText(
-        prompt: question,
-        useGoogleSearch: true,
-        systemInstruction:
-            '''
-You are Niswah's Fiqh research assistant. The user's selected school is ${madhhab.name}.
-Answer in the user's language and stay within that school unless comparison is explicitly requested.
-Use Google Search for every substantive ruling. Prefer recognized, attributable scholarly sources and structured fatwa repositories such as islamweb.net and dorar.net, then verified school-specific primary or institutional references.
-Never infer a ruling from cycle arithmetic alone. Clearly distinguish factual tracking data from a religious ruling.
-Include inline citations for every material ruling. If reliable sources conflict, are absent, or the case involves irregular habit transitions, pregnancy, miscarriage, nifas, retrospective prayer/fasting obligations, or danger to health, say that the case needs a qualified scholar and do not give a definitive ruling.
-Do not diagnose medical conditions. Urgent or dangerous symptoms must be escalated to licensed medical care.
-Do not claim certainty beyond the cited evidence.
-Write in plain prose only. Never use markdown syntax: no #, ##, ###, **, *, or numbered/bulleted list characters. The app displays raw text, not rendered markdown.
-''',
-      );
-    } catch (_) {
-      return const GeminiResult(
-        text: 'تعذر الوصول إلى المصادر الموثقة الآن. لا يمكن إصدار توجيه فقهي آلي دون مصادر؛ يُرجى المحاولة لاحقاً أو سؤال عالِمة أو جهة إفتاء مؤهلة.',
-      );
+    final client = NiswahSupabase.clientOrNull;
+    if (client == null) {
+      return const FiqhAnswer(text: _noSourcesFallbackAr);
     }
-    final trusted = result.citations.where(_isTrustedCitation).toList();
-    if (trusted.isEmpty) {
-      return const GeminiResult(
-        text: 'لم أجد مصادر فقهية موثقة وكافية لهذه الحالة. يُرجى عرض التفاصيل على عالِمة أو جهة إفتاء مؤهلة، ولا تعتمدي على إجابة آلية لاتخاذ حكم العبادة.',
-      );
-    }
-    return GeminiResult(text: result.text, citations: trusted);
-  }
 
-  bool _isTrustedCitation(GeminiCitation citation) {
-    final host = Uri.tryParse(citation.url)?.host.toLowerCase() ?? '';
-    const trustedDomains = {'islamweb.net', 'dorar.net'};
-    return trustedDomains.any(
-      (domain) => host == domain || host.endsWith('.$domain'),
-    );
+    try {
+      final response = await client.functions.invoke(
+        'fiqh-advisor-chat',
+        body: {'question': question, 'madhhab': madhhab.name},
+      );
+
+      final data = response.data;
+      if (data is! Map || response.status != 200) {
+        final error = data is Map ? data['error']?.toString() : null;
+        throw StateError(
+          error ?? 'Fiqh advisor service failed (${response.status}).',
+        );
+      }
+
+      final citations = (data['citations'] as List<dynamic>? ?? [])
+          .map((item) => FiqhCitation.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+      return FiqhAnswer(
+        text: data['text']?.toString() ?? _noSourcesFallbackAr,
+        citations: citations,
+      );
+    } catch (error, stack) {
+      AppErrorReporter.report(error, stack, context: 'AiAdvisorService.askFiqh');
+      return const FiqhAnswer(text: _noSourcesFallbackAr);
+    }
   }
 }

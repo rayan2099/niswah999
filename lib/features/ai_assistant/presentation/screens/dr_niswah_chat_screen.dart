@@ -7,7 +7,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
-import '../../../../core/services/gemini_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/chat_thread.dart';
@@ -337,7 +336,7 @@ class _ChatBody extends StatelessWidget {
         ),
       _Composer(
         mode: mode,
-        enabled: GeminiService.instance.isConfigured,
+        enabled: NiswahSupabase.clientOrNull != null,
         controller: controller,
         busy: model.isSending,
         onSend: onSend,

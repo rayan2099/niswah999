@@ -1,38 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../../core/services/gemini_service.dart';
+import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/network/supabase_client.dart';
 import '../../data/repositories/dream_interpreter_repository_impl.dart';
 import '../../domain/entities/dream_entry.dart';
 import '../../domain/repositories/dream_interpreter_repository.dart';
-
-const String _dreamInterpreterSystemPrompt = '''
-You are an expert Islamic dream interpreter grounded strictly in classical traditional frameworks (such as the methodologies and symbol dictionaries of Ibn Sirin and Al-Nabulsi).
-
-Your core objective is to provide deeply personalized, accurate, and spiritually grounded interpretations while avoiding any claim of knowing the unseen (Al-Ghaib).
-
-Follow these rules for every interpretation session:
-
-1. **Interactive Clarification First:**
-- Do not immediately jump to a final, rigid interpretation if the dream description lacks crucial context.
-- Ask 2 to 3 targeted, concise follow-up questions to understand the user's emotional state during the dream, recurring patterns, specific sensory details (like colors or surroundings), or relevant real-world life situations that might influence the symbolism.
-
-2. **Classical Grounding & Personalization:**
-- Once context is gathered, interpret the core symbols using established classical Islamic dream interpretation principles.
-- Tailor the meaning dynamically based on the user's specific life context, ensuring the advice remains uplifting, constructive, and spiritually sound.
-
-3. **Tone and Boundaries:**
-- Maintain a wise, empathetic, and reassuring tone.
-- Always include a gentle reminder that dreams are sources of glad tidings, warning, or reflection, but never absolute predetermined fates or definitive legislative rulings.
-
-4. **Formatting and Length:**
-- Write in plain prose only. Never use markdown syntax: no #, ##, ###, **, *, or numbered/bulleted list characters. The app displays raw text, not rendered markdown.
-- Keep clarifying questions to 2-3 short sentences.
-- Keep the final interpretation short and focused: a few short paragraphs covering the core symbolism and the closing reminder, not an exhaustive breakdown of every element.
-
-5. **Language:**
-- Always reply in the same language the user's most recent message is written in (e.g. Arabic in, Arabic out; English in, English out). Never switch languages on your own.
-''';
 
 enum DreamMessageRole { user, assistant }
 
@@ -152,11 +125,23 @@ class DreamInterpreterViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await GeminiService.instance.generateText(
-        prompt: _buildTranscriptPrompt(),
-        systemInstruction: _dreamInterpreterSystemPrompt,
+      final client = NiswahSupabase.clientOrNull;
+      if (client == null) {
+        throw StateError('Supabase is not initialized.');
+      }
+      final response = await client.functions.invoke(
+        'dream-interpreter-chat',
+        body: {'prompt': _buildTranscriptPrompt()},
       );
-      _transcript.add(DreamMessage(DreamMessageRole.assistant, result.text));
+      final data = response.data;
+      if (data is! Map || response.status != 200) {
+        final error = data is Map ? data['error']?.toString() : null;
+        throw StateError(
+          error ?? 'Dream interpreter service failed (${response.status}).',
+        );
+      }
+      final replyText = data['text']?.toString() ?? '';
+      _transcript.add(DreamMessage(DreamMessageRole.assistant, replyText));
 
       // dream_entries.id is a Postgres UUID column, so this has to be a
       // real UUID rather than a readable string, or every insert fails
@@ -173,7 +158,7 @@ class DreamInterpreterViewModel extends ChangeNotifier {
         mood: DreamMood.mysterious,
         tags: const <String>[],
         createdAt: DateTime.now(),
-        interpretation: result.text,
+        interpretation: replyText,
       );
 
       entries = [entry, ...entries.where((item) => item.id != entryId)];
@@ -186,11 +171,16 @@ class DreamInterpreterViewModel extends ChangeNotifier {
         debugPrint('[DreamInterpreter] saveEntry failed: $error');
         warningMessage = 'The interpretation is shown, but it could not be saved to your history.';
       }
-    } catch (error) {
+    } catch (error, stack) {
       // The failed turn has no reply yet; drop it so a retry doesn't
       // resend it twice in a row with nothing in between.
       _transcript.removeLast();
       errorMessage = error.toString();
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'DreamInterpreterViewModel.sendMessage',
+      );
     } finally {
       isSubmitting = false;
       notifyListeners();

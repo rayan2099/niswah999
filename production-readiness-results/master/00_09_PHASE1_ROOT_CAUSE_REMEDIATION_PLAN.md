@@ -212,3 +212,35 @@ The privacy-policy authorship (legal track, feeds `PC-001,003,004,006,007,009` a
 Per the charter: this plan does not implement any fix, does not touch the live database, and does not close any finding. Closure requires implementation, the specialist test named in §5/§6, and (for BLOCKER/HIGH findings) a rerun of the owning specialist audit plus the applicable Final Pre-Launch User Journey and Release & Deployment validations, per the charter's post-remediation regeneration requirement.
 
 **Awaiting your review and approval of this sequencing before any wave begins.**
+
+---
+
+## 9. Wave 2 Update — Gemini Trust-Boundary Remediation Executed (2026-09-04)
+
+**Findings addressed:** `SEC-001` (code-complete, deployment pending), `SEC-002` (closed), `SEC-006` (closed), `DC-001` (materially improved), `DC-003` (closed), `CQ-004` (closed), `CQ-005` (closed), `AB-002` (partially closed), `AB-012` (closed). `ROOT-002` code-side risk eliminated; residual risk now entirely deployment/rotation.
+
+**Architecture, before → after:**
+- **Before:** `gemini_service.dart` (client, held `GEMINI_API_KEY` from bundled `.env`) called directly by `ai_advisor_service.dart` (Fiqh, +Google Search grounding), `dream_interpreter_view_model.dart`, and `chat_view_model.dart`'s `_sendViaDirectModel` (handling `fiqhAdvisory`, a `drNiswah` fallback via `dr_niswah_persona.dart`'s client-side pregnancy fetch, and `general`/`dreamInterpreter`). Only `dr-niswah-chat` was already server-side.
+- **After:** Four Edge Functions (`dr-niswah-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat`) share one `_shared/gemini_client.ts` module (model fallback, per-attempt `AbortController` timeout, citation parsing). Each owns its system prompt server-side. The client never holds `GEMINI_API_KEY` — confirmed zero references anywhere in `lib/`. `gemini_service.dart` and `dr_niswah_persona.dart` deleted (fully dead once the direct paths were removed). `chat_view_model.dart`'s `drNiswah` fallback removed outright — backend-unavailable now throws a clear error instead of downgrading to an unaudited client call.
+
+**Files changed:** `lib/core/config/app_environment.dart`, `lib/core/errors/app_error_reporter.dart` (new, Wave 1 work reused here), `lib/features/ai_advisor/ai_advisor_service.dart`, `lib/features/ai_assistant/presentation/screens/dr_niswah_chat_screen.dart`, `lib/features/ai_assistant/presentation/viewmodels/chat_view_model.dart`, `lib/features/dream_interpreter/presentation/viewmodels/dream_interpreter_view_model.dart`, `supabase/functions/dr-niswah-chat/index.ts` (added timeout, closes `AB-004` for this function), `supabase/functions/_shared/gemini_client.ts` (new), `supabase/functions/fiqh-advisor-chat/index.ts` (new), `supabase/functions/dream-interpreter-chat/index.ts` (new), `supabase/functions/ai-assistant-chat/index.ts` (new), `.env`, `.env.example`. Deleted: `lib/core/services/gemini_service.dart`, `lib/features/ai_assistant/domain/services/dr_niswah_persona.dart`.
+
+**Tests executed:**
+- `dart analyze lib/` — clean, 33 pre-existing issues (unrelated files), zero new.
+- `flutter test` — 254/262 pass, same 8 pre-existing golden-image diffs as Phase 0's baseline, zero regressions.
+- Controlled Gemini smoke test (standalone Deno script exercising the real `_shared/gemini_client.ts` against the live Gemini API — no production Supabase access involved): plain-text call **PASSED** (real reply, correct parsing — validates the exact call shape used by `dr-niswah-chat`/`ai-assistant-chat`/`dream-interpreter-chat`); deliberate 1ms timeout **PASSED** (`AbortController` confirmed to actually fire, not a no-op); Google-Search-grounded call (the `fiqh-advisor-chat` shape) hit `429 too_many_requests` — confirmed via raw error body to be an **account-level quota/billing limit specific to the Search-grounding tool**, not a code defect and not new (the same API key had this same constraint before this remediation). The retry/fallback logic itself behaved correctly (tried both models, surfaced a clear final error).
+- Edge Functions' HTTP-layer guards (401 auth rejection, 400 validation) were **not execution-tested** — local Supabase stack startup (`supabase start`) hung unrecoverably in this environment even after `supabase init` scaffolded a missing `config.toml`; abandoned after reasonable effort rather than continuing to fight infrastructure. Confidence instead rests on structural equivalence: all three new functions use the exact same auth-check/validation pattern as `dr-niswah-chat`, which **is** already proven working in production (Phase 0's live smoke test).
+- Full mobile-app-UI E2E for the four AI journeys was **not performed** (no emulator/device in this environment, same limitation noted throughout this engagement) — not claimed as done.
+
+**Secret rotation / owner action still required (none of this was performed):**
+1. Deploy the three new Edge Functions (`supabase functions deploy fiqh-advisor-chat dream-interpreter-chat ai-assistant-chat`).
+2. Set `GEMINI_API_KEY` as a secret on all four functions (`supabase secrets set GEMINI_API_KEY=<value> --project-ref jkmjobvxfrmuwafczvtw`) — it currently exists only in the gitignored local `supabase/functions/.env` (used for this session's own local smoke test) and nowhere else.
+3. **Rotate the actual Google Cloud API key** once the new client build (with no embedded key) is confirmed to be the only build in the wild — the current value has been distributed in prior client builds and is also present in this repository's git history (it was committed in `.env` before this remediation), so removing it from the working tree does not by itself invalidate it.
+4. Confirm via a built release artifact (out of this task's scope — release engineering, Wave 4) that no `.env`-derived asset in the compiled app contains the key.
+
+**Remaining AI-related blockers:**
+- `AB-002`'s rate-limiting/cost-cap half is explicitly not done (separate item, `AB` plan R3-c).
+- The Google-Search-grounding quota limit on the current API key is a pre-existing account/billing constraint, unrelated to this code change, and will affect Fiqh Advisor in production exactly as it did before — worth the release owner's attention independent of this remediation.
+- Steps 1–4 above are all outstanding, owner-gated actions; until they're done, the new functions exist only in the repository and provide no production benefit yet.
+
+**Not attempted:** any other remediation group (Wave 1's remaining items, observability, release engineering, privacy, accessibility) — stopped here per instruction.

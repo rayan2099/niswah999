@@ -11,67 +11,23 @@ class AppEnvironment {
       'SUPABASE_ANON_KEY',
       fallback: 'VITE_SUPABASE_ANON_KEY',
     );
-    final openAiKey = _read(
-      'OPENAI_API_KEY',
-      fallback: 'VITE_OPENAI_API_KEY',
-    );
-    final niswahAiKey = _read(
-      'NISWAH_AI_API_KEY',
-      fallback: 'VITE_NISWAH_AI_API_KEY',
-    );
-    final dreamInterpreterKey = _read(
-      'DREAM_INTERPRETER_API_KEY',
-      fallback: 'VITE_DREAM_INTERPRETER_API_KEY',
-    );
     final appEnv = dotenv.env['APP_ENV'] ?? 'development';
 
     _validateClientConfig(url: url, anonKey: anonKey);
-    _validateSecretConfig(
-      name: 'OPENAI_API_KEY',
-      value: openAiKey,
-    );
-    _validateSecretConfig(
-      name: 'NISWAH_AI_API_KEY',
-      value: niswahAiKey,
-    );
-    _validateSecretConfig(
-      name: 'DREAM_INTERPRETER_API_KEY',
-      value: dreamInterpreterKey,
-    );
 
     _supabaseUrl = url;
     _supabaseAnonKey = anonKey;
-    _openAiApiKey = openAiKey;
-    _niswahAiApiKey = niswahAiKey;
-    _dreamInterpreterApiKey = dreamInterpreterKey;
     _appEnvironment = appEnv;
   }
 
   static String _supabaseUrl = '';
   static String _supabaseAnonKey = '';
-  static String _openAiApiKey = '';
-  static String _niswahAiApiKey = '';
-  static String _dreamInterpreterApiKey = '';
   static String _appEnvironment = 'development';
 
   static String get supabaseUrl => _require(_supabaseUrl, 'SUPABASE_URL');
 
   static String get supabaseAnonKey =>
       _require(_supabaseAnonKey, 'SUPABASE_ANON_KEY');
-
-  static String get openAiApiKey => _require(_openAiApiKey, 'OPENAI_API_KEY');
-
-  static String get niswahAiApiKey =>
-      _require(_niswahAiApiKey, 'NISWAH_AI_API_KEY');
-
-  static String get dreamInterpreterApiKey =>
-      _require(_dreamInterpreterApiKey, 'DREAM_INTERPRETER_API_KEY');
-
-  static Map<String, String> get aiApiKeys => {
-        'OPENAI_API_KEY': openAiApiKey,
-        'NISWAH_AI_API_KEY': niswahAiApiKey,
-        'DREAM_INTERPRETER_API_KEY': dreamInterpreterApiKey,
-      };
 
   static String get appEnvironment => _appEnvironment;
 
@@ -124,25 +80,6 @@ class AppEnvironment {
       throw const FormatException(
         'Service role or secret credentials are forbidden in the Flutter client. '
         'This would bypass Row Level Security and expose privileged database access.',
-      );
-    }
-  }
-
-  static void _validateSecretConfig({
-    required String name,
-    required String value,
-  }) {
-    if (value.trim().isEmpty) {
-      return;
-    }
-
-    final normalized = value.toLowerCase();
-    if (normalized.contains('service_role') ||
-        normalized.contains('service-role') ||
-        normalized.contains('anon') ||
-        normalized.contains('secret')) {
-      throw FormatException(
-        '$name must not contain secret or service-role material. Keep AI credentials in a secure server-side environment only.',
       );
     }
   }

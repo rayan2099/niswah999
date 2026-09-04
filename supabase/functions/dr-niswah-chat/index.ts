@@ -10,6 +10,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getPregnancyStatus, PregnancyProfileRow, PregnancyStatus } from './pregnancy_status.ts';
+import { callGemini } from '../_shared/gemini_client.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -17,8 +18,6 @@ const corsHeaders = {
     'authorization, x-client-info, apikey, content-type',
 };
 
-const GEMINI_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/interactions';
 const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash'];
 
 const SYSTEM_PROMPT = `أنتِ "طبيبة"، مرافقة رقمية للحمل داخل تطبيق طبيبة الحمل الذكية.
@@ -149,53 +148,6 @@ function buildContextBlock(
   return `[CONTEXT — internal, do not repeat verbatim to the user]\n${lines.join('\n')}\n[END CONTEXT]`;
 }
 
-async function callGemini(prompt: string, systemInstruction: string): Promise<string> {
-  const apiKey = Deno.env.get('GEMINI_API_KEY');
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured.');
-
-  let lastError: unknown;
-  for (const model of GEMINI_MODELS) {
-    try {
-      const response = await fetch(GEMINI_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          model,
-          input: prompt,
-          system_instruction: systemInstruction,
-        }),
-      });
-      if (!response.ok) {
-        if ([429, 500, 503].includes(response.status)) {
-          lastError = new Error(`Gemini request failed (${response.status}).`);
-          continue;
-        }
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error?.message ?? `Gemini request failed (${response.status}).`);
-      }
-      const decoded = await response.json();
-      const blocks: Array<{ text?: string }> = [
-        ...(decoded.steps ?? []),
-        ...(decoded.outputs ?? []),
-      ]
-        .filter((step: { type?: string }) => step.type === 'model_output')
-        .flatMap((step: { content?: unknown[] }) => step.content ?? []);
-      const text = blocks
-        .map((block) => block.text ?? '')
-        .filter(Boolean)
-        .join('\n')
-        .trim();
-      if (!text) throw new Error('Gemini returned no text.');
-      return text;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error('Gemini request failed.');
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -267,8 +219,23 @@ Deno.serve(async (req) => {
 
     let reply: string;
     try {
-      reply = await callGemini(content, systemInstruction);
-    } catch (_error) {
+      const result = await callGemini({
+        models: GEMINI_MODELS,
+        prompt: content,
+        systemInstruction,
+      });
+      reply = result.text;
+    } catch (error) {
+      // Logged (not silently swallowed, per the Gemini trust-boundary
+      // remediation's observability requirement) even though the user still
+      // gets a graceful fallback message — a real doctor/urgent path needs a
+      // visible failure signal, not just a nice error screen (OB-003).
+      console.error('dr-niswah-chat: Gemini call failed', {
+        userId,
+        threadId,
+        urgent,
+        error: error instanceof Error ? error.message : String(error),
+      });
       reply = urgent
         ? ''
         : 'تعذر الحصول على رد الآن. حاولي مرة أخرى بعد قليل.';
