@@ -6,7 +6,9 @@
 |---|---|
 | Baseline | `1.0.0+1` / commit `13a9387e9f2e5bbb0f61f7b13906d75e2f4d0d9f` |
 | Precondition | Phase 0 complete — all 5 critical unknowns resolved (`00_05` §Phase 0 Resolution) |
-| Status | PROPOSED — awaiting release-owner review and sequencing approval |
+| Status | **Wave 0 EXECUTED and COMPLETE (analysis/capture/isolated-validation only) — see `00_10_WAVE0_EXECUTION_REPORT.md` for full outputs A–K. No production mutation occurred; the proposed migration-repair operation (Output K) awaits separate explicit approval. Waves 1+ remain PROPOSED, not authorized.** |
+
+> **Amendment (2026-09-04):** The release owner approved this plan with 17 binding amendments to Wave 0, incorporated into §4 below. In summary: the clean-rebuild gate is redefined as "zero material difference in application-owned schema," the canonical baseline must be deterministic (no blanket `IF NOT EXISTS`/`CREATE OR REPLACE` used to paper over drift), every live object must be classified into one of five categories before being canonized, no live migration-ledger or schema change of any kind occurs during Wave 0, and the migration-repair step at the end requires a separate, explicit, out-of-band approval — this document only *proposes* the exact command at that point, it does not execute it.
 
 ---
 
@@ -49,69 +51,112 @@ App-code-only changes (Flutter client, Edge Function logic, CI, signing config) 
 
 ## 4. Wave 0 — Production Database Preservation & Reproducibility (Priority 0, PREREQUISITE)
 
-**Findings addressed:** `BR-001`, `BR-002`, `BR-003`, `BR-004`, `BR-005`, `BR-007`, `BR-008`, `DI-001`, `DI-005`, `DI-006`, `DI-004`/`PJ-001` (informing, already closed).
+**Findings addressed:** `BR-001`, `BR-002`, `BR-003`, `BR-004`, `BR-005`, `BR-007`, `BR-008`, `DI-001`, `DI-005`, `DI-006`, `DI-004`/`PJ-001` (informing, already closed — see §4.0.4).
 **Affected audits:** Database, Backup & Recovery, Final User Journey.
-**Dependencies:** None — this is the root prerequisite. Nothing else with a DB-mutation tag may start before this wave's exit criteria (§4.10) are met.
-**Production access required:** Yes throughout (read-only until step 4.9; one metadata-only write in 4.9).
-**Regression risk:** None if sequenced as written — every DDL-authoring/testing step below happens against an isolated environment, never live, until the final ledger-repair step.
+**Dependencies:** None — this is the root prerequisite.
+**Production access required:** Read-only throughout this wave. **Zero live schema, RLS, function, trigger, or migration-ledger writes occur in Wave 0.** The one operation with any live-mutation potential (§4.11, migration repair) is *proposed only* at the end — it is not executed without a separate, explicit, out-of-band approval.
+**Regression risk to production:** None — nothing in this wave touches production write paths.
 
-### Sequence
+### 4.0 — Definitions (binding for this wave and all later gated waves)
 
-**4.1 — Establish a safe recovery point** *(OWNER ACTION REQUIRED — cannot be executed by this session)*
-Enable Point-in-Time Recovery and/or trigger an immediate physical backup for the live project. Phase 0 confirmed `pitr_enabled: false` and `backups: []`. This is very likely a plan-tier/billing decision (Free tier typically has no physical backups) — a financial and account-level action outside what a remediation session can or should perform unilaterally. **This step blocks everything else in Wave 0 and, transitively, every DB-mutating item in every later wave.** Until this is done, the honest status of the whole plan is: *any* schema mistake, anywhere, for any reason, is permanently unrecoverable.
-- DB mutation: No (infrastructure/billing config, not schema).
-- Exit criterion: at least one restorable backup exists, confirmed via `supabase backups list`.
+**4.0.1 — Clean-rebuild exit criterion (amended).** The gate is: **zero material difference across application-owned schema and required application behavior.** It is *not* literal zero-diff against every object Supabase's platform itself manages. Application-owned scope includes, where applicable: public tables, columns, constraints, indexes, RLS policies, application functions, RPCs, application-relevant triggers, and the auth-to-public integration logic Niswah actually depends on (the two provisioning triggers, `delete_my_account()`). Supabase-managed internals (platform schemas such as `auth`'s own internal tables/functions not authored by this project, `storage`'s internal machinery, `realtime`, `_analytics`, `pgbouncer`, `supabase_admin`-owned objects, etc.) are documented separately as platform context, not blindly reproduced or asserted equal.
 
-**4.2 — Capture the authoritative live schema** *(read-only, can start immediately/in parallel with 4.1)*
-Extend Phase 0's partial capture (`public`, `auth` schemas only) to a complete, multi-schema, schema-only export: tables, columns, functions, triggers, **RLS policies** (`pg_policies` — not yet inventoried), **indexes** (`pg_indexes`), **constraints** (`information_schema.table_constraints`), and **extensions** (`pg_extension`) — none of which Phase 0's two targeted dumps covered in full. Store the result under a new, clearly-labeled path (e.g. `supabase/live_schema_capture/2026-09-04_baseline.sql`) — **not** overwriting `schema.sql` yet.
+**4.0.2 — Deterministic baseline (amended).** The canonical baseline migration must **not** use `IF NOT EXISTS` or `CREATE OR REPLACE` merely to paper over uncertainty about existing state. Default statements are plain `CREATE TABLE`, `CREATE FUNCTION`, `CREATE TRIGGER`, etc. — which already fail loudly (Postgres raises a duplicate-object error) if reality doesn't match expectation, which is the desired behavior per this amendment. Idempotent guards are permitted **only** where a specific, named technical reason requires them (e.g. `CREATE EXTENSION IF NOT EXISTS "uuid-ossp"` — extensions are commonly pre-installed by the platform itself and a bare `CREATE EXTENSION` failing on "already exists" is not a meaningful signal), and every such exception must be commented in the baseline file explaining why.
+
+**4.0.3 — Object classification (new requirement).** Every live object inventoried in §4.2 must be classified as exactly one of:
+- `REQUIRED_APPLICATION_OBJECT` — the app depends on it; must appear in the canonical baseline.
+- `SUPABASE_MANAGED` — platform-owned; documented, not reproduced.
+- `LEGACY_BUT_CURRENTLY_REFERENCED` — old naming/shape (e.g. `prayer_log`, `pregnancy_records`, `secret_vault`) that live code still actually reads/writes; preserved under its live name in the baseline, flagged for a later, deliberate rename decision (not bundled into Wave 0).
+- `UNREFERENCED / CANDIDATE_FOR_LATER_REMOVAL` — exists live, nothing in `lib/`/`supabase/functions/` references it; preserved in the baseline (removal is destructive and out of scope for a capture wave) but flagged for a future, separately-authorized cleanup migration.
+- `UNKNOWN — REVIEW REQUIRED` — cannot be classified confidently from available evidence; preserved as-is, flagged for release-owner review before any future change touches it.
+No object is silently canonized as permanent architecture just because it exists in production.
+
+**4.0.4 — Phase 0 findings preserved.** `AB-001`, `CQ-010`, `ROOT-001`, `DI-004`, `PJ-001` keep their Phase 0 dispositions (§2) unless Wave 0 surfaces evidence that contradicts them. Wave 0 does add new root-cause implications from the hidden-trigger discovery (see `UNK-006`'s "however" paragraph in `00_05`) — those implications feed `DI-001`/`ROOT-007`, not a reopening of `DI-004`/`PJ-001` themselves.
+
+### 4.1 — Establish a safe recovery point *(OWNER ACTION REQUIRED where platform-level; independent logical export performed by this session)*
+
+Per the amended recovery prerequisite: the preferred state is Supabase PITR/backup enabled **plus** an independent logical export. Phase 0 confirmed `pitr_enabled: false`, `backups: []` — enabling PITR is very likely a plan-tier/billing decision outside what this session can or should perform unilaterally; it is called out explicitly, not silently assumed. **This session will produce the independent logical export itself** (schema-only, safe; data-only handled per §4.6's privacy constraint) as the recovery artifact this wave actually tests against (§4.10). If PITR remains disabled, that is recorded as **continuing residual risk**, not treated as equivalent to a manual dump — a manual export is a one-point-in-time artifact, not continuous protection.
+- DB mutation: No.
+- Exit criterion (Wave 0 scope): at least one independent logical export exists and has been restore-tested (§4.10). Full exit criterion for *later* production-mutating waves additionally requires platform PITR/backup — see §4.12.
+
+### 4.2 — Authoritative live capture (read-only)
+
+Produce a complete, application-relevant inventory, per schema, covering: tables, columns, data types, defaults, primary keys, foreign keys, unique constraints, check constraints, indexes, RLS enabled/disabled state, RLS policies, functions, RPCs, triggers, extensions relied upon, `auth.users` integration logic, and any Storage-related application objects if Storage is actually in use. Stored under a new, clearly-labeled path — **not** overwriting `schema.sql` yet.
 - DB mutation: No.
 
-**4.3 — Inventory live-only objects**
-Formalize what Phase 0 already found (partial list) plus whatever 4.2 adds: `chat_history` table, `create_user_profile()` function, `delete_my_account()` function, `auth_users_create_profile` trigger, naming divergences (`prayer_log` vs `prayer_entries`, `pregnancy_records` vs `pregnancy_milestones`, `secret_vault` vs `secret_vault_entries`), plus any policy/index/constraint that exists live but not in `schema.sql`/migrations. Produce a single ledger document.
+### 4.3 — Object classification report
+
+Classify every object from §4.2 into the §4.0.3 taxonomy. Produced as a standalone, reviewable table (see Output B, §4.14).
 - DB mutation: No.
 
-**4.4 — Three-way comparison**
-For every object found in 4.2/4.3: mark present/absent/matching across {live, `schema.sql`, tracked migrations}. This is the definitive "what is actually true" table that both `DI-001` and `BR-002` have been circling since Wave 1 of the original audit.
+### 4.4 — Three-way comparison
+
+For every object: present/absent/matching across **A. live production**, **B. `supabase/schema.sql`**, **C. `supabase/migrations/`**. This is the definitive "what is actually true" ledger `DI-001`/`BR-002` have circled since Wave 1 of the original audit.
 - DB mutation: No.
 
-**4.5 — Canonical migration baseline strategy (design decision, authored but not applied to live in this step)**
-Author **one** new, idempotent (`IF NOT EXISTS`-guarded) baseline migration that captures the *current live reality exactly as it is* — including `chat_history`, both provisioning triggers/functions, and every live-only object under its **live** name (`prayer_log`, not the never-applied `prayer_entries` rename). Mark all 12 existing migration files "SUPERSEDED — historical, do not replay" per `DI` plan's R6 append-only convention (do not delete them — `DI-006`). Regenerate `schema.sql` *from* this baseline so it becomes a generated artifact, not a hand-maintained one (per `DI` plan R1.4).
-- **Explicitly separate from this baseline:** any *behavioral* change (e.g. `DI-004` R4's original idea of retargeting FKs from `users` to `profiles`) is a later, deliberate, product-reviewed decision — not bundled into "capture what exists today."
-- DB mutation: No (this authors a new file in the repository; it is not yet applied anywhere).
+### 4.5 — Understand preserved known-good behavior (before touching anything)
 
-**4.6 — Preserve production data**
-Independent of the schema baseline, take a full **data**-only export (`supabase db dump --linked --data-only`) as a point-in-time artifact. This contains real health/religious/message data — **must not be committed to git**; store in owner-managed, encrypted, access-controlled storage only.
+For each of `auth_users_create_profile`→`create_user_profile()`, `on_auth_user_created`→`handle_new_user()`, and `delete_my_account()`: read the exact live definition, trace every table/column it touches, every RLS policy that gates it, and every downstream cascade or side effect. Do not rewrite or replace any of them in this wave — this step is understanding only. `delete_my_account()`'s exact cascade/anonymization scope is tested behaviorally in §4.10.F, not assumed from reading the SQL alone.
 - DB mutation: No.
 
-**4.7 — Preserve `auth.users` integration verbatim**
-Both triggers (`on_auth_user_created`→`handle_new_user()`, `auth_users_create_profile`→`create_user_profile()`) and both function bodies go into the baseline migration byte-for-byte as captured live. No consolidation, dedup, or "cleanup" in this step — reality first, improvement later (improvement is a Wave 1c decision, see §7).
-- DB mutation: No (part of 4.5's authored file).
+### 4.6 — Preserve production data (constrained)
 
-**4.8 — Preserve `delete_my_account()` verbatim**
-Same treatment. Flag in the baseline migration's comments that its exact cascade/anonymization behavior needs Privacy-audit verification (Wave 5, §7) before the client is wired to call it.
+An independent **data**-only export is a real point-in-time artifact containing real health/religious/message data. Per this session's own operating constraints (never handle real user PHI-adjacent data outside owner-managed storage), any data-only export is **not** pulled into this session's local/disposable environment — it is documented as a required artifact for the release owner to produce and store in encrypted, access-controlled storage, not committed to git and not staged locally by this session. The restore test in §4.10 instead uses **synthetic** data created fresh inside the isolated test environment, which validates the *mechanism* without handling real records.
 - DB mutation: No.
 
-**4.9 — Clean rebuild test against a brand-new isolated environment** *(hard gate — must pass)*
-Using a fresh Supabase local stack or disposable Postgres (the method already proven in Phase 0), apply **only** the new baseline migration (4.5) end-to-end against an empty database. Then run a schema diff between this freshly-rebuilt environment and the 4.2 live capture. **Exit criterion: zero diff.** This is the literal proof — not an assertion — that a fresh environment reproduces the required schema and behavior, satisfying the charter's explicit "do not fix this by marking the database as migrated without demonstrating reproducibility."
+### 4.7 — Canonical baseline: proposed, not deployed
+
+Draft **one** new, deterministic (§4.0.2) baseline migration file that reproduces every object classified `REQUIRED_APPLICATION_OBJECT` or `LEGACY_BUT_CURRENTLY_REFERENCED` (under its **live** name — e.g. `prayer_log`, not the never-applied `prayer_entries` rename), including both provisioning triggers/functions and `delete_my_account()`, verbatim as captured. `SUPABASE_MANAGED` objects are excluded and documented separately (§4.0.1). `UNREFERENCED`/`UNKNOWN` objects are included (to avoid silent data loss) but explicitly commented as flagged for future review, not asserted as intentional architecture. All 12 existing migration files are marked "SUPERSEDED — historical, do not replay" in place (`DI-006`'s append-only convention) — never deleted. `schema.sql` is regenerated from this baseline once it passes §4.9, becoming a generated artifact rather than hand-maintained.
+- **Explicitly out of scope for this file:** any *behavioral* change (e.g. renaming `prayer_log`→`prayer_entries`, or `DI-004`'s original FK-retarget idea) — capture reality first; improve it later, deliberately, in a reviewed follow-up wave.
+- DB mutation: No — this authors a new file in the repository only. **Not applied to production in this wave.**
+
+### 4.8 — Clean rebuild test, isolated environment *(hard gate)*
+
+Fresh, isolated Supabase-local-stack or disposable Postgres. From an empty starting point: (1) apply the §4.7 baseline; (2) verify every `REQUIRED_APPLICATION_OBJECT`/`LEGACY_BUT_CURRENTLY_REFERENCED` table/column/constraint/index/policy exists as expected; (3) verify every function/RPC/trigger exists and is callable; (4) verify basic connectivity (a client can connect and query); (5) confirm the entire rebuild required **zero** manual Studio/SQL-editor steps. **Exit criterion (amended): zero material difference in application-owned schema** against the §4.2 live capture — not literal identity with Supabase-managed internals.
 - DB mutation: No (isolated test environment only).
 
-**4.10 — Restore/recovery test** (requires 4.1 complete)
-Once a real backup exists, restore it into an isolated, non-production project or local instance (never live) and validate: schema present, representative record counts, key FK relationships resolve (e.g. a `cycle_entries.user_id` correctly resolves to `public.users`). This satisfies `BR-008`'s Golden Rule (an unexercised backup is unverified).
+### 4.9 — Behavioral rebuild validation *(the exit test verifies behavior, not only schema)*
+
+Inside the same isolated environment, with synthetic data only:
+- **A. Auth signup** — insert a synthetic `auth.users` row; verify both `public.profiles` and `public.users` rows are created correctly by the two live triggers.
+- **B. Authorization/RLS** — as two distinct synthetic authenticated roles, verify representative permitted access (own row) and denied access (another user's row) on at least one RLS-protected table.
+- **C. Cycle data** — representative `cycle_entries` (or its live name) write + read-back.
+- **D. Pregnancy data** — representative `pregnancy_profile` write + read-back.
+- **E. Profile data** — representative `profiles`/`users` persistence check.
+- **F. Account deletion** — call `delete_my_account()` against synthetic populated data; document exactly what it deletes, cascades, anonymizes, and leaves behind, and whether the resulting state is technically consistent (cross-reference `DI-012`'s other-participant-message-visibility concern).
+- **G. Application startup** — verified at the DB/API connectivity level (a client can connect and issue representative queries against the rebuilt schema). **Scope limitation, stated plainly:** this session does not have a way to boot the actual Flutter mobile app UI (emulator/device) against the rebuilt environment; that remains a manual verification step for whoever holds the mobile toolchain, not claimed as done here.
+- **H. Representative E2E journeys** — validated at the DB-behavior level for the journeys database reconstruction affects (cycle logging, chat persistence, account deletion); full UI-level E2E is out of this session's reach for the same reason as G, and is explicitly not claimed.
+- DB mutation: No (isolated test environment only).
+
+### 4.10 — Restore test
+
+Using the independent logical schema export (§4.1) plus synthetic data (§4.6's constraint): restore into a second, separate isolated environment and verify schema integrity, representative data integrity, and basic application-level (API/connectivity) compatibility. Record the exact procedure and evidence. This satisfies `BR-008`'s Golden Rule (an unexercised backup is unverified) **for the mechanism** — it does not substitute for the release owner separately restore-testing a real production backup once platform PITR/backups exist (§4.1's residual-risk note).
 - DB mutation: No to live; yes to the disposable restore target only.
 
-**4.11 — Register the live database as migrated** *(the one live-touching step in this wave)*
-Only after 4.9 passes with zero diff: use `supabase migration repair` to mark the new baseline version as `applied` against the live project's migration ledger, and mark the 12 superseded migrations `reverted` in that ledger (they never actually ran there, per Phase 0's `migration list` finding). This is a metadata-only write to Supabase's internal tracking table — it does **not** execute any DDL against `public`/`auth` (the baseline is `IF NOT EXISTS`-guarded and live already has these objects).
-- DB mutation: **Yes** (metadata only, zero schema DDL against live) — requires 4.1 (recovery point) to be satisfied first, per the blanket rule in §1.
-- Rollback: `supabase migration repair --status reverted <version>` restores the ledger to its current state. Zero risk beyond the ledger itself — no DDL was ever run against live in this wave.
+### 4.11 — Migration repair: proposed, not executed
 
-### 4.12 — Wave 0 Exit Criteria (all required before any later wave's DB-mutating item may proceed)
-- [ ] 4.1: at least one real, restorable backup exists (or PITR enabled)
+Migration repair is **not** performed automatically, and not performed in this wave at all. Only after §4.2–§4.10 all pass does this document stop and present the **exact** proposed `supabase migration repair` command(s) — target version(s), intended before/after ledger state, exact effect, why it's required, rollback path, and the specific evidence (from §4.2–§4.10) that justifies it. Execution requires a separate, explicit approval. See §4.15 Output K.
+- DB mutation: **None in Wave 0.** The eventual command, if and when approved, is metadata-only against Supabase's migration ledger — no schema DDL against `public`/`auth`.
+
+### 4.12 — Wave 0 Exit Criteria
+
 - [ ] 4.2–4.4: complete live-vs-repo comparison ledger produced and reviewed
-- [ ] 4.5, 4.7, 4.8: baseline migration authored, capturing all live-only objects verbatim
-- [ ] 4.6: data preserved in owner-managed secure storage (not git)
-- [ ] 4.9: clean rebuild test passes with **zero** schema diff against live capture
-- [ ] 4.10: at least one real restore test demonstrated
-- [ ] 4.11: live migration ledger repaired to reflect reality
+- [ ] 4.3: every object classified per §4.0.3, no object silently canonized
+- [ ] 4.5: known-good trigger/function/RPC behavior understood and documented before any preservation decision
+- [ ] 4.7: deterministic baseline authored (no unjustified `IF NOT EXISTS`/`CREATE OR REPLACE`)
+- [ ] 4.8: clean rebuild passes with zero material difference in application-owned schema
+- [ ] 4.9: behavioral validation A–F pass in the isolated environment (G/H validated at DB-connectivity level only, scope limitation stated)
+- [ ] 4.10: restore test demonstrated (mechanism-level, synthetic data)
+- [ ] 4.11: proposed migration-repair operation presented and **awaiting separate explicit approval** — not executed
+- [ ] §4.1's platform PITR/backup gap remains **open, documented residual risk** — required before *any later wave's* DB mutation, per §1's blanket rule, even though Wave 0 itself does not depend on it beyond the restore test
+
+### 4.13 — Production Safety Rule
+
+If any command in this wave's execution *could* mutate live production state, this session stops before running it and states: the exact command, the exact target, the exact effect, why it is required, the rollback/recovery path, and the evidence that all prerequisites passed — then waits for explicit approval. This applies with no exceptions in Wave 0, including to §4.11.
+
+### 4.14 — Outputs Required at End of Wave 0
+
+A. Authoritative live-object inventory · B. Object classification report · C. Live-vs-`schema.sql`-vs-migrations comparison · D. Proposed canonical baseline (file, not deployed) · E. Recovery/backup evidence (including the platform PITR/backup residual-risk statement) · F. Clean-rebuild report · G. Behavioral validation report (A–H, with G/H scope limitation stated) · H. Restore-test report · I. Remaining material discrepancies · J. Affected finding IDs and updated status (finding discipline per §4.0.4 — no automatic closure) · K. Exact proposed first live operation (migration repair), if still required, awaiting approval.
 
 ---
 

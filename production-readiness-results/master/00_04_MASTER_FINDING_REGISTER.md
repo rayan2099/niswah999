@@ -1,5 +1,15 @@
 # 00_04 — Master Finding Register
 
+**Wave 0 update (Remediation Session, 2026-09-04):** Full detail in `00_10_WAVE0_EXECUTION_REPORT.md`. Two new findings discovered via live-schema behavioral validation, added below with fresh IDs (native audit register did not and could not find these — they required live database access):
+
+| Finding | Audit | Native severity | Master class | Summary | Status |
+|---|---|---|---|---|---|
+| `W0-001` | Wave 0 (Database, live-verified) | Newly discovered | **BLOCKER** | Live production table is named `prayer_log`; `prayer_tracking_repository_impl.dart` queries `.from('prayer_entries')`, which does not exist live. Every remote prayer-tracking call fails and silently falls back to local-only data via the existing `ROOT-005` catch-all pattern — confirmed currently occurring in production, not hypothetical | OPEN |
+| `W0-002` | Wave 0 (Database, live-verified) | Newly discovered | **BLOCKER** | Live production table is named `pregnancy_records`; `pregnancy_tracking_repository_impl.dart` queries `.from(_tableName)` where `_tableName='pregnancy_milestones'`, which does not exist live. Same silent local-only fallback as `W0-001`, confirmed currently occurring in production | OPEN |
+
+Status changes to existing findings from Wave 0 (full evidence in `00_10`): `BR-007` resolved (Storage confirmed unused); `DI-012` upgraded from structural inference to behaviorally confirmed (account deletion cascades away the other conversation participant's own messages too); `DI-001`/`BR-002` further deepened (two new `UNKNOWN`-classified live-only objects: `chat_history`, `secret_vault`); `PC-002` scope further informed (`delete_my_account()` confirmed to work correctly and completely, but its shared-conversation cascade needs product/privacy sign-off before client-wiring).
+
+
 Status: **ALL WAVES COMPLETE (1–6).** Wave 6 (Post-Launch Monitoring) plan authored at `production-readiness-results/post-launch/PL_monitoring_plan.md` — infrastructure to execute it does not yet exist (see that document's Part B). Final master consolidation is in `00_05` through `00_08`. **Final master verdict: 🔴 NO-GO** — see `00_08_FINAL_PRODUCTION_READINESS_REPORT.md`.
 
 Status: **Wave 5 COMPLETE.** Final Pre-Launch User Journey (PJ) audit ingested below — **NO-GO**, with 4 new PJ0 (Critical) and 1 new PJ1 (High) finding discovered only through end-to-end cross-layer tracing, not visible to any single specialist audit.
