@@ -416,3 +416,68 @@ Discovered during the Gemini trust-boundary checkpoint's Phase E (release-build 
 Per the confirmed absence of any distributed build containing the old key, the credential is being treated as compromised and the release owner is proceeding with rotation directly in Google Cloud Console (outside this session's access). Once rotation is complete and the new value is set as the Edge Function secret (by either party, without printing it), this session will re-run the authenticated runtime-test pattern from the checkpoint against all four deployed functions and update `SEC-001`/`ROOT-002` based on that result — not before.
 
 **No further Gemini trust-boundary work begins without that verification.** Proceeding now to the silent-failure/data-durability remediation group.
+
+---
+
+## 15. Reliability + Observability for Critical Persistence Recovery (2026-09-05)
+
+**No production DB schema/migration/RLS/function/trigger/migration-ledger mutation occurred.** `W0-002` preserved exactly as `DEFERRED — PRODUCT/DATA-MODEL DECISION REQUIRED`; `pregnancy_tracking`'s data model was not touched.
+
+### Phase A — Recovery model inventory (by critical write path)
+
+| Path | Classification | Retry trigger | Sync-status equivalent | Observability |
+|---|---|---|---|---|
+| Cycle/haid logs | **LOCAL-AUTHORITATIVE-WITH-SYNC** | App start + app resume (new, real) | `SyncStatus.pending/synced/failed` on the local entity, driven by `mapRepositoryError`'s retryable classification | `AppErrorReporter` (feature=`cycle_tracking`, recordId=log id) |
+| Pregnancy profile | **REMOTE-AUTHORITATIVE** | N/A — deliberately throws on failure rather than queuing a retry (correct for this path: a stale/wrong pregnancy-week context silently reaching the "طبيبة" chat is worse than a visible error) | None — no local cache at all | Propagates to caller (pre-existing, confirmed sound) |
+| Profile/account updates | **REMOTE-AUTHORITATIVE** | None | None (single source of truth is Supabase) | `AppErrorReporter` (this pass) |
+| Notification/preferences | **LOCAL-AUTHORITATIVE, no sync** (local OS-scheduled only, nothing to reconcile against a server) | N/A | N/A | `AppErrorReporter` (this pass) |
+| AI chat persistence (`dr-niswah-chat`) | **DUAL/OTHER — REVIEW REQUIRED** | None (single-attempt per message; see `PJ-004` fix) | None | `console.error` server-side (Edge Function), each of 3 writes now independently isolated (this pass) |
+| Community posts/comments (read) | **REMOTE-AUTHORITATIVE** | None | None | `AppErrorReporter` (this pass, via shared classifier) |
+| Community posts/comments (write) | **REMOTE-AUTHORITATIVE** | None | None | Already propagated correctly (no change needed) |
+
+One retry policy was deliberately **not** applied blindly to every path — `pregnancy_profile` and community writes stay REMOTE-AUTHORITATIVE (throw, don't queue) because a silent local-first fallback would be actively worse there (stale AI context; a post existing only on one device with no way to reconcile), whereas cycle/haid logging's existing local-first design is the app's own deliberate, longstanding choice worth preserving and making trustworthy rather than reversing.
+
+### Phase B — Cycle sync guarantee: chosen A (real automatic retry), not just a copy fix
+
+**Before:** UI claimed "will sync automatically" with **zero actual mechanism** — `syncPendingLogs()` existed but was dead code, called from nowhere, and was itself architecturally broken (queried the *remote* table for `sync_status='pending'` rows, which cannot represent "not yet uploaded" since such a row wouldn't exist remotely at all). Every successfully-synced row was also permanently stuck showing `sync_status: 'pending'` in the database (a separate bug: the upload payload always sent the local default verbatim, never confirmed as `'synced'`).
+
+**After:** `saveCycleLog` classifies its own failure via `mapRepositoryError` and marks the local entry `pending` (retryable) or `failed` (non-retryable) accordingly. `syncPendingLogs()` was rewritten to load local `pending` entries and retry each one — sequential (not parallel, bounding load), idempotent (`onConflict: 'id'`), and now **actually called** from two real triggers: app start and app resume (`main.dart`'s `NiswahHomeShell`). The UI copy was changed to reflect the *actual* resulting status rather than a blanket claim — `pending` gets "will back up automatically," `failed` gets "could not be backed up, please try again later" — both bilingual (AR/EN), sourced from the real `SyncStatus` enum rather than duplicated hardcoded strings per call site.
+
+**Explicitly not implemented, by design:** exponential backoff (retries are trigger-bound, not timer-based — see below), connectivity detection (no new dependency added — the retry attempt itself is the connectivity probe), a durable cross-reinstall queue (see `W2-001`).
+
+| Requirement | Answer |
+|---|---|
+| When retries happen | App start (`initState`'s post-frame callback) and app resume (`didChangeAppLifecycleState`) |
+| Network/connectivity behavior | No dedicated detection — a retry attempt against an offline device fails with a Dart-level network exception, classified retryable, stays `pending`, tried again next trigger |
+| App restart behavior | Explicit trigger — covered |
+| Exponential/bounded backoff | **Not exponential** — bounded by real user-driven events, not a timer; explicitly documented as a tradeoff, not a gap hidden by overclaiming "exponential backoff" |
+| Maximum retry behavior | Unbounded in *count* for retryable failures (keeps trying every app start/resume indefinitely) but each pass is cheap and event-gated, not a background loop |
+| Duplicate/idempotency behavior | Guaranteed via the existing `onConflict: 'id'` upsert — tested (`cycle_local_sync_idempotency_test.dart`) |
+| Pending → synced transition | Implemented and tested |
+| Permanent failure behavior | Non-retryable failures marked `failed`, excluded from the automatic-retry query — never hammered |
+| User-visible status | Accurate, bilingual, status-specific SnackBar text at both UI entry points |
+| Observability | `AppErrorReporter` with `feature`/`recordId` context on every failure, both the initial attempt and each retry |
+| No infinite retry loop | Confirmed — each trigger runs one bounded, sequential pass over currently-`pending` entries, then returns; nothing schedules itself again |
+| No blind retry of non-retryable errors | Confirmed — `mapRepositoryError`'s `retryable` flag gates this explicitly, tested against real `PostgrestException` codes (RLS `42501`, unique-violation `23505` → non-retryable; `query_canceled` `57014` → retryable) |
+
+### Phase C — Shared error model (`lib/core/errors/failures.dart`)
+
+`Failure` extended with optional `cause`, `stackTrace`, `retryable`, `context` — every field optional, so all ~120+ existing 2-argument call sites (`NetworkFailure(error.message)` etc.) compile and behave identically, verified by a dedicated backward-compatibility test. New `mapRepositoryError()` function classifies a caught error into the right `Failure` subtype with a user-safe message (never raw exception text — tested) and a retryability verdict, using a conservative, explicit allow-list of transient Postgres error codes rather than guessing. Adopted in `CycleTrackingRepositoryImpl` and `CommunityRepositoryImpl` (2 of the 4 originally-cited repositories — see `AB-010`/`OB-007`). Caught one real bug before it shipped: `AuthRetryableFetchException` (a network-level failure during token refresh) would have been misclassified non-retryable by a naive "type name contains 'Auth' → auth failure" rule; special-cased correctly, with a regression test.
+
+### Phase D — Observability funnel (`AppErrorReporter`)
+
+Extended to carry `feature`, `retryAttempt`, `recordId` alongside the existing `context`, plus automatic environment tagging (`AppEnvironment.appEnvironment`). **Explicitly and honestly still incomplete**: `onReport` remains unset — no crash-reporting provider is configured, so in an actual release build (`kDebugMode == false`), a reported error currently reaches **no destination at all**, not even `debugPrint`. This funnel is the *application-side* half of observability; the *deployed monitoring backend* half (`OB-006`) remains an explicit Release/Observability owner action, not something this pass could or did substitute for. No secrets/tokens/full health-record content are ever passed into any reporter field — verified by design (only IDs, never content, are accepted as `recordId`).
+
+### Phase E — AI chat persistence re-verification (independent of the Gemini remediation)
+
+Direct code trace against the **currently-deployed** `dr-niswah-chat` (not the earlier happy-path-only live test) confirmed `PJ-004`'s exact defect is still present: any one of the three persistence writes failing aborted the entire request with a raw 500, before the reply — including the safety banner — was ever computed or returned. **Fixed in this pass**: each write independently isolated and logged; the reply now always reaches the client regardless of persistence outcome; a correlated zero-tolerance log line fires for any partially-unpersisted urgent exchange. **Not yet deployed or live-tested against a forced failure** — deployment is out of this wave's stop-condition boundary; see `PJ-004`'s register entry for the exact remaining gate. `PJ-006` materially informed by the same fix (failures are no longer silent) but the Doctor's Report feature itself — a separate code area not in this wave's inventory — was not modified, so it still cannot represent "this section may be incomplete" in its own output.
+
+### Phase F — Testing
+
+`dart analyze lib/`: clean, 27 pre-existing issues (down from 33 across the full engagement), zero new. `flutter test`: **268/276** — the established 254/262 baseline plus 14 new tests (10 in `error_classification_test.dart`, 4 in `cycle_local_sync_idempotency_test.dart`), same 8 pre-existing golden-image diffs, zero regressions. New tests cover: retryable vs. non-retryable classification (network, real `AuthApiException`/`AuthRetryableFetchException`, real `PostgrestException` with specific Postgres codes), user-safe-message-never-leaks-raw-text, cause/stack-trace preservation, backward compatibility of the 2-argument `Failure` constructors, local upsert idempotency, pending→synced transition, non-retryable→failed (never retried), and multiple independent pending entries. App-restart and true device-offline scenarios were exercised at the unit level (the local data source + classifier), not via a live device/emulator — consistent with this session's stated scope limitations throughout.
+
+### Phase G — Finding closure
+
+See `00_04_MASTER_FINDING_REGISTER.md` for full evidence per finding. Summary: `RR-001`, `PJ-002`, `PJ-004`, `PJ-006`, `OB-007`, `AB-010` → **PARTIALLY_REMEDIATED**. `OB-006` → **OPEN**, explicitly not conflated with the funnel work (no deployed monitoring backend exists). New finding `W2-001` (residual local-storage-loss risk, inherent to the local-first design, mitigated not eliminated) registered. **Nothing marked VERIFIED_CLOSED or automatically closed on the strength of code being changed alone** — every disposition above states exactly what evidence supports it and what remains.
+
+**Not proceeded into:** Release Engineering, Android desugaring/signing, CI/CD, accessibility, database/RLS migrations, the rate-limiter schema implementation, migration repair, `W0-002`, or unrelated dead-code cleanup — per the explicit stop condition.

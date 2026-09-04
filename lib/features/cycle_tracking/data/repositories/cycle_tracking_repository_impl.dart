@@ -79,6 +79,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         error,
         stack,
         context: 'CycleTrackingRepositoryImpl.getCycleLogs',
+        feature: 'cycle_tracking',
       );
       return localLogs;
     } catch (error, stack) {
@@ -86,6 +87,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         error,
         stack,
         context: 'CycleTrackingRepositoryImpl.getCycleLogs',
+        feature: 'cycle_tracking',
       );
       return localLogs;
     }
@@ -122,27 +124,44 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   }
 
   @override
-  Future<bool> saveCycleLog(CycleLog log) async {
+  Future<SyncStatus> saveCycleLog(CycleLog log) async {
+    // Saved locally as `pending` first (formData.toCycleLog defaults to
+    // SyncStatus.pending) — if the remote attempt below fails retryably,
+    // this pending marker is exactly what makes it eligible for automatic
+    // retry via syncPendingLogs(); see main.dart's app-start/app-resume
+    // wiring, which is what makes retry actually automatic rather than a
+    // dead-code promise.
     await _localDataSource.upsert(log);
     try {
       await upsertCycleLog(log);
-      return true;
+      await _localDataSource.upsert(log.copyWith(syncStatus: SyncStatus.synced));
+      return SyncStatus.synced;
     } on NetworkFailure catch (error, stack) {
       // Local save is authoritative for the UI; remote sync is eventually-
-      // consistent (see SyncStatus.pending / syncPendingLogs()). The
+      // consistent for retryable failures (see syncPendingLogs()). The
       // failure is never allowed to hide an already-successful local save
       // from the caller — see getCycleLogs() above, which degrades the
       // same way on a remote read failure — but it IS now reported (not
       // silently discarded) and surfaced back to the caller via the
-      // return value, so the UI can show a non-blocking "not backed up
-      // yet" indication instead of the failure vanishing with zero trace
+      // return value, so the UI can show an accurate, non-blocking
+      // indication instead of the failure vanishing with zero trace
       // (DI-002/PJ-002).
       AppErrorReporter.report(
         error,
         stack,
         context: 'CycleTrackingRepositoryImpl.saveCycleLog',
+        feature: 'cycle_tracking',
+        recordId: log.id,
       );
-      return false;
+      // Non-retryable failures (a policy/validation rejection that will
+      // fail identically every time) are marked `failed`, not left
+      // `pending` — automatic retry must not hammer a request that can
+      // never succeed ("do not retry non-retryable errors blindly").
+      if (!error.retryable) {
+        await _localDataSource.upsert(log.copyWith(syncStatus: SyncStatus.failed));
+        return SyncStatus.failed;
+      }
+      return SyncStatus.pending;
     }
   }
 
@@ -172,8 +191,13 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       };
 
       await client.from('cycle_entries').upsert(payload, onConflict: 'id');
-    } on PostgrestException catch (error) {
-      throw NetworkFailure(error.message);
+    } on PostgrestException catch (error, stack) {
+      throw mapRepositoryError(
+        error,
+        stack,
+        context: 'CycleTrackingRepositoryImpl.upsertCycleLog',
+        userMessage: 'Could not save your cycle log to your account.',
+      ) as NetworkFailure;
     }
   }
 
@@ -202,36 +226,66 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   }
 
   @override
-  Future<List<CycleLog>> syncPendingLogs() async {
+  Future<CyclePendingSyncResult> syncPendingLogs() async {
     final client = _client;
     if (client == null) {
-      return const [];
+      return const CyclePendingSyncResult(
+        synced: 0,
+        stillPending: 0,
+        permanentlyFailed: 0,
+      );
     }
 
     final sessionUser = client.auth.currentUser;
     if (sessionUser == null) {
-      return const [];
+      return const CyclePendingSyncResult(
+        synced: 0,
+        stillPending: 0,
+        permanentlyFailed: 0,
+      );
     }
 
-    try {
-      final pendingLocal = await _localDataSource.loadLogs();
-      final remote = await client
-          .from('cycle_entries')
-          .select()
-          .eq('user_id', sessionUser.id)
-          .eq('sync_status', 'pending');
+    final localLogs = await _localDataSource.loadLogs();
+    final toRetry = localLogs
+        .where((log) => log.syncStatus == SyncStatus.pending)
+        .toList();
 
-      final remoteLogs = (remote as List<dynamic>)
-          .map((item) => CycleLog.fromJson(item as Map<String, dynamic>))
-          .toList();
+    var synced = 0;
+    var stillPending = 0;
+    var permanentlyFailed = 0;
 
-      final merged = <String, CycleLog>{};
-      for (final item in [...pendingLocal, ...remoteLogs]) {
-        merged[item.id] = item;
+    // Sequential, not parallel — a burst of simultaneous requests on
+    // reconnect is exactly the kind of load a bounded retry should avoid
+    // creating (and matches the "no infinite/unbounded loop" requirement
+    // in spirit: one bounded pass per trigger, not an unbounded fan-out).
+    for (final log in toRetry) {
+      try {
+        await upsertCycleLog(log);
+        await _localDataSource.upsert(log.copyWith(syncStatus: SyncStatus.synced));
+        synced++;
+      } on NetworkFailure catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'CycleTrackingRepositoryImpl.syncPendingLogs',
+          feature: 'cycle_tracking',
+          recordId: log.id,
+        );
+        if (error.retryable) {
+          stillPending++; // left as `pending` — eligible for the next trigger
+        } else {
+          await _localDataSource.upsert(
+            log.copyWith(syncStatus: SyncStatus.failed),
+          );
+          permanentlyFailed++;
+        }
       }
-      return merged.values.toList();
-    } on PostgrestException catch (error) {
-      throw NetworkFailure(error.message);
     }
+
+    return CyclePendingSyncResult(
+      synced: synced,
+      stillPending: stillPending,
+      permanentlyFailed: permanentlyFailed,
+    );
   }
 }

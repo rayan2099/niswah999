@@ -107,13 +107,22 @@ class CommunityRepositoryImpl implements CommunityRepository {
       // (client == null) remains for the genuine "not configured / offline
       // preview" case only. Reported and propagated so the UI's existing
       // error state (already wired in community_feed_view_model.dart) shows
-      // instead of fake posts.
-      AppErrorReporter.report(
+      // instead of fake posts. Uses the shared classifier (not an ad hoc
+      // NetworkFailure(error.message)) so retryability/context/cause are
+      // consistent with every other repository (AB-010/OB-007).
+      final failure = mapRepositoryError(
         error,
         stack,
         context: 'CommunityRepositoryImpl.getPosts',
+        userMessage: 'Could not load the community feed.',
       );
-      throw NetworkFailure(error.message);
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: failure.context,
+        feature: 'community',
+      );
+      throw failure;
     }
   }
 
@@ -182,12 +191,19 @@ class CommunityRepositoryImpl implements CommunityRepository {
           .toList();
     } on PostgrestException catch (error, stack) {
       // Same principle as getPosts() above — see that comment.
-      AppErrorReporter.report(
+      final failure = mapRepositoryError(
         error,
         stack,
         context: 'CommunityRepositoryImpl.getComments',
+        userMessage: 'Could not load comments.',
       );
-      throw NetworkFailure(error.message);
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: failure.context,
+        feature: 'community',
+      );
+      throw failure;
     }
   }
 

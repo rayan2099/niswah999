@@ -256,9 +256,15 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     // Recompute what should be scheduled the moment the home shell is
     // reachable (i.e. the user is signed in) — mirrors how the reports
     // recompute fresh each time they're opened, applied to scheduling.
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _refreshNotifications(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshNotifications();
+      // App-start retry trigger — one of two triggers (with app-resume,
+      // below) that make CycleTrackingViewModel.saveLog's "backs up
+      // automatically" wording actually true rather than aspirational
+      // copy (RR-001). A bounded, one-pass sweep per trigger — not a
+      // timer/loop — so this can never spin indefinitely.
+      unawaited(_cycleViewModel.retryPendingSync());
+    });
   }
 
   @override
@@ -271,6 +277,9 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _refreshNotifications();
+      // App-resume retry trigger — see the app-start trigger in initState
+      // for why this exists and what it does/doesn't guarantee.
+      unawaited(_cycleViewModel.retryPendingSync());
     }
   }
 

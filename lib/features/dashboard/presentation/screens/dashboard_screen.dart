@@ -560,14 +560,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
           cycleDay: cycleDay.clamp(1, 40),
         ),
       );
-      if (mounted && _viewModel.warningMessage != null) {
+      final status = _viewModel.lastSaveSyncStatus;
+      if (mounted && status != null && status != SyncStatus.synced) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _l(
-                'Saved on this device. It will back up automatically once you\'re back online.',
-                'تم الحفظ على هذا الجهاز. سيتم النسخ الاحتياطي تلقائياً عند عودة الاتصال.',
-              ),
+              status == SyncStatus.pending
+                  ? _l(
+                      'Saved on this device. It will back up to your account automatically the next time you\'re online.',
+                      'تم الحفظ على هذا الجهاز. سيتم النسخ الاحتياطي إلى حسابك تلقائياً عند عودة الاتصال.',
+                    )
+                  : _l(
+                      'Saved on this device, but could not be backed up to your account. Please try again later.',
+                      'تم الحفظ على هذا الجهاز، لكن تعذر النسخ الاحتياطي إلى حسابك. يُرجى المحاولة لاحقاً.',
+                    ),
             ),
           ),
         );

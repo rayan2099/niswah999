@@ -206,25 +206,57 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Logged independently of the Gemini call below via the service role
-    // (flagged_conversations has no client-facing RLS policy).
+    // Each of the three persistence writes below (audit log, user message,
+    // assistant message) is now independently isolated (PJ-004/OB-004):
+    // previously, a failure in *any one* of them threw uncaught to the
+    // outer handler, aborting the whole request with a raw 500 — silently
+    // losing the user's message, the safety audit-log entry, AND the
+    // Gemini reply (including the safety banner) together, even though
+    // Gemini itself may never even have been called yet. Now, a failure in
+    // any one is logged and the flow continues — the safety banner in
+    // particular must reach the client's screen regardless of whether any
+    // of these three inserts succeeds.
+    let flaggedConversationSaved = true;
     if (urgent) {
-      const serviceClient = createClient(supabaseUrl, serviceRoleKey);
-      await serviceClient.from('flagged_conversations').insert({
-        user_id: userId,
-        thread_id: threadId,
-        message_excerpt: content.slice(0, 500),
-        matched_categories: redFlags,
-      });
+      try {
+        const serviceClient = createClient(supabaseUrl, serviceRoleKey);
+        await serviceClient.from('flagged_conversations').insert({
+          user_id: userId,
+          thread_id: threadId,
+          message_excerpt: content.slice(0, 500),
+          matched_categories: redFlags,
+        });
+      } catch (error) {
+        flaggedConversationSaved = false;
+        // Zero-tolerance signal (per OB remediation plan §4): a failed
+        // safety audit-log write is never allowed to be silent, even
+        // though the conversation itself proceeds.
+        console.error('dr-niswah-chat: flagged_conversations insert failed', {
+          userId,
+          threadId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
-    await userClient.from('chat_messages').insert({
-      thread_id: threadId,
-      user_id: userId,
-      role: 'user',
-      content,
-      metadata: {},
-    });
+    let userMessageSaved = true;
+    try {
+      await userClient.from('chat_messages').insert({
+        thread_id: threadId,
+        user_id: userId,
+        role: 'user',
+        content,
+        metadata: {},
+      });
+    } catch (error) {
+      userMessageSaved = false;
+      console.error('dr-niswah-chat: user chat_messages insert failed', {
+        userId,
+        threadId,
+        urgent,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const pregnancyProfile = await loadPregnancyProfile(userClient, userId);
     const pregnancyStatus = getPregnancyStatus(pregnancyProfile, new Date());
@@ -260,23 +292,57 @@ Deno.serve(async (req) => {
         : URGENT_BANNER_AR
       : reply;
 
-    const { data: savedAssistantMessage } = await userClient
-      .from('chat_messages')
-      .insert({
-        thread_id: threadId,
-        user_id: userId,
-        role: 'assistant',
-        content: finalReply,
-        metadata: { source: 'gemini', urgent },
-      })
-      .select()
-      .single();
+    // The reply — including the safety banner for an urgent message — is
+    // computed and about to be returned to the client regardless of what
+    // happens below. A persistence failure here must not cost the user the
+    // reply she can already see would exist; it costs only whether that
+    // reply is also in her history the next time she opens the app (a
+    // strictly smaller, and separately reported, problem).
+    let assistantMessageId: string | null = null;
+    let assistantMessageSaved = true;
+    try {
+      const { data: savedAssistantMessage } = await userClient
+        .from('chat_messages')
+        .insert({
+          thread_id: threadId,
+          user_id: userId,
+          role: 'assistant',
+          content: finalReply,
+          metadata: { source: 'gemini', urgent },
+        })
+        .select()
+        .single();
+      assistantMessageId = savedAssistantMessage?.id ?? null;
+    } catch (error) {
+      assistantMessageSaved = false;
+      console.error('dr-niswah-chat: assistant chat_messages insert failed', {
+        userId,
+        threadId,
+        urgent,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (urgent && (!flaggedConversationSaved || !userMessageSaved || !assistantMessageSaved)) {
+      // Zero-tolerance signal for the safety-relevant path specifically —
+      // distinct from the per-write console.error calls above, this one
+      // line lets a log-based alert catch "some part of an urgent
+      // exchange didn't fully persist" without needing to correlate three
+      // separate log lines (OB remediation plan §4's zero-tolerance alert).
+      console.error('dr-niswah-chat: urgent exchange partially unpersisted', {
+        userId,
+        threadId,
+        flaggedConversationSaved,
+        userMessageSaved,
+        assistantMessageSaved,
+      });
+    }
 
     return new Response(
       JSON.stringify({
         reply: finalReply,
         urgent,
-        messageId: savedAssistantMessage?.id ?? null,
+        messageId: assistantMessageId,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );

@@ -38,7 +38,13 @@ class CycleTrackingViewModel extends ChangeNotifier {
   );
   bool isLoading = false;
   String? errorMessage;
-  String? warningMessage;
+
+  /// The sync outcome of the most recent [saveLog] call, or `null` before
+  /// any save this session. `null` and [SyncStatus.synced] both mean "no
+  /// warning to show"; `pending`/`failed` distinguish "will retry
+  /// automatically" from "won't" so callers can word an accurate message
+  /// instead of a blanket "backs up automatically" claim.
+  SyncStatus? lastSaveSyncStatus;
 
   String get currentUserId => _currentUserId;
   AppUser? get currentUser => _currentUser;
@@ -102,11 +108,19 @@ class CycleTrackingViewModel extends ChangeNotifier {
     final userId = existingLog?.userId ?? _currentUserId;
     final log = formData.toCycleLog(userId: userId, id: existingLog?.id);
 
-    final synced = await _repository.saveCycleLog(log);
-    warningMessage = synced
-        ? null
-        : 'Saved on this device, but could not be backed up to your account yet. It will sync automatically once you\'re back online.';
+    lastSaveSyncStatus = await _repository.saveCycleLog(log);
     await loadLogs();
+  }
+
+  /// Retries any locally-pending logs against the remote — called from
+  /// app start and app resume (see NiswahHomeShell in main.dart), which is
+  /// what makes the "backs up automatically" promise in [saveLog]'s
+  /// warning actually true rather than aspirational copy.
+  Future<void> retryPendingSync() async {
+    final result = await _repository.syncPendingLogs();
+    if (result.synced > 0) {
+      await loadLogs();
+    }
   }
 
   AuthRepositoryImpl? _safeAuthRepository() {

@@ -694,17 +694,28 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
       );
       if (mounted) {
         final messenger = ScaffoldMessenger.of(context);
-        final syncWarning = widget.viewModel.warningMessage;
+        // Wording depends on the *actual* sync outcome — must not claim
+        // "automatically" for a failure that won't actually retry (see
+        // SyncStatus.failed below).
+        final status = widget.viewModel.lastSaveSyncStatus;
         Navigator.pop(context);
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              syncWarning != null
-                  ? _cl(
-                      'Log saved on this device. It will back up automatically once you\'re back online.',
-                      'تم حفظ السجل على هذا الجهاز. سيتم نسخه احتياطياً تلقائياً عند عودة الاتصال.',
-                    )
-                  : _cl('Log saved.', 'تم حفظ السجل.'),
+              switch (status) {
+                SyncStatus.pending => _cl(
+                  'Log saved on this device. It will back up to your account automatically the next time you\'re online.',
+                  'تم حفظ السجل على هذا الجهاز. سيتم نسخه احتياطياً إلى حسابك تلقائياً عند عودة الاتصال.',
+                ),
+                SyncStatus.failed => _cl(
+                  'Log saved on this device, but could not be backed up to your account. Please try again later.',
+                  'تم حفظ السجل على هذا الجهاز، لكن تعذر نسخه احتياطياً إلى حسابك. يُرجى المحاولة لاحقاً.',
+                ),
+                SyncStatus.synced || null => _cl(
+                  'Log saved.',
+                  'تم حفظ السجل.',
+                ),
+              },
             ),
           ),
         );
