@@ -37,7 +37,7 @@ class PrayerTrackingRepositoryImpl implements PrayerTrackingRepository {
 
     try {
       final response = await client
-          .from('prayer_entries')
+          .from('prayer_log')
           .select()
           .eq('user_id', sessionUser.id)
           .eq('date', date.toIso8601String().substring(0, 10));
@@ -87,7 +87,7 @@ class PrayerTrackingRepositoryImpl implements PrayerTrackingRepository {
     }
 
     try {
-      var query = client.from('prayer_entries').select().eq('user_id', userId);
+      var query = client.from('prayer_log').select().eq('user_id', userId);
       if (from != null) {
         query = query.gte('date', from.toIso8601String().substring(0, 10));
       }
@@ -128,9 +128,21 @@ class PrayerTrackingRepositoryImpl implements PrayerTrackingRepository {
     }
 
     try {
-      final payload = {...entry.toJson(), 'user_id': sessionUser.id};
+      // `prayer_log` (the live table — see W0-001) predates `completed_at`/
+      // `created_at`/`updated_at`; sending them would be rejected as unknown
+      // columns, so the remote payload is built explicitly from the columns
+      // that actually exist, rather than spreading entry.toJson() wholesale.
+      final payload = {
+        'id': entry.id,
+        'user_id': sessionUser.id,
+        'prayer_name': entry.prayerName.name,
+        'date': entry.date.toIso8601String(),
+        'scheduled_time': entry.scheduledTime.toJson(),
+        'status': entry.status.name,
+        'notes': entry.notes,
+      };
 
-      await client.from('prayer_entries').upsert(payload, onConflict: 'id');
+      await client.from('prayer_log').upsert(payload, onConflict: 'id');
     } on PostgrestException catch (error) {
       throw NetworkFailure(error.message);
     }
@@ -145,7 +157,7 @@ class PrayerTrackingRepositoryImpl implements PrayerTrackingRepository {
     }
 
     try {
-      await client.from('prayer_entries').delete().eq('id', id);
+      await client.from('prayer_log').delete().eq('id', id);
     } on PostgrestException catch (error) {
       throw NetworkFailure(error.message);
     }

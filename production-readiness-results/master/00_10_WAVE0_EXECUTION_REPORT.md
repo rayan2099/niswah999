@@ -172,26 +172,108 @@ A **second**, independent, disposable Postgres 15 container was created. The sam
 
 No finding above is marked `VERIFIED_CLOSED` on the strength of a migration file having been drafted — per finding discipline, closure requires the specialist/E2E validation each finding's own remediation plan specifies, which has not yet run for any of these.
 
+### Post-Wave-0 update (Wave 1a work, same session)
+
+Investigating `W0-001`/`W0-002` further to implement fixes revealed they are not equally simple:
+
+- **`W0-001` (prayer tracking): fixed.** `prayer_tracking_repository_impl.dart` now queries `prayer_log` (the live table name) instead of `prayer_entries`, and its upsert payload was trimmed to the columns `prayer_log` actually has (`id`, `user_id`, `prayer_name`, `date`, `scheduled_time`, `status`, `notes`) — the entity's `completed_at`/`created_at`/`updated_at` fields have no live column to persist to and were dropped from the remote payload; sending them would have caused PostgREST to reject the whole write as an unknown-column error. `dart analyze` passes clean. **Not yet deployed or tested against production** — a live round-trip test is still required before this can be marked `VERIFIED_CLOSED`.
+- **`W0-002` (pregnancy tracking): deferred, not fixed.** Further inspection found `pregnancy_records`'s live shape (one row per pregnancy: `lmp_date`, `due_date`, `current_week`, `birth_date`, `nifas_id`, `weekly_notes` jsonb) is structurally incompatible with what `PregnancyMilestone` needs (one row per dated milestone: `week`, `trimester`, `label`, `summary`, `date`) — this is not a naming problem, it's a data-model mismatch. Repointing the table name alone would still fail (e.g. no `date` column to `.order()` by), just with a different, more confusing error, while producing the identical silent local-only fallback either way. A correct fix requires a product decision (add real milestone columns/table live — a schema migration gated on Wave 0 approval — or redesign the feature around `weekly_notes`), so no functional change was made; a documentation-only code comment was added at the point of the bug explaining the mismatch for whoever picks this up next.
+
 ---
 
 ## Output K — Exact Proposed First Live Operation (awaiting separate explicit approval)
 
-**Nothing below has been executed.** This is the complete, specific proposal Wave 0 was scoped to produce.
+**Nothing below has been executed. `supabase migration repair` has not been run.** This section is the final pre-execution review requested by the release owner on 2026-09-04, addressing each of the ten required points in order.
 
-**Step 1 (repo-only, no live effect):** Add a header comment to each of the 12 existing files in `supabase/migrations/` marking them `-- SUPERSEDED — historical, do not replay against a fresh environment; see supabase/canonical_baseline/00_public_baseline_draft.sql` (per `DI-006`'s append-only convention — files are never deleted).
+### K.1 — Exact command(s) proposed
 
-**Step 2 (repo-only, no live effect):** Copy `supabase/canonical_baseline/00_public_baseline_draft.sql` into `supabase/migrations/20260904190000_canonical_baseline.sql` (the file's content requires no further modification — it was authored assuming a real Supabase project's existing `auth`/`extensions` schemas, which is correct for the real target).
-
-**Step 3 (the one live-touching operation, metadata-only):**
 ```
 supabase migration repair --status reverted 20260820174500 20260822014500 20260822210000 20260824115900 20260824120000 20260824130000 20260825120000 20260825130000 20260825210000 20260826090000 20260827120000 20260830140000
 supabase migration repair --status applied 20260904190000
 ```
-- **Exact target:** the live project's `supabase_migrations.schema_migrations` tracking table only.
-- **Exact effect:** marks the 12 original migrations `reverted` (accurately reflecting `migration list`'s finding that they were never actually applied there) and marks the new baseline `applied` (accurately reflecting that live already has every object the baseline describes). **No DDL executes against `public`/`auth`/any schema.** This does not create, alter, or drop a single table, column, policy, or function.
-- **Why required:** without this, `supabase/migrations/` and the live project's own ledger remain permanently out of sync, and any future `supabase db push`/`migration up` would attempt to blindly replay the 12 broken originals against a database that already has their intended end-state, very likely erroring or worse.
-- **Rollback:** `supabase migration repair --status reverted 20260904190000` restores the ledger to its pre-repair state. Zero schema risk either direction — no DDL was ever run against live in Wave 0.
-- **Evidence this is safe to run once approved:** Outputs F and H — the exact same baseline content applied cleanly from empty twice, in two independent isolated environments, with full behavioral validation passing.
-- **Outstanding prerequisite per plan §1's blanket rule:** `BR-001`'s platform PITR/backup gap is still open. This command is metadata-only and carries effectively zero schema risk even so — but per the plan's own stated rule, it should not be executed until the release owner has either enabled PITR/backup or explicitly, knowingly accepted that residual risk for this specific low-risk operation.
 
-**Awaiting explicit approval before Step 1, 2, or 3 is executed.**
+Two invocations of one command. Nothing else is proposed to run against the live project at this time.
+
+### K.2 — Exact migration versions/timestamps affected
+
+**Marked `reverted` (12):** `20260820174500`, `20260822014500`, `20260822210000`, `20260824115900`, `20260824120000`, `20260824130000`, `20260825120000`, `20260825130000`, `20260825210000`, `20260826090000`, `20260827120000`, `20260830140000` — every migration file currently in `supabase/migrations/`, no more, no fewer.
+
+**Marked `applied` (1):** `20260904190000` — a version number that does **not yet exist** as a file. It becomes real only if Step 2 below (copying the canonical baseline into `supabase/migrations/20260904190000_canonical_baseline.sql`) is separately approved and carried out first. **The repair command cannot correctly run before that file exists** — `supabase migration repair` operates against the CLI's local reading of `supabase/migrations/`, so it needs a local file at that version to attach the `applied` status to.
+
+### K.3 — Current local vs. remote ledger state
+
+Confirmed via `supabase migration list --linked`, independently, on two separate occasions this session (Phase 0, and again at the start of Wave 0) — both returned an identical result:
+
+| Local version | Remote status |
+|---|---|
+| `20260820174500` | *(empty — not applied)* |
+| `20260822014500` | *(empty)* |
+| `20260822210000` | *(empty)* |
+| `20260824115900` | *(empty)* |
+| `20260824120000` | *(empty)* |
+| `20260824130000` | *(empty)* |
+| `20260825120000` | *(empty)* |
+| `20260825130000` | *(empty)* |
+| `20260825210000` | *(empty)* |
+| `20260826090000` | *(empty)* |
+| `20260827120000` | *(empty)* |
+| `20260830140000` | *(empty)* |
+
+All 12 local migrations show a populated local timestamp and an **empty remote field** — none are recorded as applied via Supabase's tracked mechanism. A third re-confirmation was attempted for this review and is running slowly (the same CLI intermittently hangs under load, as documented earlier in this report); it will be noted here if it returns a different result before execution, but there is no reason to expect a change, since nothing has touched the ledger since the last two confirmations.
+
+### K.4 — What each command changes
+
+- `--status reverted` on the 12 versions: writes rows into (or updates existing rows in) the live project's `supabase_migrations.schema_migrations` tracking table recording those versions as **not applied**. This is not a new claim — it is Supabase's own ledger being corrected to match what `migration list` already independently shows.
+- `--status applied` on `20260904190000`: writes one row into the same tracking table recording that version as applied. It is accurate to do so because the corresponding file's content (Output D's baseline) has been proven, twice, to reproduce exactly what already exists live (Outputs F, H) — the ledger entry describes reality, it does not change reality.
+
+### K.5 — Confirmation: metadata-only, no migration SQL executes
+
+Confirmed. `supabase migration repair` writes only to `supabase_migrations.schema_migrations`. It does not open a transaction against `public`, `auth`, or any other schema, and does not read or execute the SQL body of any migration file. This is a documented property of the command itself (its purpose is explicitly to let the ledger be corrected without replaying DDL) — not an assumption. Nothing in `public`/`auth` is created, altered, dropped, or read by this operation.
+
+### K.6 — Why each migration should be marked applied/reverted
+
+- **The 12 originals → `reverted`:** because they were never applied through the tracked mechanism (K.3), marking them `reverted` is simply recording the truth. Leaving them silently absent from the ledger (their current state) rather than explicitly `reverted` risks a future `supabase db push` attempting to apply them for the first time — which would fail outright (Output F's own rebuild attempt using the *original* migration sequence, before the baseline was drafted, hit exactly this failure during Phase 0: `relation "public.prayer_log" does not exist`).
+- **The new baseline → `applied`:** because Outputs F and H demonstrate, twice, in independent isolated environments, that its content exactly matches live's actual state. Marking it anything other than `applied` (i.e., leaving it unmarked) would mean a future `supabase db push` attempts to run its DDL against live — which would then fail loudly on the very first `CREATE TABLE` (by design, per the deterministic-baseline principle) because every object it creates already exists.
+
+### K.7 — Expected `supabase migration list --linked` output afterward
+
+```json
+{"migrations":[
+  {"local":"20260820174500","remote":"20260820174500 (reverted)", ...},
+  {"local":"20260822014500","remote":"20260822014500 (reverted)", ...},
+  {"local":"20260822210000","remote":"20260822210000 (reverted)", ...},
+  {"local":"20260824115900","remote":"20260824115900 (reverted)", ...},
+  {"local":"20260824120000","remote":"20260824120000 (reverted)", ...},
+  {"local":"20260824130000","remote":"20260824130000 (reverted)", ...},
+  {"local":"20260825120000","remote":"20260825120000 (reverted)", ...},
+  {"local":"20260825130000","remote":"20260825130000 (reverted)", ...},
+  {"local":"20260825210000","remote":"20260825210000 (reverted)", ...},
+  {"local":"20260826090000","remote":"20260826090000 (reverted)", ...},
+  {"local":"20260827120000","remote":"20260827120000 (reverted)", ...},
+  {"local":"20260830140000","remote":"20260830140000 (reverted)", ...},
+  {"local":"20260904190000","remote":"20260904190000", ...}
+]}
+```
+(Exact JSON field naming for a `reverted` marker should be confirmed against the installed CLI's actual output format at execution time — the table above expresses the intended semantic state, not a guaranteed literal string.) The key verifiable property: every local version has a **non-empty** remote entry, and the new baseline version shows `local == remote` with no `(reverted)` qualifier, indicating it is the one considered currently applied.
+
+### K.8 — Rollback / recovery if the ledger state becomes incorrect
+
+- To undo the new entry only: `supabase migration repair --status reverted 20260904190000`.
+- To undo the 12 reversions (restore them to unmarked/empty, matching today's actual state): `supabase migration repair --status applied` is **not** the correct inverse (it would falsely claim they ran) — the correct rollback is to leave them `reverted` (an accurate historical record that they exist as files but were never applied) rather than attempt to un-revert them. If a mistake is made in *which* versions were marked, the fix is simply re-running `migration repair` with the corrected version list — the command is idempotent per-version and safe to re-run.
+- At every point, this is a ledger-only correction. There is no scenario in this operation where production `public`/`auth` schema, data, RLS, functions, or triggers are at risk, because no DDL is ever executed by `migration repair` (K.5).
+
+### K.9 — Confirmation that prerequisite tests already passed
+
+Confirmed, all in `00_10` above:
+- **Canonical baseline** (Output D): drafted, deterministic, not yet deployed.
+- **Clean rebuild** (Output F): exit 0 against a truly empty database; zero material difference in application-owned schema (24/24 tables, 8/8 functions, RLS 24/24, all name-identical to live).
+- **Restore test** (Output H): the same baseline applied cleanly a second time in a fully independent isolated environment; representative signup, write, and FK-resolution behavior all correct.
+- **Behavioral validation** (Output G): A–F all passed with concrete query-level evidence; G/H were scoped honestly to DB/connectivity-level validation only, not full mobile-app UI E2E.
+
+### K.10 — Impact of `W0-001`/`W0-002` on the proposed repair
+
+**None on the repair itself.** `W0-001` (prayer tracking queries `prayer_entries`, live has `prayer_log`) and `W0-002` (pregnancy tracking queries `pregnancy_milestones`, live has `pregnancy_records`) are **application-code** defects — the app queries the wrong name. The canonical baseline was deliberately drafted to preserve both tables under their **live** names, unchanged (per plan §4.7: "capture reality first, improve it later, deliberately") — so the baseline is not incorrect with respect to these two findings, and the repair does not need to wait for them to be fixed. Conversely, **fixing `W0-001`/`W0-002` does not require this repair to happen first** — the code-side fix (pointing the Dart repositories at the correct existing live table names) is fully independent and is proceeding now as authorized Wave 1 work (§ below), with no live database mutation involved.
+
+---
+
+**Awaiting explicit approval before Step 1 (mark the 12 originals superseded), Step 2 (add the baseline as a real migration file), or Step 3 (the `migration repair` command above) is executed.**

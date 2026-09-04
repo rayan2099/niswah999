@@ -15,6 +15,19 @@ class PregnancyTrackingRepositoryImpl implements PregnancyTrackingRepository {
   final LocalPregnancyTrackingDataSource _localDataSource;
   final SupabaseClient? _supabaseClient;
 
+  // NOT a simple rename: production has no `pregnancy_milestones` table.
+  // The live `pregnancy_records` table exists under a different, incompatible
+  // shape — one row per pregnancy (lmp_date, due_date, current_week,
+  // birth_date, nifas_id, weekly_notes jsonb) — not one row per dated
+  // milestone (week, trimester, label, summary, date) the way this repository
+  // needs. Repointing `_tableName` at `pregnancy_records` would still fail
+  // (e.g. `.order('date', ...)` below has no matching column there), just
+  // with a different, more confusing error, and both paths currently
+  // fall back to local-only data identically. A real fix requires a product
+  // decision — either add proper milestone columns/table live (a schema
+  // migration, gated on Wave 0 approval per W0-002) or redesign this
+  // feature to persist milestones inside `pregnancy_records.weekly_notes`.
+  // See W0-002 / 00_10_WAVE0_EXECUTION_REPORT.md.
   static const String _tableName = 'pregnancy_milestones';
 
   @override

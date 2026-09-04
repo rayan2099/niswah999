@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'core/auth/auth_controller.dart';
 import 'core/config/app_environment.dart';
+import 'core/errors/app_error_reporter.dart';
 import 'core/localization/app_locale_controller.dart';
 import 'core/network/supabase_client.dart';
 import 'core/preferences/marital_status_controller.dart';
@@ -32,17 +34,47 @@ import 'features/onboarding/presentation/screens/onboarding_screen.dart';
 const bool kDebugSkipSignup = false;
 
 Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Widget-build-time errors and platform-level async errors don't pass
+  // through the zone guard below — without these two hooks they fall
+  // through to Flutter's default handling with no team-visible signal at
+  // all (the exact gap RR-002/OB-002 identified). Both route through the
+  // same funnel as the zone guard's handler.
+  FlutterError.onError = (details) {
+    AppErrorReporter.report(
+      details.exception,
+      details.stack,
+      context: 'FlutterError',
+    );
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    AppErrorReporter.report(error, stack, context: 'PlatformDispatcher');
+    return true;
+  };
+
+  // Config loading is startup-critical: if it fails, the app must show a
+  // visible error, not hang indefinitely on the native splash screen (the
+  // failure mode DC-004 identified). This is deliberately outside
+  // runZonedGuarded below, which exists for a different purpose — see its
+  // own comment.
+  try {
+    await dotenv.load();
+    await AppEnvironment.load();
+  } catch (error, stack) {
+    AppErrorReporter.report(error, stack, context: 'startup config load');
+    runApp(_StartupErrorApp(error: error));
+    return;
+  }
+
   // A deep link with a stale/reused/invalid Supabase auth code (e.g. a
   // confirmation link opened twice) throws an uncaught AuthApiException
   // from inside supabase_flutter's own internal deeplink handling — this
-  // guard keeps that from taking down the whole app.
+  // guard keeps that from taking down the whole app. Errors caught here
+  // (and anything else uncaught in an async gap during the app's lifetime)
+  // are reported, not silently discarded.
   runZonedGuarded(
     () async {
-      WidgetsFlutterBinding.ensureInitialized();
-
-      await dotenv.load();
-
-      await AppEnvironment.load();
       await NiswahSupabase.initialize();
       AuthController.instance.init();
       await AppLocaleController.instance.load();
@@ -56,9 +88,51 @@ Future<void> main() async {
       runApp(const NiswahApp());
     },
     (error, stack) {
-      debugPrint('Unhandled error: $error\n$stack');
+      AppErrorReporter.report(error, stack, context: 'runZonedGuarded');
     },
   );
+}
+
+/// Shown only when startup-critical config fails to load — replaces an
+/// indefinite native-splash hang with a visible, minimal error state.
+class _StartupErrorApp extends StatelessWidget {
+  const _StartupErrorApp({required this.error});
+
+  final Object error;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, size: 48),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Niswah could not start.',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '$error',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class NiswahApp extends StatelessWidget {
