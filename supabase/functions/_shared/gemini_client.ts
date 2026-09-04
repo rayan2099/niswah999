@@ -79,12 +79,20 @@ export async function callGemini(options: GeminiCallOptions): Promise<GeminiCall
       }
 
       const decoded = await response.json();
-      const blocks: Array<{ text?: string; annotations?: unknown[] }> = [
-        ...(decoded.steps ?? []),
-        ...(decoded.outputs ?? []),
-      ]
-        .filter((step: { type?: string }) => step.type === 'model_output')
-        .flatMap((step: { content?: unknown[] }) => step.content ?? []);
+      // Gemini's response shape isn't a typed contract we own — parsed
+      // defensively (every field access below tolerates absence) rather
+      // than assuming TypeScript can verify an external API's JSON shape.
+      const blocks = (
+        [...(decoded.steps ?? []), ...(decoded.outputs ?? [])] as Array<{
+          type?: string;
+          content?: unknown[];
+        }>
+      )
+        .filter((step) => step.type === 'model_output')
+        .flatMap((step) => step.content ?? []) as Array<{
+        text?: string;
+        annotations?: unknown[];
+      }>;
 
       const text = blocks
         .map((block) => block.text ?? '')

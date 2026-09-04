@@ -9,6 +9,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { callGemini } from '../_shared/gemini_client.ts';
+import { AI_ENDPOINT_RATE_LIMIT, checkRateLimit, rateLimitedResponse } from '../_shared/rate_limit.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -75,6 +76,14 @@ Deno.serve(async (req) => {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    const rateLimit = checkRateLimit(
+      `fiqh-advisor-chat:${userData.user.id}`,
+      AI_ENDPOINT_RATE_LIMIT,
+    );
+    if (!rateLimit.allowed) {
+      return rateLimitedResponse(rateLimit.retryAfterSeconds!, corsHeaders);
     }
 
     const { question, madhhab } = await req.json();

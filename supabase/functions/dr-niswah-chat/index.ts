@@ -11,6 +11,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getPregnancyStatus, PregnancyProfileRow, PregnancyStatus } from './pregnancy_status.ts';
 import { callGemini } from '../_shared/gemini_client.ts';
+import { AI_ENDPOINT_RATE_LIMIT, checkRateLimit, rateLimitedResponse } from '../_shared/rate_limit.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -192,6 +193,18 @@ Deno.serve(async (req) => {
 
     const redFlags = detectRedFlags(content);
     const urgent = redFlags.length > 0;
+
+    // A red-flag safety message must never be blocked by abuse controls —
+    // the rate limit applies only to non-urgent traffic (closes AB-008).
+    if (!urgent) {
+      const rateLimit = checkRateLimit(
+        `dr-niswah-chat:${userId}`,
+        AI_ENDPOINT_RATE_LIMIT,
+      );
+      if (!rateLimit.allowed) {
+        return rateLimitedResponse(rateLimit.retryAfterSeconds!, corsHeaders);
+      }
+    }
 
     // Logged independently of the Gemini call below via the service role
     // (flagged_conversations has no client-facing RLS policy).

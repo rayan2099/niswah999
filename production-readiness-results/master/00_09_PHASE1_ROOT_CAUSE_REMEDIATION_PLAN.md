@@ -244,3 +244,83 @@ Per the charter: this plan does not implement any fix, does not touch the live d
 - Steps 1–4 above are all outstanding, owner-gated actions; until they're done, the new functions exist only in the repository and provide no production benefit yet.
 
 **Not attempted:** any other remediation group (Wave 1's remaining items, observability, release engineering, privacy, accessibility) — stopped here per instruction.
+
+---
+
+## 10. Operational Closure Checkpoint — Gemini Trust-Boundary (2026-09-04)
+
+Executed per explicit release-owner authorization, in five phases. **No database schema, RLS, function, trigger, or migration change was made at any point.** One disposable synthetic Auth account was created (manually, by the release owner, in the Supabase Dashboard, per their explicit instruction) solely for authenticated runtime testing, and fully deleted afterward via `delete_my_account()` — verified with zero residue.
+
+### Phase A — Deployment readiness review
+- Functions requiring deployment: `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat` (new) + `dr-niswah-chat` (code changed — now uses `_shared/gemini_client.ts`, gained a timeout, closes `AB-004`).
+- Confirmed via `grep -rn "functions.invoke" lib/`: exactly 4 call sites, one per AI feature — no direct-Gemini client path remains.
+- Confirmed via exhaustive `lib/` search: zero `GEMINI_API_KEY` references, zero old-endpoint references, zero references to the deleted `gemini_service.dart`/`dr_niswah_persona.dart`, zero client-side HTTP-to-Google fallback paths.
+- Secret name confirmed exactly `GEMINI_API_KEY` (`Deno.env.get('GEMINI_API_KEY')` in `_shared/gemini_client.ts`). Value never printed at any point in this checkpoint.
+
+### Phase B — Abuse/rate controls
+Implemented `_shared/rate_limit.ts`: an in-memory, sliding-window limiter (15 requests / 5 minutes) keyed on the JWT-derived, server-authenticated `user.id` (never a client-supplied value), wired into all four functions. `dr-niswah-chat` explicitly **exempts red-flag/urgent messages** from the limit — a safety message must never be blocked by an abuse control. No database table was created; a DB-backed limiter was explicitly identified as the "durable" alternative but not implemented, per the no-schema-mutation constraint.
+
+**Result, tested live in Phase C: the in-memory approach does not work in production** — see `W1-001`. It remains deployed (harmless — fails open, never blocks legitimate traffic) but provides no real protection today.
+
+### Phase C — Deploy and runtime-validate
+Deployed via `supabase functions deploy dr-niswah-chat fiqh-advisor-chat dream-interpreter-chat ai-assistant-chat` — succeeded, all 4 functions live. `GEMINI_API_KEY` set via `supabase secrets set --env-file` (value never printed; confirmed present by name via `supabase secrets list`, which itself only ever shows an opaque hash, never plaintext).
+
+Runtime tests, all against the live deployed functions:
+
+| Test | Result |
+|---|---|
+| Unauthenticated (missing header) — all 4 functions | ✅ `401 UNAUTHORIZED_NO_AUTH_HEADER` (platform gateway, before function code even runs) |
+| Invalid/garbage bearer token — all 4 functions | ✅ `401 UNAUTHORIZED_INVALID_JWT_FORMAT` |
+| Malformed payload w/ valid auth (missing field, oversized content, invalid enum) | ✅ `400` with a clean, specific error message, no internal detail |
+| Valid authenticated request — `ai-assistant-chat` | ✅ `200`, real Gemini reply |
+| Valid authenticated request — `dream-interpreter-chat` | ✅ `200`, real, contextually-correct reply (followed its system prompt's "ask clarifying questions" rule) |
+| Valid authenticated request — `dr-niswah-chat`, non-urgent | ✅ `200`, real Arabic reply, `urgent:false`, persisted `messageId` |
+| Valid authenticated request — `dr-niswah-chat`, **red-flag/urgent** | ✅ `200`, `urgent:true`, correct safety banner prepended, persisted `messageId` — the safety-critical path works end-to-end in production |
+| Gemini upstream error (real, not simulated) — `fiqh-advisor-chat` | ✅ Google Search quota `429` occurred naturally; function caught it and returned the designed graceful fallback text with `citations:[]`, `200` to the client, zero leaked internal detail |
+| Gemini timeout | Not independently forced against production (no reliable way to make Google's live API hang on demand); the `AbortController` mechanism itself was proven to fire correctly in the earlier local Deno smoke test |
+| Rate-limit behavior | ❌ **Did not trigger** — 28 requests (15 sequential + 10 concurrent) against `ai-assistant-chat`, well past the 15/5min bound, zero `429`s. See `W1-001` |
+| No sensitive info leaked in any error response | ✅ Confirmed across all tests above — no stack traces, no key material, no internal identifiers |
+
+Test data cleanup: `delete_my_account()` called as the synthetic user → `204`. Verified after: `chat_threads`/`chat_messages`/`public.users`/`public.profiles` all return empty for that user id; a subsequent sign-in attempt with the same credentials returns `invalid_credentials`, confirming the `auth.users` row itself is gone. Nothing remains.
+
+**Fiqh Advisor Search-grounding classification:** **B — DEGRADED.** The feature is not silently falling back to an ungrounded answer — it explicitly tells the user sources couldn't be reached and declines to give an unsourced ruling (matching the product's own safety design: no citations, no definitive ruling). This is graceful degradation, not silent failure. **Owner action required:** the Google Cloud quota/billing condition on the Search-grounding tool must be resolved (check quota/plan at the link in the raw API error: `https://ai.google.dev/gemini-api/docs/rate-limits`) before this feature can reach state A (READY).
+
+### Phase D — Credential rotation plan
+
+**Correction to the initial premise:** the key was **never committed to this repository's git history** — `.env` has been gitignored since the first commit (verified via `git log --all -S<key-fragment>` and `git log --all -- .env`, both empty). Its real, confirmed exposure vector is the compiled Flutter **asset bundle** (`pubspec.yaml`'s `assets: - .env`), which any built app package — debug or release — would contain.
+
+Evidence bearing on which rotation path applies: the original audit's `RD-001`/`RD` findings independently establish no CI/CD pipeline, no store listing, and a debug-signed (never legitimately released) Android build — i.e., no evidence any build was ever distributed outside the original developer's own machine. This strongly suggests the "no active users" path applies, but it is a fact only the release owner can fully confirm (a build could have been manually side-loaded to a tester before this audit began, which repo evidence alone cannot rule out).
+
+**Recommended plan (pending owner confirmation of the above):**
+1. Confirm with the release owner: has any build (debug or release, any channel) of this app ever been installed on a device other than the development machine?
+2. If no: create/use the new server-only key is already done (the current key now lives only as an Edge Function secret, confirmed working end-to-end in Phase C); **revoke the old key promptly** in Google Cloud Console. Since the Edge Functions now hold the same key value as a secret, this specific key doesn't need to change for the server to keep working — but the *distribution* channel (client asset bundling) it was exposed through has been closed, and if any local backup/copy of the old `.env` exists outside this repo, it should be treated as compromised and rotated to a fresh value if the owner wants a clean break.
+3. If yes (any past distribution): identify affected build(s), decide whether those installs still call Gemini directly (they would, since old client code called Google directly with the embedded key) — revoking the key immediately would break AI features in any such install with no fallback, since old clients don't know about the new Edge Functions. A safest-cutover approach would be: rotate to a genuinely new key value, update the Edge Function secret to the new value, then revoke the *old* value only after confirming (however possible) that no old build is still active.
+4. Either way: **this remediation does not perform Google Cloud key revocation/rotation itself** — no access to that console exists in this environment. This is an explicit, outstanding owner action.
+
+### Phase E — Release-build secret verification
+
+A full signed release APK could not be produced — `flutter build apk --release` failed at Android's native packaging stage (`:app:checkReleaseAarMetadata`: `flutter_local_notifications` requires core library desugaring, which is not enabled in `android/app/build.gradle.kts`). **This is a pre-existing, unrelated release-engineering gap** (Wave 4 / `RD`/`DC` territory), not something introduced by or in scope for this remediation.
+
+However, Flutter's own **release-mode** asset-bundling stage completed successfully before that unrelated failure, producing a real release-configuration compiled asset bundle at `build/app/intermediates/flutter/release/flutter_assets/.env`. Inspected directly:
+- Contains only `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `APP_ENV`, and the explanatory comment noting `GEMINI_API_KEY` is intentionally absent.
+- `grep -rln "<old key value>" build/app/intermediates/flutter/release/` — zero matches anywhere in the release build tree.
+- This is the exact mechanism `SEC-001`/`ROOT-002` were about — verified directly, not inferred.
+
+**Per the explicit instruction, `SEC-001` and `ROOT-002` remain NOT VERIFIED_CLOSED** — two of three conditions are met (deployed-and-validated Edge Function path; client-artifact verification), the third (actual key rotation/revocation) is outstanding and owner-gated.
+
+---
+
+## 11. Checkpoint Summary
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Deployed functions | `dr-niswah-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat` — all 4, confirmed live |
+| 2 | Runtime tests | 401/400/200 paths, red-flag safety path, and a real Gemini upstream error all passed; rate-limit test failed (see `W1-001`); timeout not independently forced against prod (mechanism proven locally) |
+| 3 | `AB-002` rate-control status | Implemented, deployed, **proven ineffective** in production (`W1-001`); DB-backed limiter proposed, not implemented |
+| 4 | Fiqh Search-grounding status | **B — DEGRADED**: fails safely with a clear message, no silent ungrounded fallback; blocked on a Google Cloud quota/billing condition, an owner action |
+| 5 | Key-rotation status | Not performed (no Google Cloud access in this environment); plan documented above, pending owner confirmation of build-distribution history |
+| 6 | Compiled-client secret verification | Confirmed absent from the real release-mode asset bundle; full signed APK blocked by an unrelated, pre-existing Android Gradle gap |
+| 7 | Findings `VERIFIED_CLOSED` this checkpoint | None of `SEC-001`/`ROOT-002` (explicitly withheld pending rotation, per instruction) |
+| 8 | Remaining owner actions | (a) Rotate/revoke the Google Gemini API key; (b) resolve the Search-grounding quota/billing condition; (c) fix the Android desugaring gap to unblock a real signed release build (separate, Wave 4 item) |
+
+**Not started:** any other remediation root cause. Stopping here for review, as instructed.
