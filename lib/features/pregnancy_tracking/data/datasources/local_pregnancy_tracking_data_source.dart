@@ -1,37 +1,39 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
+import '../../../../core/storage/secure_local_store.dart';
 import '../../domain/entities/pregnancy_milestone.dart';
 
 class LocalPregnancyTrackingDataSource {
-  LocalPregnancyTrackingDataSource({this._preferences});
+  static const String _category = 'pregnancy_tracking_milestones';
+  static const String _legacyCacheKey = 'niswah_pregnancy_tracking_milestones';
 
-  static const String _cacheKey = 'niswah_pregnancy_tracking_milestones';
-
-  final SharedPreferences? _preferences;
-
-  Future<SharedPreferences> _getPrefs() async {
-    return _preferences ?? await SharedPreferences.getInstance();
+  static bool _isValidMilestonesJson(String json) {
+    try {
+      return jsonDecode(json) is List;
+    } catch (_) {
+      return false;
+    }
   }
 
-  Future<List<PregnancyMilestone>> loadMilestones() async {
-    final prefs = await _getPrefs();
-    final raw = prefs.getString(_cacheKey);
-    if (raw == null || raw.isEmpty) {
-      return const [];
-    }
+  // Not cached across calls — see LocalCycleTrackingDataSource for why.
+  Future<void> _ensureMigrated() => SecureLocalStore.migrateLegacyIfNeeded(
+    legacyKey: _legacyCacheKey,
+    category: _category,
+    isValid: _isValidMilestonesJson,
+  );
 
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded
-        .map(
-          (item) => PregnancyMilestone.fromJson(item as Map<String, dynamic>),
-        )
-        .toList();
+  Future<List<PregnancyMilestone>> loadMilestones() async {
+    await _ensureMigrated();
+    final raw = await SecureLocalStore.read(_category);
+    return SecureLocalStore.decodeJsonListSafely(
+      raw: raw,
+      category: _category,
+      fromJson: PregnancyMilestone.fromJson,
+    );
   }
 
   Future<void> upsert(PregnancyMilestone milestone) async {
-    final prefs = await _getPrefs();
+    await _ensureMigrated();
     final existing = await loadMilestones();
     final updates = <String, PregnancyMilestone>{};
     for (final item in existing) {
@@ -39,20 +41,27 @@ class LocalPregnancyTrackingDataSource {
     }
     updates[milestone.id] = milestone;
 
-    await prefs.setString(
-      _cacheKey,
+    await SecureLocalStore.write(
+      _category,
       jsonEncode(updates.values.map((item) => item.toJson()).toList()),
     );
   }
 
   Future<void> delete(String id) async {
-    final prefs = await _getPrefs();
+    await _ensureMigrated();
     final existing = await loadMilestones();
     final remaining = existing.where((item) => item.id != id).toList();
 
-    await prefs.setString(
-      _cacheKey,
+    await SecureLocalStore.write(
+      _category,
       jsonEncode(remaining.map((item) => item.toJson()).toList()),
     );
   }
+
+  /// Removes this user's pregnancy milestone data — used by account-deletion
+  /// local cleanup (Phase F). Takes [userId] explicitly rather than relying
+  /// on the current session, since cleanup runs after the server-side
+  /// deletion has already invalidated it.
+  static Future<void> clearForUser(String userId) =>
+      SecureLocalStore.clearForUser(_category, userId);
 }

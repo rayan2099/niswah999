@@ -15,6 +15,7 @@ import 'core/preferences/madhhab_controller.dart';
 import 'core/preferences/notification_log_controller.dart';
 import 'core/preferences/prayer_location_controller.dart';
 import 'core/services/notification_service.dart';
+import 'core/storage/local_sensitive_data_cleanup.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
 import 'core/widgets/floating_nav_bar.dart';
@@ -135,6 +136,11 @@ Future<void> _runApp() async {
     () async {
       await NiswahSupabase.initialize();
       AuthController.instance.init();
+      // Best-effort retry of any account-deletion local cleanup that
+      // didn't fully complete on a prior run — not startup-critical, so
+      // deliberately not awaited; failures are reported internally via
+      // AppErrorReporter rather than surfaced here.
+      unawaited(retryPendingLocalSensitiveDataCleanups());
       await AppLocaleController.instance.load();
       await AppThemeController.instance.load();
       await MaritalStatusController.instance.load();

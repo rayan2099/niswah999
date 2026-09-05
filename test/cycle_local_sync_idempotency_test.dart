@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:niswah/features/cycle_tracking/data/datasources/local_cycle_tracking_data_source.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/cycle_log.dart';
 
+import 'support/secure_storage_test_support.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -12,6 +14,7 @@ void main() {
     () {
       setUp(() {
         SharedPreferences.setMockInitialValues({});
+        resetSecureLocalStoreForTest();
       });
 
       test(

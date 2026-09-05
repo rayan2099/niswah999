@@ -1,31 +1,35 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
+import '../../../../core/storage/secure_local_store.dart';
 import '../../domain/entities/prayer_entry.dart';
 
 class LocalPrayerTrackingDataSource {
-  LocalPrayerTrackingDataSource({this._preferences});
+  static const String _category = 'prayer_tracking_logs';
+  static const String _legacyCacheKey = 'niswah_prayer_tracking_logs';
 
-  static const String _cacheKey = 'niswah_prayer_tracking_logs';
-
-  final SharedPreferences? _preferences;
-
-  Future<SharedPreferences> _getPrefs() async {
-    return _preferences ?? await SharedPreferences.getInstance();
+  static bool _isValidLogsJson(String json) {
+    try {
+      return jsonDecode(json) is List;
+    } catch (_) {
+      return false;
+    }
   }
 
-  Future<List<PrayerEntry>> loadLogs() async {
-    final prefs = await _getPrefs();
-    final raw = prefs.getString(_cacheKey);
-    if (raw == null || raw.isEmpty) {
-      return const [];
-    }
+  // Not cached across calls — see LocalCycleTrackingDataSource for why.
+  Future<void> _ensureMigrated() => SecureLocalStore.migrateLegacyIfNeeded(
+    legacyKey: _legacyCacheKey,
+    category: _category,
+    isValid: _isValidLogsJson,
+  );
 
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded
-        .map((item) => PrayerEntry.fromJson(item as Map<String, dynamic>))
-        .toList();
+  Future<List<PrayerEntry>> loadLogs() async {
+    await _ensureMigrated();
+    final raw = await SecureLocalStore.read(_category);
+    return SecureLocalStore.decodeJsonListSafely(
+      raw: raw,
+      category: _category,
+      fromJson: PrayerEntry.fromJson,
+    );
   }
 
   Future<List<PrayerEntry>> loadLogsForDate(
@@ -48,7 +52,7 @@ class LocalPrayerTrackingDataSource {
   }
 
   Future<void> upsert(PrayerEntry entry) async {
-    final prefs = await _getPrefs();
+    await _ensureMigrated();
     final existing = await loadLogs();
     final updates = <String, PrayerEntry>{};
     for (final item in existing) {
@@ -56,20 +60,27 @@ class LocalPrayerTrackingDataSource {
     }
     updates[entry.id] = entry;
 
-    await prefs.setString(
-      _cacheKey,
+    await SecureLocalStore.write(
+      _category,
       jsonEncode(updates.values.map((item) => item.toJson()).toList()),
     );
   }
 
   Future<void> delete(String id) async {
-    final prefs = await _getPrefs();
+    await _ensureMigrated();
     final existing = await loadLogs();
     final remaining = existing.where((entry) => entry.id != id).toList();
 
-    await prefs.setString(
-      _cacheKey,
+    await SecureLocalStore.write(
+      _category,
       jsonEncode(remaining.map((item) => item.toJson()).toList()),
     );
   }
+
+  /// Removes this user's prayer data — used by account-deletion local
+  /// cleanup (Phase F). Takes [userId] explicitly rather than relying on
+  /// the current session, since cleanup runs after the server-side
+  /// deletion has already invalidated it.
+  static Future<void> clearForUser(String userId) =>
+      SecureLocalStore.clearForUser(_category, userId);
 }

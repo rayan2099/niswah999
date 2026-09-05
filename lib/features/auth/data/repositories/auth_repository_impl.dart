@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/storage/local_sensitive_data_cleanup.dart';
 import '../models/user_profile.dart';
 import '../../domain/entities/app_user.dart';
 import '../../domain/repositories/auth_repository.dart';
@@ -320,14 +321,25 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> deleteAccount() async {
-    if (_client.auth.currentUser == null) {
+    final sessionUser = _client.auth.currentUser;
+    if (sessionUser == null) {
       throw const AuthFailure('You must be signed in to delete your account.');
     }
+    final deletedUserId = sessionUser.id;
+
     try {
       await _client.rpc('delete_my_account');
     } on PostgrestException catch (error) {
       throw AuthFailure(error.message);
     }
+
+    // Remote deletion succeeded. Remove this user's locally-cached
+    // sensitive data (cycle/prayer/pregnancy) before clearing the session —
+    // best-effort per category: a failure here is reported, not thrown, and
+    // must not block sign-out or make the app claim the deletion itself
+    // failed. Any category that fails is retried on the next app start
+    // (see `retryPendingLocalSensitiveDataCleanups` in main.dart).
+    await cleanUpLocalSensitiveDataForDeletedAccount(deletedUserId);
 
     // The RPC deletes `auth.users` server-side — it does not by itself
     // invalidate this client's locally-cached session/tokens or fire

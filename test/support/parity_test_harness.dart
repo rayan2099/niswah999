@@ -6,6 +6,8 @@ import 'package:niswah/core/utils/app_clock.dart';
 import 'package:niswah/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'secure_storage_test_support.dart';
+
 class ParityTestHarness {
   static bool _fontsLoaded = false;
 
@@ -24,6 +26,15 @@ class ParityTestHarness {
       'niswah_arabic': arabic,
       ...extraPrefs,
     });
+    // Reset at the same granularity as SharedPreferences above — several
+    // parity test files call ParityTestHarness.pump() multiple times per
+    // file, seeding different cycle/prayer fixtures each time. Without
+    // this, secure storage from an earlier call in the same file persists
+    // (flutter_test_config.dart only resets it once per *file*), so a
+    // later call's freshly-seeded legacy SharedPreferences data gets
+    // silently ignored — migration sees secure storage already populated
+    // from the earlier call and short-circuits as "already migrated."
+    resetSecureLocalStoreForTest();
     await AppLocaleController.instance.load();
     await MaritalStatusController.instance.load();
     await tester.binding.setSurfaceSize(size);

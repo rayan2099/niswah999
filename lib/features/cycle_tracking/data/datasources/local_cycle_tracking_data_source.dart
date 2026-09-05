@@ -1,24 +1,42 @@
 import 'dart:convert';
 
 import 'package:collection/collection.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/storage/secure_local_store.dart';
 import '../../domain/entities/cycle_log.dart';
 
 class LocalCycleTrackingDataSource {
-  static const _cacheKey = 'niswah_cycle_tracking_logs';
+  static const _category = 'cycle_tracking_logs';
+  static const _legacyCacheKey = 'niswah_cycle_tracking_logs';
+
+  static bool _isValidLogsJson(String json) {
+    try {
+      return jsonDecode(json) is List;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Not cached across calls: SecureLocalStore.migrateLegacyIfNeeded is
+  // itself idempotent (it checks for an existing migrated value first), so
+  // caching here would only save one secure-storage read per call — not
+  // worth the statefulness (it would also make the migration silently
+  // un-retryable within a running app session if an earlier attempt failed
+  // transiently).
+  Future<void> _ensureMigrated() => SecureLocalStore.migrateLegacyIfNeeded(
+    legacyKey: _legacyCacheKey,
+    category: _category,
+    isValid: _isValidLogsJson,
+  );
 
   Future<List<CycleLog>> loadLogs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_cacheKey);
-    if (raw == null || raw.isEmpty) {
-      return const [];
-    }
-
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded
-        .map((item) => CycleLog.fromJson(item as Map<String, dynamic>))
-        .toList();
+    await _ensureMigrated();
+    final raw = await SecureLocalStore.read(_category);
+    return SecureLocalStore.decodeJsonListSafely(
+      raw: raw,
+      category: _category,
+      fromJson: CycleLog.fromJson,
+    );
   }
 
   Future<CycleLog?> getById(String id) async {
@@ -27,7 +45,7 @@ class LocalCycleTrackingDataSource {
   }
 
   Future<void> upsert(CycleLog log) async {
-    final prefs = await SharedPreferences.getInstance();
+    await _ensureMigrated();
     final existing = await loadLogs();
     final updates = <String, CycleLog>{};
     for (final item in existing) {
@@ -38,17 +56,24 @@ class LocalCycleTrackingDataSource {
     final encoded = jsonEncode(
       updates.values.map((item) => item.toJson()).toList(),
     );
-    await prefs.setString(_cacheKey, encoded);
+    await SecureLocalStore.write(_category, encoded);
   }
 
   Future<void> delete(String id) async {
-    final prefs = await SharedPreferences.getInstance();
+    await _ensureMigrated();
     final existing = await loadLogs();
     final remaining = existing.where((log) => log.id != id).toList();
 
-    await prefs.setString(
-      _cacheKey,
+    await SecureLocalStore.write(
+      _category,
       jsonEncode(remaining.map((item) => item.toJson()).toList()),
     );
   }
+
+  /// Removes this user's cycle data — used by account-deletion local
+  /// cleanup (Phase F). Takes [userId] explicitly rather than relying on
+  /// the current session, since cleanup runs after the server-side
+  /// deletion has already invalidated it.
+  static Future<void> clearForUser(String userId) =>
+      SecureLocalStore.clearForUser(_category, userId);
 }
