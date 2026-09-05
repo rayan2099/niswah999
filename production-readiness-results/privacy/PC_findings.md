@@ -1,5 +1,7 @@
 # Privacy & Compliance Audit — Findings Register (Phases 2A/2B)
 
+> **Status update (2026-09-05):** This document is the frozen original audit (2026-09-04), preserved as-is for historical reference. `PC-001` (decorative consent) and `PC-002` (no account deletion) are now **VERIFIED_CLOSED** — both fixed and validated end-to-end (real widget test; real isolated-stack session/re-login test). `PC-003`, `PC-004`/`RD-007`, `PC-006` are **PARTIALLY_REMEDIATED**. `PC-005`, `PC-007`, `PC-008`, `PC-009` remain **OPEN**. Full evidence: `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §22 and `00_04_MASTER_FINDING_REGISTER.md` — check there, not this file, for current status.
+
 | Field | Value |
 |---|---|
 | System | Niswah (Flutter mobile app, `com.niswah.niswah`) |

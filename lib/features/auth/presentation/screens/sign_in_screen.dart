@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/auth/auth_controller.dart';
@@ -5,6 +6,7 @@ import '../../../../core/data/countries.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/niswah_logo.dart';
+import '../../../legal/presentation/screens/privacy_policy_screen.dart';
 import '../../data/repositories/auth_repository_impl.dart';
 
 String _tr(String english, String arabic) =>
@@ -32,26 +34,56 @@ class SignInScreen extends StatefulWidget {
 class _SignInScreenState extends State<SignInScreen> {
   void _onAuthenticated() => widget.onAuthenticated?.call();
 
-  Future<void> _showAuthSheet({required bool isPhone}) async {
-    final success = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      builder: (_) => _AuthSheet(isPhone: isPhone),
-    );
+  /// PC-001: the consent checkbox previously gated nothing — every entry
+  /// path (email, phone, Google) called straight into Supabase auth
+  /// regardless of its state. It sits above all three entry points in the
+  /// UI, so it gates all three here, uniformly, matching that layout's own
+  /// intent — not just the email/phone sheet. Lifted up from
+  /// `_SignInContent` (which only renders the checkbox) so this state,
+  /// where the actual auth calls happen, can see and enforce it.
+  bool _agreed = false;
 
-    if (success == true && mounted) {
+  Future<void> _requireConsent(Future<void> Function() proceed) async {
+    if (!_agreed) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_tr('Welcome back!', 'أهلاً بعودتكِ!'))),
+        SnackBar(
+          content: Text(
+            _tr(
+              'Please agree to the Privacy Policy and Terms of Use first.',
+              'يُرجى الموافقة على سياسة الخصوصية وشروط الاستخدام أولاً.',
+            ),
+          ),
+        ),
       );
-      _onAuthenticated();
+      return;
     }
+    await proceed();
   }
 
-  Future<void> _signInWithGoogle() async {
+  Future<void> _showAuthSheet({required bool isPhone}) => _requireConsent(
+    () async {
+      final success = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        builder: (_) => _AuthSheet(isPhone: isPhone),
+      );
+
+      if (success == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_tr('Welcome back!', 'أهلاً بعودتكِ!'))),
+        );
+        _onAuthenticated();
+      }
+    },
+  );
+
+  Future<void> _signInWithGoogle() => _requireConsent(_signInWithGoogleImpl);
+
+  Future<void> _signInWithGoogleImpl() async {
     try {
       final repo = AuthRepositoryImpl();
       await repo.signInWithGoogle();
@@ -86,6 +118,8 @@ class _SignInScreenState extends State<SignInScreen> {
                 onEmail: () => _showAuthSheet(isPhone: false),
                 onPhone: () => _showAuthSheet(isPhone: true),
                 onGoogle: _signInWithGoogle,
+                agreed: _agreed,
+                onAgreedChanged: (value) => setState(() => _agreed = value),
               ),
             ),
           ),
@@ -161,21 +195,28 @@ class _LanguageToggle extends StatelessWidget {
   );
 }
 
-class _SignInContent extends StatefulWidget {
+class _SignInContent extends StatelessWidget {
   const _SignInContent({
     required this.onPhone,
     required this.onEmail,
     required this.onGoogle,
+    required this.agreed,
+    required this.onAgreedChanged,
   });
   final VoidCallback onPhone;
   final VoidCallback onEmail;
   final VoidCallback onGoogle;
-  @override
-  State<_SignInContent> createState() => _SignInContentState();
-}
+  final bool agreed;
+  final ValueChanged<bool> onAgreedChanged;
 
-class _SignInContentState extends State<_SignInContent> {
-  bool _agreed = false;
+  void _openPrivacyPolicy(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => const PrivacyPolicyScreen(),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Column(
@@ -306,9 +347,10 @@ class _SignInContentState extends State<_SignInContent> {
         ),
       ),
       const SizedBox(height: 36),
-      // Privacy checkbox
+      // Privacy checkbox — gates all three entry points below (PC-001).
       InkWell(
-        onTap: () => setState(() => _agreed = !_agreed),
+        key: const Key('consent_checkbox'),
+        onTap: () => onAgreedChanged(!agreed),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -320,16 +362,16 @@ class _SignInContentState extends State<_SignInContent> {
                 width: 18,
                 height: 18,
                 decoration: BoxDecoration(
-                  color: _agreed ? const Color(0xFFE11D48) : Colors.white,
+                  color: agreed ? const Color(0xFFE11D48) : Colors.white,
                   borderRadius: BorderRadius.circular(5),
                   border: Border.all(
-                    color: _agreed
+                    color: agreed
                         ? const Color(0xFFE11D48)
                         : const Color(0xFFCBD5E1),
                     width: 1.5,
                   ),
                 ),
-                child: _agreed
+                child: agreed
                     ? const Icon(
                         Icons.check_rounded,
                         size: 13,
@@ -353,6 +395,8 @@ class _SignInContentState extends State<_SignInContent> {
                           color: Color(0xFFE11D48),
                           fontWeight: FontWeight.w700,
                         ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () => _openPrivacyPolicy(context),
                       ),
                       TextSpan(text: _tr(' and ', ' و ')),
                       TextSpan(
@@ -361,6 +405,11 @@ class _SignInContentState extends State<_SignInContent> {
                           color: Color(0xFFE11D48),
                           fontWeight: FontWeight.w700,
                         ),
+                        // Terms of Use content isn't a distinct document
+                        // yet — points to the same policy screen rather
+                        // than being a dead/unresponsive link.
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () => _openPrivacyPolicy(context),
                       ),
                     ],
                   ),
@@ -377,7 +426,7 @@ class _SignInContentState extends State<_SignInContent> {
           Expanded(
             child: _AuthChoiceButton(
               label: _tr('Email', 'البريد الإلكتروني'),
-              onTap: widget.onEmail,
+              onTap: onEmail,
               background: const Color(0xFFFDF2F4),
               foreground: const Color(0xFFBE123C),
               icon: null,
@@ -387,7 +436,7 @@ class _SignInContentState extends State<_SignInContent> {
           Expanded(
             child: _AuthChoiceButton(
               label: _tr('Mobile', 'الجوال'),
-              onTap: widget.onPhone,
+              onTap: onPhone,
               background: const Color(0xFFECFDF5),
               foreground: const Color(0xFF059669),
               icon: Icons.phone_outlined,
@@ -418,7 +467,7 @@ class _SignInContentState extends State<_SignInContent> {
       SizedBox(
         height: 54,
         child: OutlinedButton.icon(
-          onPressed: widget.onGoogle,
+          onPressed: onGoogle,
           icon: const Icon(
             Icons.g_mobiledata_rounded,
             size: 26,

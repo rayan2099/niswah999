@@ -167,8 +167,14 @@ class DreamInterpreterViewModel extends ChangeNotifier {
       try {
         final saved = await _repository.saveEntry(userId: userId, entry: entry);
         entries = [saved, ...entries.where((item) => item.id != entryId)];
-      } catch (error) {
-        debugPrint('[DreamInterpreter] saveEntry failed: $error');
+      } catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'DreamInterpreterViewModel.saveEntry',
+          feature: 'dream_interpreter',
+          recordId: entryId,
+        );
         warningMessage = 'The interpretation is shown, but it could not be saved to your history.';
       }
     } catch (error, stack) {

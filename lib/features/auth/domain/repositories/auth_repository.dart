@@ -55,6 +55,17 @@ abstract class AuthRepository {
 
   Future<void> signOut();
 
+  /// Permanently deletes the caller's account via the existing
+  /// `delete_my_account()` Supabase RPC (`SECURITY DEFINER`) — removes the
+  /// `auth.users` row and, through existing `ON DELETE CASCADE` foreign
+  /// keys already in the live schema, every dependent row across the app's
+  /// tables (PC-002). Does not sign out locally on its own — the caller's
+  /// local session is already invalid once the backend row is gone; the
+  /// UI layer clears it explicitly for a clean, immediate transition to
+  /// the unauthenticated state rather than relying on the next network
+  /// call to discover the session is dead.
+  Future<void> deleteAccount();
+
   Future<AppUser?> getProfile();
 }
 

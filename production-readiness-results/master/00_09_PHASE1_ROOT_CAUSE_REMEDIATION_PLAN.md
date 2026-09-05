@@ -1015,3 +1015,185 @@ Using read-only schema/code evidence only, per instruction — no production dat
 **All other findings preserved exactly as they stood, per instruction — none re-touched or re-assessed:** `W0-002` (`DEFERRED`), `W1-001` (`OPEN`), `SEC-001`/`ROOT-002` (`OPEN`), Fiqh Search-grounding degradation (`B — DEGRADED`), `RR-001` (`PARTIALLY_REMEDIATED`), `PJ-006` (`OPEN`), `OB-006` (`PARTIALLY_REMEDIATED`), `BR-001`/`BR-002`/`BR-003`/`BR-005`/`BR-006` (as closed in §20), and every Release/Deployment finding from §19.
 
 **No owner action required to close this specific defect** — it was fully fixable and fully validated at the application-code layer, with no schema/infrastructure/credential dependency. The only residual uncertainty is Phase E's real-production-data question, which cannot be resolved without production data access this session correctly did not seek.
+
+---
+
+## 22. Privacy / Compliance Remediation Wave (2026-09-05)
+
+**No production DB schema/migration/RLS/trigger/function/index/constraint change occurred. `W0-002`/`W1-001` not implemented.** All fixes are application-layer. **Legal/compliance boundary honored throughout**: this section states technical facts about what the app does, not legal conclusions about what law requires — no retention period, jurisdictional requirement, or compliance guarantee is invented anywhere below.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below:** `W0-002` (`DEFERRED`), `W1-001` (`OPEN`), `SEC-001`/`ROOT-002` (`OPEN`), Fiqh Search-grounding degradation (`B — DEGRADED`), `RR-001` (`PARTIALLY_REMEDIATED`), `PJ-006` (`OPEN`), `BR-001`/production-data recoverability (`OPEN`, no live re-check performed this wave either — same CLI blocker), `RD-009` (`OPEN`), `DC-010` (`OPEN`), `OB-006` (`PARTIALLY_REMEDIATED`, still not release-verified).
+
+### Phase A — Data inventory (evidence-based, from current code)
+
+| Category | Collected | Local storage | Transmitted to | Remote storage | Deletion on account delete |
+|---|---|---|---|---|---|
+| Account/profile | email/phone, display name, madhhab | No | Supabase | `public.users`, `public.profiles` | ✅ CASCADE |
+| Cycle/haid | date, flow, symptoms, notes | SharedPreferences (plaintext) | Supabase | `cycle_entries` | ✅ CASCADE |
+| Pregnancy profile | tracking basis, dates, week, risk flags | No | Supabase; **minimal derived subset** to Gemini via `dr-niswah-chat` | `pregnancy_profile` | ✅ CASCADE |
+| Pregnancy milestones | — | SharedPreferences | Blocked (`W0-002`) | `pregnancy_records` (name/shape mismatch) | ✅ CASCADE (row exists but is functionally unreachable) |
+| Prayer | prayer name, status, date | SharedPreferences (plaintext) | Supabase | `prayer_log` | ✅ CASCADE |
+| Dr. Niswah chat | message text | No | Supabase, then Gemini (server-side only) | `chat_threads`, `chat_messages`, `flagged_conversations` | ✅ CASCADE |
+| Fiqh Advisor chat | question text, madhhab | No | Supabase (Gemini call server-side, no DB read of health data) | Not persisted server-side beyond the request itself (confirmed: `fiqh-advisor-chat` has no `chat_messages`/table write) | N/A |
+| Dream Interpreter chat | transcript text | No | Supabase, then Gemini | Client-persisted via its own repository (confirmed) | ✅ CASCADE (`dream_entries`, `auth.users` FK) |
+| General AI assistant | message text | No | Supabase, then Gemini | Not persisted server-side (no DB write found in `ai-assistant-chat`) | N/A |
+| Community | posts, comments, anonymity flag | No | Supabase | `community_posts`, `community_comments`, `community_likes` | ✅ CASCADE (see note below — collateral deletion) |
+| Notifications/preferences | schedule/preference flags | SharedPreferences | No (local-only, matching `RR-001`'s prior classification) | N/A | N/A (local, cleared on uninstall only) |
+| Device/local storage | see Phase H | — | — | — | — |
+| Supabase | see Phase J | — | — | — | — |
+| Gemini/Google | see Phase F/J | — | — | — | — |
+| Sentry | see Phase G/J | — | — | — | — |
+
+**Additional third-party SDKs found and assessed:** `geolocator` (device GPS, used only to compute local prayer times, confirmed **never transmitted** — `PrayerLocationController` only ever writes to `SharedPreferences`, never to Supabase); `adhan_dart` (local prayer-time math, no network); `pdf`/`printing` (local report generation, no network). No analytics/advertising SDK found anywhere in `pubspec.yaml` — confirmed, not assumed.
+
+**New evidence this wave, not previously documented:** deleting your account cascades away not just your own community posts, but every *other* user's comments/likes on those posts too (`community_comments_post_id_fkey`/`community_likes_post_id_fkey` are `ON DELETE CASCADE` from `community_posts`, which itself cascades from the author's `users` row) — the same "collateral deletion of another person's content" pattern `DI-012` already documented for private conversations, now confirmed to also apply to public community content. Not registered as a new finding (it's the same underlying pattern as `DI-012`, not a distinct defect) — noted here as inventory evidence.
+
+### Phase B — Consent/signup: FIXED
+
+**Before:** the consent checkbox (`_agreed` in `sign_in_screen.dart`) was read by nothing. Email, phone, and Google sign-up all called Supabase auth directly regardless of its state — confirmed by reading every call site, not inferred. The "Privacy Policy"/"Terms of Use" text spans had no `recognizer` at all — not a broken link, no link.
+
+**After:** `_agreed` state lifted from `_SignInContent` to `_SignInScreenState` (the component that actually performs auth calls) and now gates all three entry points uniformly via `_requireConsent()` — matching the UI's own layout intent (the checkbox sits above all three, not just the email/phone path). An unchecked box shows a clear, bilingual error and the flow stops before any Supabase call. The "Privacy Policy"/"Terms of Use" spans now carry a real `TapGestureRecognizer` opening the new in-app `PrivacyPolicyScreen`.
+
+- No account creation without consent: confirmed via a real widget test tapping the actual Email/Mobile buttons.
+- No decorative checkbox: it now has a functional consequence, confirmed.
+- No hidden pre-checked consent: `_agreed` still defaults to `false`.
+- Consent survives UI rebuild within the same screen instance (it's `State` on `_SignInScreenState`, not re-initialized per sub-widget rebuild) — not persisted across a full screen re-mount, since re-consenting per session-entry is the correct behavior for a fresh sign-in attempt, not a regression.
+- Error messaging: clear, bilingual, confirmed via widget test.
+- **Durable proof-of-consent record: not implemented, registered as a gap, not invented.** Supabase Auth's `user_metadata` (settable at signup via `data: {...}`) could technically record a timestamped consent flag without a schema migration — assessed but **not used this pass**: wiring it correctly (setting it atomically with signup across all three entry paths: email, phone, Google) is a real, non-trivial change to `AuthRepositoryImpl`'s three separate sign-up methods, and untested speculative persistence-schema work was judged lower priority than the gating fix itself within this wave's time budget. **Documented as the concrete next step, not attempted.**
+
+### Phase C — Privacy policy: reachable and usable, hosting gap flagged
+
+New `PrivacyPolicyScreen` (`lib/features/legal/presentation/screens/privacy_policy_screen.dart`) — factual, bilingual, derived directly from Phase A's inventory (not a template, not fabricated legal language). Reachable from: (1) the sign-up consent checkbox's own link, (2) Profile → Privacy Settings → Privacy Policy (new row). No dead/placeholder URL anywhere — it's an in-app screen, not a link to external hosting, so there is no URL to go stale.
+
+**Not marked fully closed**: app-store submission forms (Google Play, Apple App Store Connect) require a **publicly-hosted, externally-linkable URL** for their privacy-policy field — an in-app screen alone cannot satisfy that specific external requirement. **Registered as `OWNER_BLOCKED`**: publishing this content (or an equivalent) to a real public URL requires hosting infrastructure/domain access this session doesn't have. The content itself is ready to publish as-is.
+
+### Phase D — Account deletion: implemented and validated end-to-end
+
+**Before:** `delete_my_account()` existed and worked correctly server-side (repeatedly proven across this entire engagement) but **no client code ever called it** — confirmed again this wave via a fresh repository-wide search.
+
+**After:** `AuthRepository.deleteAccount()`/`AuthRepositoryImpl.deleteAccount()` (new) call the RPC, then explicitly `signOut()` locally — **a real bug caught before it shipped**: the RPC deletes `auth.users` server-side but does **not** by itself clear the client's local session or fire Supabase's auth-state-change stream, which is what `AuthController` needs to reactively return the app to the sign-in screen. Without the explicit local `signOut()`, the app would have kept behaving as authenticated until some unrelated request happened to fail. Wired into `profile_screen.dart`: a destructive-action confirmation `AlertDialog` (explicit Cancel/Delete, no accidental one-tap deletion), a loading state (`_isDeletingAccount`, button disabled + spinner), accurate error messaging on failure (no false success — the success path only navigates away after `deleteAccount()` genuinely returns without throwing), and navigation to `SignInScreen` with the entire navigation stack cleared (`pushAndRemoveUntil`) on success.
+
+**Validated end-to-end against a live-schema-derived isolated environment** (real `AuthRepositoryImpl`, real RPC, real local Supabase Auth): after `deleteAccount()`, `client.auth.currentSession`/`currentUser` are both `null` (session genuinely cleared, not just server-side deletion assumed to imply it), and a subsequent `signInWithPassword` with the same credentials fails with `invalid_credentials` — the account is genuinely gone, not merely logged out.
+
+The existing RPC/backend deletion mechanism was not modified or weakened — this wave only wires an existing, already-correct backend capability into the client for the first time.
+
+### Phase E — User data access/export: implemented (partial, stated plainly)
+
+**Before:** "Data Export" produced only 4 curated PDF reports (Fiqh log, Doctor's Report, Wellbeing, Husband Report) — not the user's actual raw records (`PC-006`).
+
+**After:** new `DataExportScreen` (`lib/features/legal/presentation/screens/data_export_screen.dart`), reachable from Profile → Data Export → "Export My Data (JSON)". Fetches the authenticated user's own rows — `users`, `profiles`, `pregnancy_profile`, `cycle_entries`, `prayer_log`, `community_posts`, `chat_threads`, `chat_messages` — assembles them into indented, human-readable JSON, and offers a copy-to-clipboard action (no new dependency; `Clipboard` is part of the Flutter SDK already in use elsewhere in this codebase). Authenticated-user-only and own-data-only is enforced by **RLS itself**, not application logic — verified directly this wave: a second synthetic user querying the same table for the first user's `user_id` received zero rows, confirmed against a real isolated Postgres instance, not asserted from reading policy SQL alone.
+
+**Explicitly partial, not claimed complete**: does not include `pregnancy_records`/milestones (blocked by the same `W0-002` mismatch, correctly not worked around here), does not include `flagged_conversations` (a service-role-only internal safety-audit log with no user-facing RLS read policy — not user-owned content to begin with, and deliberately excluded rather than attempting a service-role bypass), and is not a polished file-download/share-sheet flow — a plain in-app JSON view with clipboard copy is the smallest safe capability implementable without a new dependency or backend change. The screen's own UI text states this scope honestly to the user, not just in this report.
+
+### Phase F — Gemini data minimization: audited, already well-implemented — no code change needed
+
+Read all four Edge Functions' actual Gemini call construction, not assumed from the client side alone:
+
+- **`dr-niswah-chat`** (the only one of the four that reads any health/profile data): `loadPregnancyProfile()` selects an explicit, narrow column list (not `select('*')`); `buildContextBlock()` sends only **derived** values (pregnancy mode, week/trimester/month/weeks-to-due, fasting status, high-risk flags, locale) — the underlying raw dates (`reference_date`, `manual_week_set_at`, `postpartum_start_date`) are loaded but **never included** in what's sent to Gemini. No prior chat history is sent — each call is single-turn. No auth tokens, no internal database IDs beyond what's functionally required (the client only sends `threadId` + message `content`).
+- **`fiqh-advisor-chat`**: only the user's typed question + their chosen madhhab — no database read of any health/profile data at all.
+- **`dream-interpreter-chat`**: a static system prompt + the client-built transcript prompt — no server-side profile lookup.
+- **`ai-assistant-chat`**: a static system prompt + message content — no server-side profile lookup.
+
+**Conclusion, stated honestly**: this area was already minimized before this wave — no unnecessary field was found to remove. `PC-003`'s underlying concern (health/pregnancy context does reach Gemini) remains factually true for `dr-niswah-chat` specifically, but the *minimization* half of this phase's mandate is already satisfied; `PC-003`'s actual defect is disclosure (Phase C's new privacy policy now names Google/Gemini explicitly as a processor and describes what's sent, closing the disclosure gap that finding also raised).
+
+### Phase G — Sentry/logging privacy: one real gap found and fixed, rest confirmed clean
+
+Searched the full `lib/` tree and all four Edge Functions for `print(`, `debugPrint(`, `console.log`/`console.error`, and every `AppErrorReporter.report()` call site's `recordId` argument.
+
+- **`cycle_log_repository.dart`'s 8 `print()` calls**: unchanged — this file is confirmed dead code (zero callers, per `CQ-003`/`CQ-009`'s prior disposition), so its actual production-log exposure is nil; deletion (not logging-pattern fixes) remains the correct closure path per that finding's own existing recommendation, not duplicated here.
+- **`dream_interpreter_view_model.dart:171`**: **fixed** — a raw `debugPrint('[DreamInterpreter] saveEntry failed: $error')` replaced with a proper `AppErrorReporter.report()` call (opaque `entryId` only, matching this app's established contract), making this failure actually observable via Sentry for the first time instead of lost in debug-only, release-invisible console output.
+- **Every `AppErrorReporter.report()` `recordId:` argument app-wide**: swept via `grep`; confirmed every one is a plain `.id` reference, never a full object or raw content.
+- **All Edge Function `console.error` calls** (10 across 4 functions): confirmed each logs only `userId`/`threadId` (opaque UUIDs, functionally required for correlation), booleans, and `error.message` (diagnostic text from a write/API failure — never the user's actual message content, chat text, or health-record values, since none of these catch blocks are positioned where content would be echoed back).
+- **Sentry's `beforeSend` scrub** (`scrubSecretsForSentry`, added in the earlier OB-006 wave): unchanged, still unit-tested against Bearer-token and JWT-shaped patterns — re-confirmed present, not re-verified via a new live send (already proven working end-to-end in `00_09` §18/§19).
+
+**No sensitive user content (health data, chat text, credentials) found reaching any log path this wave** — one real, now-fixed exception (`dream_interpreter_view_model.dart`), everything else confirmed already correct.
+
+### Phase H — Local device storage: assessed, real risk identified, migration deliberately NOT performed
+
+**Inventory**: `SharedPreferences` is the only local persistence mechanism found (`grep`-confirmed across `lib/`) — no `sqflite`, no Hive, no custom file-based storage, no existing secure-storage dependency. Used by: cycle entries, pregnancy-tracking (blocked/`W0-002`), prayer log, TTC mode, madhhab, marital status, prayer location (raw GPS coordinates), theme, locale, notification log, wellbeing data.
+
+**Assessment**: `SharedPreferences` (Android XML / iOS plist) is **not encrypted at the application layer** on either platform by default — readable in cleartext by anyone with filesystem access to the app's private storage (a rooted/jailbroken device, or a local backup extraction). This is a real, currently-true gap for genuinely sensitive categories — cycle/haid data (reveals menstrual/reproductive health status) and prayer data (reveals religious practice) are the two highest-sensitivity categories stored this way.
+
+**Mitigating, already in place**: `android:allowBackup="false"` (added in the Release Engineering wave) prevents this data from being swept into Android's automatic cloud backup — a real, if partial, mitigation already credited to that wave, not re-claimed here.
+
+**Migration deliberately NOT performed this wave** — per the explicit instruction not to silently change storage for a destructive/risky operation. A real migration to `flutter_secure_storage` (OS Keychain/Keystore-backed) would require: (1) a new dependency; (2) a one-time migration routine on first launch post-upgrade that reads every existing `SharedPreferences` key, writes it to secure storage, verifies the write, and only then deletes the plaintext copy (get this wrong and data is lost, not just insecure — exactly the "destructive/risky" case the instructions name); (3) testing across every one of the ~10 affected data-source files. This is real, substantial, cross-cutting work appropriately out of a single wave's safe scope — **registered as a precise remediation design, finding preserved `OPEN`, not silently attempted.**
+
+### Phase I — Retention: documented from code/schema, no duration invented
+
+| Category | Created | Auto-deleted? | Removed on account deletion? | Orphans possible? |
+|---|---|---|---|---|
+| Account/profile, cycle, pregnancy, prayer, chat, community, dream | On first use | No | **Yes** — `ON DELETE CASCADE` confirmed for every relevant FK, re-verified this wave via the full constraint list in the live schema capture | No — cascade is exhaustive; even a deleted user's *own* content that other users had commented on/liked cascades away too (see Phase A note) |
+| `flagged_conversations` (safety audit log) | On a red-flag chat exchange | No | **Yes** — `flagged_conversations_user_id_fkey ON DELETE CASCADE` | No |
+| Local device data | On first use | No (persists until app data is cleared/uninstalled) | **No** — local `SharedPreferences` is not cleared on account deletion or sign-out today (confirmed: neither `signOut()` nor `deleteAccount()` touch any local data source) | N/A (device-local, not a server-side orphan) |
+
+**No retention *duration* is defined anywhere in code, schema, or any document — confirmed, not invented.** `PC-007`'s finding is accurate and unchanged: indefinite retention exists for every category with no product/legal policy setting a maximum. **New, related observation this wave**: local device data specifically survives BOTH sign-out and account deletion — a user who deletes their account still has their cycle/prayer history sitting in `SharedPreferences` on that device afterward. Not previously called out this precisely; recorded as an addendum to `PC-007` rather than a new finding, since it's the same "no retention policy" root cause applied to a location (local storage) the original finding's GPS-specific framing didn't explicitly cover.
+
+### Phase J — Third-party processor inventory
+
+| Processor | Data categories | Purpose | Path | Sensitive? | Controls |
+|---|---|---|---|---|---|
+| Supabase | Account, cycle, pregnancy, prayer, chat, community data; auth credentials | Backend database, authentication, Edge Functions | Client ↔ Supabase (direct, RLS-enforced) and server-side (Edge Functions) | Yes — the majority of all app data | RLS on all 24 tables (confirmed); no service-role key in the client (confirmed, `SEC-001`'s prior client-artifact verification) |
+| Google (Gemini API) | Message text (all 4 AI features); minimal derived pregnancy context (`dr-niswah-chat` only) | Generates AI replies | Server-side only (Supabase Edge Functions) — never client-to-Google directly (`ROOT-002`'s prior closure) | Yes, for `dr-niswah-chat` specifically | Server-side-only call path; minimized context (Phase F) |
+| Sentry | Error type, opaque record IDs, environment/version, exception message text (scrubbed) | Crash/error monitoring | Client → Sentry (native SDK) | No — explicitly excludes health/chat content by design (Phase G) | `beforeSend` scrub, `AppErrorReporter`'s ID-only contract |
+
+**No other third-party SDK or service found** — `geolocator`/`adhan_dart`/`pdf`/`printing` are all local-only, confirmed in Phase A. No contractual/legal guarantee about any of these three processors is stated here — this is a technical description of what data flows where, not a DPA/subprocessor-terms assessment (that remains `PC-008`, unchanged, legal/contractual review, not resolvable by this session).
+
+### Phase K — Google Play Data Safety / Apple App Privacy technical inventory
+
+Technical answers only, based on actual implementation — not submitted anywhere, not a legal/policy-form filing.
+
+| Data type | Collected | Shared with 3rd party | Purpose | Required/Optional | Linked to identity | User can request deletion | Encrypted in transit |
+|---|---|---|---|---|---|---|---|
+| Email/phone | Yes | No (Supabase is a processor, not a data-sharing partner in the Play/Apple sense — **flag for owner interpretation**, this session cannot make that legal distinction) | Account creation/auth | Required | Yes | Yes (`deleteAccount`, now implemented) | Yes (HTTPS, Supabase-managed) |
+| Health info (cycle/haid) | Yes | Yes — to Google Gemini, `dr-niswah-chat` only, as minimized derived context | Core app function (AI health guidance) | Required for that feature | Yes | Yes | Yes |
+| Health info (pregnancy) | Yes | Yes — same as above | Core app function | Required for that feature | Yes | Yes | Yes |
+| Location (precise) | Yes, permission-gated | No — confirmed local-only, never transmitted | Local prayer-time calculation | Optional (feature degrades to a default location without it) | No — never leaves the device, so not identity-linked server-side | N/A (never stored remotely) | N/A (never transmitted) |
+| Messages (AI chat) | Yes | Yes — to Google Gemini (all 4 features) | Core app function | Required for that feature | Yes | Yes | Yes |
+| User content (community posts) | Yes | No | Social feature | Optional | Yes, unless posted anonymously (`is_anonymous`) | Yes | Yes |
+| App activity / diagnostics | Yes (error reports) | Yes — to Sentry | Debugging | N/A (not user-facing data collection in the Play/Apple sense) | No — opaque IDs only, no PII (Phase G) | N/A | Yes |
+
+**Flagged for owner/legal interpretation, not guessed**: whether Gemini/Sentry count as "sharing" vs. "processing on our behalf" under Play/Apple's specific taxonomies is a policy-form judgment call, not a technical fact this session can settle. The table above states the underlying technical reality only.
+
+### Phase L — User-journey validation
+
+| # | Journey | Result |
+|---|---|---|
+| 1 | Signup without required consent | ✅ PASS — blocked, confirmed via widget test tapping the real Email/Mobile buttons |
+| 2 | Signup with required consent | ✅ PASS — gating error absent, sheet genuinely opens, confirmed via widget test |
+| 3 | Open privacy policy | ✅ PASS — reachable via the now-tappable link (confirmed: real `TapGestureRecognizer` present, verified via widget test) and via Profile → Privacy Settings |
+| 4 | Update pregnancy/profile data | Not independently re-run this wave — already covered by this engagement's own prior evidence (Backup/Recovery wave's Phase E, `pregnancy_profile` write test) and unrelated to anything changed this wave |
+| 5 | Use AI health feature (minimal context) | ✅ Confirmed via code audit (Phase F) — no runtime re-call needed given the exact server-side code was read directly |
+| 6 | Export user data | ✅ PASS — RLS-scoped fetch confirmed against a real isolated Postgres instance: a second user querying the first user's data received zero rows |
+| 7 | Delete account (full chain) | ✅ PASS — confirmation dialog implemented; `deleteAccount()` validated end-to-end against the isolated stack: session cleared (`currentUser`/`currentSession` both `null`), re-login fails with `invalid_credentials` |
+| 8 | Controlled handled error → Sentry payload clean | Not re-sent to a real Sentry project this wave (would require repeating the extensive, already-completed verification from `00_09` §18/§19) — the redaction logic (`scrubSecretsForSentry`) and the `AppErrorReporter` ID-only contract were both re-confirmed unchanged and correct via code review + existing unit tests, not re-proven via a new live send |
+
+All synthetic accounts created this wave were disposable local-stack accounts, cleaned up by tearing down the isolated environment entirely (`supabase stop --no-backup`, Docker volume removed) — no production signup was attempted, honoring the instruction to use the safest available infrastructure given this engagement's repeated production email-confirmation friction.
+
+### Phase M — Security/API/Database/Observability/Final User Journey cross-check
+
+- **`PC-002`'s closure directly informs `DI-012`** (already on record) — no new security implication; the deletion mechanism itself was not modified, only exposed client-side.
+- **`SEC-001`/`ROOT-002`**: unaffected — this wave touched no Gemini key/rotation logic.
+- **`AB-010`/`OB-007`**: `DataExportScreen`'s error handling uses `AppErrorReporter` directly (not the `mapRepositoryError` classifier, since export failures aren't retried) — consistent with this codebase's existing pattern of not forcing every code path into one shared abstraction, per this engagement's own established precedent.
+- **No Security, API/Backend, Database, Observability, or Final User Journey finding is closed, reopened, or reclassified by this wave** — privacy behavior improved without any security control being loosened (RLS unchanged, no new attack surface: `DataExportScreen`/`deleteAccount()` both operate strictly within the caller's own existing RLS-scoped permissions, no new endpoint, no new privilege).
+
+### Testing (this wave)
+
+`dart analyze lib/`: 27 pre-existing issues, zero new. `flutter test`: **289/297** — the prior baseline (285/293) plus 4 new widget tests in `test/sign_in_consent_gating_test.dart` (consent blocks Email, consent blocks Mobile, consent-then-Email opens the real sheet, the Privacy Policy link is genuinely tappable), same 8 pre-existing golden-image diffs, zero regressions — directly re-run and confirmed, not assumed from the stated prior baseline. Two additional isolated-stack tests (account-deletion session-clearing + re-login-fails, RLS-scoped export cross-user check) were run manually against a live-schema-derived environment and then deleted, matching this engagement's established precedent for infrastructure-dependent verification.
+
+### Phase O — Finding closure
+
+| Finding | Status | Notes |
+|---|---|---|
+| `PC-001` | **VERIFIED_CLOSED** | Consent now genuinely gates all three sign-up entry points; validated via real widget interaction, not just code review |
+| `PC-002` | **VERIFIED_CLOSED** | Account deletion fully wired, confirmation dialog, session-clearing bug caught and fixed, validated end-to-end against an isolated environment |
+| `PC-003` | **PARTIALLY_REMEDIATED** | Minimization already good (Phase F, no code change needed); disclosure gap closed by the new privacy policy naming Google/Gemini explicitly |
+| `PC-004` | **PARTIALLY_REMEDIATED** | In-app reachability fully solved (no dead/placeholder link — genuinely tappable, confirmed); public hosting for app-store submission is `OWNER_BLOCKED` |
+| `PC-005` | **OPEN**, unchanged | Not addressed this wave — the "Privacy Settings" section still primarily contains the anonymity toggle; a genuine relabeling/redesign was judged out of this wave's scope (the section now also contains a real Privacy Policy link, a partial improvement, but the underlying mismatch this finding describes isn't fully resolved) |
+| `PC-006` | **PARTIALLY_REMEDIATED** | A real, working, RLS-verified raw-data export now exists alongside the 4 PDF reports; explicitly partial (excludes `W0-002`-blocked data and the internal safety log by design) |
+| `PC-007` | **OPEN**, unchanged, with a new addendum | No retention duration exists anywhere (not invented here either); new observation that local device data also survives account deletion, recorded as part of the same underlying gap |
+| `PC-008` | **OPEN**, unchanged | Explicitly legal/contractual (DPA/subprocessor terms) — outside this session's boundary by the operator's own instruction |
+| `PC-009` | **OPEN**, unchanged | No age-gate mechanism found or added — out of this wave's scope, not attempted |
+
+**RD-007** (duplicate manifestation of `PC-004`, no privacy-policy link wired): **PARTIALLY_REMEDIATED**, same basis as `PC-004` — the in-app link now exists and works; the public-URL requirement remains `OWNER_BLOCKED`.
+
+**Owner actions required**: (1) publish the privacy policy content (already drafted, factual, ready as-is) to a real public URL for Google Play/Apple App Store submission forms; (2) decide on a durable proof-of-consent record design (Supabase Auth `user_metadata` was assessed as viable without a schema migration, not implemented) if one is legally required; (3) fund/schedule the local-storage encryption migration design from Phase H — real, cross-cutting work, deliberately not attempted this wave; (4) resolve `PC-008` (DPA/subprocessor terms) and `PC-009` (age-gate) as legal/product decisions; (5) decide whether local device data should be cleared on account deletion (currently it is not).

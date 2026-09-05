@@ -11,7 +11,10 @@ import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/app_theme_controller.dart';
+import '../../../legal/presentation/screens/data_export_screen.dart';
+import '../../../legal/presentation/screens/privacy_policy_screen.dart';
 import '../../../onboarding/presentation/screens/onboarding_screen.dart';
+import 'sign_in_screen.dart';
 import '../../../private_messaging/data/repositories/mock_private_messaging_repository.dart';
 import '../../../private_messaging/presentation/screens/conversations_screen.dart';
 import '../../../private_messaging/domain/repositories/private_messaging_repository_base.dart';
@@ -274,6 +277,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 }
                               }
                             },
+                          ),
+                          _ActionRow(
+                            icon: Icons.privacy_tip_outlined,
+                            title: _pr('Privacy Policy', 'سياسة الخصوصية'),
+                            onTap: () => _open(const PrivacyPolicyScreen()),
                             last: true,
                           ),
                         ],
@@ -320,7 +328,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               'تقرير الحالة النفسية',
                             ),
                             onTap: () => _open(const WellbeingReportScreen()),
-                            last: !MaritalStatusController.instance.isMarried,
                           ),
                           if (MaritalStatusController.instance.isMarried)
                             _ExportRow(
@@ -328,8 +335,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               title: _pr('Husband Report', 'تقرير الزوج'),
                               onTap: () =>
                                   _open(HusbandReportScreen(displayName: name)),
-                              last: true,
                             ),
+                          _ExportRow(
+                            icon: Icons.data_object_rounded,
+                            title: _pr(
+                              'Export My Data (JSON)',
+                              'تصدير بياناتي (JSON)',
+                            ),
+                            onTap: () => _open(const DataExportScreen()),
+                            last: true,
+                          ),
                         ],
                       ),
                       const SizedBox(height: 30),
@@ -367,6 +382,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: (_viewModel.isSaving || _isDeletingAccount)
+                            ? null
+                            : _confirmAndDeleteAccount,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(56),
+                          foregroundColor: const Color(0xFF991B1B),
+                          side: const BorderSide(color: Color(0xFF991B1B)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child: _isDeletingAccount
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                  color: Color(0xFF991B1B),
+                                ),
+                              )
+                            : Text(
+                                _pr('Delete Account', 'حذف الحساب'),
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                       ),
                       const SizedBox(height: 18),
                       const Center(
@@ -406,6 +451,74 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  bool _isDeletingAccount = false;
+
+  /// PC-002: wires the existing `delete_my_account()` RPC into the client
+  /// for the first time. Requires an explicit, destructive-action
+  /// confirmation dialog before doing anything irreversible — no
+  /// accidental one-tap deletion.
+  Future<void> _confirmAndDeleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_pr('Delete your account?', 'حذف حسابكِ؟')),
+        content: Text(
+          _pr(
+            'This permanently deletes your account and all associated '
+            'data — cycle logs, pregnancy data, chat history, and '
+            'community posts. This cannot be undone.',
+            'سيؤدي هذا إلى حذف حسابكِ وجميع البيانات المرتبطة به نهائياً '
+            '— سجلات الدورة، بيانات الحمل، سجل المحادثات، ومنشورات '
+            'المجتمع. لا يمكن التراجع عن هذا الإجراء.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(_pr('Cancel', 'إلغاء')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFF991B1B)),
+            child: Text(_pr('Delete', 'حذف')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isDeletingAccount = true);
+    try {
+      await _viewModel.deleteAccount();
+      if (mounted) {
+        // The session is already cleared by this point (AuthRepositoryImpl
+        // signs out locally after the RPC succeeds) — this navigates to
+        // the same unauthenticated entry point sign-out uses, rather than
+        // claiming success without confirming the app actually reflects
+        // it (no false success).
+        await Navigator.of(context).pushAndRemoveUntil<void>(
+          MaterialPageRoute(builder: (_) => const SignInScreen()),
+          (route) => false,
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _isDeletingAccount = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _pr(
+                "Couldn't delete your account. Please try again.",
+                'تعذّر حذف حسابكِ. يُرجى المحاولة مرة أخرى.',
+              ),
+            ),
+          ),
+        );
       }
     }
   }

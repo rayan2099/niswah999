@@ -120,6 +120,28 @@ class ProfileViewModel extends ChangeNotifier {
     }
   }
 
+  /// Permanently deletes the caller's account and all associated data via
+  /// the existing `delete_my_account()` backend RPC (PC-002). Unlike
+  /// [signOut], this is irreversible — the calling UI is responsible for
+  /// an explicit destructive-action confirmation before invoking this.
+  Future<void> deleteAccount() async {
+    final authRepository = _authRepository;
+    if (authRepository == null) {
+      throw const AuthFailure('Authentication is not available right now.');
+    }
+
+    try {
+      await authRepository.deleteAccount();
+      user = null;
+    } on Failure {
+      rethrow;
+    } catch (_) {
+      throw const AuthFailure('Unable to delete your account right now.');
+    } finally {
+      notifyListeners();
+    }
+  }
+
   static AuthRepositoryImpl? _safeAuthRepository() {
     try {
       return AuthRepositoryImpl();

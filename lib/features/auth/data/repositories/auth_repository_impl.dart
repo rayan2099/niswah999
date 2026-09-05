@@ -319,6 +319,33 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<void> deleteAccount() async {
+    if (_client.auth.currentUser == null) {
+      throw const AuthFailure('You must be signed in to delete your account.');
+    }
+    try {
+      await _client.rpc('delete_my_account');
+    } on PostgrestException catch (error) {
+      throw AuthFailure(error.message);
+    }
+
+    // The RPC deletes `auth.users` server-side — it does not by itself
+    // invalidate this client's locally-cached session/tokens or fire
+    // Supabase's auth-state-change stream (the mechanism `AuthController`
+    // uses to reactively swap the app back to the sign-in screen). Signing
+    // out locally here is what actually clears the session and triggers
+    // that transition; without it, the app would keep behaving as if
+    // still authenticated until some other request happened to fail.
+    try {
+      await _client.auth.signOut();
+    } on AuthException {
+      // The account (and its session) is already gone server-side by this
+      // point — a local signOut failure here doesn't change that outcome,
+      // and must not be reported as if the deletion itself failed.
+    }
+  }
+
+  @override
   Future<AppUser?> getProfile() async {
     final sessionUser = _client.auth.currentUser;
     if (sessionUser == null) {
