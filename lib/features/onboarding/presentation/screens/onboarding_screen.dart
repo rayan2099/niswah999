@@ -91,6 +91,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       start: 12,
                       child: IconButton(
                         onPressed: () => setState(() => _step--),
+                        tooltip: _t('Back', 'رجوع'),
                         icon: const Icon(
                           Icons.chevron_left_rounded,
                           color: AppColors.textTertiary,

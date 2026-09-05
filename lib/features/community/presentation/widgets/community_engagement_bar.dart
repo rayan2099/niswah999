@@ -112,6 +112,11 @@ class _EngagementButton extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     button: true,
     label: semanticLabel,
+    // semanticLabel is deliberately a distinct, complete parameter from
+    // the visible `label` (e.g. it can spell out "42 likes" while the
+    // visible text just shows "42") — without this, the visible Text's
+    // own semantics would merge in as a redundant trailing fragment.
+    excludeSemantics: true,
     child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),

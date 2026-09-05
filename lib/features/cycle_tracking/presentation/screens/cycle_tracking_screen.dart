@@ -785,7 +785,11 @@ class _CalendarHeader extends StatelessWidget {
           ),
           child: Row(
             children: [
-              _MonthButton(icon: Icons.chevron_left, onTap: onPrevious),
+              _MonthButton(
+                icon: Icons.chevron_left,
+                tooltip: _ct('Previous month', 'الشهر السابق'),
+                onTap: onPrevious,
+              ),
               SizedBox(
                 width: 100,
                 child: Text(
@@ -800,7 +804,11 @@ class _CalendarHeader extends StatelessWidget {
                   ),
                 ),
               ),
-              _MonthButton(icon: Icons.chevron_right, onTap: onNext),
+              _MonthButton(
+                icon: Icons.chevron_right,
+                tooltip: _ct('Next month', 'الشهر التالي'),
+                onTap: onNext,
+              ),
             ],
           ),
         ),
@@ -810,12 +818,18 @@ class _CalendarHeader extends StatelessWidget {
 }
 
 class _MonthButton extends StatelessWidget {
-  const _MonthButton({required this.icon, required this.onTap});
+  const _MonthButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
   final IconData icon;
+  final String tooltip;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => IconButton(
     onPressed: onTap,
+    tooltip: tooltip,
     visualDensity: VisualDensity.compact,
     constraints: const BoxConstraints.tightFor(width: 34, height: 34),
     padding: EdgeInsets.zero,
@@ -968,7 +982,7 @@ class _Legend extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       const Padding(
-        padding: EdgeInsets.only(left: 8, bottom: 16),
+        padding: EdgeInsetsDirectional.only(start: 8, bottom: 16),
         child: Text(
           'LEGEND',
           style: TextStyle(

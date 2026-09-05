@@ -171,6 +171,10 @@ class _NavBarItem extends StatelessWidget {
       button: true,
       selected: isSelected,
       label: item.label,
+      // Without this, the child Text's own semantics (the same string)
+      // merges with this explicit label, so a screen reader would
+      // announce it twice ("Home, Home, button") instead of once.
+      excludeSemantics: true,
       child: InkResponse(
         onTap: onTap,
         radius: 28,

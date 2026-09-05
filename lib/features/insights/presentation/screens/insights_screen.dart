@@ -328,7 +328,9 @@ class _PredictionCard extends StatelessWidget {
                     'Planning only, not medical confirmation.',
                     'للتخطيط فقط، وليس تأكيداً طبياً.',
                   ),
-                  color: AppColors.tahara,
+                  // AU-003: this feeds a small (8px) Text color — use the
+                  // contrast-safe variant, not the base brand color.
+                  color: AppColors.taharaText,
                 ),
               ),
             ],

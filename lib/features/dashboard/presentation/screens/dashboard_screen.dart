@@ -1333,7 +1333,16 @@ class _DashboardHeader extends StatelessWidget {
                   NotificationLogController.instance.unreadCount;
               return Semantics(
                 button: true,
-                label: _l('Notifications', 'التنبيهات'),
+                label: unreadCount > 0
+                    ? _l(
+                        'Notifications, $unreadCount unread',
+                        'التنبيهات، $unreadCount غير مقروءة',
+                      )
+                    : _l('Notifications', 'التنبيهات'),
+                // Without this, the unread-count badge's own Text merges
+                // into this label as an awkward newline-joined fragment
+                // instead of the deliberately-composed sentence above.
+                excludeSemantics: true,
                 child: InkResponse(
                   onTap: onNotificationsTap,
                   radius: 24,
@@ -1495,6 +1504,9 @@ class _CycleOverview extends StatelessWidget {
           button: true,
           label:
               '${_l('Cycle day', 'يوم الدورة')} $cycleDay، ${_stateLabel(state)}',
+          // Without this, the ring's own headline/subtitle Text merges in
+          // as redundant trailing fragments of this already-complete label.
+          excludeSemantics: true,
           child: GestureDetector(
             key: const Key('today-cycle-ring'),
             onTap: onTap,
@@ -1526,26 +1538,37 @@ class _CycleOverview extends StatelessWidget {
                         return Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              headline,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: state.color,
-                                fontFamily: AppTypography.serifFamily,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                height: 1.25,
+                            // AU-006: this text sits inside a fixed 280px
+                            // circle with no scale-down wrapper — at large
+                            // OS text-scale settings it could clip/overlap
+                            // the ring, including the state name a user
+                            // reads first here.
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                headline,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: state.color,
+                                  fontFamily: AppTypography.serifFamily,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.25,
+                                ),
                               ),
                             ),
                             if (subtitle != null) ...[
                               const SizedBox(height: 8),
-                              Text(
-                                subtitle,
-                                style: const TextStyle(
-                                  color: AppColors.textTertiary,
-                                  fontSize: 12,
-                                  letterSpacing: 0.4,
-                                  fontWeight: FontWeight.w600,
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  subtitle,
+                                  style: const TextStyle(
+                                    color: AppColors.textTertiary,
+                                    fontSize: 12,
+                                    letterSpacing: 0.4,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             ],
@@ -1890,7 +1913,10 @@ class _WellbeingCard extends StatelessWidget {
                     Text(
                       _l('Mental state check-in', 'متابعة الحالة النفسية'),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: AppColors.tahara,
+                        // AU-003: AppColors.tahara only clears 3.74:1 —
+                        // taharaText is the same hue darkened to clear the
+                        // 4.5:1 bar this small (9px) text needs.
+                        color: AppColors.taharaText,
                         fontSize: 9,
                         letterSpacing: 1.4,
                       ),
@@ -2104,6 +2130,7 @@ class _WellbeingCheckInSheetState extends State<_WellbeingCheckInSheet> {
                     end: 0,
                     top: -6,
                     child: Semantics(
+                      container: true,
                       button: true,
                       label: _l('Close', 'إغلاق'),
                       child: DecoratedBox(
@@ -2878,103 +2905,134 @@ class _PhaseNode extends StatelessWidget {
   final Color color;
   final bool active;
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      SizedBox(
-        height: 27,
-        child: active
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _l('YOU ARE HERE', 'أنتِ هنا'),
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) {
+    // AU-002: this custom visualization otherwise renders as several
+    // disconnected Text/Icon fragments to a screen reader (value, unit,
+    // label, "YOU ARE HERE"). One merged, meaningful announcement per node
+    // — e.g. "Haid, day 3 of 5, current phase" — replaces that fragment
+    // sequence; `excludeSemantics` hides the descendant text/icon nodes
+    // (including the purely decorative "current" marker dot, AU-010) so
+    // they aren't announced a second time on top of this label.
+    final semanticLabel = active
+        ? '$label, $value $unit, ${_l('current phase', 'المرحلة الحالية')}'
+        : '$label, $value $unit';
+
+    return Semantics(
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 27,
+            child: active
+                ? Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _l('YOU ARE HERE', 'أنتِ هنا'),
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
+                      Icon(
+                        Icons.arrow_drop_down_rounded,
+                        color: color,
+                        size: 12,
+                      ),
+                    ],
+                  )
+                : null,
+          ),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: active ? 42 : 32,
+                height: active ? 42 : 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: active
+                      ? const Color(0xFFFFF1F2)
+                      : const Color(0xFFF9FAFB),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: active ? color : const Color(0xFFE5E7EB),
+                    width: active ? 2.25 : 1.35,
+                  ),
+                ),
+                // AU-006: value/unit text was rendered directly inside this
+                // fixed-diameter circle with no scale-down wrapper — at
+                // large OS text-scale settings it would clip against the
+                // circle's edge. FittedBox matches the treatment already
+                // used for "YOU ARE HERE" above.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        value,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: active ? 13 : 11,
+                          height: 1,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        unit,
+                        style: TextStyle(
+                          color: active ? color : AppColors.textTertiary,
+                          fontSize: 5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (active)
+                Positioned(
+                  right: -3,
+                  bottom: 0,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: color, width: 2.25),
                     ),
                   ),
-                  Icon(Icons.arrow_drop_down_rounded, color: color, size: 12),
-                ],
-              )
-            : null,
-      ),
-      Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: active ? 42 : 32,
-            height: active ? 42 : 32,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: active ? const Color(0xFFFFF1F2) : const Color(0xFFF9FAFB),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: active ? color : const Color(0xFFE5E7EB),
-                width: active ? 2.25 : 1.35,
+                ),
+            ],
+          ),
+          const SizedBox(height: 1),
+          SizedBox(
+            height: 18,
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              style: TextStyle(
+                color: color,
+                fontSize: 8,
+                height: 1.2,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
               ),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: active ? 13 : 11,
-                    height: 1,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  unit,
-                  style: TextStyle(
-                    color: active ? color : AppColors.textTertiary,
-                    fontSize: 5,
-                  ),
-                ),
-              ],
             ),
           ),
-          if (active)
-            Positioned(
-              right: -3,
-              bottom: 0,
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: color, width: 2.25),
-                ),
-              ),
-            ),
         ],
       ),
-      const SizedBox(height: 1),
-      SizedBox(
-        height: 18,
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          style: TextStyle(
-            color: color,
-            fontSize: 8,
-            height: 1.2,
-            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-          ),
-        ),
-      ),
-    ],
-  );
+    );
+  }
 }
 
 class _CycleRingPainter extends CustomPainter {

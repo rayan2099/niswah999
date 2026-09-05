@@ -477,6 +477,7 @@ class _ConversationsPicker extends StatelessWidget {
                           Icons.delete_outline_rounded,
                           color: Colors.red,
                         ),
+                        tooltip: _ai('Delete conversation', 'حذف المحادثة'),
                         onPressed: () => _confirmDelete(context, thread),
                       ),
                       onTap: () => onSelect(thread),
@@ -559,6 +560,7 @@ class _AiHeader extends StatelessWidget {
         IconButton(
           onPressed: onClose,
           icon: const Icon(Icons.close_rounded, color: Color(0xFF7F1D3C)),
+          tooltip: _ai('Close', 'إغلاق'),
         ),
         Container(
           width: 42,
@@ -837,7 +839,7 @@ class _Welcome extends StatelessWidget {
           ),
         const SizedBox(height: 22),
         Align(
-          alignment: Alignment.centerLeft,
+          alignment: AlignmentDirectional.centerStart,
           child: Text(
             _ai('SUGGESTED QUESTIONS', 'أسئلة مقترحة'),
             style: const TextStyle(

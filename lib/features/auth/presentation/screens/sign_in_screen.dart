@@ -357,27 +357,44 @@ class _SignInContent extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.start,
             children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: agreed ? const Color(0xFFE11D48) : Colors.white,
-                  borderRadius: BorderRadius.circular(5),
-                  border: Border.all(
-                    color: agreed
-                        ? const Color(0xFFE11D48)
-                        : const Color(0xFFCBD5E1),
-                    width: 1.5,
+              // This is a hand-drawn checkbox, not a Material `Checkbox` —
+              // without an explicit Semantics wrapper it would expose no
+              // checked state at all to a screen reader (confirmed: no
+              // Semantics anywhere in this InkWell before this fix). `onTap`
+              // here gives the node its own activatable action, independent
+              // of (but calling the same callback as) the enclosing
+              // InkWell's tap handling for sighted users.
+              Semantics(
+                checked: agreed,
+                label: _tr(
+                  'Agree to the Privacy Policy and Terms of Use',
+                  'الموافقة على سياسة الخصوصية وشروط الاستخدام',
+                ),
+                onTap: () => onAgreedChanged(!agreed),
+                child: ExcludeSemantics(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: agreed ? const Color(0xFFE11D48) : Colors.white,
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(
+                        color: agreed
+                            ? const Color(0xFFE11D48)
+                            : const Color(0xFFCBD5E1),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: agreed
+                        ? const Icon(
+                            Icons.check_rounded,
+                            size: 13,
+                            color: Colors.white,
+                          )
+                        : null,
                   ),
                 ),
-                child: agreed
-                    ? const Icon(
-                        Icons.check_rounded,
-                        size: 13,
-                        color: Colors.white,
-                      )
-                    : null,
               ),
               const SizedBox(width: 8),
               Flexible(
@@ -1100,6 +1117,9 @@ class _AuthSheetState extends State<_AuthSheet> {
                 : Icons.visibility_outlined,
             size: 20,
           ),
+          tooltip: _obscure
+              ? _tr('Show password', 'إظهار كلمة المرور')
+              : _tr('Hide password', 'إخفاء كلمة المرور'),
           onPressed: () => setState(() => _obscure = !_obscure),
         ),
       ),

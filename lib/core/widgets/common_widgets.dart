@@ -214,7 +214,7 @@ class StatCard extends StatelessWidget {
               ),
               if (unit != null)
                 Padding(
-                  padding: const EdgeInsets.only(left: 8.0),
+                  padding: const EdgeInsetsDirectional.only(start: 8.0),
                   child: Text(
                     unit!,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -268,7 +268,7 @@ class NiswahListTile extends StatelessWidget {
               children: [
                 if (icon != null)
                   Padding(
-                    padding: const EdgeInsets.only(right: 12),
+                    padding: const EdgeInsetsDirectional.only(end: 12),
                     child: Icon(
                       icon,
                       color: AppColors.brandPrimary,
@@ -302,6 +302,50 @@ class NiswahListTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Icon-only button that always carries an accessible name.
+///
+/// `IconButton`'s accessible name comes from its `tooltip:` — every icon-only
+/// control in this app should go through this widget (or set `tooltip:`
+/// directly) rather than a bare `IconButton`/`GestureDetector`, so a new
+/// control can't silently ship with no name for screen-reader users (AU-001).
+/// [label] is required, not optional, specifically to make that mistake
+/// impossible at the call site.
+class NiswahIconButton extends StatelessWidget {
+  const NiswahIconButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.color,
+    this.iconSize,
+    this.padding,
+  });
+
+  final IconData icon;
+
+  /// The accessible name (and visible long-press tooltip). Must describe
+  /// the action ("Close", "Delete entry"), not the icon shape.
+  final String label;
+
+  final VoidCallback? onPressed;
+  final Color? color;
+  final double? iconSize;
+  final EdgeInsetsGeometry? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: Icon(icon),
+      tooltip: label,
+      onPressed: onPressed,
+      color: color,
+      iconSize: iconSize,
+      padding: padding ?? const EdgeInsets.all(12),
+      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
     );
   }
 }

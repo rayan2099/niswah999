@@ -380,6 +380,7 @@ class _ConversationsPicker extends StatelessWidget {
                         Icons.delete_outline_rounded,
                         color: Colors.red,
                       ),
+                      tooltip: _dr('Delete entry', 'حذف المدخل'),
                       onPressed: () => _confirmDelete(context, entry),
                     ),
                     onTap: () => onSelect(entry),
@@ -629,6 +630,7 @@ class _DreamHeader extends StatelessWidget {
         IconButton(
           onPressed: onClose,
           icon: const Icon(Icons.close_rounded, color: Color(0xFF4C3B78)),
+          tooltip: _dr('Close', 'إغلاق'),
         ),
         Container(
           width: 42,

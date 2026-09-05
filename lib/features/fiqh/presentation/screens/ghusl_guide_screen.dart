@@ -125,6 +125,7 @@ class _GhuslGuideScreenState extends State<GhuslGuideScreen> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         leading: IconButton(
           icon: const Icon(Icons.close, color: Color(0xFF064E3B)),
+          tooltip: _t('Close', 'إغلاق'),
           onPressed: () => Navigator.pop(context),
         ),
         title: LinearProgressIndicator(

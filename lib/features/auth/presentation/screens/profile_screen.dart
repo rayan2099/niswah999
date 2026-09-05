@@ -910,6 +910,10 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
                               children: [
                                 IconButton(
                                   visualDensity: VisualDensity.compact,
+                                  tooltip: _pr(
+                                    'Increase week',
+                                    'زيادة الأسبوع',
+                                  ),
                                   onPressed: _week < 40
                                       ? () => setState(() => _week++)
                                       : null,
@@ -929,6 +933,10 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
                                 ),
                                 IconButton(
                                   visualDensity: VisualDensity.compact,
+                                  tooltip: _pr(
+                                    'Decrease week',
+                                    'إنقاص الأسبوع',
+                                  ),
                                   onPressed: _week > 1
                                       ? () => setState(() => _week--)
                                       : null,
@@ -1110,6 +1118,7 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
                     const SizedBox(width: 8),
                     IconButton(
                       key: const Key('pregnancy-setup-risk-flag-add'),
+                      tooltip: _pr('Add', 'إضافة'),
                       onPressed: _addHighRiskFlag,
                       icon: const Icon(Icons.add_circle, color: AppColors.haid),
                     ),

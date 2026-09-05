@@ -349,81 +349,90 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
 
     return Stack(
       children: [
-        Padding(
-          padding: const EdgeInsetsDirectional.only(start: 76, top: 4),
-          child: Column(
-            crossAxisAlignment: alignment,
-            children: [
-              Align(
-                alignment: isArabic
-                    ? Alignment.centerLeft
-                    : Alignment.centerRight,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF1F2),
-                    borderRadius: BorderRadius.circular(99),
-                    border: Border.all(color: const Color(0xFFFFD5DB)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _isPeriodMode
-                            ? Icons.water_drop_outlined
-                            : Icons.favorite_outline,
-                        color: const Color(0xFFF43F5E),
-                        size: 17,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _isPeriodMode
-                            ? _cl('TODAY\'S LOG', 'تسجيل اليوم')
-                            : _cl('SYMPTOMS', 'تسجيل الأعراض'),
-                        style: const TextStyle(
-                          color: Color(0xFFF43F5E),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+        // Without an explicit `container: true` boundary here, Flutter
+        // merges this text block's semantics with the close button's
+        // Semantics node below into one composite node carrying *both* the
+        // title/subtitle text *and* the close action — a screen-reader
+        // user activating what reads as informational text would actually
+        // trigger "close the sheet". This boundary keeps them separate.
+        Semantics(
+          container: true,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.only(start: 76, top: 4),
+            child: Column(
+              crossAxisAlignment: alignment,
+              children: [
+                Align(
+                  alignment: isArabic
+                      ? Alignment.centerLeft
+                      : Alignment.centerRight,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF1F2),
+                      borderRadius: BorderRadius.circular(99),
+                      border: Border.all(color: const Color(0xFFFFD5DB)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isPeriodMode
+                              ? Icons.water_drop_outlined
+                              : Icons.favorite_outline,
+                          color: const Color(0xFFF43F5E),
+                          size: 17,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 6),
+                        Text(
+                          _isPeriodMode
+                              ? _cl('TODAY\'S LOG', 'تسجيل اليوم')
+                              : _cl('SYMPTOMS', 'تسجيل الأعراض'),
+                          style: const TextStyle(
+                            color: Color(0xFFF43F5E),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _isPeriodMode
-                    ? _cl('Log today', 'تسجيل اليوم')
-                    : _cl('Log symptoms', 'تسجيل الأعراض'),
-                style: TextStyle(
-                  fontFamily: AppTypography.serifFamily,
-                  color: const Color(0xFF111827),
-                  fontSize: 32,
-                  height: 1.15,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 8),
+                Text(
+                  _isPeriodMode
+                      ? _cl('Log today', 'تسجيل اليوم')
+                      : _cl('Log symptoms', 'تسجيل الأعراض'),
+                  style: TextStyle(
+                    fontFamily: AppTypography.serifFamily,
+                    color: const Color(0xFF111827),
+                    fontSize: 32,
+                    height: 1.15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 9),
-              Text(
-                _isPeriodMode
-                    ? _cl(
-                        'Record blood details and symptoms for today.',
-                        'سجلي تفاصيل الدم والأعراض لهذا اليوم.',
-                      )
-                    : _cl(
-                        'Record how you\'re feeling today.',
-                        'سجلي حالتك وأعراضك لهذا اليوم.',
-                      ),
-                style: const TextStyle(
-                  color: Color(0xFF7C8494),
-                  fontSize: 13,
-                  height: 1.5,
+                const SizedBox(height: 9),
+                Text(
+                  _isPeriodMode
+                      ? _cl(
+                          'Record blood details and symptoms for today.',
+                          'سجلي تفاصيل الدم والأعراض لهذا اليوم.',
+                        )
+                      : _cl(
+                          'Record how you\'re feeling today.',
+                          'سجلي حالتك وأعراضك لهذا اليوم.',
+                        ),
+                  style: const TextStyle(
+                    color: Color(0xFF7C8494),
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         Positioned.directional(
@@ -443,15 +452,20 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
                 ),
               ],
             ),
-            child: GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: const SizedBox(
-                width: 52,
-                height: 52,
-                child: Icon(
-                  Icons.close_rounded,
-                  color: Color(0xFF9CA3AF),
-                  size: 28,
+            child: Semantics(
+              container: true,
+              button: true,
+              label: _cl('Close', 'إغلاق'),
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: const SizedBox(
+                  width: 52,
+                  height: 52,
+                  child: Icon(
+                    Icons.close_rounded,
+                    color: Color(0xFF9CA3AF),
+                    size: 28,
+                  ),
                 ),
               ),
             ),
@@ -584,42 +598,89 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
         runSpacing: 7,
         children: symptoms.map((symptom) {
           final severity = _symptoms[symptom] ?? 0;
-          return InkWell(
-            onTap: () => setState(() {
-              final next = (severity + 1) % 4;
-              if (next == 0) {
-                _symptoms.remove(symptom);
-              } else {
-                _symptoms[symptom] = next;
-              }
-            }),
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              width: (MediaQuery.sizeOf(context).width - 94) / 3,
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 11),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: severity == 0
-                    ? const Color(0xFFF9FAFB)
-                    : const Color(0xFFF43F5E)
-                          .withValues(alpha: .25 + severity * .22),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: severity == 0
-                      ? const Color(0xFFF1F2F4)
-                      : const Color(0xFFFF8FA3),
+          final severityLabel = switch (severity) {
+            1 => _cl('mild', 'خفيف'),
+            2 => _cl('moderate', 'متوسط'),
+            3 => _cl('severe', 'شديد'),
+            _ => null,
+          };
+          return Semantics(
+            button: true,
+            label: severityLabel == null ? symptom : '$symptom, $severityLabel',
+            // Without this, the child Text's own semantics label merges
+            // with this explicit one (same class of bug as the sheet's
+            // close button, fixed above) — the announced label would
+            // combine both instead of cleanly stating the current state.
+            excludeSemantics: true,
+            child: InkWell(
+              onTap: () => setState(() {
+                final next = (severity + 1) % 4;
+                if (next == 0) {
+                  _symptoms.remove(symptom);
+                } else {
+                  _symptoms[symptom] = next;
+                }
+              }),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: (MediaQuery.sizeOf(context).width - 94) / 3,
+                constraints: const BoxConstraints(minHeight: 44),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 13,
                 ),
-              ),
-              child: Text(
-                symptom,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
                   color: severity == 0
-                      ? const Color(0xFF6B7280)
-                      : const Color(0xFF9F1239),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
+                      ? const Color(0xFFF9FAFB)
+                      : const Color(0xFFF43F5E)
+                            .withValues(alpha: .25 + severity * .22),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: severity == 0
+                        ? const Color(0xFFF1F2F4)
+                        : const Color(0xFFFF8FA3),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      symptom,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: severity == 0
+                            ? const Color(0xFF6B7280)
+                            : const Color(0xFF9F1239),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    // Non-color indicator of the current severity level
+                    // (AU-004) — a colorblind/low-vision user can confirm
+                    // which of the 3 levels is set without relying on the
+                    // background tint alone. Empty when unselected.
+                    if (severity > 0) ...[
+                      const SizedBox(height: 3),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: List.generate(
+                          3,
+                          (index) => Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 1),
+                            child: Icon(
+                              index < severity
+                                  ? Icons.circle
+                                  : Icons.circle_outlined,
+                              size: 5,
+                              color: const Color(0xFF9F1239),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -698,24 +759,42 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
         // "automatically" for a failure that won't actually retry (see
         // SyncStatus.failed below).
         final status = widget.viewModel.lastSaveSyncStatus;
+        final isSyncFailure = status == SyncStatus.failed;
         Navigator.pop(context);
         messenger.showSnackBar(
           SnackBar(
-            content: Text(
-              switch (status) {
-                SyncStatus.pending => _cl(
-                  'Log saved on this device. It will back up to your account automatically the next time you\'re online.',
-                  'تم حفظ السجل على هذا الجهاز. سيتم نسخه احتياطياً إلى حسابك تلقائياً عند عودة الاتصال.',
+            // A visible, non-text signal (icon) distinguishes the
+            // won't-retry sync failure from the ordinary/pending-sync
+            // outcomes, so the difference isn't conveyed by message
+            // wording alone (AU-005) — Material's SnackBar content is
+            // already an accessibility live region, so this is additive,
+            // not a replacement for the text.
+            backgroundColor: isSyncFailure ? const Color(0xFF9F1239) : null,
+            content: Row(
+              children: [
+                if (isSyncFailure) ...[
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: Text(switch (status) {
+                    SyncStatus.pending => _cl(
+                      'Log saved on this device. It will back up to your account automatically the next time you\'re online.',
+                      'تم حفظ السجل على هذا الجهاز. سيتم نسخه احتياطياً إلى حسابك تلقائياً عند عودة الاتصال.',
+                    ),
+                    SyncStatus.failed => _cl(
+                      'Log saved on this device, but could not be backed up to your account. Please try again later.',
+                      'تم حفظ السجل على هذا الجهاز، لكن تعذر نسخه احتياطياً إلى حسابك. يُرجى المحاولة لاحقاً.',
+                    ),
+                    SyncStatus.synced ||
+                    null => _cl('Log saved.', 'تم حفظ السجل.'),
+                  }),
                 ),
-                SyncStatus.failed => _cl(
-                  'Log saved on this device, but could not be backed up to your account. Please try again later.',
-                  'تم حفظ السجل على هذا الجهاز، لكن تعذر نسخه احتياطياً إلى حسابك. يُرجى المحاولة لاحقاً.',
-                ),
-                SyncStatus.synced || null => _cl(
-                  'Log saved.',
-                  'تم حفظ السجل.',
-                ),
-              },
+              ],
             ),
           ),
         );
@@ -725,8 +804,22 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
         final message = e is FormatException
             ? e.message
             : _cl('Unable to save your cycle log.', 'تعذر حفظ سجل الدورة.');
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF9F1239),
+            content: Row(
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(child: Text(message)),
+              ],
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);

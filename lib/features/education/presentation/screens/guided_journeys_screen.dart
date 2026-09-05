@@ -72,6 +72,7 @@ class GuidedJourneysScreen extends StatelessWidget {
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
           icon: const Icon(Icons.close, color: Color(0xFF064E3B)),
+          tooltip: _j('Close', 'إغلاق'),
         ),
         title: Text(
           _j('Guided Journeys', 'الرحلات الإرشادية'),
@@ -162,6 +163,7 @@ class GuidedJourneysScreen extends StatelessWidget {
           leading: IconButton(
             onPressed: () => Navigator.pop(context),
             icon: const Icon(Icons.close),
+            tooltip: _j('Close', 'إغلاق'),
           ),
           title: Text(
             title,

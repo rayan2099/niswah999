@@ -14,6 +14,14 @@ class AppColors {
   static const Color istihadah = Color(0xFF4F46E5); // indigo-600
   static const Color nifas = Color(0xFFD97706); // amber-600 (postpartum)
 
+  /// [tahara], darkened (hue/saturation preserved) to 4.63:1 against white —
+  /// clears WCAG AA's 4.5:1 bar for normal-size text (AU-003). [tahara]
+  /// itself only clears 3.74:1, which is fine for its icon/border/background
+  /// uses (the applicable bar there is 3:1) but not for small text — use
+  /// this variant specifically where [tahara] is a `Text` color, not the
+  /// base color, so icons/borders/chips keep the original brand hue.
+  static const Color taharaText = Color(0xFF0C8379);
+
   // Text Colors
   static const Color textPrimary = Color(0xFF1F2937); // gray-900
   static const Color textSecondary = Color(0xFF6B7280); // gray-500

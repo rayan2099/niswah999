@@ -43,6 +43,7 @@ class _PregnancyTrackingScreenState extends State<PregnancyTrackingScreen> {
             actions: [
               IconButton(
                 icon: const Icon(Icons.refresh_rounded),
+                tooltip: _pg('Refresh', 'تحديث'),
                 onPressed: _viewModel.loadMilestones,
               ),
             ],

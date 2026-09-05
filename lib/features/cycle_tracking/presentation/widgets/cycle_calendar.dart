@@ -311,6 +311,9 @@ class _CalendarDayState extends State<_CalendarDay>
       child: Semantics(
         button: true,
         label: '${widget.date.day}, ${marker.label}',
+        // Without this, the day-number Text rendered below merges in as
+        // a redundant trailing fragment of this already-complete label.
+        excludeSemantics: true,
         child: InkWell(
           onTap: widget.onTap,
           borderRadius: BorderRadius.circular(9),
