@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
@@ -314,24 +315,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     ?.auth
                                     .currentUser
                                     ?.id;
+                                var syncedToAccount = true;
                                 if (userId != null) {
                                   try {
                                     await PregnancyProfileRepository()
                                         .markPostpartumStarted(userId);
-                                  } catch (_) {
-                                    // Local nifas tracking remains
-                                    // authoritative if the chat-context sync
-                                    // fails.
+                                  } catch (error, stack) {
+                                    syncedToAccount = false;
+                                    AppErrorReporter.report(
+                                      error,
+                                      stack,
+                                      context:
+                                          'DashboardScreen.onLogBirth',
+                                      feature: 'pregnancy_profile',
+                                    );
                                   }
                                 }
                                 if (!mounted) return;
+                                // Local nifas tracking remains authoritative
+                                // on a sync failure — the local toggle above
+                                // already took effect — but the message must
+                                // not claim the chat-context sync succeeded
+                                // when it didn't (RR-003: no false success).
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                      _l(
-                                        'Wishing you a safe delivery. Nifas tracking has started.',
-                                        'نتمنى لكِ ولادة آمنة. تم بدء متابعة النفاس.',
-                                      ),
+                                      syncedToAccount
+                                          ? _l(
+                                              'Wishing you a safe delivery. Nifas tracking has started.',
+                                              'نتمنى لكِ ولادة آمنة. تم بدء متابعة النفاس.',
+                                            )
+                                          : _l(
+                                              "Wishing you a safe delivery. Nifas tracking has started on this device, but couldn't sync to your account — the chat may not be personalized yet.",
+                                              'نتمنى لكِ ولادة آمنة. بدأ تتبع النفاس على هذا الجهاز، لكن تعذّرت المزامنة مع حسابك — قد لا تكون المحادثة مخصّصة بعد.',
+                                            ),
                                     ),
                                   ),
                                 );

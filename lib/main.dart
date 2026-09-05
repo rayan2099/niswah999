@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'core/auth/auth_controller.dart';
 import 'core/config/app_environment.dart';
@@ -36,6 +37,77 @@ const bool kDebugSkipSignup = false;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Config loading is startup-critical: if it fails, the app must show a
+  // visible error, not hang indefinitely on the native splash screen (the
+  // failure mode DC-004 identified). This must also run before Sentry can
+  // be configured below, since the DSN itself comes from this config — a
+  // config-load failure this early can only reach `debugPrint`, not Sentry.
+  // This is deliberately outside runZonedGuarded below, which exists for a
+  // different purpose — see its own comment.
+  try {
+    await dotenv.load();
+    await AppEnvironment.load();
+  } catch (error, stack) {
+    AppErrorReporter.report(error, stack, context: 'startup config load');
+    runApp(_StartupErrorApp(error: error));
+    return;
+  }
+
+  // `options.dsn` left empty (no Sentry project configured yet, e.g. local
+  // dev) makes the SDK a documented no-op transport — it still initializes
+  // cleanly but sends nothing, so this call is always safe to make.
+  await SentryFlutter.init((options) {
+    options.dsn = AppEnvironment.sentryDsn;
+    options.environment = AppEnvironment.appEnvironment;
+    // We deliberately do not rely on SentryFlutter's own automatic
+    // FlutterError/PlatformDispatcher hooks — this app already has its own
+    // versions of both (registered below) that funnel through
+    // AppErrorReporter alongside every repository's manual report() calls.
+    // Wiring AppErrorReporter.onReport to Sentry.captureException (below)
+    // is the single point where any of those paths reaches Sentry, so nothing
+    // is ever reported twice.
+    options.beforeSend = (event, hint) => _scrubBeforeSend(event);
+  }, appRunner: () => _runApp());
+}
+
+/// The actual app bootstrap, run inside Sentry's zone via `appRunner` so
+/// Sentry's native (Android/iOS) crash capture is active for the app's
+/// entire lifetime — but see `SentryFlutter.init` above for why Sentry's own
+/// Dart-level FlutterError/PlatformDispatcher hooks are not used directly.
+Future<void> _runApp() async {
+  // The one and only place AppErrorReporter reaches a real destination.
+  // Every existing call site (FlutterError.onError, PlatformDispatcher.onError,
+  // runZonedGuarded, and ~40+ repository catch blocks) already funnels
+  // through AppErrorReporter.report() — wiring this hook here, rather than
+  // adding Sentry calls at each of those sites, is what makes all of them
+  // reach Sentry without any of them changing.
+  AppErrorReporter.onReport = (
+    error,
+    stack, {
+    context,
+    feature,
+    retryAttempt,
+    recordId,
+  }) {
+    if (AppEnvironment.sentryDsn.isEmpty) return;
+    unawaited(
+      Sentry.captureException(
+        error,
+        stackTrace: stack,
+        withScope: (scope) {
+          if (context != null) scope.setTag('context', context);
+          if (feature != null) scope.setTag('feature', feature);
+          if (retryAttempt != null) {
+            scope.setContexts('retry', {'attempt': retryAttempt});
+          }
+          // recordId is an opaque id only (never record content) by
+          // AppErrorReporter's own contract — safe as an extra.
+          if (recordId != null) scope.setContexts('record', {'id': recordId});
+        },
+      ),
+    );
+  };
+
   // Widget-build-time errors and platform-level async errors don't pass
   // through the zone guard below — without these two hooks they fall
   // through to Flutter's default handling with no team-visible signal at
@@ -52,20 +124,6 @@ Future<void> main() async {
     AppErrorReporter.report(error, stack, context: 'PlatformDispatcher');
     return true;
   };
-
-  // Config loading is startup-critical: if it fails, the app must show a
-  // visible error, not hang indefinitely on the native splash screen (the
-  // failure mode DC-004 identified). This is deliberately outside
-  // runZonedGuarded below, which exists for a different purpose — see its
-  // own comment.
-  try {
-    await dotenv.load();
-    await AppEnvironment.load();
-  } catch (error, stack) {
-    AppErrorReporter.report(error, stack, context: 'startup config load');
-    runApp(_StartupErrorApp(error: error));
-    return;
-  }
 
   // A deep link with a stale/reused/invalid Supabase auth code (e.g. a
   // confirmation link opened twice) throws an uncaught AuthApiException
@@ -91,6 +149,31 @@ Future<void> main() async {
       AppErrorReporter.report(error, stack, context: 'runZonedGuarded');
     },
   );
+}
+
+/// Defense-in-depth text scrub applied to every outgoing Sentry event,
+/// on top of (not instead of) AppErrorReporter's own existing discipline of
+/// only ever passing opaque record ids — never auth tokens, API keys, or
+/// record/message content — into its fields. Redacts values that look like
+/// bearer tokens or API keys if any ever end up in an exception's own
+/// message text (e.g. from a third-party package we don't control).
+/// Public and `@visibleForTesting` so this pattern-matching is covered by a
+/// real unit test rather than only by code review.
+@visibleForTesting
+String scrubSecretsForSentry(String input) => input
+    .replaceAll(RegExp(r'Bearer\s+[A-Za-z0-9\-_.]+'), 'Bearer [redacted]')
+    .replaceAll(
+      RegExp(r'eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+'),
+      '[redacted-jwt]',
+    );
+
+SentryEvent? _scrubBeforeSend(SentryEvent event) {
+  for (final exception in event.exceptions ?? const []) {
+    final value = exception.value;
+    if (value != null) exception.value = scrubSecretsForSentry(value);
+  }
+
+  return event;
 }
 
 /// Shown only when startup-critical config fails to load — replaces an

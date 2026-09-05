@@ -1,5 +1,7 @@
 # Reliability & Resilience Audit — Discovery & Findings
 
+> **Status update (2026-09-05):** This document is the frozen original audit (2026-09-04), preserved as-is for historical reference. `RR-001`'s live remediation status has since progressed materially and is tracked in `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §15–§17 (current status: `PARTIALLY_REMEDIATED`, one remaining gap) — check there, not this file, for current status.
+
 | Field | Value |
 |---|---|
 | System | Niswah — Flutter mobile app |

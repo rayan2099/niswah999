@@ -108,6 +108,27 @@ void main() {
         expect(failure.retryable, isFalse);
       });
 
+      test(
+        'a gateway-level failure (PostgREST unreachable, surfaced as code '
+        '"502" instead of a Postgres SQLSTATE) is retryable — PJ-002 '
+        'regression: discovered via a real forced-outage test where '
+        'stopping the backend produced exactly this shape and was wrongly '
+        'classified permanently failed instead of pending-for-retry',
+        () {
+          final failure = mapRepositoryError(
+            const PostgrestException(
+              message:
+                  'An invalid response was received from the upstream server',
+              code: '502',
+            ),
+            StackTrace.empty,
+            context: 'test.pg-gateway-502',
+          );
+
+          expect(failure.retryable, isTrue);
+        },
+      );
+
       test('a unique-constraint violation (23505) is non-retryable', () {
         final failure = mapRepositoryError(
           const PostgrestException(

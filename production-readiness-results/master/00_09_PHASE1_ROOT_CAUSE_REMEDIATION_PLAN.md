@@ -560,4 +560,105 @@ Searched `pubspec.yaml`, `pubspec.lock`, and `lib/` for Sentry, Firebase Crashly
 
 **New finding registered this pass:** `RR-003` — pregnancy-profile write call sites (`_startNifas` in `profile_screen.dart`, `onLogBirth` in `dashboard_screen.dart`) silently discard a documented-as-meaningful persistence failure (`catch (_) {}`, no `AppErrorReporter`, no user message), inconsistent with the same repository's third call site and with its own authoring comment. Severity: Medium — the user-visible symptom is a chat that quietly stays unpersonalized after a "nifas started" action the user believes fully succeeded, not data loss (the local nifas toggle does take effect). `OPEN`.
 
+---
+
+## 17. Second Operational Closure Pass — RR-003 Remediation, Sentry Integration, PJ-002 Live Validation (2026-09-05)
+
+**No production DB schema/migration/RLS/trigger/function/migration-ledger mutation occurred.** `W0-002` preserved exactly as `DEFERRED`. No Release Engineering, Android desugaring/signing, CI/CD, accessibility, DB-backed rate limiter, or Doctor's Report work was started, per the stop condition.
+
+### RR-003 — fixed
+
+All three `PregnancyProfileRepository` write call sites traced end-to-end (UI action → repository write → backend result → failure propagation → user-visible result → `AppErrorReporter` → retry):
+
+| Call site | Before | After |
+|---|---|---|
+| `ProfileScreen._startNifas` (nifas toggle) | `catch (_) {}` — no report, no user message | Catches, reports via `AppErrorReporter` (`feature: pregnancy_profile`), shows a bilingual SnackBar naming the real consequence ("chat may not be personalized yet"). Local nifas state intentionally still stays active — reverting it would be a worse regression than an unpersonalized chat, and this is a deliberate, evidence-based product choice, not an oversight. |
+| `DashboardScreen`'s `onLogBirth` | `catch (_) {}`, **then unconditionally showed a success SnackBar regardless of outcome — a false-success violation** | Catches, reports via `AppErrorReporter`, and now shows one of two accurate bilingual messages depending on whether the sync actually succeeded — the false-success case is eliminated. |
+| `ProfileScreen._showPregnancySetupSheet` (already fail-visible) | Correct behavior, but no `AppErrorReporter` call | `AppErrorReporter.report(...)` added for observability parity with the other two sites; user-visible behavior unchanged (already correct). |
+
+No automatic retry was added anywhere in this repository — per the operator's explicit instruction, a stale pregnancy-context sync is not something to retry silently, and `PregnancyProfileRepository` remains REMOTE-AUTHORITATIVE. **Files changed:** `lib/features/auth/presentation/screens/profile_screen.dart`, `lib/features/dashboard/presentation/screens/dashboard_screen.dart`. **Tests:** extended `test/pregnancy_profile_repository_test.dart` with a regression test locking in that `markPostpartumStarted` throws (never silently succeeds) when Supabase is unavailable — the exact precondition these three call sites now depend on. A full widget-level test of the SnackBar-text-per-outcome branch was not added: neither call site has an injection seam for a fake repository, and adding one purely for testability would itself be the kind of unrelated architectural change the operator instructed against; the fix was verified by code review, `dart analyze`, and the repository-level contract test above.
+
+**`RR-003` → VERIFIED_CLOSED.**
+
+### AB-010 / OB-007 reassessment
+
+Surveyed every `*repository*.dart` file in `lib/` for `mapRepositoryError`/`AppErrorReporter` adoption vs. remaining ad hoc handling:
+
+| Repository | Status |
+|---|---|
+| `CycleTrackingRepositoryImpl` | Adopts `mapRepositoryError` + `AppErrorReporter` fully |
+| `CommunityRepositoryImpl` | Adopts `mapRepositoryError` + `AppErrorReporter` fully |
+| `user_profile_repository.dart` | Uses `AppErrorReporter` directly (not `mapRepositoryError` — no retry concept applies here, so classification isn't needed); consistent and correct for its REMOTE-AUTHORITATIVE, fail-visible model |
+| `PregnancyProfileRepository` | Deliberately **not** adopting `mapRepositoryError` — assessed and declined this pass, not merely skipped. Its callers already need custom bilingual UI copy regardless of `Failure.message`, and since no automatic retry exists or should exist here, the `retryable` classification `mapRepositoryError` provides would go unused. Raw-exception-plus-manual-message is a distinct but *internally consistent* pattern from `CycleTrackingRepositoryImpl`'s, not an inconsistency needing to be forced into uniformity. |
+| `PregnancyTrackingRepositoryImpl` | **Remaining ad hoc, unaddressed** — 3 bare `catch (_) {}` blocks (read/write/delete), zero `AppErrorReporter` calls. Left alone this pass: it sits behind the deferred `W0-002` schema mismatch, and adding observability to a sync path that is *already known* to fail every time for schema reasons would only produce noise until `W0-002` is resolved. |
+| `PrayerTrackingRepositoryImpl` | **Remaining ad hoc, unaddressed** — 2 bare `catch (_) {}` fallback-to-empty-list blocks, zero `AppErrorReporter` calls. Not part of any finding this remediation group targets; recorded here as a known gap for a future pass, not fixed now (no unrelated architectural changes). |
+| `NotificationRepositoryImpl` | 1 bare `catch (_)` — a benign JSON-decode fallback when reading locally-stored preferences (fills in defaults for a key added after the value was last saved), not a critical-write silent failure. Reasonable to leave as-is. |
+
+**Disposition:** `AB-010`/`OB-007` remain **PARTIALLY_REMEDIATED** — the shared architecture is real, adopted where it fits, and deliberately not forced onto `PregnancyProfileRepository`. `PregnancyTrackingRepositoryImpl` and `PrayerTrackingRepositoryImpl` are recorded as still using ad hoc, unobserved error handling — real, known gaps for a future pass, not silently dropped from the record.
+
+### OB-006 — Sentry integration implemented
+
+`sentry_flutter: 9.29.0` added. `lib/main.dart` now calls `SentryFlutter.init` before app bootstrap, with `AppErrorReporter.onReport` wired to `Sentry.captureException` — the single point where every existing report path (`FlutterError.onError`, `PlatformDispatcher.instance.onError`, the pre-existing `runZonedGuarded` zone guard, and all ~40+ repository `AppErrorReporter.report()` calls) now reaches a real destination, with no call site changed and no risk of double-reporting (Sentry's own automatic Flutter/PlatformDispatcher hooks are deliberately not used — this app's own hooks, which already funnel through `AppErrorReporter`, are registered after `SentryFlutter.init` and take precedence). `options.environment` is set from the existing `AppEnvironment.appEnvironment`. A `beforeSend` hook applies a defense-in-depth regex scrub (`scrubSecretsForSentry`, `@visibleForTesting`, unit-tested) redacting `Bearer` tokens and JWT-shaped strings from exception text, on top of — not instead of — `AppErrorReporter`'s existing discipline of only ever passing opaque record ids, never record/message content.
+
+The DSN is read from a new, optional `SENTRY_DSN` environment variable (`AppEnvironment.sentryDsn`) — empty by default, which makes the SDK a documented no-op transport (initializes cleanly, sends nothing). No Sentry auth token or DSN is hardcoded anywhere; `.env.example` documents the variable.
+
+**Files changed:** `pubspec.yaml`/`pubspec.lock` (new dependency), `lib/main.dart` (Sentry init + `AppErrorReporter.onReport` wiring + `scrubSecretsForSentry`), `lib/core/config/app_environment.dart` (`sentryDsn` getter), `.env` / `.env.example` (documented, empty `SENTRY_DSN`). **Tests:** new `test/app_error_reporter_sentry_test.dart` — verifies the `AppErrorReporter.onReport` funnel forwards error/stack/context/feature/retryAttempt/recordId unchanged (the exact contract the Sentry wiring depends on), is a safe no-op with no destination configured, and delivers exactly once per report; plus 3 tests directly exercising `scrubSecretsForSentry`'s redaction behavior against a Bearer token, a JWT-shaped string, and ordinary Postgres error text (left untouched).
+
+**Owner action required to complete this finding:** create a Sentry project (Flutter platform), obtain its DSN, and set `SENTRY_DSN` in the deployment environment (and locally in `.env` for anyone who wants local crash reporting). No code change is needed once that DSN exists — the integration activates automatically.
+
+**`OB-006` remains OPEN.** The code-level integration is complete and tested, but per the operator's explicit closure bar, this cannot be marked `VERIFIED_CLOSED` until a real event is observed in an actual configured Sentry project — which requires the owner-side DSN above and could not be produced in this session (no live Sentry account/DSN exists yet).
+
+### PJ-002 — live forced-failure validation: RESULT
+
+Used the same isolated, disposable local Supabase stack methodology as `PJ-004`'s Phase B, running the actual `CycleTrackingRepositoryImpl` (production code, `client:` constructor injection pointed at the local stack instead of the global singleton).
+
+**Forced failure:** rather than a database-level privilege revoke (which produces a non-retryable `42501` — the wrong failure shape for this finding), `docker stop supabase_rest_Niswah` was used to take the backend fully offline, then `docker start` to bring it back — reproducing "remote persistence fails transiently" (a connectivity/backend outage), which is what `PJ-002` is actually about, as opposed to "the write is rejected" (`PJ-004`'s scenario).
+
+**Real, unplanned discovery — a genuine classifier bug, not just a test artifact:** the forced outage surfaced as a `PostgrestException` with `code: '502'` (once) and `code: '503', message: 'name resolution failed'` (on a later run) — Kong's own gateway-level error, wrapped by the client library into the same `PostgrestException` shape used for real Postgres errors. `mapRepositoryError`'s retryable allow-list only recognized genuine Postgres SQLSTATEs (`57014`, `40001`, etc.), not HTTP-gateway codes — so a full backend outage was being classified **non-retryable and marked permanently `failed`**, the opposite of what `PJ-002`/`RR-001` require. **Fixed in `lib/core/errors/failures.dart`:** added a second, explicitly-labeled allow-list (`_retryableGatewayHttpCodes = {'502','503','504'}`) checked alongside the Postgres SQLSTATE list, with a comment explaining the distinction. Regression test added to `test/error_classification_test.dart`.
+
+**Full validated sequence, this pass, against the corrected code:**
+1. Local cycle log saved (`pending`).
+2. PostgREST stopped; `saveCycleLog` attempted — real `PostgrestException(code: 502)` from Kong.
+3. Correctly classified retryable → status stayed `pending` (not `failed`) — confirms the fix.
+4. `AppErrorReporter` received exactly one report for this failure, with full context (`feature: cycle_tracking`, `recordId` = the log id).
+5. PostgREST restarted; polled via the actual repository/table call (not a generic health check) until genuinely reachable again — avoiding a false "it's back" signal from a stale connection or Kong's own target-health cooldown, which was observed to cause a spurious second failure in an earlier iteration of this exact test.
+6. `syncPendingLogs()` (the same function app-start/app-resume call in production) retried — `synced: 1, stillPending: 0, permanentlyFailed: 0`.
+7. Direct database check: exactly one row for this log's id, `sync_status = 'synced'` — no duplicate row from the two upsert attempts (the first never reached Postgres at all; `onConflict: 'id'` would have prevented a duplicate either way).
+
+Privilege/container state fully restored, local stack stopped, scratch test file deleted (same precedent as `PJ-004`: a manual evidence-gathering run, not added to the permanent suite, since it needs live Docker infrastructure).
+
+**Verdict:** the full sequence the operator specified — pending → transient remote failure → still pending → `AppErrorReporter` notified → retry → synced → no duplicate — is now demonstrated end-to-end against production-equivalent code, with a real bug found and fixed in the process rather than the test being adjusted to pass around it. `PJ-002` → **VERIFIED_CLOSED**.
+
+### Testing (this pass)
+
+`dart analyze lib/`: 27 pre-existing issues, zero new, zero errors. `flutter test`: **282/290** — same 8 pre-existing golden-image diffs (`parity_community_test.dart` ×2, `parity_today_lower_test.dart` ×1, `parity_profile_test.dart` ×2, `parity_dashboard_test.dart` ×2, `parity_cycle_log_sheet_test.dart` ×1), byte-for-byte identical failing-test list to the established baseline — zero regressions. 8 new permanent tests added this pass (1 in `error_classification_test.dart` for the 502/503 gateway-retryable fix, 6 in `app_error_reporter_sentry_test.dart`, 1 in `pregnancy_profile_repository_test.dart`). The PJ-002 live-stack test was run manually (documented above) and then deleted, matching `PJ-004`'s precedent.
+
+### Finding closure (supersedes §16 Phase G)
+
+| Finding | Status | Notes |
+|---|---|---|
+| `RR-003` | **VERIFIED_CLOSED** | All 3 call sites fixed and reviewed; repository contract locked in by a regression test |
+| `PJ-002` | **VERIFIED_CLOSED** | Live forced-outage test against production-equivalent code; found and fixed a real classifier bug in the process |
+| `RR-001` | **PARTIALLY_REMEDIATED** | Cycle/haid path now fully closed including the classifier fix above; pregnancy-tracking's unobserved sync failures (behind `W0-002`) are the sole remaining gap |
+| `OB-006` | **OPEN** | Code integration complete and tested; closure requires an owner-provided Sentry DSN and one observed live event |
+| `OB-007` / `AB-010` | **PARTIALLY_REMEDIATED** | Adoption is now complete everywhere it fits; `PregnancyTrackingRepositoryImpl` and `PrayerTrackingRepositoryImpl` recorded as remaining ad hoc, unaddressed |
+| `PJ-004` | **VERIFIED_CLOSED** | Unchanged from §16 |
+| `PJ-006` | **OPEN** | Unchanged, by design — Doctor's Report not touched |
+
+**Owner actions required:** (1) confirm the fresh synthetic QA account (`niswah.qa.recheck.<timestamp>@gmail.com`, created this pass — production email confirmation blocked automated sign-in, per standing instruction this was not retried) so the `dr-niswah-chat` normal-path recheck can run; (2) create a Sentry project and provide its DSN via `SENTRY_DSN` to complete `OB-006`.
+
+### Addendum — production `dr-niswah-chat` normal-path recheck (2026-09-05, after owner confirmed the QA account)
+
+Signed in as the now-confirmed synthetic account and ran the deployed function directly against production (not the local isolated stack, matching the operator's request for a live re-verification of the currently-deployed version):
+
+- **Normal message:** HTTP 200, correct Arabic reply, `urgent: false`, real non-null `messageId`. Both the user and assistant `chat_messages` rows confirmed present via a direct authenticated read.
+- **Red-flag message** ("عندي نزيف حاد الآن ولا أعرف ماذا أفعل"): HTTP 200, correct safety banner + guidance text, `urgent: true`, real non-null `messageId`. Both messages confirmed persisted the same way.
+- **`flagged_conversations` could not be read back to directly confirm the audit-log insert** — the table has RLS *enabled* with **zero policies defined**, which is Postgres's default-deny for any non-owner role regardless of table-level grants. An empty read here is the *correct, expected* result for a regular authenticated user, not evidence the insert failed; the response's non-null `messageId` is consistent with the assistant-message write succeeding, and by the same code path (`index.ts`'s three independently-isolated writes) a failure there would not have blocked the reply anyway. Direct confirmation of this specific write would require service-role/dashboard access, which was correctly not used for this client-facing recheck.
+- **No sensitive/internal detail leaked** in either response body — both contained only the intended user-facing Arabic text, no stack traces, identifiers, or diagnostic detail.
+- **No regression from `PJ-004`:** both exchanges completed normally with full persistence: the fix changed nothing about the happy path, only added resilience when a write fails.
+
+**Cleanup:** called `delete_my_account()` (HTTP 204). Re-reading the test thread and its messages with the same (still-unexpired) access token returned empty for both — the underlying rows are gone, not merely hidden by a revoked token. Re-login with the same credentials returned `invalid_credentials` (HTTP 400), confirming the `auth.users` identity itself no longer resolves. No residual data was found via the checks available to a non-privileged client (raw `auth.users` row state and `flagged_conversations` row state cannot be directly inspected without service-role/dashboard access, consistent with every prior cleanup verification in this engagement).
+
+**Result: this recheck confirms the deployed `dr-niswah-chat` function's normal path, unchanged and working correctly, with no regression from the `PJ-004` fix.** No finding's status changes as a result of this recheck (it was already scoped as a Phase A completion item, not a new verification target) — `PJ-004` remains `VERIFIED_CLOSED` from the isolated-stack failure-injection evidence already on record.
+
 **Not proceeded into:** Release Engineering, Android desugaring/signing, CI/CD, accessibility, database/RLS migrations, the rate-limiter schema implementation, migration repair, `W0-002`, or unrelated dead-code cleanup — per the explicit stop condition.

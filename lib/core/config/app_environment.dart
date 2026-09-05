@@ -12,17 +12,20 @@ class AppEnvironment {
       fallback: 'VITE_SUPABASE_ANON_KEY',
     );
     final appEnv = dotenv.env['APP_ENV'] ?? 'development';
+    final sentryDsn = dotenv.env['SENTRY_DSN']?.trim() ?? '';
 
     _validateClientConfig(url: url, anonKey: anonKey);
 
     _supabaseUrl = url;
     _supabaseAnonKey = anonKey;
     _appEnvironment = appEnv;
+    _sentryDsn = sentryDsn;
   }
 
   static String _supabaseUrl = '';
   static String _supabaseAnonKey = '';
   static String _appEnvironment = 'development';
+  static String _sentryDsn = '';
 
   static String get supabaseUrl => _require(_supabaseUrl, 'SUPABASE_URL');
 
@@ -30,6 +33,15 @@ class AppEnvironment {
       _require(_supabaseAnonKey, 'SUPABASE_ANON_KEY');
 
   static String get appEnvironment => _appEnvironment;
+
+  /// A Sentry DSN is not a secret in Sentry's own threat model (it is
+  /// write-only and meant to ship inside client apps), but it's still kept
+  /// out of source and read per-environment like everything else here.
+  /// **Deliberately optional** — an empty value means "no crash-reporting
+  /// destination configured yet" (e.g. local dev, or before the owner has
+  /// created a Sentry project), not a startup failure. Callers must check
+  /// [sentryDsn.isEmpty] rather than assume it's always set.
+  static String get sentryDsn => _sentryDsn;
 
   static bool get isProduction => _appEnvironment == 'production';
 

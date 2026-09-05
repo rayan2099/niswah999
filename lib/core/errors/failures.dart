@@ -75,6 +75,19 @@ const _retryablePostgresCodes = {
   '08000', '08003', '08006', // connection_exception family
 };
 
+/// `PostgrestException.code` isn't always a Postgres SQLSTATE: when the
+/// failure happens at the API-gateway level — the request never reached
+/// PostgREST/Postgres at all — the client library surfaces the raw HTTP
+/// status as `code` instead (discovered via a real forced-outage test for
+/// `PJ-002`: stopping the backend entirely produced `code: '502'`, which the
+/// SQLSTATE allow-list above doesn't and shouldn't recognize, but which is
+/// exactly the kind of transient condition retrying is right for).
+const _retryableGatewayHttpCodes = {
+  '502', // bad_gateway — upstream (PostgREST) unreachable
+  '503', // service_unavailable
+  '504', // gateway_timeout
+};
+
 /// Shared classifier used by repositories to turn a caught Supabase/network
 /// error into a [Failure] with a user-safe message and a retryability
 /// verdict, instead of each repository inventing its own ad hoc mapping
@@ -97,7 +110,10 @@ Failure mapRepositoryError(
 
   if (looksLikePostgrest) {
     final code = _tryGetField(error, 'code')?.toString();
-    final retryable = code != null && _retryablePostgresCodes.contains(code);
+    final retryable =
+        code != null &&
+        (_retryablePostgresCodes.contains(code) ||
+            _retryableGatewayHttpCodes.contains(code));
     return NetworkFailure(
       userMessage ?? 'Something went wrong. Please try again.',
       cause: error,

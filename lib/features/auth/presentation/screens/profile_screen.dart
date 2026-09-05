@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
@@ -446,9 +447,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// Starts nifas locally (existing behavior, drives the dashboard's nifas
   /// card) and — when a real user is signed in — additively upserts
   /// `pregnancy_profile.is_postpartum`/`postpartum_start_date` so the
-  /// "طبيبة" chat backend picks up the mode switch too. Best-effort: a sync
-  /// failure here shouldn't block the local nifas flow the rest of the app
-  /// already depends on.
+  /// "طبيبة" chat backend picks up the mode switch too. The local toggle
+  /// stays authoritative on a sync failure (reverting it would be a worse
+  /// UX regression than an unpersonalized chat) but the failure is reported
+  /// and surfaced — not silently discarded (RR-003).
   Future<void> _startNifas() async {
     await PregnancyStatusController.instance.startNifas();
 
@@ -457,9 +459,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       await PregnancyProfileRepository().markPostpartumStarted(userId);
-    } catch (_) {
-      // Local nifas tracking remains authoritative if the chat-context sync
-      // fails — the toggle above has already taken effect.
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'ProfileScreen._startNifas',
+        feature: 'pregnancy_profile',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _pr(
+              "Nifas tracking has started on this device, but couldn't sync to your account — the chat may not be personalized yet.",
+              'بدأ تتبع النفاس على هذا الجهاز، لكن تعذّرت المزامنة مع حسابك — قد لا تكون المحادثة مخصّصة بعد.',
+            ),
+          ),
+        ),
+      );
     }
   }
 
@@ -626,7 +643,13 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
             fastingStatus: draftProfile.fastingStatus,
           ),
         );
-      } catch (_) {
+      } catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'ProfileScreen._showPregnancySetupSheet',
+          feature: 'pregnancy_profile',
+        );
         if (!mounted) return;
         setState(() {
           _isSaving = false;

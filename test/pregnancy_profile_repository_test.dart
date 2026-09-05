@@ -27,5 +27,20 @@ void main() {
         expect(() => repository.upsert(profile), throwsA(isA<StateError>()));
       },
     );
+
+    test(
+      'markPostpartumStarted (RR-003) throws rather than silently succeeding '
+      'when Supabase is unavailable — this is exactly the failure the '
+      'ProfileScreen._startNifas and DashboardScreen.onLogBirth call sites '
+      'must now catch, report, and surface instead of discarding',
+      () async {
+        final repository = PregnancyProfileRepository();
+
+        expect(
+          () => repository.markPostpartumStarted('user-1'),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
   });
 }
