@@ -781,4 +781,237 @@ New file: `production-readiness-results/release-deployment/RD_release_rollback_r
 
 **Owner actions required**: (1) back up or replace the newly-generated Android release keystore before any real Play Store upload; (2) add the real Apple Developer Team ID for iOS signing; (3) commit and push `.github/workflows/ci.yml`, then confirm it runs successfully; (4) install the release APK/AAB on a real device and confirm a Sentry event arrives, to finally close `OB-006`; (5) decide whether to invest in a proper remote kill-switch/feature-flag mechanism for `RD-009`.
 
-**Not proceeded into:** Release Engineering, Android desugaring/signing, CI/CD, accessibility, database/RLS migrations, the rate-limiter schema implementation, migration repair, `W0-002`, or unrelated dead-code cleanup — per the explicit stop condition.
+**Not proceeded into (this wave's own stop condition):** Privacy/Compliance remediation, Accessibility remediation, production DB changes, `W0-002`, migration repair, DB-backed rate limiter implementation.
+
+---
+
+## 20. Backup / Recovery Remediation Wave (2026-09-05)
+
+**Production database access this wave was READ-ONLY where attempted, and even that was blocked (see Phase A).** No migrations applied, no schema/RLS/trigger/function/index/constraint change, no production data modified, `W0-002`/`W1-001` not implemented. All restore testing used a disposable, isolated local Supabase stack, destroyed after use.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below:** `W0-002` (`DEFERRED — PRODUCT/DATA-MODEL DECISION REQUIRED`), `W1-001` (`OPEN`, design-only), `SEC-001`/`ROOT-002` (`OPEN`, rotation re-verification never completed — see `00_04`'s Full-Engagement Reconciliation), Fiqh Search-grounding degradation (`B — DEGRADED`, unchanged), `RR-001` (`PARTIALLY_REMEDIATED`), `PJ-006` (`OPEN`, by design), `OB-006` (`PARTIALLY_REMEDIATED`), and every still-open Release/Deployment finding from §19.
+
+### Phase A — Current recovery capability: BLOCKED on live re-verification, Wave 0 evidence carried forward with that caveat stated plainly
+
+Every authenticated Supabase CLI command (`supabase projects list`, which would be the entry point to `backups list`/plan-tier checks) hung indefinitely this wave — the same recurring `security find-generic-password` keychain-access hang documented repeatedly earlier in this engagement (most recently in the Release Engineering wave, resolved there only because that wave's work was local-only and didn't need real platform authentication). This is an environment/tooling issue, not a finding about the database itself, and not something resolvable without the owner re-running `supabase login` interactively. **This wave did not stop and wait for that** — proceeding was judged more valuable than blocking the entire wave on one CLI call, but the honest consequence is stated here rather than hidden: **`BR-001`'s status below is Wave 0's evidence (2026-09-04, one day old), not independently re-confirmed live this wave.**
+
+Wave 0's evidence, carried forward: `pitr_enabled: false`, `backups: []` — confirmed via `supabase backups list` at the time. Nothing in this engagement has touched the Supabase project's billing/plan configuration since (no wave has had platform/billing access at any point), so there is no specific reason to expect this has changed — but "no reason to expect a change" is a materially weaker claim than "re-confirmed today," and this report does not conflate the two.
+
+**Migration ledger state, current local file inventory (does not require live auth):** unchanged since Wave 0 — 12 files in `supabase/migrations/`, timestamps `20260820174500` through `20260830140000`, no new file added since (confirmed via `git log`/`ls -la` this wave). The proposed `migration repair` (Wave 0 Output K) remains unexecuted, per this wave's own explicit prohibition.
+
+**Live application-owned schema, functions/triggers, storage config:** re-derived indirectly this wave via a fresh restore-and-validate cycle against the canonical baseline (Phases D-E below) rather than a fresh live dump — the baseline's fidelity to the live capture was itself re-confirmed structurally (see Phase B), so this substitutes adequately for a live re-dump for the purposes of this wave's schema-recoverability question, though it is not a live re-read of the actual production database's current state.
+
+### Phase B — Recovery artifact inventory: CURRENT
+
+| Artifact | Classification | Basis |
+|---|---|---|
+| `supabase/canonical_baseline/00_public_baseline_draft.sql` | **CURRENT** | File dated 2026-09-04 19:35 (one day old); zero new migrations added since (`git log` confirms last migration file is `20260830140000`, predating even Wave 0); no evidence any wave in this entire engagement touched the live database (every wave's own stop conditions prohibited it, and this was checked, not assumed); **re-applied fresh this wave and re-validated behaviorally** (Phases D-E) — its content is not merely asserted current, it was proven to still work |
+| `supabase/live_schema_capture/2026-09-04_{public,auth,storage}.sql` | **CURRENT** | Same basis as above; these are the raw captures the baseline was derived from |
+| `supabase/migrations/*.sql` (tracked migrations) | **UNSAFE for restore use** — re-confirmed, freshly, this wave | Starting a truly empty local Supabase stack (`supabase start` with no pre-existing DB volume) triggers automatic replay of this directory and **fails outright**, reproducing `BR-002` directly rather than by inference (see Phase D) |
+| `00_10_WAVE0_EXECUTION_REPORT.md` | **CURRENT** as a historical record; its "W0-001: fixed" claim is **corrected this wave** (see Phase F) | The table-name half of the W0-001 fix is confirmed still in place in current code; a second, previously-undiscovered defect (`W0-003`) means the feature is not actually fully fixed as that report's later section claimed |
+
+No artifact required regeneration this wave — all were found current and, where testable, were re-proven rather than assumed.
+
+### Phase C — Logical recovery package: the existing canonical baseline satisfies this; classification re-confirmed, not re-derived from scratch
+
+The baseline already contains every category this phase requires: `REQUIRED_APPLICATION_OBJECT` tables/functions/triggers (including both `auth.users` provisioning triggers and `delete_my_account()`), RLS enablement + all 58 policies, sequences/defaults (`gen_random_uuid()`/`uuid_generate_v4()`), and documents (without reproducing, since they're `SUPABASE_MANAGED`) the extensions it depends on. Storage: confirmed (again) via this wave's schema review that zero buckets/policies exist — `BR-007`'s "Storage not in application use" finding remains correct, nothing to add to the package for it.
+
+**Classification re-walked against this wave's exact taxonomy** (`REQUIRED_APPLICATION_OBJECT` / `SUPABASE_MANAGED` / `LEGACY_BUT_CURRENTLY_REFERENCED` / `UNREFERENCED / CANDIDATE_FOR_LATER_REMOVAL` / `UNKNOWN — REVIEW REQUIRED`) — Wave 0's original five-category scheme maps onto this one directly (no object needed to move category); no object fits `LEGACY_BUT_CURRENTLY_REFERENCED` specifically (nothing found that's both deprecated *and* still actively called) — this category is legitimately empty, not skipped. No production row data was exported or added to any artifact this wave — the package remains schema-and-behavior-only, per every prior wave's constraint and this one's.
+
+### Phase D — Clean restore test: PASSED, with a real, fresh discovery about the tracked migrations
+
+A completely fresh local Supabase stack was created (existing `supabase_db_Niswah` Docker volume explicitly removed first, to guarantee a truly empty starting state rather than reusing schema left over from earlier sessions' work).
+
+**First attempt — using `supabase start` with `supabase/migrations/` present, unmodified:** failed, exit code 1, mid-replay, on the `prayer_log`→`prayer_entries` rename migration — a **fresh, direct reproduction of `BR-002`** (not a re-read of Wave 0's prior finding; this happened live, this wave, from a truly empty database).
+
+**Corrected procedure — matching what a real incident response would actually need to do:** `supabase/migrations/` moved aside temporarily, stack started clean (succeeded), canonical baseline applied directly via `docker exec ... psql -f`. This is now written into `BR_recovery_runbook.md` §4 as the actual, tested restore procedure — explicitly not `supabase db push` or relying on the tracked migration history, and explicitly not dependent on manually reproducing any undocumented Studio changes (the baseline is a complete, self-contained schema script).
+
+**Measured timing:**
+- Stack startup (empty, Docker images already cached): **65 seconds**
+- Baseline apply: **<1 second**
+- Total restore-to-schema-ready: **92 seconds**
+- Full behavioral validation (Phase E, 12 of 14 items exercised live): **313 seconds**
+- **Total end-to-end, restore start to validation complete: 405 seconds (~6.75 minutes)**
+
+**Post-restore schema verification:** 24/24 tables, 8/8 functions, 24/24 RLS-enabled — identical to both the original live capture and Wave 0's own isolated tests. This time using the **real local Supabase Auth service**, not Wave 0's hand-stubbed `auth` schema approximation — a materially stronger proof than Wave 0's, since it validates against actual GoTrue trigger-firing behavior rather than a manual reproduction of it.
+
+### Phase E — Behavioral recovery validation: 12/14 PASSED, 1 revealed a real production bug, 1 not independently re-run this wave (cited prior evidence instead)
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Auth signup | ✅ PASS — real signup against local GoTrue succeeded |
+| 2 | Public profile/user records created | ✅ PASS — both `public.profiles` and `public.users` populated automatically |
+| 3 | Auth triggers work | ✅ PASS — same evidence as #2; both `auth_users_create_profile`/`create_user_profile()` and `on_auth_user_created`/`handle_new_user()` fired (the known `madhhab` hardcoding inconsistency between the two functions, first noted in Wave 0, was reconfirmed present and unchanged — not a new issue) |
+| 4 | RLS denies unauthorized access | ✅ PASS — a second synthetic user querying `cycle_entries` saw 0 rows of the first user's data |
+| 5 | Authorized access works | ✅ PASS — the owning user saw their own row correctly |
+| 6 | Cycle/haid persistence | ✅ PASS — write + read-back succeeded, `fiqh_state` defaulted to `'TAHARA'` |
+| 7 | Cycle pending/sync structural compatibility | ✅ PASS — covered by #6: the exact payload shape `CycleTrackingRepositoryImpl` sends (including `sync_status`) was accepted and stored correctly |
+| 8 | `pregnancy_profile` writes | ✅ PASS |
+| 9 | Profile/account writes | ✅ PASS — `profiles.full_name` update persisted |
+| 10 | Prayer tracking against the correct live-compatible table | ⚠️ **PARTIAL — real bug found, not a restore-artifact defect** | The table-name fix (`prayer_log`, from `W0-001`) is confirmed still in place and the table itself works correctly. **But** the app's `PrayerStatus` enum (`pending`/`completed`/`missed`/`excused`) does not match the database's `prayer_log_status_check` CHECK constraint (`prayed`/`qadha_required`/`lifted`/`missed`) — only `missed` overlaps. A write with the app's real, current payload shape and any of the other three status values fails with a `23514` constraint violation. **Confirmed against the live-captured schema, not just the local restore** (`supabase/live_schema_capture/2026-09-04_public.sql` contains the identical constraint) — this is a real, currently-live production bug, registered as `W0-003` (see Phase F). The restore artifact is not at fault — it faithfully and correctly reproduces the real constraint; the application code is what's wrong. |
+| 11 | Community reads/writes | ✅ PASS — write succeeded with the app's actual full payload shape (including `title`/`category`/`tags`, discovered by reading the real insert code rather than guessing); a second user could read it back (public community model working as designed); the `CommunityCategory` enum was separately spot-checked against the DB's `community_posts_category_check` constraint and found to match exactly — no equivalent bug here |
+| 12 | `delete_my_account()` | ✅ PASS — extended beyond Wave 0's original table set: this wave additionally confirmed `prayer_log` and `community_posts` rows are correctly cascade-deleted (Wave 0 didn't test these two specifically); all 7 tables checked went from 1 row to 0 |
+| 13 | Storage access | **N/A, confirmed** — `BR-007` (Storage not in application use) re-confirmed this wave; nothing to validate |
+| 14 | Edge Function DB expectations | **Schema-level: PASS. Not independently re-run behaviorally this wave.** | `grep`-confirmed the three tables the deployed Edge Functions reference (`chat_messages`, `flagged_conversations`, `pregnancy_profile`) are all present in the restored schema as `REQUIRED_APPLICATION_OBJECT`s (`pregnancy_profile` was also directly write-tested in #8). A full live Edge-Function-against-restored-DB test was already performed twice earlier in this engagement (the `PJ-002`/`PJ-004` isolated-stack failure-injection tests, both against a freshly-applied copy of this exact baseline) and is not repeated a third time here for the same result — cited as existing evidence rather than re-demonstrated, in the interest of the wave's overall time budget. |
+
+Isolated environment fully cleaned up after testing: `supabase stop --no-backup`, Docker volume removed, `supabase/migrations/` restored to its original location — `git status` confirms zero unintended changes to tracked files from this testing.
+
+**`W0-002` was explicitly not touched or attempted as part of this validation, exactly as instructed** — item 10's finding (`W0-003`) is a distinct table (`prayer_log`, not `pregnancy_records`) and a distinct defect class (enum-value mismatch, not table-name/data-model mismatch).
+
+### Phase F — Restore difference analysis
+
+**Zero material difference in application-owned schema** between the restored environment and the live capture it was derived from — re-confirmed this wave (24/24 tables, 8/8 functions, 24/24 RLS, byte-identical constraint text for every table spot-checked, including the two enum-mismatch-relevant ones).
+
+**One correction to a prior claim, found via this wave's more rigorous behavioral pass:**
+
+- **`W0-001`'s register text overclaimed.** `00_10`'s "Post-Wave-0 update" section states "`W0-001` (prayer tracking): fixed." This is **half true**. The table-name portion (querying `prayer_log` instead of the nonexistent `prayer_entries`) is genuinely fixed and confirmed still in place in current code. But the feature as a whole is **not** fixed — `W0-003` (new, this wave) means prayer-log writes still fail for the majority of real status values, via the exact same silent-fallback pattern (`ROOT-005`) that made `W0-001` invisible in the first place. **`00_04`'s finding register row for `W0-001` (which, checked this wave, still correctly said `OPEN` — it was never actually updated to "fixed" despite `00_10`'s claim) is corrected below to explain precisely why, rather than left as a bare "OPEN" that undersells how close it is or a "fixed" that oversells it.**
+
+**This is not a recovery-artifact defect and does not represent "recovery would fail or lose behavior."** The restored environment correctly and faithfully reproduces the real, live production constraint — the defect is in the *application code*, discovered as a byproduct of testing the restore *behaviorally* (per this wave's explicit instruction to validate behavior, not just schema equality) rather than a flaw in the recovery package itself. No remediation to the recovery artifact was needed or made.
+
+**New finding registered:** `W0-003` — `PrayerStatus` enum values sent by `prayer_tracking_repository_impl.dart` (`pending`/`completed`/`missed`/`excused`) do not match `prayer_log_status_check`'s allowed values (`prayed`/`qadha_required`/`lifted`/`missed`); only `missed` overlaps. **Severity: currently-live production defect** — any prayer-status write other than "missed" fails silently (via the existing `ROOT-005` catch-all), meaning prayer tracking is very likely still non-functional in production today even after `W0-001`'s table-name fix, for 3 of 4 possible status values. `OPEN`. Not fixed this wave — a code change to `prayer_tracking_repository_impl.dart` (mapping the app's enum values to the DB's) is the correct remediation, but is application-code work outside this Backup/Recovery wave's scope; flagged here because it was discovered here, not fixed here.
+
+### Phase G — RPO / RTO
+
+**RTO (schema/application recoverability):** measured this wave — **92 seconds** to schema-ready, **~6.75 minutes** end-to-end including full behavioral validation, on a machine with Docker images already cached. Call it **10-15 minutes realistic wall-clock for a practiced operator** including the decision-making and command-typing overhead a real incident adds; materially longer (image-pull time, unknown) on a completely cold environment.
+
+**RTO (real production data):** **cannot be estimated — no mechanism exists.** There is no PITR to restore from and no independent logical data backup to replay. This is not a number this session can responsibly invent.
+
+**RPO — explicitly distinguishing what actually exists:**
+- **Supabase managed backups/PITR:** `pitr_enabled: false` (Wave 0 evidence, not re-confirmed live this wave — see Phase A's caveat). **If unavailable, as this evidence indicates: RPO for production data is effectively infinite (total loss on any live database failure).**
+- **Independent logical backups:** none exist for *data*. The canonical baseline is a *schema-only* logical backup — real, current, tested — but contains zero production rows by design.
+- **Manual backups:** none found or evidenced anywhere in this repository or this engagement's investigation.
+- **Conclusion:** **today's logical recovery package can rebuild the application's structure — every table, constraint, function, trigger, and RLS policy — but cannot recover a single row of real user data.** A full platform loss today would mean: the app could be made to run again (via this runbook, in minutes), but every real user's cycle history, pregnancy data, chat history, and account would be permanently gone, with no path to get any of it back.
+
+### Phase H — Production data backup strategy (design only, per the same reasoning `W1-001`'s rate limiter was design-only — this is a live-project/billing-level change, not a code change this session can make)
+
+| Element | Recommendation |
+|---|---|
+| **Cadence** | Minimum daily automated logical dump (`pg_dump` or Supabase's own managed backup, whichever is enabled) plus continuous PITR if the plan tier supports it — daily alone leaves up to 24h of loss window, which for health/pregnancy tracking data is a real, material risk to name plainly |
+| **Retention** | At minimum 30 days of daily backups, aligned to typical incident-discovery latency (a silent data-loss bug, like the ones this engagement has repeatedly found, can go unnoticed for weeks) |
+| **Encryption** | At-rest encryption for any stored dump (cloud provider default at minimum; customer-managed keys preferred given the health-data sensitivity already flagged repeatedly in this engagement's Privacy findings) |
+| **Storage destination** | Off-platform from the primary Supabase project (a provider-level incident affecting the project should not also destroy its own backups) — a separate cloud storage bucket/account, access-scoped narrowly |
+| **Access controls** | Backup read/restore access limited to a small, named set of operators; write/delete access to the backup store itself separately restricted from day-to-day database credentials |
+| **Restore testing cadence** | At minimum quarterly, using exactly this wave's methodology (isolated environment, full behavioral checklist, not just schema-apply exit code) — an unexercised backup is unverified, per `BR-008`'s own framing |
+| **Trigger** | Automated/scheduled, not manual/ad hoc — a human-remembered backup step is not a reliable control |
+| **Pre-release backup** | For any future release containing a database migration: a verified, fresh backup/restore-tested checkpoint immediately before the migration runs, not merely "a backup exists somewhere" — see Phase I |
+| **Backup verification** | Every automated backup run should itself verify success (not just "the job ran," but "the resulting artifact is non-empty and matches an expected shape") and alert on failure — silently failing backups are exactly the `BR-005` finding already on record |
+
+**This entire phase is `OWNER_ACTION`.** It requires a Supabase plan decision (PITR availability), a cloud storage destination and credentials this session has no access to, and billing authority. **The Backup/Recovery finding this maps to (`BR-001`) is not weakened by infrastructure being unavailable to this session** — it remains exactly as severe as it was, with a concrete, actionable design now attached to it instead of just a gap.
+
+### Phase I — Release interlock
+
+`BR_recovery_runbook.md` §3's artifact-currency table and this wave's restore-test date now give the release process something concrete to check. Added to `RD_release_rollback_runbook.md`'s Artifact Inspection Checklist (extending it, not duplicating it — see that file's Phase 1 checklist from §19):
+
+- [ ] Recovery artifact (`00_public_baseline_draft.sql`) is current — no live schema change has occurred since its last validation date, or it has been regenerated and re-validated
+- [ ] Last restore test date is known and recent (target: within the quarterly cadence from Phase H)
+- [ ] For a release containing **any** database migration: a fresh, verified backup/restore checkpoint exists **before** the migration runs — not "a backup exists somewhere," a checkpoint taken and confirmed restorable for this specific change
+- [ ] Migration review complete (a second reviewer, not just the author, has read the migration SQL — process gap independently noted, not previously documented anywhere in this repo)
+- [ ] Rollback/recovery decision documented for the specific release (what happens if this release needs to be reverted — cross-references `RD-009`, still `OPEN`)
+
+**No migration was executed to test this gate — correctly, per this wave's explicit prohibition.** The gate is procedural/documentation this wave; its first real exercise will be whenever a future wave proposes an actual production migration (e.g., the still-deferred `W0-002` fix, or the still-unapproved `W1-001` rate-limiter schema).
+
+### Testing (this wave)
+
+Restore test: **PASS** (Phase D). Behavioral recovery validation: **12/14 fully PASS, 1 revealed a real pre-existing production bug (not a restore defect), 1 covered by prior-engagement evidence rather than re-run** (Phase E). No Flutter/Dart application code was changed this wave, so `dart analyze`/`flutter test` were not re-run — the last-known baseline (`276/284`, same 8 pre-existing golden-image diffs, from the Release Engineering wave immediately prior) is unaffected and remains current, since nothing in `lib/` changed.
+
+### Phase K — Finding closure
+
+| Finding | Status | Notes |
+|---|---|---|
+| `BR-001` | **OPEN** (unchanged) | Wave 0 evidence carried forward (PITR disabled, zero backups) — **not independently re-confirmed live this wave** due to a CLI environment blocker; stated plainly, not glossed over |
+| `BR-002` | **OPEN** (unchanged), freshly re-confirmed | Migration replay failure reproduced live, this wave, from a truly empty database — direct evidence, not inference. The *recovery path around it* (the canonical baseline) is proven working; the tracked migrations themselves remain unfixed and unsafe to use for restore |
+| `BR-003` | **OPEN** (unchanged) | Not in this wave's direct evidence path; no new information |
+| `BR-004` (no DR runbook) | **PARTIALLY_REMEDIATED** | `BR_recovery_runbook.md` (new) is a real, usable-during-an-incident runbook; RPO/RTO targets are now defined (Phase G) rather than absent. Not `VERIFIED_CLOSED`: it has not been exercised by anyone other than this session, and a genuine "restore test" against the real production project (vs. this wave's isolated local environment) has still never happened |
+| `BR-005` (silent backup failure) | **OPEN** (unchanged) | No backup mechanism exists yet to fail silently or otherwise; this finding activates once Phase H's design is actually implemented — its "backup verification" element is written specifically to prevent this finding recurring once that happens |
+| `BR-006` (no deliberate on-device backup design) | **OPEN** (unchanged) | Out of this wave's server-side-focused evidence path; cross-references the Android `allowBackup="false"` hardening already done in §19, which is a related but distinct control |
+| `BR-007` (Storage not in use) | **VERIFIED_CLOSED** (unchanged, re-confirmed) | Re-checked this wave; still zero buckets/policies |
+| `BR-008` (no restore ever demonstrated) | **PARTIALLY_REMEDIATED** | A real restore, from the actual tested recovery artifact, was demonstrated twice now (Wave 0, and again this wave with the additionally-real local Auth service) — but only ever against an isolated local environment, never against the real Supabase project or a real platform backup (none exists to test). **Explicitly not `VERIFIED_CLOSED`**: the operator's own instruction is clear that a logical-schema restore working does not, by itself, close a managed-backup/PITR-shaped finding, and this finding's original intent (per the audit) was squarely about *production* backups |
+| `W0-001` | **PARTIALLY_REMEDIATED** (corrected from `00_10`'s "fixed" claim) | Table-name fix confirmed still in place; `W0-003` (new) means the feature remains non-functional for most real usage today |
+| `W0-002` | **DEFERRED** (unchanged, preserved exactly as instructed) | — |
+| `W0-003` (**new**) | **OPEN** | Prayer-status enum mismatch, confirmed against live-captured schema; real production defect, application-code fix required, out of this wave's scope |
+
+**Schema/application recoverability: demonstrated and current.** **Real production user-data recoverability: does not exist.** These are stated as two separate conclusions per the operator's explicit instruction not to conflate them — closing the first does not and should not imply anything about the second.
+
+**Owner actions required (`OWNER_ACTION`, cannot be performed by this session):** (1) confirm PITR/backup plan-tier status live (requires resolving the recurring CLI auth hang — re-run `supabase login` interactively); (2) decide on and fund Phase H's production data backup strategy (a real, off-platform, encrypted, access-controlled, regularly-tested backup — currently entirely absent); (3) once any real platform backup exists, restore-test it for real, not just this session's local proxy; (4) fix `W0-003` (prayer-status enum mapping) as application code, separately from this Backup/Recovery wave.
+
+---
+
+## 21. W0-003 Remediation — Prayer Tracking Enum/Database Constraint Mismatch (2026-09-05)
+
+**No production DB schema/migration/RLS/trigger/function/index/constraint change occurred. `W0-002`/`W1-001` not implemented.** The fix is entirely application-layer, in `lib/features/prayer_tracking/data/repositories/prayer_tracking_repository_impl.dart`.
+
+### Phase A — Root-cause verification
+
+Read, in full, before changing anything: `PrayerEntry` (domain entity, `prayer_entry.dart`), `PrayerTrackingRepositoryImpl` (remote/local persistence), `LocalPrayerTrackingDataSource` (local storage), `PrayerTrackingViewModel` (the only caller of `savePrayer`), `PrayerTimeCalculator` (the only producer of `PrayerStatus.pending`), the prayer-tracking screen and dashboard card (UI labels/semantics), the live schema capture, and the existing test file.
+
+1. **Every `PrayerStatus` enum value:** `pending`, `completed`, `missed`, `excused` (`prayer_entry.dart:5`) — confirmed exhaustive via `grep -rn "PrayerStatus" lib/ test/`, no other values referenced anywhere.
+2. **Serialization, before the fix:** `PrayerEntry.toJson()` and the repository's remote payload both sent `status.name` verbatim — the raw Dart enum name.
+3. **Exact live CHECK constraint** (`supabase/live_schema_capture/2026-09-04_public.sql:409`): `CHECK (status = ANY (ARRAY['prayed', 'qadha_required', 'lifted', 'missed']))`.
+4. **Deserialization, before the fix:** `PrayerEntry.fromJson()` matched `json['status']` against `PrayerStatus.values.map((v) => v.name)`, falling back to `pending` for anything that didn't match.
+5. **Which values succeeded:** only `missed` — the one accidental overlap between the two sets.
+6. **Which values failed:** `completed`, `pending` (write-side — see below), `excused` — all three rejected with a `23514` constraint violation on write; and on read, any real stored value other than `'missed'` (`prayed`, `qadha_required`, `lifted`) would have been silently misread as `pending`.
+7. **Legacy/alternate values referenced elsewhere:** none found. `PostCategory`/`CommunityCategory` (a structurally similar enum-vs-CHECK-constraint pattern elsewhere in the app) was spot-checked as a sanity comparison and found to match its own constraint exactly — confirming this specific mismatch is isolated to `prayer_log`, not a systemic pattern across every table.
+
+**Additional, semantically load-bearing evidence:** `dashboard_screen.dart:2456` already labels `PrayerStatus.excused` as **"Lifted"** in English — directly matching the DB's `'lifted'` value and confirming the intended mapping, not an invented one. `PrayerTrackingViewModel.togglePrayerStatus` — the only code path that calls `savePrayer` — is only ever invoked by the UI with `completed`/`missed`/`excused` (`prayer_tracking_screen.dart`'s three `_StatusButton`s); `pending` is exclusively a local, not-yet-recorded display placeholder computed by `PrayerTimeCalculator.statusFor()` and is **never actually sent to the remote table today** — confirmed by reading every call site, not assumed.
+
+### Phase B — Compatibility design
+
+Chosen: an explicit, bidirectional persistence mapping (`prayerStatusToDbValue` / `prayerStatusFromDbValue`), scoped to exactly the repository's remote read/write boundary. `PrayerEntry.toJson()`/`fromJson()` (used for local on-device storage via `LocalPrayerTrackingDataSource`) are **deliberately untouched** — local storage has no external contract to satisfy, and touching it would have risked existing local-cache compatibility for no benefit. No existing shared mapper/serializer pattern for this kind of remote-vs-domain mismatch exists elsewhere in the codebase (other tables' enums already match their constraints), so a small, table-scoped mapper was added rather than forcing this into an unrelated shared abstraction.
+
+Mapping: `completed ↔ 'prayed'`, `missed ↔ 'missed'`, `excused ↔ 'lifted'`. `pending` has no database slot — deliberately **throws** if ever sent (defensive; not reachable via any current UI path, confirmed in Phase A). Unmapped/unexpected database values (`qadha_required`, or anything else) are **reported via `AppErrorReporter`** before falling back to `pending` — observable, not silently coerced, per the explicit requirement.
+
+### Phase C — Implementation
+
+Files changed:
+- `lib/features/prayer_tracking/data/repositories/prayer_tracking_repository_impl.dart`: added `prayerStatusToDbValue`, `prayerStatusFromDbValue`, `prayerEntryFromRemoteJson` (all `@visibleForTesting` for direct unit testing); wired into `savePrayer`'s payload construction and both `getDailyPrayerLog`/`getPrayerHistory`'s remote-response parsing.
+- `test/prayer_tracking_test.dart`: 9 new tests (see Phase G).
+
+**A second, distinct, currently-live production bug was found and fixed in the same pass** — `scheduled_time` is `timestamp with time zone` in the live schema, not the `{hour, minute}` JSON object `TimeOfDay.toJson()` produces (confirmed the same way as the status mismatch: read against the live capture, not assumed). This blocked *every* `prayer_log` write regardless of status, discovered only because Phase D's required end-to-end validation (using the real repository code, not just the mapper in isolation) hit it immediately. Fixed with the same remote-boundary-only pattern (`prayerScheduledTimeToDbValue`/`prayerScheduledTimeFromDbValue`), registered as a new, separate finding (`W0-004`, not folded into `W0-003`) rather than silently expanded scope. **A real timezone bug was caught and fixed within this fix itself**: an initial version used `.toLocal()`/`.toDateTime()` naively, which made the round trip depend on whichever timezone the running machine happened to be in (caught by a failing test: expected hour 5, got hour 8) — corrected to use UTC purely as a neutral, unambiguous wire encoding of the same wall-clock hour/minute (prayer times are a local wall-clock concept throughout this app, never a true cross-timezone instant), not a real timezone conversion. No unrelated prayer-feature changes were made — `PrayerName`/`prayer_name`'s mapping was checked and found to already match the live constraint exactly, so it was left alone.
+
+### Phase D — Isolated behavioral validation (real repository code, real restored schema, real local Supabase Auth)
+
+A fresh isolated local Supabase stack was created (canonical baseline applied, matching the same tested procedure from the Backup/Recovery wave). All results below are from actually exercising `PrayerTrackingRepositoryImpl.savePrayer`/`getDailyPrayerLog` against it — not the mapper functions in isolation.
+
+| Check | Result |
+|---|---|
+| `completed` write → `'prayed'` stored → read back → `completed` | ✅ PASS — direct `psql` query confirmed the stored value was literally `prayed` |
+| `missed` write → `'missed'` stored → read back → `missed` | ✅ PASS |
+| `excused` write → `'lifted'` stored → read back → `excused` | ✅ PASS — direct `psql` query confirmed `lifted` |
+| Update from one valid status to another (`completed` → `missed` on the same row) | ✅ PASS — exactly 1 row after, correct new status, no duplicate |
+| Unknown-but-real database value (`qadha_required`, inserted directly to simulate a legacy/manually-created row) | ✅ PASS — read back as `pending`, `AppErrorReporter` received exactly one report containing the real unmapped value and the row's id |
+| Malformed value (not in the CHECK constraint's list at all) | ✅ PASS — the **database itself** correctly rejects it (`23514`), confirmed directly; this is the constraint doing its job, not something the app needs to additionally guard against |
+| `pending` sent to `savePrayer` | ✅ PASS — throws `ArgumentError` before any network call, confirmed |
+| `scheduled_time` round-trip (`13:45` → timestamp → `13:45`) | ✅ PASS — re-verified in a second isolated run after the timezone fix, against real Postgres, not just the unit test |
+
+Isolated environment fully cleaned up after each run (`supabase stop --no-backup`, Docker volume removed, `supabase/migrations/` restored) — `git status` confirms no unintended changes.
+
+### Phase E — Regression / existing-data safety
+
+Using read-only schema/code evidence only, per instruction — no production data access was sought or used.
+
+- **Every value the live CHECK constraint can possibly contain** (`prayed`, `qadha_required`, `lifted`, `missed` — an exhaustive, closed set enforced by Postgres at write time; no other value could ever exist in a real row) **is now handled by `prayerStatusFromDbValue`**: three map to their exact domain equivalent, the fourth (`qadha_required`) is deliberately reported and falls back safely. No existing valid row becomes unreadable — this is a code-level exhaustiveness guarantee (a `switch` covering the closed set, not a partial pattern-match), not an assumption.
+- **Whether any real production rows currently hold `qadha_required` (or any value at all) could not be determined** — this session has no production data read access, correctly did not seek any, and this uncertainty is registered rather than papered over. Given the pre-fix app code could only ever *successfully write* `status='missed'` (the sole accidental overlap) via its own UI, and both `W0-001`'s table-name bug and this session's newly-found `W0-004` `scheduled_time` bug were *also* blocking every write until now, it is plausible real production usage of this feature has been minimal — but this is a plausibility argument, not verified evidence, and is not represented as more than that.
+
+### Phase F — W0-001 reassessment
+
+`W0-001`'s original scope was narrow: the live table is `prayer_log`, not `prayer_entries`, and the app queried the wrong name. That specific defect was fixed previously and is confirmed still in place (unchanged this pass). Its own remediation plan set an explicit closure bar: *"needs a live remote read/write round-trip test to confirm `prayer_log` now resolves correctly (not yet run against production)."*
+
+**That round-trip test has now been run** — not against production directly (never authorized, never attempted, consistent with every other finding closure in this engagement), but against an isolated environment built from the live-captured schema, which is the same evidentiary standard every other finding in this engagement (`PJ-002`, `PJ-004`, this wave's own restore validation) has been held to and closed on. The round trip **only succeeds today** because `W0-001` (table name), `W0-003` (status mapping), and `W0-004` (scheduled_time mapping) are **all three** fixed — closing `W0-003` alone would not have made prayer tracking functional, since `W0-004` was independently blocking every write regardless of status.
+
+**`W0-001` → VERIFIED_CLOSED.** Evidence: the table-name fix is confirmed in place, and — for the first time — a full, real, end-to-end write/read round trip against the live-schema-derived environment succeeds, which is the exact evidence Wave 0 itself specified as the remaining gate. This is not closed "automatically because `W0-003` is fixed" — it is closed because the specific test its own plan required has now actually been run and passed.
+
+### Phase G — Tests
+
+`dart analyze lib/`: 27 pre-existing issues, zero new. `flutter test`: **285/293** — the prior baseline (276/284) plus 9 new tests in `test/prayer_tracking_test.dart` (status mapper round-trips ×3, pending-throws, qadha-reported, malformed-reported, `prayerEntryFromRemoteJson` end-to-end, `scheduled_time` mapper round-trip, `scheduled_time` null/malformed fallback), same 8 pre-existing golden-image diffs, zero regressions — confirmed by directly re-running the full suite, not assumed from a stale count.
+
+### Phase H — Finding updates
+
+| Finding | Status | Notes |
+|---|---|---|
+| `W0-003` | **VERIFIED_CLOSED** | Status-enum mapping fixed and validated end-to-end (all 3 real statuses + unknown-value handling) against the live-schema-derived isolated environment using the real repository code |
+| `W0-004` (**new**) | **VERIFIED_CLOSED** | `scheduled_time` type mismatch — a second, independently-blocking bug found via required Phase D validation, fixed (including a timezone-neutral encoding correction caught by its own test), and validated the same way |
+| `W0-001` | **VERIFIED_CLOSED** | Table-name fix confirmed in place; the specific live-remote-round-trip test its own closure criteria required has now been run and passed, evidenced above |
+
+**All other findings preserved exactly as they stood, per instruction — none re-touched or re-assessed:** `W0-002` (`DEFERRED`), `W1-001` (`OPEN`), `SEC-001`/`ROOT-002` (`OPEN`), Fiqh Search-grounding degradation (`B — DEGRADED`), `RR-001` (`PARTIALLY_REMEDIATED`), `PJ-006` (`OPEN`), `OB-006` (`PARTIALLY_REMEDIATED`), `BR-001`/`BR-002`/`BR-003`/`BR-005`/`BR-006` (as closed in §20), and every Release/Deployment finding from §19.
+
+**No owner action required to close this specific defect** — it was fully fixable and fully validated at the application-code layer, with no schema/infrastructure/credential dependency. The only residual uncertainty is Phase E's real-production-data question, which cannot be resolved without production data access this session correctly did not seek.

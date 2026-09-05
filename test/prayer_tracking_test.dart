@@ -1,6 +1,7 @@
 import 'package:adhan_dart/adhan_dart.dart' as adhan;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:niswah/core/errors/app_error_reporter.dart';
 import 'package:niswah/core/preferences/prayer_location_controller.dart';
 import 'package:niswah/core/utils/app_clock.dart';
 import 'package:niswah/features/prayer_tracking/domain/entities/prayer_entry.dart';
@@ -11,6 +12,145 @@ import 'package:niswah/features/prayer_tracking/presentation/viewmodels/prayer_t
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
+
+  group('prayerStatusToDbValue / prayerStatusFromDbValue (W0-003)', () {
+    tearDown(() => AppErrorReporter.onReport = null);
+
+    test('completed -> prayed -> completed round-trips', () {
+      const dbValue = 'prayed';
+      expect(prayerStatusToDbValue(PrayerStatus.completed), dbValue);
+      expect(
+        prayerStatusFromDbValue(dbValue, context: 'test'),
+        PrayerStatus.completed,
+      );
+    });
+
+    test('missed -> missed -> missed round-trips', () {
+      const dbValue = 'missed';
+      expect(prayerStatusToDbValue(PrayerStatus.missed), dbValue);
+      expect(
+        prayerStatusFromDbValue(dbValue, context: 'test'),
+        PrayerStatus.missed,
+      );
+    });
+
+    test('excused -> lifted -> excused round-trips', () {
+      const dbValue = 'lifted';
+      expect(prayerStatusToDbValue(PrayerStatus.excused), dbValue);
+      expect(
+        prayerStatusFromDbValue(dbValue, context: 'test'),
+        PrayerStatus.excused,
+      );
+    });
+
+    test(
+      'pending has no database representation — sending it throws rather '
+      'than silently writing a value the real CHECK constraint would reject',
+      () {
+        expect(
+          () => prayerStatusToDbValue(PrayerStatus.pending),
+          throwsArgumentError,
+        );
+      },
+    );
+
+    test(
+      'qadha_required (a real, valid DB value with no app-side UI concept) '
+      'is reported, not silently coerced, and falls back to pending',
+      () {
+        Object? reportedError;
+        AppErrorReporter.onReport = (error, stack, {
+          context,
+          feature,
+          retryAttempt,
+          recordId,
+        }) {
+          reportedError = error;
+        };
+
+        final result = prayerStatusFromDbValue(
+          'qadha_required',
+          context: 'test.qadha',
+        );
+
+        expect(result, PrayerStatus.pending);
+        expect(
+          reportedError,
+          isNotNull,
+          reason: 'an unmapped-but-real DB value must be observable, not silent',
+        );
+      },
+    );
+
+    test('a malformed/unrecognized value is also reported and falls back safely', () {
+      var reportCount = 0;
+      AppErrorReporter.onReport = (error, stack, {
+        context,
+        feature,
+        retryAttempt,
+        recordId,
+      }) {
+        reportCount++;
+      };
+
+      expect(
+        prayerStatusFromDbValue('not-a-real-value', context: 'test.malformed'),
+        PrayerStatus.pending,
+      );
+      expect(
+        prayerStatusFromDbValue(null, context: 'test.null'),
+        PrayerStatus.pending,
+      );
+      expect(reportCount, 2);
+    });
+  });
+
+  group('prayerEntryFromRemoteJson (W0-003)', () {
+    tearDown(() => AppErrorReporter.onReport = null);
+
+    test(
+      'parses a real prayer_log row shape end-to-end — status AND '
+      'scheduled_time both use their real database representation '
+      '(a text status value, a timestamptz string), not the shapes the '
+      'entity\'s own local-storage toJson()/fromJson() use',
+      () {
+        final entry = prayerEntryFromRemoteJson({
+          'id': 'row-1',
+          'user_id': 'user-1',
+          'prayer_name': 'fajr',
+          'date': '2026-09-05',
+          'scheduled_time': '2026-09-05T05:30:00+00:00',
+          'status': 'prayed',
+          'notes': null,
+        });
+
+        expect(entry.id, 'row-1');
+        expect(entry.status, PrayerStatus.completed);
+        expect(entry.prayerName, PrayerName.fajr);
+        expect(entry.scheduledTime.hour, 5);
+        expect(entry.scheduledTime.minute, 30);
+      },
+    );
+  });
+
+  group('prayerScheduledTimeToDbValue / prayerScheduledTimeFromDbValue (W0-004)', () {
+    test('a TimeOfDay + date combine into a real ISO8601 timestamp', () {
+      const time = TimeOfDay(hour: 13, minute: 45);
+      final date = DateTime(2026, 9, 5);
+
+      final dbValue = prayerScheduledTimeToDbValue(time, date);
+      final roundTripped = prayerScheduledTimeFromDbValue(dbValue);
+
+      expect(DateTime.parse(dbValue).hour, 13);
+      expect(roundTripped.hour, 13);
+      expect(roundTripped.minute, 45);
+    });
+
+    test('a null or unparseable value falls back to TimeOfDay.zero rather than throwing', () {
+      expect(prayerScheduledTimeFromDbValue(null), TimeOfDay.zero);
+      expect(prayerScheduledTimeFromDbValue('not-a-timestamp'), TimeOfDay.zero);
+    });
+  });
 
   group('PrayerTimeCalculator', () {
     test('computes the next prayer from a daily schedule', () {

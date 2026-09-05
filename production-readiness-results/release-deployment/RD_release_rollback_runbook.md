@@ -21,6 +21,17 @@ Addresses `RD-009` (no feature-flag/rollback path faster than a full store revie
 - [ ] `versionCode`/`versionName` match the intended release and are strictly greater than the last uploaded build.
 - [ ] A test install reports the correct `environment` tag to Sentry (not `development`) — see the Sentry verification section of this wave's report.
 
+## Recovery Readiness Gate (added by the Backup/Recovery wave, 2026-09-05 — see `00_09` §20 Phase I)
+
+A risky release should not proceed without confirming these, in addition to the artifact checklist above:
+
+- [ ] Recovery artifact (`supabase/canonical_baseline/00_public_baseline_draft.sql`) is current — no live schema change has occurred since its last validation, or it has been regenerated and re-validated against a fresh live capture.
+- [ ] Restore procedure is current — matches `BR_recovery_runbook.md` §4 (which requires moving `supabase/migrations/` aside and applying the baseline directly; do **not** assume `supabase db push`/the tracked migrations work, they don't — `BR-002`).
+- [ ] Last restore test date is known and recent (target: within Phase H's quarterly cadence — see `BR_recovery_runbook.md`).
+- [ ] **For any release containing a database migration specifically:** a fresh, verified backup/restore checkpoint exists **before** the migration executes — not "a backup exists somewhere," a checkpoint taken and confirmed restorable for this specific change. No migration in this project's history has ever had this — establish it starting with the next one.
+- [ ] Migration review complete — a second reviewer (not just the author) has read the migration SQL before it runs against production.
+- [ ] Rollback/recovery decision documented for this specific release — what happens if it needs to be reverted (cross-references the Rollback procedure section below, still unresolved for `RD-009`).
+
 ## Rollback procedure (current state — no remote kill-switch exists)
 
 **There is currently no way to roll back a bad release faster than a new store submission.** This is `RD-009`, unresolved by this pass. Until a real mechanism exists:

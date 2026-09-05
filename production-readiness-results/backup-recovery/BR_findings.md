@@ -1,5 +1,7 @@
 # Backup & Recovery Audit — Phase 2A: Static Verification & Findings
 
+> **Status update (2026-09-05):** This document is the frozen original audit (2026-09-04), preserved as-is for historical reference. Live remediation status has progressed materially since — a real, tested, timed restore now exists and works (`BR_recovery_runbook.md`, new) — but `BR-001` (managed backups/PITR) remains genuinely open and was not independently re-verified live this pass due to a recurring CLI tooling issue. Current status for every Backup/Recovery finding is tracked in `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §20 and `00_04_MASTER_FINDING_REGISTER.md` — check there, not this file, for current status. Two new findings were registered during that wave: `W0-003` (a real, currently-live prayer-tracking data bug found via restore behavioral validation) and a correction to `W0-001`'s previously-overclaimed "fixed" status.
+
 | Field | Value |
 |---|---|
 | System | Niswah |
