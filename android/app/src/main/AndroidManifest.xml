@@ -4,7 +4,13 @@
     <application
         android:label="niswah"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
+        <!-- allowBackup defaults to true on Android — for a health/pregnancy/
+             religious-practice data app, that means locally-cached cycle and
+             pregnancy data would be silently included in Android's automatic
+             cloud backup unless explicitly disabled (release-hardening). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

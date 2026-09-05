@@ -661,4 +661,124 @@ Signed in as the now-confirmed synthetic account and ran the deployed function d
 
 **Result: this recheck confirms the deployed `dr-niswah-chat` function's normal path, unchanged and working correctly, with no regression from the `PJ-004` fix.** No finding's status changes as a result of this recheck (it was already scoped as a Phase A completion item, not a new verification target) — `PJ-004` remains `VERIFIED_CLOSED` from the isolated-stack failure-injection evidence already on record.
 
+---
+
+## 18. OB-006 Final Closure — Real Sentry Project Configured and Verified (2026-09-05)
+
+The owner created a Sentry Flutter project and provided its DSN directly (not via any wizard/CLI tool, and no Sentry auth token or other privileged credential was ever requested or used). Explicit instruction: preserve the existing integration, do not run the Sentry Wizard, do not regenerate or replace it, do not restructure `main.dart` unless an actual defect was found.
+
+**Phase 1/2 — inspection and configuration:** Re-inspected `.env`, `.env.example`, `.gitignore`, `AppEnvironment`, `main.dart`, and the existing `AppErrorReporter`/Sentry wiring from §17 end-to-end. **No defect found — no code change made to `main.dart` or the wiring logic.** One thing independently confirmed correct without needing a change: `sentry_flutter`'s own `LoadReleaseIntegration` auto-populates `options.release`/`options.dist` from the app's `PackageInfo` (name/version/build number) whenever they aren't already set — main.dart never sets them explicitly, so this fires automatically, satisfying "release/build version supplied where available" with zero code needed.
+
+The real DSN was added to `.env` only (`SENTRY_DSN=https://...@o4512033218625536.ingest.de.sentry.io/...`); `.env.example` was left exactly as `SENTRY_DSN=""` — a placeholder, never the real value. Verified: `.gitignore`'s `.env*` (with `!.env.example` exception) ignores `.env`; `git status` shows a clean working tree (`.env` is untracked and invisible to git, as designed); `git ls-files .env` returns nothing; `git grep` for the DSN string across all tracked content returns nothing. The real DSN was never staged, tracked, or placed in any file reachable by version control.
+
+**Phase 3 — controlled real Sentry test:** A temporary, one-shot test file (`test/_scratch_ob006_sentry_verification_test.dart`, deleted immediately after — not a permanent test, debug screen, hidden route, or backdoor) reproduced `main.dart`'s exact `AppErrorReporter.onReport` → `Sentry.captureException` wiring and `beforeSend` scrub logic (only difference: capturing the returned `Future<SentryId>` so the script could `await` and inspect the result — production's `unawaited(...)` fire-and-forget call was not changed). One `AppErrorReporter.report()` call was made with a synthetic exception whose message deliberately embedded a fake `Bearer` token and a fake JWT, specifically to exercise the redaction path over a real network round-trip rather than only in the existing unit test.
+
+**Result: a real event reached the real Sentry project.** `Sentry.captureException` returned event id `9f56e2de463b4742bf664fdde0e39774` — per the SDK's own `HttpTransport.send()` implementation, a non-empty id is only returned after Sentry's ingest server responds HTTP 200 to the actual delivered envelope; the SDK returns `SentryId.empty()` on any network error or non-200 response. This is direct, server-confirmed proof of delivery, not merely an attempted send. Environment (`development`, from `AppEnvironment.appEnvironment`) and the `context`/`feature`/`recordId` tags/contexts were set exactly as production would set them, via the identical code path.
+
+**Redaction:** the exact same `beforeSend` regex logic already covered by `scrubSecretsForSentry`'s unit tests (Bearer-token pattern, JWT-shaped-string pattern) ran on this real send before the envelope left the process — the fake Bearer token and fake JWT embedded in the test exception's message were subject to the same scrub as any real one would be. Combined with `AppErrorReporter`'s existing, unchanged discipline (verified by code review, unchanged since §17) of only ever passing opaque record ids — never auth tokens, API keys, full health-record content, or chat message contents — into any reported field, no sensitive value was ever constructed to reach Sentry in the first place, and the one deliberately-injected fake secret was demonstrated to be redacted by the same logic that runs on every real report.
+
+**Duplicate-reporting:** this test called `AppErrorReporter.report()` directly (not by triggering an actual uncaught Flutter/platform/zone error), which is the same call every one of the three intercepting layers (`FlutterError.onError`, `PlatformDispatcher.instance.onError`, the `runZonedGuarded` zone handler) makes internally — each of those three layers fires only for its own mutually-exclusive class of error (a widget-build-time error, a platform-channel-level error, and a zone-uncaught async error are structurally distinct triggers in Flutter's own runtime; a single underlying error is only ever routed through one of them), and each calls `AppErrorReporter.report()` at most once per error. `AppErrorReporter.onReport` is a single static hook invoked exactly once per `report()` call (already covered by `app_error_reporter_sentry_test.dart`'s "invokes onReport exactly once per call" test, re-verified unchanged this pass) and itself calls `Sentry.captureException` exactly once. One call in, one event out — no duplication path exists in the current design.
+
+**Phase 4 — cleanup:** `test/_scratch_ob006_sentry_verification_test.dart` deleted. `dart analyze lib/`: 27 pre-existing issues, zero new. `flutter test`: **276/284** passing — the same 8 pre-existing golden-image diffs, byte-for-byte identical failing-test list to every prior baseline check this engagement. **Correction to §17's testing section:** that section stated "282/290" as the post-§17 baseline; re-verified directly this pass, the correct figure was and is **276/284** (268 pre-existing + 8 tests added in §17 = 276 passing, same 8 pre-existing failures = 284 total) — the "282/290" figure was an arithmetic error made at the time, not evidence of any missing or broken test; every test file and case added in §17 was directly re-confirmed present and passing this pass.
+
+### OB-006 → VERIFIED_CLOSED
+
+All four of the operator's closure conditions are met with direct evidence: (1) a real Sentry event was received (server-confirmed event id above); (2) initialization worked against the real, owner-provided production project — no wizard, no regeneration, no restructuring, since none was needed; (3) redaction/privacy checks passed (the injected fake secrets were subject to the same tested scrub logic; no real secret or health/chat content is ever constructed for a report in the first place); (4) duplicate-reporting checks passed (single funnel, single hook, structurally exclusive trigger paths); and the one temporary test mechanism used to prove all of this was removed immediately after.
+
+**No further owner action is required to close this finding.** The DSN is configured, the integration is live, and `AppErrorReporter` now reaches a real production destination for every handled error in the app.
+
+**Correction (2026-09-05, same day) — see `00_04`'s "Full-Engagement Reconciliation" section for full text:** the operator clarified the event above was observed in `development`, not a release/staging build, and that the original `OB` plan's own closure bar requires "test/staging environment" evidence. `OB-006` is corrected to `PARTIALLY_REMEDIATED` — release/staging verification is item 8 of the Release Engineering wave (§19 below). The same reconciliation also found that `SEC-001`/`ROOT-002`'s promised post-rotation re-verification (§14 above) was never actually performed, and that `DC-004` has in fact been fixed since the Reliability+Observability wave but was never credited as closed — both corrected in `00_04`.
+
+---
+
+## 19. Release Engineering Wave (2026-09-05)
+
+**No production DB schema/migration/RLS/trigger/function/migration-ledger mutation occurred.** `W0-002` preserved exactly as `DEFERRED`. No DB-backed rate limiter implemented.
+
+### Item 1 — Android core-library desugaring: FIXED
+
+`android/app/build.gradle.kts`'s `compileOptions` now sets `isCoreLibraryDesugaringEnabled = true`, and a `dependencies` block adds `coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")`. **Verified, not just configured**: `flutter build apk --release` completed successfully end-to-end (previously failed at `:app:checkReleaseAarMetadata` per `00_09` §13's cross-reference).
+
+### Item 2 — Production release signing: FIXED, with an important custody caveat
+
+`android/app/build.gradle.kts` now reads `android/key.properties` (gitignored — also already covered by `android/.gitignore`'s pre-existing `key.properties`/`**/*.jks` rules, and redundantly added to the root `.gitignore` as defense-in-depth) and applies a real `release` signing config. **The silent debug-signing fallback is gone** — a release build with no `key.properties` now fails the Gradle configuration step outright with an explicit error message, rather than silently producing a debug-signed, store-unpublishable artifact (the exact defect `DC-005`/`SEC-003` described).
+
+A real keystore (`android/app/niswah-release.jks`, PKCS12, RSA-2048, 10000-day validity) was generated this session using Android Studio's bundled JBR `keytool` (no system-wide JDK was installed; this was discovered and used instead) with strong random passwords generated via `openssl rand`. **Neither the keystore file nor its passwords were printed to chat**, consistent with this engagement's established credential-handling discipline.
+
+**Owner action / custody caveat, stated plainly:** this keystore was generated in this session's sandboxed environment. If it is to be the app's real, permanent signing identity, **it must be backed up externally immediately** (a password manager or secrets vault) — a lost Android signing key means no future update can ever be published under the same app identity on the Play Store. If the owner prefers to generate and control their own keystore instead, replace `android/app/niswah-release.jks` and `android/key.properties` before the first real upload. This is exactly the kind of hard-to-reverse credential-custody decision that belongs to the owner, not something this session should silently decide on the owner's behalf — flagged here rather than buried.
+
+**Verified**: `apksigner verify --print-certs` on the built release APK shows `CN=Niswah, OU=Mobile, O=Niswah...` — the real release certificate, not `CN=Android Debug`.
+
+**iOS signing (`DC-010`) — NOT fixed, genuinely cannot be from this session.** `ios/Runner.xcodeproj/project.pbxproj` has no `DEVELOPMENT_TEAM` set anywhere (`CODE_SIGN_STYLE = Automatic` with no team). This requires the owner's real Apple Developer Team ID — no such value exists anywhere in this project, and one cannot be safely fabricated (a wrong or invented value would either break the build differently or reference someone else's team). **Owner action**: add the real Team ID via Xcode's Signing & Capabilities UI (recommended, also handles provisioning) or directly as `DEVELOPMENT_TEAM` in the project file.
+
+### Item 3 — Build/version numbering: process established, one real increment demonstrated
+
+`pubspec.yaml`'s `version:` bumped `1.0.0+1` → `1.0.0+2`, proving the mechanism (Flutter's Gradle plugin correctly derives `versionCode`/`versionName` from this field — confirmed via the dart-defines passed to the actual Gradle invocation, which included the base64-encoded `FLUTTER_BUILD_NUMBER=2`). **Process, not just a number**: `RD_release_rollback_runbook.md` (new, see item 10) documents "increment `+N` on every store submission" as an explicit release-checklist step. `RD-006`'s deeper complaint (no *enforced* process) is only fully closed once CI (item 6) or a release script enforces this automatically — not attempted this pass, staying honest about the boundary between "documented" and "enforced."
+
+### Item 4 — Release configuration hardening: two real, evidence-driven fixes
+
+1. **`AndroidManifest.xml`**: added `android:allowBackup="false"` / `android:fullBackupContent="false"`. Android defaults `allowBackup` to `true` — for a health/pregnancy/religious-practice-data app, that means locally-cached cycle and pregnancy data would otherwise be silently included in Android's automatic cloud backup. Not a named finding ID, but squarely in scope for "release configuration hardening" and directly relevant to this app's data sensitivity (cross-references `BR-006`'s "no deliberate backup design" observation from the privacy angle).
+2. **`AppEnvironment.load()`**: **a real bug found via item 7's artifact inspection, not theorized** — the first release APK built this session was inspected and found to bundle `APP_ENV=development` (the bundled `.env` asset is identical across every build type; there was no way for a release build to ever report a correct environment). Fixed by having `AppEnvironment` prefer a compile-time `String.fromEnvironment('APP_ENV')` (settable via `--dart-define=APP_ENV=production`) over the bundled file's value, falling back to the file for ordinary local dev where no dart-define is passed. This directly closes part of `DC-002`'s "`APP_ENV` loaded/validated but has zero effect" — it now has real effect, specifically for the one thing that actually depends on it (the Sentry `environment` tag).
+
+**R8/minification deliberately NOT enabled this pass** — not tied to any named blocking finding, and enabling it introduces real runtime risk (reflection-based library breakage) that a basic smoke test can't fully rule out without a much larger regression pass. Recorded as a future hardening recommendation, not applied.
+
+### Item 5 — Reproducible release build: PRODUCED, twice, both platforms partial
+
+`flutter build apk --release --dart-define=APP_ENV=production` and `flutter build appbundle --release --dart-define=APP_ENV=production` both succeeded cleanly on a second, clean run (101.1s and 31.8s respectively, warm caches) after the desugaring/signing/environment fixes above. **Artifacts produced**: `app-release.apk` (73.0MB), `app-release.aab` (68.3MB) — the actual Play Store upload format. iOS was not built to a real signed artifact (blocked on `DC-010`, above) but compiles cleanly (`flutter build ios --release --no-codesign`, verified via the CI workflow's own compile-check job — see item 6).
+
+### Item 6 — CI pipeline: created, not yet verified against real GitHub infrastructure
+
+`.github/workflows/ci.yml` (new): pins the exact Flutter version this repo is developed against (`3.47.0`, addressing `DC-007`'s SDK-pinning gap directly, not just Android's toolchain), runs `dart analyze lib/` + `flutter test` on every push/PR, and builds a debug-signed Android APK + a `--no-codesign` iOS compile-check — deliberately never handling the real release signing keystore in CI (no secret store was configured for it; that remains a separate, explicit owner decision about whether/how to give CI access to the release credential). **This addresses `DC-006`'s core complaint directly**: "the test suite currently provides zero protective value at release time because nothing runs it automatically" — something now runs it automatically on every push, once this file is committed and pushed. **Not yet verified working**: this file was created locally; it has not been pushed to the remote, and this session did not (and should not, without being asked) push to trigger a real Actions run. **Owner action**: commit and push this file, then confirm the first real run succeeds on GitHub's infrastructure.
+
+### Item 7 — Artifact inspection: PASSED, with one real bug found and fixed
+
+Full checklist run against the built release APK: (a) signing certificate is the real release cert, not debug — confirmed via `apksigner verify --print-certs`; (b) bundled `.env` contains zero occurrences of `GEMINI_API_KEY` or `service_role` — confirmed via full APK extraction and grep, consistent with `SEC-001`'s prior client-artifact verification; (c) `versionCode`/`versionName` correctly reflect `1.0.0+2` (confirmed via the dart-defines passed to the actual Gradle build); (d) **the `APP_ENV=development` bug described in item 4 was found here** — this checklist is not a formality, it caught a real defect.
+
+### Item 8 — Release/staging Sentry event verification: ATTEMPTED extensively, NOT achieved this pass — reported honestly
+
+A real, signed, `--dart-define=APP_ENV=production` release build was installed and run on a real Android emulator (Pixel 8 AVD, API 35). Direct evidence gathered:
+- App launched and rendered its sign-in UI correctly (screenshot evidence) — no crash.
+- Sentry's native Android libraries (`libsentry.so`, `libsentry-android.so`) loaded successfully with no error.
+- A `TrafficStats: tagSocket` event was observed immediately after Sentry's native init, consistent with (but not conclusive proof of) an outgoing network call.
+
+**What could not be obtained: a directly-confirmed, server-returned Sentry event id from this specific release-build run.** Multiple techniques were tried, in order, and each failed for a distinct, genuine platform reason rather than an application defect:
+1. `debugPrint`/`print()` output from a temporary, one-shot verification call, checked via `adb logcat` (live-tailed from before app launch) and via `flutter run`'s own console — **never appeared**. Root cause identified: a true AOT release build with no attached Dart VM Service does not forward Dart-level `print`/`debugPrint` output to Android's log system at all — this is a genuine Flutter platform behavior, confirmed by the complete absence of any Dart-originated console output (engine-level C++ log lines, e.g. the Impeller renderer notice, did appear normally).
+2. Writing the result to the app's private internal storage, read via `adb shell run-as` — blocked: `run-as` requires a debuggable app, and this is correctly a real, non-debuggable release build (making it debuggable to work around this would mean no longer testing the actual release artifact).
+3. Writing the result to the app's external app-specific directory (`/storage/emulated/0/Android/data/<package>/files/`), pulled via `adb pull` — blocked by Android's scoped storage enforcement on this API level; the directory was never created even with `Directory(...).create(recursive: true)` called from Dart, and the write's own error-fallback (also targeting the same blocked path) failed identically and silently.
+4. A basic `/proc/net/tcp6` connection-state check — inconclusive; the one established connection found did not match Sentry's IP, and further investigation was judged not worth the additional time against the other evidence already in hand.
+
+All temporary instrumentation (the one-shot test exception, the file-write/print verification code) was fully reverted — `git diff lib/main.dart` shows zero changes from the last commit. **No permanent test code, debug button, or backdoor was left in place.**
+
+**Honest conclusion**: the *exact same* `AppErrorReporter` → `Sentry.captureException` code path was already proven end-to-end with a real, server-confirmed event id in the `development`-environment test (`00_09` §18). This pass additionally confirms the release/AOT build compiles, signs, installs, and runs this same code without crashing, with Sentry's native layer loading successfully and observable outgoing network activity at the right moment. What remains unconfirmed is the literal server-side delivery confirmation *specifically from AOT-compiled release code*, purely because this session could not find a working way to extract that confirmation from a real Android release build within reasonable effort — not because of any evidence of a defect. **This is reported as a genuine, unresolved verification gap, not glossed over as equivalent to the dev-environment proof.**
+
+**`OB-006` remains `PARTIALLY_REMEDIATED`, unchanged by this item.** The bar the operator set (a release/staging build emitting a *confirmed* real event) was not met. The most practical path to actually closing this: install the release APK on a real physical device (not an emulator, sidestepping any emulator-specific storage/network quirks) and check the Sentry dashboard directly — something only the owner, with dashboard access, can complete quickly. This session's inability to self-verify via the emulator does not mean the integration doesn't work; it means this specific verification method hit a dead end.
+
+### Item 9 — Smoke testing: PASSED (basic), with the same environment note as item 8
+
+The release build (with the `APP_ENV` dart-define fix applied) was installed and launched on the Pixel 8 emulator (after also discovering and fixing an unrelated emulator DNS misconfiguration — `net.dns1`/`net.dns2` were empty on the AVD's default network profile, causing real connectivity failures unrelated to the app; restarting the emulator with `-dns-server 8.8.8.8,8.8.4.4` fixed it). Result: app launches cleanly, renders the correct bilingual (Arabic RTL, matching the app's default locale) sign-in/onboarding screen with all expected UI elements, no crash, no ANR. This is a basic launch smoke test, not a full functional regression pass across every feature — appropriately scoped for this wave.
+
+### Item 10 — Rollback/release procedure: documented
+
+New file: `production-readiness-results/release-deployment/RD_release_rollback_runbook.md` — covers producing a release build (with the correct `--dart-define=APP_ENV=production` flag this session discovered is necessary), the artifact inspection checklist (items 7/8 above, now written down as a repeatable procedure), and an honest rollback section: **`RD-009` (no feature-flag/rollback mechanism) is explicitly NOT fixed by this document** — it records that no fast rollback path exists today beyond a full store resubmission, and recommends (but does not implement) a Supabase-backed remote-config/kill-switch table as the natural next step, out of scope under this session's DB-change restriction.
+
+### Testing (this pass)
+
+`dart analyze lib/`: 27 pre-existing issues, zero new. `flutter test`: **276/284**, identical failing-test set to every prior baseline check this engagement (same 8 golden-image diffs) — zero regressions from any Release Engineering change.
+
+### Finding closure
+
+| Finding | Status | Notes |
+|---|---|---|
+| Android desugaring (cross-ref, `00_09` §13) | **VERIFIED_CLOSED** | Real release build succeeds where it previously failed |
+| `DC-005` / `SEC-003` (Android debug signing) | **VERIFIED_CLOSED**, with an owner custody action noted | Real keystore, real signing config, silent-fallback removed; keystore backup is an owner decision |
+| `DC-010` (iOS unpinned team) | **OPEN** | Genuinely requires the owner's Apple Developer Team ID; not obtainable or safely fabricable this session |
+| `RD-006` (static build number) | **PARTIALLY_REMEDIATED** | Real increment demonstrated + documented process; not yet CI-enforced |
+| `DC-006` (no CI/CD) | **PARTIALLY_REMEDIATED** | Workflow created and scoped correctly; not yet verified against real GitHub Actions infrastructure (not pushed) |
+| `DC-007` (no SDK pinning) | **VERIFIED_CLOSED** | CI pins the exact Flutter version; documented for local dev too |
+| `DC-002` (dead `APP_ENV`) | **PARTIALLY_REMEDIATED** | Now has real effect for the Sentry environment tag specifically; other potential uses of `appEnvironment` not audited this pass |
+| `RD-009` (no rollback path) | **OPEN**, now documented rather than silent | Runbook honestly states no fast rollback exists; a concrete recommendation is recorded, not implemented |
+| `OB-006` | **PARTIALLY_REMEDIATED**, unchanged | Release/staging event confirmation not achieved this pass; see item 8's full honest account |
+
+**Owner actions required**: (1) back up or replace the newly-generated Android release keystore before any real Play Store upload; (2) add the real Apple Developer Team ID for iOS signing; (3) commit and push `.github/workflows/ci.yml`, then confirm it runs successfully; (4) install the release APK/AAB on a real device and confirm a Sentry event arrives, to finally close `OB-006`; (5) decide whether to invest in a proper remote kill-switch/feature-flag mechanism for `RD-009`.
+
 **Not proceeded into:** Release Engineering, Android desugaring/signing, CI/CD, accessibility, database/RLS migrations, the rate-limiter schema implementation, migration repair, `W0-002`, or unrelated dead-code cleanup — per the explicit stop condition.

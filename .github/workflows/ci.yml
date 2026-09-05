@@ -1,0 +1,107 @@
+name: CI
+
+# Addresses DC-006 (no CI/CD pipeline) and DC-007 (no SDK version pinning) —
+# every job below pins the exact Flutter/Dart version this repo was
+# developed and tested against, rather than "whatever the runner happens to
+# have," which is the root cause both findings describe.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FLUTTER_VERSION: "3.47.0"
+
+jobs:
+  analyze-and-test:
+    name: Analyze & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: dart analyze lib/
+
+      - name: Test
+        run: flutter test
+
+  build-android:
+    name: Build Android (debug artifact — no release signing in CI)
+    runs-on: ubuntu-latest
+    needs: analyze-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Write .env (CI placeholder — no real secrets in this repo's env)
+        run: |
+          cat > .env << 'EOF'
+          SUPABASE_URL=https://placeholder.supabase.co
+          SUPABASE_ANON_KEY=placeholder
+          APP_ENV=development
+          SENTRY_DSN=
+          EOF
+
+      # A real release APK/AAB requires the signing keystore + key.properties,
+      # which are gitignored and never present in CI by design (SEC-001/
+      # DC-005 discipline: no signing credential is ever committed or made
+      # accessible to a public CI log). This debug build only proves the
+      # Dart/Android build itself is not broken on a clean checkout — it is
+      # NOT the release artifact. See the Release Engineering runbook for
+      # how a real signed release build is produced (locally, with the
+      # owner's own keystore, or via a CI secret store the owner configures).
+      - name: Build debug APK (compile-correctness check only)
+        run: flutter build apk --debug
+
+  build-ios:
+    name: Build iOS (no-codesign compile check)
+    runs-on: macos-latest
+    needs: analyze-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Write .env (CI placeholder — no real secrets in this repo's env)
+        run: |
+          cat > .env << 'EOF'
+          SUPABASE_URL=https://placeholder.supabase.co
+          SUPABASE_ANON_KEY=placeholder
+          APP_ENV=development
+          SENTRY_DSN=
+          EOF
+
+      # Real code signing needs the owner's Apple Developer Team ID
+      # (DEVELOPMENT_TEAM — see DC-010, an owner action this CI cannot
+      # perform on its own) and a provisioning profile/certificate CI
+      # secrets. --no-codesign proves the Dart/iOS build compiles cleanly on
+      # a clean checkout; it does not produce an installable/signed artifact.
+      - name: Build iOS (no codesign, compile-correctness check only)
+        run: flutter build ios --release --no-codesign

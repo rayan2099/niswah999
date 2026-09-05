@@ -11,7 +11,18 @@ class AppEnvironment {
       'SUPABASE_ANON_KEY',
       fallback: 'VITE_SUPABASE_ANON_KEY',
     );
-    final appEnv = dotenv.env['APP_ENV'] ?? 'development';
+    // `.env` is a static Flutter asset bundled identically into every build
+    // type (debug/release) — its APP_ENV value can't tell a real release
+    // build apart from a local dev run (confirmed by direct artifact
+    // inspection: a release APK built from the developer's local `.env`
+    // reported `development` to Sentry). `--dart-define=APP_ENV=...` is a
+    // real compile-time value the build command controls, so it takes
+    // priority when present; the bundled file remains the fallback for
+    // ordinary local development where no dart-define is passed.
+    const dartDefineEnv = String.fromEnvironment('APP_ENV');
+    final appEnv = dartDefineEnv.isNotEmpty
+        ? dartDefineEnv
+        : (dotenv.env['APP_ENV'] ?? 'development');
     final sentryDsn = dotenv.env['SENTRY_DSN']?.trim() ?? '';
 
     _validateClientConfig(url: url, anonKey: anonKey);

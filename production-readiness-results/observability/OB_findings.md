@@ -1,6 +1,6 @@
 # Observability Audit — Phase 2A/2B Findings & Finding Register
 
-> **Status update (2026-09-05):** This document is the frozen original audit (2026-09-04), preserved as-is for historical reference. `OB-006`'s live remediation status has since progressed materially — a full Sentry (`sentry_flutter`) integration now exists and is tested — and is tracked in `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §16–§17 (current status: `OPEN`, pending an owner-provided Sentry DSN and one observed live event) — check there, not this file, for current status. `OB-003`/`OB-004` (the `dr-niswah-chat` silent-failure paths this document describes) were also fixed as part of `PJ-004`'s remediation — see the same sections.
+> **Status update (2026-09-05):** This document is the frozen original audit (2026-09-04), preserved as-is for historical reference. `OB-006` is now **VERIFIED_CLOSED** — a full Sentry (`sentry_flutter`) integration is live against a real, owner-provided Sentry project, verified via one controlled real event that reached Sentry's servers with a confirmed event id. Full evidence: `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §16–§18. `OB-003`/`OB-004` (the `dr-niswah-chat` silent-failure paths this document describes) were also fixed as part of `PJ-004`'s remediation — see the same sections.
 
 | Field | Value |
 |---|---|
