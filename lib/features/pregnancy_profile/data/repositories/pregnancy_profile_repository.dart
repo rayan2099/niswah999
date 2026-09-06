@@ -5,10 +5,10 @@ import '../../domain/entities/pregnancy_profile.dart';
 
 /// Persists [PregnancyProfile] to the `pregnancy_profile` table.
 ///
-/// Unlike [PregnancyTrackingRepositoryImpl]'s local-first/best-effort-remote
-/// pattern (fine for a daily journal note), a failed write here means the
-/// "طبيبة" chat silently reverts to generic, unpersonalized advice — so
-/// [upsert] surfaces failures to the caller instead of swallowing them.
+/// Unlike a local-first/best-effort-remote pattern (fine for a daily
+/// journal note), a failed write here means the "طبيبة" chat silently
+/// reverts to generic, unpersonalized advice — so [upsert] surfaces
+/// failures to the caller instead of swallowing them.
 /// Supabase is the only source of truth this repository writes to; it does
 /// no local caching itself (screens that want a quick offline "week N"
 /// display should keep using [PregnancyStatusController] alongside this).

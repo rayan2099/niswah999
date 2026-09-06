@@ -22,9 +22,13 @@ String _pr(String en, String ar) => AppLocaleController.instance.text(en, ar);
 /// internal/service metadata. **Partial, stated plainly in the UI**: does
 /// not attempt a full account-level archive format — this is the safe
 /// portion implementable now without further backend/schema changes.
-/// `pregnancy_milestones` (W0-002, now a real table) and `prayer_log`
-/// (W0-003) are both included below — this doc comment previously claimed
-/// otherwise after W0-003 shipped without being updated; corrected here.
+/// `prayer_log` (W0-003) is included below. `pregnancy_milestones` was
+/// removed from this export (Dormant Pregnancy Tracking Retirement wave,
+/// 2026-09-06) — the table was never deployed to production, so this fetch
+/// was silently failing the entire export for every user (a single
+/// unhandled fetch error here aborts the whole `_load()` try block); the
+/// feature that would have written to it was retired in full for being
+/// unreachable/superseded, not merely deferred.
 class DataExportScreen extends StatefulWidget {
   const DataExportScreen({super.key});
 
@@ -69,11 +73,6 @@ class _DataExportScreenState extends State<DataExportScreen> {
         ),
         'cycle_entries': await _fetchMany(client, 'cycle_entries', userId),
         'prayer_log': await _fetchMany(client, 'prayer_log', userId),
-        'pregnancy_milestones': await _fetchMany(
-          client,
-          'pregnancy_milestones',
-          userId,
-        ),
         'community_posts': await _fetchMany(
           client,
           'community_posts',
@@ -158,11 +157,11 @@ class _DataExportScreenState extends State<DataExportScreen> {
                       child: Text(
                         _pr(
                           'This is a raw technical export of your account, '
-                          'cycle, prayer, pregnancy-tracking, chat, and '
-                          'community data. It does not include internal '
+                          'cycle, prayer, pregnancy, chat, and community '
+                          'data. It does not include internal '
                           'safety-review records.',
                           'هذا تصدير تقني خام لبيانات حسابكِ ودورتكِ '
-                          'وصلاتكِ ومتابعة حملكِ ومحادثاتكِ ومحتوى '
+                          'وصلاتكِ وحملكِ ومحادثاتكِ ومحتوى '
                           'مجتمعكِ. لا يشمل سجلات المراجعة الداخلية '
                           'للسلامة.',
                         ),

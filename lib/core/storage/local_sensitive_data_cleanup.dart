@@ -1,5 +1,4 @@
 import '../../features/cycle_tracking/data/datasources/local_cycle_tracking_data_source.dart';
-import '../../features/pregnancy_tracking/data/datasources/local_pregnancy_tracking_data_source.dart';
 import '../../features/prayer_tracking/data/datasources/local_prayer_tracking_data_source.dart';
 import 'secure_local_store.dart';
 
@@ -8,11 +7,16 @@ import 'secure_local_store.dart';
 /// ([AuthRepositoryImpl.deleteAccount]) and the app-startup retry
 /// ([retryPendingAccountDeletionCleanups] in `main.dart`), so both always
 /// clean up exactly the same set of categories.
+///
+/// The dormant pregnancy-tracking daily-log feature (never reachable from
+/// any navigation route, confirmed since its first commit) was retired in
+/// full during the Dormant Pregnancy Tracking Retirement wave, 2026-09-06 —
+/// no cleanup entry is registered for it because no user could ever have
+/// written data under its local storage category in the first place.
 final Map<String, Future<void> Function(String userId)>
 localSensitiveDataCleanupTasks = {
   'cycle_tracking': LocalCycleTrackingDataSource.clearForUser,
   'prayer_tracking': LocalPrayerTrackingDataSource.clearForUser,
-  'pregnancy_tracking': LocalPregnancyTrackingDataSource.clearForUser,
 };
 
 /// Deletes every registered sensitive local data category for [userId],

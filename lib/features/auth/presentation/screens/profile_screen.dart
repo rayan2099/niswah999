@@ -734,9 +734,9 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
       fastingStatus: _fastingStatus,
     );
 
-    // Keeps the local, device-only controller (used by the dashboard and
-    // pregnancy_tracking screens) accurate regardless of which tracking
-    // basis was chosen here.
+    // Keeps the local, device-only controller (used by the dashboard's
+    // pregnancy overview) accurate regardless of which tracking basis was
+    // chosen here.
     final effectiveWeek =
         PregnancyStatusEngine.getStatus(draftProfile, now).week ?? _week;
     await PregnancyStatusController.instance.activate(startWeek: effectiveWeek);
