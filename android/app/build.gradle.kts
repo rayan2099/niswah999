@@ -20,7 +20,12 @@ if (hasKeystoreProperties) {
 
 android {
     namespace = "com.niswah.niswah"
-    compileSdk = flutter.compileSdkVersion
+    // flutter.compileSdkVersion (36, bundled with Flutter 3.47.0) is one
+    // version behind what flutter_secure_storage 11.x requires (37) —
+    // pinned explicitly rather than left to the Flutter-derived default,
+    // which silently breaks every release build (RD-009 emergency-build
+    // drill, 2026-09-06) the moment that dependency is present.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

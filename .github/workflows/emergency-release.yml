@@ -1,0 +1,131 @@
+name: Emergency Android Release Build
+
+# RD-009 (Production Rollback / Rapid Recovery Capability wave, 2026-09-06).
+# Manually triggered only — builds a signed Android release artifact from
+# any specified commit/ref, for use during a rollback/incident. Never runs
+# automatically, never publishes to the Play Store, never handles a
+# database migration or Edge Function deployment (those are separate,
+# manual, out-of-band steps — see RD_release_rollback_runbook.md).
+#
+# STATUS: CODE_COMPLETE / REMOTE_VERIFICATION_PENDING. This file has not
+# been pushed to GitHub and has never executed against real Actions
+# infrastructure — GitHub authentication is owner-blocked in this session
+# (see 00_09 §36 Phase J). Do not treat a green run as proven until it has
+# actually executed on GitHub once.
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Exact commit SHA or tag to build (the last-known-good ref — see release-manifest-template.md). Do not use a branch name for an emergency build; a branch can move."
+        required: true
+        type: string
+      build_number:
+        description: "Emergency versionCode/build number — must be strictly greater than the last uploaded build's. See RD-006."
+        required: true
+        type: string
+      app_env:
+        description: "APP_ENV dart-define value for this build."
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+        default: production
+
+env:
+  FLUTTER_VERSION: "3.47.0"
+
+jobs:
+  emergency-build:
+    name: Build signed emergency release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - name: Record actual resolved commit
+        run: git rev-parse HEAD
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze and test the ref being built (do not ship an emergency build blind)
+        run: |
+          dart analyze lib/
+          flutter test
+
+      # Real .env / signing keystore are never committed (gitignored) and
+      # never exist in this checkout by default. Both must be supplied as
+      # CI secrets by the owner before this workflow can produce a real
+      # signed artifact — this is a deliberate gate, not an oversight: no
+      # signing credential is ever hardcoded into this file or any script
+      # it calls (SEC-001/DC-005 discipline, unchanged from ci.yml).
+      - name: Write .env from CI secret
+        env:
+          ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+        run: |
+          if [ -z "$ENV_FILE_CONTENTS" ]; then
+            echo "::error::EMERGENCY_BUILD_ENV_FILE secret is not configured. This workflow cannot produce a real release artifact without it. This is an owner action, not something this workflow can self-resolve."
+            exit 1
+          fi
+          printf '%s' "$ENV_FILE_CONTENTS" > .env
+
+      - name: Write signing keystore + key.properties from CI secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          KEY_PROPERTIES_CONTENTS: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEY_PROPERTIES_CONTENTS" ]; then
+            echo "::error::ANDROID_RELEASE_KEYSTORE_BASE64 / ANDROID_KEY_PROPERTIES secrets are not configured. Owner action required — see production-readiness-results/release-deployment/RD_release_rollback_runbook.md."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/niswah-release.jks
+          printf '%s' "$KEY_PROPERTIES_CONTENTS" > android/key.properties
+
+      - name: Build signed release APK
+        run: |
+          flutter build apk --release \
+            --dart-define=APP_ENV=${{ inputs.app_env }} \
+            --build-number=${{ inputs.build_number }}
+
+      - name: Verify signing certificate is the real release cert, not debug
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          "$BUILD_TOOLS_DIR/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee signing-verification.txt
+          if ! grep -q "CN=Niswah" signing-verification.txt; then
+            echo "::error::Built artifact is NOT signed with the real Niswah release certificate. Refusing to publish as an artifact."
+            exit 1
+          fi
+
+      - name: Compute checksum and generate manifest
+        run: |
+          chmod +x scripts/generate_release_manifest.sh
+          ./scripts/generate_release_manifest.sh build/app/outputs/flutter-apk/app-release.apk ${{ inputs.app_env }} ${{ inputs.build_number }}
+
+      - name: Upload signed artifact (retained per GitHub Actions default retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergency-release-${{ inputs.git_ref }}-build${{ inputs.build_number }}
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            release-manifest_*.json
+          retention-days: 90
+
+      # Deliberately absent, by design: no Play Store / App Store
+      # publication step of any kind. This workflow's only output is a
+      # verified, checksummed, signed artifact — publishing it is a
+      # separate, human-approved action (RD-009's charter explicitly
+      # forbids automatic store publication from this workflow).

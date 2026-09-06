@@ -1,46 +1,305 @@
-# Release & Rollback Runbook (Release Engineering Wave, 2026-09-05)
+# Release & Rollback Runbook
 
-Addresses `RD-009` (no feature-flag/rollback path faster than a full store review) and the general absence of a documented release procedure this engagement's `RD_findings.md` flagged. This is a **procedure document** — it does not itself close `RD-009` (that requires an actual feature-flag/remote-kill-switch mechanism, out of scope for this pass), but it is the first real, written release process this project has had.
+**Last updated:** 2026-09-06, Production Rollback / Rapid Recovery Capability wave (`RD-009`). Supersedes the Release Engineering wave's version (2026-09-05), which documented the release procedure but explicitly left `RD-009` itself unresolved ("no fast rollback path exists today"). This version closes that gap with an executable, drilled procedure — see `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §36 for full supporting evidence.
 
-## Producing a release build
+This is a **procedure document meant to be followed under pressure**. Every command below is copy-paste-ready and contains no secret values. It does not require improvisation to use — that is the specific defect (`RD-009`) it closes.
 
-1. Confirm `android/key.properties` exists locally (gitignored, never committed — see `android/app/build.gradle.kts`'s `hasKeystoreProperties` check, which now fails the build loudly instead of silently debug-signing if it's missing).
-2. Bump `version:` in `pubspec.yaml` (`X.Y.Z+N` — increment `N` on every store submission, per `RD-006`).
-3. Build with the correct environment:
-   ```
-   flutter build appbundle --release --dart-define=APP_ENV=production
-   ```
-   (`--dart-define=APP_ENV=production` is required — the bundled `.env` asset alone cannot distinguish a release build from a local dev run; see `AppEnvironment.load()`.)
-4. Inspect the artifact before upload (see the Artifact Inspection Checklist below) — do not upload unverified.
-5. Upload the `.aab` to Play Console / App Store Connect.
+---
 
-## Artifact Inspection Checklist (before every upload)
+## 0. Deployable surface inventory
 
-- [ ] `apksigner verify --print-certs` shows the real release certificate (`CN=Niswah`), not `CN=Android Debug`.
+Rollback is not one operation — each surface below has a different mechanism, speed, and owner dependency.
+
+| Surface | Deployment mechanism | Rollback mechanism | Recovery speed | Requires new client release? | Can be server-side only? | Owner/store dependency |
+|---|---|---|---|---|---|---|
+| **Android (Flutter client)** | Manual `flutter build appbundle`/`apk --release`, uploaded to Play Console | Cannot "roll back" a Play Store versionCode — must build and submit a **new, higher-versionCode** emergency release from the last-known-good commit (§3) | Engineering prep: ~6-10 min (drilled, §4). Store review: **external, unmeasured** (§7) | Yes, always | No | Google Play Console review queue |
+| **iOS (Flutter client)** | Not currently production-ready (`DC-010` — no `DEVELOPMENT_TEAM` set) | N/A today — cannot ship any iOS build, let alone roll one back | N/A | Yes (once shippable) | No | Owner's Apple Developer Team ID (owner-blocked, unrelated to this wave) |
+| **Flutter web** | `flutter build web --release` used only as a compile-health smoke test throughout this engagement | N/A — **not an actual deployment target**. No hosting config exists anywhere in this repo (no `firebase.json`/`netlify.toml`/`vercel.json` for the Flutter `web/` output; the separate `.vercel/project.json` belongs to the reference-only `src/` React app, not this app) | N/A | N/A | N/A | None — confirmed inactive, not a rollback surface today |
+| **Supabase Edge Functions** (`dr-niswah-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat`) | `supabase functions deploy <name> --project-ref <ref>` — always deploys whatever source is in the local working directory; there is no "redeploy version N" command | Check out the prior known-good commit's `supabase/functions/<name>/` source, then deploy that (§5) | Minutes, no store review — the fastest rollback lever that exists in this architecture | No | Yes | None — CLI-executable directly, once authorized |
+| **DB migrations** | `supabase db push` (historically unsafe — see §6) or a targeted single-file apply | Forward-fix preferred; destructive rollback (`DROP TABLE`/`DROP FUNCTION`) is a last resort, not a default (§6) | Varies; a well-scoped additive migration (e.g. `W1-001`) is sub-second to apply/leave in place | No | Yes | Requires a verified production backup to exist first (`BR-001`, currently `OPEN`) |
+| **Environment/configuration** (`APP_ENV`, Supabase secrets) | `--dart-define` at client build time; `supabase secrets set` for Edge Function secrets | Re-run with the prior value; secrets can be reverted independently of any code deploy | Minutes for secrets; a full client rebuild for `--dart-define` values | Only for client-side dart-defines; no for server-side secrets | Partially | None for secrets (CLI-executable); Google Cloud Console for Gemini key rotation specifically (`SEC-001`, owner-blocked) |
+| **CI / GitHub Actions** | `.github/workflows/*.yml`, committed locally | N/A (workflow files are versioned like any other code — revert via git) | N/A | No | N/A | GitHub push access (currently owner-authentication-blocked, §8) |
+
+---
+
+## 1. Rollback flow
+
+```
+DETECT → FREEZE → CLASSIFY FAILURE → IDENTIFY LAST KNOWN GOOD →
+SERVER-SIDE MITIGATION → EDGE FUNCTION ROLLBACK → CLIENT EMERGENCY BUILD →
+DATABASE POLICY → VALIDATE → MONITOR → DOCUMENT INCIDENT
+```
+
+### DETECT
+Signal sources today: Sentry (crash/exception volume spike — `OB-006`), direct user reports, Supabase dashboard function error-rate/logs, App/Play Store review complaints. No automated alerting/paging exists yet — this is a known gap, not fabricated as solved here.
+
+### FREEZE
+Stop any in-progress deploy of the same surface. Do not push new Edge Function code or a new client build on top of an active incident until the incident is classified (next step) — a second simultaneous change makes root-causing strictly harder.
+
+### CLASSIFY FAILURE
+Answer, in order:
+1. **Is it client-side or backend-driven?** A crash/UI bug/wrong calculation with no corresponding Edge Function error is client-side. An error correlated with one specific Supabase function's logs is backend-driven.
+2. **If backend-driven, which surface?** One Edge Function, a DB migration just applied, or a secret/config value.
+3. **If client-side, is a fast server-side mitigation possible at all** (§2), or does it require a new client build (§4)?
+
+This determines which of the sections below to execute — do not run every section for every incident.
+
+### IDENTIFY LAST KNOWN GOOD
+See §3 — the release manifest is the deterministic answer to "what do we roll back to."
+
+### SERVER-SIDE MITIGATION → EDGE FUNCTION ROLLBACK → CLIENT EMERGENCY BUILD → DATABASE POLICY
+See §2, §5, §4, §6 respectively — execute only the ones the classification above actually calls for.
+
+### VALIDATE
+Run the Artifact Inspection Checklist (§4.3) for a new client build, or the relevant smoke tests (§5.3/§6) for a server-side change. Do not consider the incident mitigated on a successful deploy alone — confirm the original symptom is actually gone.
+
+### MONITOR
+Watch Sentry and Supabase function logs for at least one full traffic cycle after the fix ships (harder to define precisely for a store release given review-time delay — for a server-side fix, this means at minimum the next hour of real traffic).
+
+### DOCUMENT INCIDENT
+Record: what broke, when detected, root cause, which of the sections above were executed, total time from detection to mitigation, and update the relevant `production-readiness-results/` finding if the incident reveals a new one (per this engagement's own evidence standard — do not silently absorb a new defect into "already known").
+
+---
+
+## 2. Server-side mitigation / kill-switch review (Phase H)
+
+**No generic feature-flag system exists, and none was built this wave** — the charter's own instruction is not to build speculative infrastructure. What already exists, assessed for sufficiency:
+
+- **AI Edge Functions' fail-closed contract**: `supabase/functions/_shared/rate_limit.ts`'s `checkRateLimit()` maps any unexpected failure to `{status: 'limiter_unavailable'}` → HTTP 503, before any Gemini call — this is a real, code-verified server-side control that requires zero client release to take effect (it is already how the deployed logic will behave once the `W1-001` migration/functions ship — see §7 for the current, not-yet-deployed state).
+- **`dr-niswah-chat` informal kill switch**: the Edge Function can be disabled or altered via the Supabase dashboard without a client release, and `DrNiswahBackendService.send()`'s `try`/`catch` in `chat_view_model.dart` degrades to a handled error state rather than a crash. **Verified for this one path only** — not confirmed to generalize to the other 3 AI functions or to non-AI Supabase-backed features (cycle tracking, community, private messaging, pregnancy tracking) without each being individually checked. Treat this as a real but narrow lever, not a general mechanism.
+- **Fiqh grounding degradation**: already handled as a product-level degraded-but-safe state (existing `B — DEGRADED` classification, external Google Cloud quota/billing cause) rather than a crash — no additional kill-switch needed for this specific failure mode.
+- **Dr Niswah safety behavior**: the red-flag exemption (`AB-008`) is enforced entirely server-side inside the Edge Function (checked before the rate limiter, per `dr-niswah-chat/index.ts`) — a client rollback cannot accidentally disable it, and a server-side Edge Function rollback would need to specifically preserve this check (see §5.4).
+
+**Conclusion**: existing fail-closed behavior is sufficient for the risk this wave was asked to assess (a bad AI-backend release degrading to 503 rather than an unbounded-cost or crashing state) **without** building a new remote-config/feature-flag table — which would itself be a DB schema change, out of scope under this wave's production-mutation restriction, and is already the Release Engineering wave's own recorded "recommended next step, not implemented." That recommendation stands unchanged; this wave did not implement it, correctly, since the assessed risk does not require it today.
+
+---
+
+## 3. Last-known-good model & release manifest
+
+A release is not "the last commit" — it is the specific combination of client build + Edge Function versions + DB migration state that was actually verified together. See `docs/release-manifest-template.md` (human-readable) and `release-manifest.template.json` (machine-readable schema) for the full field list: git SHA, semantic version, `versionCode`, environment, Edge Function versions per function, last-applied DB migration, build timestamp, artifact checksum, and verification state.
+
+**Generate one automatically** for any real build:
+```bash
+scripts/generate_release_manifest.sh <path-to-.apk-or-.aab> <environment> [build-number]
+```
+This was written and tested this wave (an initial bug — BSD `sed`'s lack of `\s` support silently corrupted the extracted semantic version — was found and fixed by testing the script against a real build, not assumed correct from reading it). Edge Function versions and DB migration state require **manual entry** — no automated correlation between a specific client build and those two facts exists (Supabase's tooling has no such link); the script and template both mark this explicitly rather than leaving it silently blank.
+
+**Store manifests durably, outside this repository** (see §7 — no artifact retention mechanism exists yet; this is the same gap for manifests as for the artifacts they describe).
+
+---
+
+## 4. Android emergency release (client-side rollback)
+
+**A Play Store client generally cannot be "rolled back" by uploading an older `versionCode`** — both Google Play and Apple reject a re-upload whose build number/`CFBundleVersion` is not strictly greater than a previously-accepted one (`RD-006`). The only real rollback model is:
+
+```
+BAD RELEASE (live, versionCode N)
+  → identify prior known-good commit (git SHA, from a saved release manifest — §3)
+  → rebuild that commit's source
+  → assign a NEW, higher versionCode (N+1 or higher — never reuse N)
+  → sign with the real release keystore
+  → produce a new AAB/APK
+  → smoke-test (§4.3)
+  → submit as an emergency replacement (store review time is external — §4.4)
+```
+
+### 4.1 Preconditions, verified this wave
+
+- **Release signing resolves**: `android/app/build.gradle.kts` fails the Gradle configuration step outright if `android/key.properties` is missing — no silent debug-signing fallback exists (`DC-005`/`SEC-003`, unchanged, re-confirmed).
+- **Debug signing impossible for a release build**: same mechanism — confirmed by inspecting `signingConfigs`/`buildTypes.release` directly this wave.
+- **Flutter SDK pinned**: `3.47.0`, matching `.github/workflows/ci.yml`'s pin exactly (confirmed via `flutter --version` this wave).
+- **`versionCode` can be overridden/incremented safely**: `flutter build apk --release --build-number=<N>` — **proven this wave** by actually using it in the drill below (`RD-006`'s own finding specifically noted this flag existed but "no script in the repo uses [it]"; that gap is now closed by both the drill and `scripts/generate_release_manifest.sh`/the emergency workflow, §8).
+- **A real, currently-live build-tooling defect was found and fixed by this wave's own drill, not assumed away**: `flutter_secure_storage: ^11.0.0` requires `compileSdk` 37; the project's prior `compileSdk = flutter.compileSdkVersion` resolved to 36 for Flutter 3.47.0, causing **every** release build (not just a rollback build — confirmed by reproducing the same failure on `HEAD`, not only the older drilled commit) to fail at the Gradle configuration step. Fixed by pinning `compileSdk = 37` explicitly in `android/app/build.gradle.kts` (SDK 37 platform was already installed locally; the fix does not require any new tooling install). Re-verified: `flutter build apk --release` on `HEAD` now succeeds (114s), `dart analyze lib/` (27 pre-existing, zero new) and `flutter test` (372/380, same 8 pre-existing golden-image diffs) both clean afterward.
+- **Previous code can still build against current tooling**: **initially no** (same defect, reproduced identically on the older commit) — **yes, after the same one-line fix was applied on top of the old commit's checkout** (§4.2). This is an important operational lesson captured here: an emergency rebuild of an old commit must still satisfy *current* build-environment requirements (Android SDK/AGP/plugin compileSdk minimums) — these are properties of the tooling, not the old commit, and the old commit's own gradle files will not have them.
+
+### 4.2 Emergency build drill — executed this wave
+
+Isolated via `git worktree` (never touched the main working tree's checkout):
+
+```bash
+git worktree add /tmp/rd009_drill/emergency-build 146142f   # "known good" commit
+# copy gitignored signing material + .env into the worktree (not tracked by git):
+cp android/key.properties            /tmp/rd009_drill/emergency-build/android/key.properties
+cp android/app/niswah-release.jks    /tmp/rd009_drill/emergency-build/android/app/niswah-release.jks
+cp .env                              /tmp/rd009_drill/emergency-build/.env
+# apply the current-tooling compileSdk fix on top (see 4.1 — not part of the old commit):
+#   edit android/app/build.gradle.kts: compileSdk = flutter.compileSdkVersion → compileSdk = 37
+cd /tmp/rd009_drill/emergency-build
+flutter pub get
+flutter build apk --release --dart-define=APP_ENV=production --build-number=3
+git worktree remove /tmp/rd009_drill/emergency-build --force   # cleanup
+```
+
+| Metric | Result |
+|---|---|
+| Commit used ("known good") | `146142f` — "fix: close final application code blockers", the last commit to touch `lib/` before this session's documentation-only waves |
+| Commit simulated as "bad current" | `HEAD` (`2b2e711`) — a simulated scenario per the drill's own instructions, not a real defect at `HEAD` |
+| Version used | `1.0.0+3` (`--build-number=3`, strictly greater than the currently-configured `+2`) |
+| Command used | `flutter build apk --release --dart-define=APP_ENV=production --build-number=3` |
+| Build result | **Succeeded** (after applying the current-tooling `compileSdk` fix — first attempt without it failed identically to `HEAD`'s own pre-fix failure, confirmed not commit-specific) |
+| Artifact path (drill, since discarded with the worktree) | `build/app/outputs/flutter-apk/app-release.apk`, 73.3MB |
+| Signing certificate | `CN=Niswah, OU=Mobile, O=Niswah` — the real release identity, confirmed via `apksigner verify --print-certs` |
+| `versionCode`/`versionName` (confirmed via `aapt dump badging`) | `versionCode='3'`, `versionName='1.0.0'`, `compileSdkVersion='37'` |
+| Elapsed: worktree setup | 1s |
+| Elapsed: `flutter pub get` | 2s |
+| Elapsed: emergency build (cold Gradle cache in the fresh worktree) | 347s (~5.8 min) |
+| **Total engineering preparation time, this drill** | **~6 minutes** |
+| Keystore passwords exposed anywhere in output/logs | No — never printed, consistent with this engagement's standing discipline |
+
+### 4.3 Artifact Inspection Checklist (before every upload, emergency or ordinary)
+
+- [ ] `apksigner verify --print-certs` shows `CN=Niswah`, not `CN=Android Debug`.
 - [ ] Extracted `assets/flutter_assets/.env` contains no `GEMINI_API_KEY`, no `service_role` string, no unexpected secret.
-- [ ] `versionCode`/`versionName` match the intended release and are strictly greater than the last uploaded build.
-- [ ] A test install reports the correct `environment` tag to Sentry (not `development`) — see the Sentry verification section of this wave's report.
+- [ ] `versionCode`/`versionName` (via `aapt dump badging`) match the intended release and are strictly greater than the last uploaded build.
+- [ ] `dart analyze lib/` and `flutter test` both run clean against the exact commit being built — do not skip this for an emergency build; a rollback that reintroduces a different bug is not a fix.
+- [ ] A test install reports the correct `environment` tag to Sentry (not `development`).
+- [ ] Generate a release manifest (`scripts/generate_release_manifest.sh`) and store it durably alongside the artifact (§7).
 
-## Recovery Readiness Gate (added by the Backup/Recovery wave, 2026-09-05 — see `00_09` §20 Phase I)
+### 4.4 Engineering preparation time vs. store distribution time
 
-A risky release should not proceed without confirming these, in addition to the artifact checklist above:
+**Do not conflate these — they have entirely different owners and cannot both be measured by this session:**
 
-- [ ] Recovery artifact (`supabase/canonical_baseline/00_public_baseline_draft.sql`) is current — no live schema change has occurred since its last validation, or it has been regenerated and re-validated against a fresh live capture.
-- [ ] Restore procedure is current — matches `BR_recovery_runbook.md` §4 (which requires moving `supabase/migrations/` aside and applying the baseline directly; do **not** assume `supabase db push`/the tracked migrations work, they don't — `BR-002`).
-- [ ] Last restore test date is known and recent (target: within Phase H's quarterly cadence — see `BR_recovery_runbook.md`).
-- [ ] **For any release containing a database migration specifically:** a fresh, verified backup/restore checkpoint exists **before** the migration executes — not "a backup exists somewhere," a checkpoint taken and confirmed restorable for this specific change. No migration in this project's history has ever had this — establish it starting with the next one.
-- [ ] Migration review complete — a second reviewer (not just the author) has read the migration SQL before it runs against production.
-- [ ] Rollback/recovery decision documented for this specific release — what happens if it needs to be reverted (cross-references the Rollback procedure section below, still unresolved for `RD-009`).
+| Phase | Measured this wave | Owner |
+|---|---|---|
+| Engineering rollback preparation (identify commit → prepared, signed, verified artifact) | **~6 minutes** (§4.2) | This runbook/engineering |
+| Google Play review of an emergency submission | **Not measured — external, store-controlled, not invented here.** Historically ranges from under an hour to multiple days depending on Google's own review queue and whether the app is flagged for additional review; do not plan an incident response assuming a specific number. | Google Play Console (owner-facing, outside this session's control) |
 
-## Rollback procedure (current state — no remote kill-switch exists)
+---
 
-**There is currently no way to roll back a bad release faster than a new store submission.** This is `RD-009`, unresolved by this pass. Until a real mechanism exists:
+## 5. Edge Function rollback (server-side, no store dependency)
 
-1. If a release is discovered to be broken post-launch: prepare a fixed build immediately (steps above), following the fastest safe path through app-store review.
-2. The only existing partial mitigation is the informal `dr-niswah-chat` Edge Function kill-switch (documented in `00_09`) — verified for exactly one feature, not confirmed to generalize (`UNK-011`). It does not help with a broken *client* release.
-3. **Recommended next step (not implemented this pass):** a simple remote config table (Supabase-backed, read at app startup) the client checks for a "minimum supported version" or per-feature kill flags — this is the natural, lowest-effort real fix for `RD-009`/`ROOT-008`, but requires a schema addition and is out of this wave's DB-change restriction.
+**This is the fastest rollback lever available in this architecture** — no store review, CLI-executable directly once authorized.
 
-## Owner actions this runbook cannot complete
+### 5.1 Current deployed state vs. repository source (Phase F — corrected this wave)
 
-- **iOS signing (`DC-010`):** requires the owner's real Apple Developer Team ID in Xcode's Signing & Capabilities (or `DEVELOPMENT_TEAM` in `project.pbxproj`) — no team ID exists anywhere in this project and none can be safely fabricated.
-- **Backing up the newly-generated Android release keystore:** `android/app/niswah-release.jks` and `android/key.properties` were generated in this session's sandboxed environment. **If this is to be the app's real, permanent signing identity, back both up externally immediately** (a password manager or secrets vault) — losing this keystore means no future update can ever be published under the same app identity on the Play Store. If the owner prefers to generate their own keystore instead, replace these two files before the first real upload.
+**Important correction to a prior wave's claim**: `00_09` §34's Phase H stated the currently-deployed `ai-assistant-chat` "already contains the calling code" for the `W1-001` RPC. **This was incorrect** — verified this wave via `supabase functions download ai-assistant-chat --project-ref jkmjobvxfrmuwafczvtw` (a genuinely read-only, Management-API-based command; no credential exposure) and diffed directly against the repository source:
+
+- **The currently-deployed `ai-assistant-chat` and `_shared/rate_limit.ts` still run the OLD in-memory, per-instance limiter** (`buckets = new Map(...)`, `checkRateLimit(key, config): RateLimitResult` — synchronous, no RPC call, no `limiter_unavailable` state) — not the new `W1-001`-backed version. The two are structurally different modules, confirmed by a full diff, not a version-number inference.
+- The **repository's** local source (matching `HEAD`) already contains the new, RPC-backed, fail-closed version — this is code prepared and locally validated (per `00_09` §25) but genuinely **not yet deployed**.
+- Practical consequence: production today does **not** currently exhibit fail-closed 503 behavior for AI requests — the old limiter simply under-enforces (fails open, harmless to availability, ineffective as a cost/abuse control) exactly as originally diagnosed. The fail-closed 503 behavior is what *will* apply once the new code is deployed — which is precisely why deployment order matters (§5.2, §6.4).
+
+| Function | Current deployed version (from `functions list`) | Confirmed deployed content | Repository source last touched |
+|---|---|---|---|
+| `dr-niswah-chat` | v8 | Not re-downloaded this wave (out of scope — no incident); last known content includes chat persistence/observability fixes | `a487092` (persistence/observability wave) |
+| `fiqh-advisor-chat` | v2 | Not re-downloaded this wave | `ca5eb0b` (Gemini trust-boundary migration) |
+| `dream-interpreter-chat` | v2 | Not re-downloaded this wave | `ca5eb0b` |
+| `ai-assistant-chat` | v2 | **Confirmed this wave: old in-memory limiter, not `W1-001`** | Deployed content predates `5582876` (AI Security wave); repo `HEAD` reflects `5582876`'s undeployed changes |
+
+### 5.2 Rollback commands (prepared, NOT run — no Edge Function deployment occurred this wave)
+
+**There is no "redeploy prior version" command** — `supabase functions deploy` always deploys whatever source exists locally. A rollback means reconstructing the old source, then deploying that:
+
+```bash
+# 1. Confirm what is currently live (read-only, safe):
+supabase functions download <function-name> --project-ref <production-ref>
+
+# 2. Reconstruct the known-good source from git (use a worktree — do not
+#    check out the old commit in your main working tree):
+git worktree add /tmp/rollback-source <known-good-commit-sha>
+
+# 3. Deploy exactly that source for the one affected function:
+cd /tmp/rollback-source
+supabase functions deploy <function-name> --project-ref <production-ref>
+
+# 4. Clean up:
+cd -
+git worktree remove /tmp/rollback-source --force
+```
+
+### 5.3 Secrets/config compatibility
+
+Edge Function secrets (`GEMINI_API_KEY`, Supabase's own injected `SUPABASE_URL`/keys) are independent of function code version — rolling back function code does not require touching secrets, and rolling back does not by itself invalidate the current Gemini key. No action needed on this axis for an ordinary function rollback.
+
+### 5.4 Post-rollback smoke tests
+
+1. Call the rolled-back function once with a normal authenticated request — confirm `200` with a real reply.
+2. For `dr-niswah-chat` specifically: send red-flag content, confirm the safety banner still fires (`AB-008`'s exemption is inside this function's own code — a rollback to an *older* known-good version must still contain it; check the diff before deploying, don't assume).
+3. Confirm Sentry does not show a new error class immediately after rollback (a rollback that "fixes" one bug by reintroducing another should be caught here, not discovered by users).
+
+---
+
+## 6. Database rollback policy
+
+**`BR-002` = `UNSAFE_TO_REPLAY`.** Database rollback must never depend on blindly replaying `supabase/migrations/` — this is a proven, reproducible failure (`00_09` §34/§35), not a theoretical caution.
+
+### 6.1 General policy
+
+- **Prefer forward-fix over destructive rollback, always.** A schema addition that turns out to be wrong is usually safer to patch than to tear down, especially once any real traffic has touched it.
+- **`DROP TABLE`/`DROP FUNCTION`/migration reversal are prohibited** except when: (a) the object is confirmed to hold no data any other part of the system depends on, (b) a forward-fix has been evaluated and rejected for a specific, stated reason, and (c) the action is taken with the same backup-verified precondition as any other production migration (currently blocked — `BR-001` is `OPEN`).
+- **Never attempt to "fix" `BR-002` as part of a rollback.** If a rollback incident somehow requires replaying the historical migration chain, stop — this is a sign the incident has escalated beyond what this runbook covers, not a cue to force a known-broken replay path.
+
+### 6.2 `W1-001`-specific incident response (Phase O)
+
+**Scenario**: the `ai_rate_limit_counters`/`check_and_increment_ai_rate_limit()` migration has been applied to production, the new Edge Functions have been deployed, and the rate limiter itself is now causing a production incident (e.g., wrongly rejecting legitimate traffic, or an unexpected performance issue).
+
+**Exact response order**:
+1. **Assess severity** — is this "some users see occasional 429s" (likely a quota-tuning issue, not an emergency) or "no AI feature works for anyone" (the limiter itself, or its RPC, is broken)?
+2. **If AI traffic itself must be degraded safely while diagnosing**: no destructive action needed — the fail-closed contract already returns 503 automatically the moment the RPC is unreachable or errors, so simply revoking the RPC's execute grant is itself a controlled, reversible way to force that state deliberately:
+   ```sql
+   REVOKE EXECUTE ON FUNCTION check_and_increment_ai_rate_limit(TEXT, INT, INT) FROM authenticated;
+   ```
+   This makes every AI request fail closed (503, "temporarily unavailable") without touching any data or dropping any object — fully reversible with the matching `GRANT`.
+3. **Redeploy the prior Edge Function version** if the incident is actually in the *function* code, not the RPC itself (§5.2).
+4. **Leave the `ai_rate_limit_counters` table and function in place** — do not `DROP` them as a first response. They hold only short-lived rate-limit counters (2-hour retention sweep, per the migration's own design), not user content or durable state; removing them provides no benefit over the revoke-based fail-closed approach above and forecloses a quick forward-fix.
+5. **Diagnose** using Supabase function logs and, if needed, a direct read of `ai_rate_limit_counters` (safe — no user content is stored there, only `user_id`/`function_name`/`window_start`/`request_count`).
+6. **Forward-fix**: adjust the quota parameters (`p_max_requests`/`p_window_seconds`, passed per-call from each Edge Function, not hardcoded in the RPC) or the RPC logic itself via `CREATE OR REPLACE FUNCTION` — this migration was specifically verified idempotent and safely re-runnable (`00_09` §34 Phase G) for exactly this reason.
+7. **Destructive schema removal (`DROP TABLE`/`DROP FUNCTION`) only if steps 2-6 are exhausted and a forward-fix is judged genuinely impossible** — requires the same backup-verified precondition as any other production DB change.
+
+**Verified this wave, by re-reading the current code (not re-testing live, since no such incident exists today)**: prior-function-redeploy remains possible (§5.2's mechanism), fail-closed behavior is unconditional and does not depend on any special incident-response action (it is the code's normal behavior on RPC failure), the limiter table is harmless to leave in place indefinitely, and no destructive DB rollback is structurally required by this design — the forward-fix path is genuinely sufficient for every failure mode considered.
+
+### 6.3 Migration review gate
+
+Before any production migration (`W1-001` included, once authorized): a second reviewer — not just the author — reads the SQL, and a fresh, verified backup/restore checkpoint exists for this specific change (`BR-001`, currently `OPEN` — this remains the standing precondition, unchanged by this wave).
+
+### 6.4 Deployment ordering (unchanged from `00_09` §25 Phase M, restated here for runbook completeness)
+
+Migration first, Edge Functions second — never the reverse. Old Edge Function code + new migration is safe and inert (ignores the new table). New Edge Function code + missing migration fails closed (503) for all AI traffic until one or the other catches up — acceptable only briefly and deliberately, not as a standing state.
+
+---
+
+## 7. Artifact retention (Phase I)
+
+**No durable artifact retention exists anywhere today** — confirmed this wave, not assumed:
+- `build/` is correctly gitignored (binaries never belong in source control) — but this also means **nothing preserves a built artifact once the local `build/` directory is cleaned or the machine is replaced**.
+- `.github/workflows/ci.yml`'s existing `build-android` job has **no `actions/upload-artifact` step** — even if this workflow were pushed and run, its debug-build output would vanish when the runner is torn down.
+- No GitHub Releases exist for this repository (consistent with the workflow never having been pushed — there is no CI infrastructure live yet to produce a release artifact from).
+
+**Minimum retention policy defined this wave**: at least the current production artifact and the immediately previous known-good artifact must be retained somewhere durable, checksummed, immutable. Two concrete mechanisms, neither requiring new paid infrastructure:
+1. **The new emergency workflow** (`.github/workflows/emergency-release.yml`, §8) includes an `actions/upload-artifact` step with 90-day retention — once pushed and actually used, this alone establishes retention for every emergency build going forward.
+2. **For ordinary releases**: attach the `.aab`/`.apk` and its generated manifest to a GitHub Release when the workflow is eventually wired up, or, at minimum, copy both to an owner-controlled durable store (the same class of location as the Android signing keystore's own recommended backup — a password manager/secrets vault with file-attachment support, or dedicated encrypted cloud storage) immediately after every real upload.
+
+**Not implemented this wave**: actually pushing the emergency workflow or generating a first real retained artifact — both require GitHub authentication, which is an explicitly owner-deferred action for this wave.
+
+---
+
+## 8. CI / GitHub workflow reality (Phase J)
+
+**`LOCAL CI DEFINITION EXISTS`. `REMOTE CI ACTIVE`: confirmed false, not assumed.**
+
+Verified this wave via direct git evidence (no `gh auth` needed for a read-only fetch of a public repo):
+```
+git fetch origin
+git show origin/main:.github/workflows/ci.yml   # → "fatal: path exists on disk, but not in 'origin/main'"
+```
+`.github/workflows/ci.yml` does not exist on `origin/main` at all — it was committed locally (`ebd2012`, Android release engineering wave) but that commit itself has never been pushed. `origin/main` is 16 commits behind the current local branch. `gh auth status` confirms no authenticated GitHub session exists in this environment (`You are not logged into any GitHub hosts`) — this matches the historical record that the PAT previously used lacked `workflow` scope. **This is recorded as owner-authentication-blocked, not an application-code failure** — the workflow file itself is syntactically valid (verified via `ruby -ryaml`, no `act`/local GitHub-Actions runner available in this environment to do a full functional dry-run) and has never had the opportunity to fail on real infrastructure; it has simply never run.
+
+**Owner action, unavoidable**: authenticate to GitHub (`gh auth login` or an equivalent credential with `workflow` scope) and push the current branch (or at minimum `.github/workflows/ci.yml` and `.github/workflows/emergency-release.yml`) to `origin/main`, then confirm the first real Actions run succeeds.
+
+---
+
+## 9. Emergency workflow (Phase K)
+
+`.github/workflows/emergency-release.yml` (new, this wave) — `workflow_dispatch`-triggered, takes an explicit git ref, build number, and environment as inputs; pins Flutter `3.47.0` (matching `ci.yml`); runs `dart analyze`/`flutter test` against the exact ref before building (never ships an emergency build blind); requires signing material and the `.env` to be supplied via CI secrets (`ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_KEY_PROPERTIES`, `EMERGENCY_BUILD_ENV_FILE` — none committed, none hardcoded, the job fails loudly with an explicit error if they're absent rather than silently falling back to debug signing); verifies the output is signed with the real release certificate before treating it as a valid artifact; uploads the artifact + generated manifest with 90-day retention; **contains no Play Store/App Store publication step of any kind, by design**.
+
+**Status: `CODE_COMPLETE / REMOTE_VERIFICATION_PENDING`.** Verified locally: valid YAML syntax; every step's command matches an already-proven-working local equivalent (the drill in §4.2, the manifest script in §3). **Not verified**: it has never executed against real GitHub Actions infrastructure — that requires the same GitHub authentication blocked in §8, and requires the owner to configure the three CI secrets named above (a one-time setup step this session cannot perform without dashboard/GitHub Settings access). Do not treat this as equivalent to a proven-working emergency pipeline until it has actually run once.
+
+---
+
+## 10. Owner actions this runbook cannot complete
+
+- **GitHub authentication / remote push** (§8) — required before either CI workflow can run for real. Explicitly deferred this wave per operator instruction.
+- **Configure `ANDROID_RELEASE_KEYSTORE_BASE64` / `ANDROID_KEY_PROPERTIES` / `EMERGENCY_BUILD_ENV_FILE` as GitHub Actions secrets** — required before the emergency workflow can produce a real signed artifact; a one-time setup step in GitHub repository Settings.
+- **iOS signing (`DC-010`)**: unchanged, requires the owner's real Apple Developer Team ID — not fabricable.
+- **Backing up the Android release keystore** (`android/app/niswah-release.jks`, `android/key.properties`): unchanged standing recommendation from the Release Engineering wave — back these up externally (password manager/secrets vault) before relying on them as the app's permanent signing identity.
+- **`BR-001` (a real, verified production backup)**: unchanged, `OPEN` — the precondition for §6.3's migration review gate and for authorizing `W1-001`'s own deployment; explicitly out of this wave's scope, deferred per operator instruction.
+- **Defining an actual, paged alerting mechanism for the DETECT step (§1)**: no automated alerting exists today beyond Sentry's own dashboard; this runbook does not invent one, consistent with "do not build speculative infrastructure."

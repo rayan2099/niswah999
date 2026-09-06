@@ -1,0 +1,41 @@
+{
+  "_comment": "RD-009 release manifest template. Do not commit a filled-out copy of this file to source control if it references a real build artifact path outside the repo — copy it into your durable artifact-retention store instead (see RD_release_rollback_runbook.md). No secrets belong in this file.",
+  "git": {
+    "commit_sha": "",
+    "branch_or_tag": ""
+  },
+  "app_version": {
+    "semantic_version": "",
+    "build_number": ""
+  },
+  "environment": "",
+  "flutter_sdk_version": "",
+  "build_timestamp_utc": "",
+  "artifact": {
+    "type": "",
+    "path": "",
+    "sha256": "",
+    "size_bytes": null
+  },
+  "signing": {
+    "certificate_cn": "",
+    "certificate_sha256": ""
+  },
+  "edge_functions": {
+    "_comment": "Manual entry required — no automated correlation exists between a client build and Edge Function deployed versions. Populate from `supabase functions list --project-ref <ref>` at build/release time.",
+    "dr-niswah-chat": "",
+    "fiqh-advisor-chat": "",
+    "dream-interpreter-chat": "",
+    "ai-assistant-chat": ""
+  },
+  "db_migration_state": {
+    "_comment": "Last migration confirmed applied to production per `supabase migration list --linked` — not necessarily the last file in supabase/migrations/ (see BR-002).",
+    "last_applied_migration": ""
+  },
+  "verification": {
+    "dart_analyze_issue_count": null,
+    "flutter_test_pass_count": null,
+    "flutter_test_total_count": null,
+    "artifact_inspection_checklist_passed": null
+  }
+}
