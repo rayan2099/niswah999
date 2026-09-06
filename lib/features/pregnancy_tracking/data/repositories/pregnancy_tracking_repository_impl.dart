@@ -1,10 +1,19 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../domain/entities/pregnancy_milestone.dart';
 import '../../domain/repositories/pregnancy_tracking_repository.dart';
 import '../datasources/local_pregnancy_tracking_data_source.dart';
 
+/// W0-002: previously queried a table (`pregnancy_milestones`) that did not
+/// exist live at all. Now backed by the real `pregnancy_milestones` table
+/// (supabase/migrations/20260907090000_pregnancy_milestones.sql) — a
+/// direct per-user child table, matching `CycleTrackingRepositoryImpl`'s
+/// established local-authoritative-with-sync pattern (this is a personal,
+/// journal-style entry, not a high-stakes record like `pregnancy_profile`,
+/// so the same offline-friendly, eventually-consistent design applies).
 class PregnancyTrackingRepositoryImpl implements PregnancyTrackingRepository {
   PregnancyTrackingRepositoryImpl({
     LocalPregnancyTrackingDataSource? localDataSource,
@@ -15,19 +24,6 @@ class PregnancyTrackingRepositoryImpl implements PregnancyTrackingRepository {
   final LocalPregnancyTrackingDataSource _localDataSource;
   final SupabaseClient? _supabaseClient;
 
-  // NOT a simple rename: production has no `pregnancy_milestones` table.
-  // The live `pregnancy_records` table exists under a different, incompatible
-  // shape — one row per pregnancy (lmp_date, due_date, current_week,
-  // birth_date, nifas_id, weekly_notes jsonb) — not one row per dated
-  // milestone (week, trimester, label, summary, date) the way this repository
-  // needs. Repointing `_tableName` at `pregnancy_records` would still fail
-  // (e.g. `.order('date', ...)` below has no matching column there), just
-  // with a different, more confusing error, and both paths currently
-  // fall back to local-only data identically. A real fix requires a product
-  // decision — either add proper milestone columns/table live (a schema
-  // migration, gated on Wave 0 approval per W0-002) or redesign this
-  // feature to persist milestones inside `pregnancy_records.weekly_notes`.
-  // See W0-002 / 00_10_WAVE0_EXECUTION_REPORT.md.
   static const String _tableName = 'pregnancy_milestones';
 
   @override
@@ -64,25 +60,80 @@ class PregnancyTrackingRepositoryImpl implements PregnancyTrackingRepository {
       final sorted = merged.values.toList()
         ..sort((a, b) => b.date.compareTo(a.date));
       return sorted;
-    } catch (_) {
+    } on PostgrestException catch (error, stack) {
+      // Local save is authoritative for the UI — a remote read failure
+      // must never make an already-saved local entry disappear (same
+      // reasoning as CycleTrackingRepositoryImpl.getCycleLogs).
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'PregnancyTrackingRepositoryImpl.getMilestonesForUser',
+        feature: 'pregnancy_tracking',
+      );
+      return userEntries;
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'PregnancyTrackingRepositoryImpl.getMilestonesForUser',
+        feature: 'pregnancy_tracking',
+      );
       return userEntries;
     }
   }
 
   @override
-  Future<void> saveMilestone(PregnancyMilestone milestone) async {
+  Future<PregnancySyncStatus> saveMilestone(PregnancyMilestone milestone) async {
+    // Saved locally as `pending` first — exactly like CycleLog, this is
+    // what makes it eligible for a later retry via syncPendingMilestones()
+    // if the remote attempt below fails retryably.
     await _localDataSource.upsert(milestone);
-
-    final client = _supabaseClient;
-    if (client == null) {
-      return;
+    try {
+      await _upsertRemote(milestone);
+      await _localDataSource.upsert(
+        milestone.copyWith(syncStatus: PregnancySyncStatus.synced),
+      );
+      return PregnancySyncStatus.synced;
+    } on NetworkFailure catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'PregnancyTrackingRepositoryImpl.saveMilestone',
+        feature: 'pregnancy_tracking',
+        recordId: milestone.id,
+      );
+      if (!error.retryable) {
+        await _localDataSource.upsert(
+          milestone.copyWith(syncStatus: PregnancySyncStatus.failed),
+        );
+        return PregnancySyncStatus.failed;
+      }
+      return PregnancySyncStatus.pending;
     }
+  }
+
+  Future<void> _upsertRemote(PregnancyMilestone milestone) async {
+    final client = _supabaseClient;
+    if (client == null) return;
+
+    final sessionUser = client.auth.currentUser;
+    if (sessionUser == null) return;
 
     try {
-      final payload = milestone.toJson();
-      await client.from(_tableName).upsert(payload);
-    } catch (_) {
-      // Local-first persistence remains authoritative when remote sync is unavailable.
+      final payload = {
+        ...milestone.toRemoteJson(),
+        'user_id': sessionUser.id,
+        'sync_status': 'synced',
+      };
+      await client.from(_tableName).upsert(payload, onConflict: 'id');
+    } on PostgrestException catch (error, stack) {
+      throw mapRepositoryError(
+            error,
+            stack,
+            context: 'PregnancyTrackingRepositoryImpl._upsertRemote',
+            userMessage: 'Could not save your pregnancy update to your account.',
+          )
+          as NetworkFailure;
     }
   }
 
@@ -91,14 +142,84 @@ class PregnancyTrackingRepositoryImpl implements PregnancyTrackingRepository {
     await _localDataSource.delete(id);
 
     final client = _supabaseClient;
-    if (client == null) {
-      return;
-    }
+    if (client == null) return;
+
+    final sessionUser = client.auth.currentUser;
+    if (sessionUser == null) return;
 
     try {
-      await client.from(_tableName).delete().eq('id', id);
-    } catch (_) {
-      // Ignore remote deletion failures to preserve offline resilience.
+      await client
+          .from(_tableName)
+          .delete()
+          .eq('id', id)
+          .eq('user_id', sessionUser.id);
+    } on PostgrestException catch (error, stack) {
+      // Deletion is best-effort against the remote (matches
+      // CycleTrackingRepositoryImpl.deleteCycleLog's contract) — the local
+      // deletion above already happened and is what the UI reflects.
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'PregnancyTrackingRepositoryImpl.deleteMilestone',
+        feature: 'pregnancy_tracking',
+        recordId: id,
+      );
     }
+  }
+
+  @override
+  Future<PregnancyMilestonePendingSyncResult> syncPendingMilestones() async {
+    final client = _supabaseClient;
+    final sessionUser = client?.auth.currentUser;
+    if (client == null || sessionUser == null) {
+      return const PregnancyMilestonePendingSyncResult(
+        synced: 0,
+        stillPending: 0,
+        permanentlyFailed: 0,
+      );
+    }
+
+    final localEntries = await _localDataSource.loadMilestones();
+    final toRetry = localEntries
+        .where((item) => item.syncStatus == PregnancySyncStatus.pending)
+        .toList();
+
+    var synced = 0;
+    var stillPending = 0;
+    var permanentlyFailed = 0;
+
+    // Sequential, not parallel — same bounded-retry reasoning as
+    // CycleTrackingRepositoryImpl.syncPendingLogs.
+    for (final milestone in toRetry) {
+      try {
+        await _upsertRemote(milestone);
+        await _localDataSource.upsert(
+          milestone.copyWith(syncStatus: PregnancySyncStatus.synced),
+        );
+        synced++;
+      } on NetworkFailure catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'PregnancyTrackingRepositoryImpl.syncPendingMilestones',
+          feature: 'pregnancy_tracking',
+          recordId: milestone.id,
+        );
+        if (error.retryable) {
+          stillPending++;
+        } else {
+          await _localDataSource.upsert(
+            milestone.copyWith(syncStatus: PregnancySyncStatus.failed),
+          );
+          permanentlyFailed++;
+        }
+      }
+    }
+
+    return PregnancyMilestonePendingSyncResult(
+      synced: synced,
+      stillPending: stillPending,
+      permanentlyFailed: permanentlyFailed,
+    );
   }
 }

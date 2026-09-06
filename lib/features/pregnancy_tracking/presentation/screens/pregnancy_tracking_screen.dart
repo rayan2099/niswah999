@@ -30,13 +30,6 @@ class _PregnancyTrackingScreenState extends State<PregnancyTrackingScreen> {
     return AnimatedBuilder(
       animation: _viewModel,
       builder: (context, _) {
-        final milestone = _viewModel.currentMilestone;
-        final trimesterLabel = switch (_viewModel.currentTrimester) {
-          PregnancyTrimester.first => _pg('First Trimester', 'الثلث الأول'),
-          PregnancyTrimester.second => _pg('Second Trimester', 'الثلث الثاني'),
-          PregnancyTrimester.third => _pg('Third Trimester', 'الثلث الثالث'),
-        };
-
         return Scaffold(
           appBar: AppBar(
             title: Text(_pg('Pregnancy tracking', 'متابعة الحمل')),
@@ -51,38 +44,85 @@ class _PregnancyTrackingScreenState extends State<PregnancyTrackingScreen> {
           body: SafeArea(
             child: RefreshIndicator(
               onRefresh: () => _viewModel.loadMilestones(),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _OverviewCard(
-                      week: _viewModel.currentWeek,
-                      trimester: trimesterLabel,
-                      dueDate: _viewModel.dueDate,
-                      label: milestone.label,
-                    ),
-                    const SizedBox(height: 20),
-                    _MilestoneCard(milestone: milestone),
-                    const SizedBox(height: 20),
-                    _DailyTrackerCard(viewModel: _viewModel),
-                    if (_viewModel.errorMessage != null) ...[
-                      const SizedBox(height: 20),
-                      Card(
-                        color: Colors.red.shade50,
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(_viewModel.errorMessage!),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+              child: _viewModel.isTrackingPregnancy
+                  ? _buildTrackingContent(context)
+                  : _buildNotTrackingContent(context),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildTrackingContent(BuildContext context) {
+    final milestone = _viewModel.currentMilestone;
+    final trimesterLabel = switch (_viewModel.currentTrimester) {
+      PregnancyTrimester.first => _pg('First Trimester', 'الثلث الأول'),
+      PregnancyTrimester.second => _pg('Second Trimester', 'الثلث الثاني'),
+      PregnancyTrimester.third => _pg('Third Trimester', 'الثلث الثالث'),
+    };
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _OverviewCard(
+            week: _viewModel.currentWeek,
+            trimester: trimesterLabel,
+            dueDate: _viewModel.dueDate,
+            label: milestone.label,
+          ),
+          const SizedBox(height: 20),
+          _MilestoneCard(milestone: milestone),
+          const SizedBox(height: 20),
+          _DailyTrackerCard(viewModel: _viewModel),
+          if (_viewModel.errorMessage != null) ...[
+            const SizedBox(height: 20),
+            Card(
+              color: Colors.red.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(_viewModel.errorMessage!),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Previously this screen always showed a fabricated week/due-date
+  /// regardless of whether the user had ever indicated they were pregnant
+  /// at all — this honest empty state replaces that (W0-002).
+  Widget _buildNotTrackingContent(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.pregnant_woman_rounded, size: 40),
+                  const SizedBox(height: 12),
+                  Text(
+                    _pg(
+                      'Pregnancy tracking is not active yet.',
+                      'متابعة الحمل غير مُفعّلة بعد.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

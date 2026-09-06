@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/network/supabase_client.dart';
+import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../data/repositories/pregnancy_tracking_repository_impl.dart';
 import '../../domain/controllers/pregnancy_calculator.dart';
 import '../../domain/entities/pregnancy_milestone.dart';
@@ -20,12 +22,26 @@ class PregnancyTrackingViewModel extends ChangeNotifier {
   bool symptomsTracked = false;
   String notes = '';
 
-  DateTime get lmp => DateTime.now().subtract(const Duration(days: 30 * 7));
+  /// Whether the user has an active pregnancy to track at all — read from
+  /// [PregnancyStatusController], the same source the dashboard's own
+  /// pregnancy overview uses. Previously this ViewModel never checked this
+  /// and always displayed a fabricated week/due-date regardless of whether
+  /// the user had ever indicated they were pregnant.
+  bool get isTrackingPregnancy => PregnancyStatusController.instance.isPregnant;
 
-  DateTime get dueDate => lmp.add(const Duration(days: 280));
+  /// Real current week from the user's own activation state — was
+  /// previously always `DateTime.now() - 30 weeks`, a hardcoded fake value
+  /// with no connection to any user input.
+  int get currentWeek => PregnancyStatusController.instance.currentWeek;
 
-  int get currentWeek =>
-      PregnancyCalculator.currentWeekFromLmp(lmp: lmp, now: DateTime.now());
+  /// An effective LMP/due-date derived from the real current week, for
+  /// [PregnancyCalculator]'s existing week-based content lookup —
+  /// approximate by construction (this calculator only ever produced
+  /// approximate trimester-level content, matching its original design),
+  /// but now grounded in the user's real activation state rather than a
+  /// constant.
+  DateTime get dueDate =>
+      DateTime.now().add(Duration(days: (40 - currentWeek) * 7));
 
   PregnancyTrimester get currentTrimester => currentMilestone.trimester;
 
@@ -35,26 +51,24 @@ class PregnancyTrackingViewModel extends ChangeNotifier {
         now: DateTime.now(),
       );
 
-  Future<void> loadMilestones({String userId = 'demo-user'}) async {
+  String? get _currentUserId =>
+      NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+
+  Future<void> loadMilestones() async {
+    await PregnancyStatusController.instance.load();
+    final userId = _currentUserId;
+    if (userId == null) {
+      milestones = const <PregnancyMilestone>[];
+      notifyListeners();
+      return;
+    }
+
     isLoading = true;
     errorMessage = null;
     notifyListeners();
 
     try {
-      final latest = await _repository.getMilestonesForUser(userId);
-      milestones = latest;
-      if (latest.isNotEmpty) {
-        final latestMilestone = latest.first;
-        hydrationTargetMet = latestMilestone.summary.toLowerCase().contains(
-          'hydration',
-        );
-        movementLogged = latestMilestone.label.toLowerCase().contains(
-          'movement',
-        );
-        symptomsTracked = latestMilestone.summary.toLowerCase().contains(
-          'symptom',
-        );
-      }
+      milestones = await _repository.getMilestonesForUser(userId);
     } catch (error) {
       errorMessage = error.toString();
     } finally {
@@ -63,7 +77,14 @@ class PregnancyTrackingViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> saveDailyTracker({String userId = 'demo-user'}) async {
+  Future<void> saveDailyTracker() async {
+    final userId = _currentUserId;
+    if (userId == null) {
+      errorMessage = 'You must be signed in to save an update.';
+      notifyListeners();
+      return;
+    }
+
     isLoading = true;
     errorMessage = null;
     notifyListeners();

@@ -19,11 +19,12 @@ String _pr(String en, String ar) => AppLocaleController.instance.text(en, ar);
 /// lets the user copy it out. Deliberately excludes `flagged_conversations`
 /// (a service-role-only internal safety-audit log with no user-facing RLS
 /// read policy at all — not user-owned content to begin with) and any
-/// internal/service metadata. **Partial, stated plainly in the UI**: it
-/// does not include prayer/pregnancy-tracking data structurally blocked by
-/// `W0-002`/the deferred pregnancy-milestone mismatch, and does not attempt
-/// a full account-level archive format — this is the safe portion
-/// implementable now without backend/schema changes.
+/// internal/service metadata. **Partial, stated plainly in the UI**: does
+/// not attempt a full account-level archive format — this is the safe
+/// portion implementable now without further backend/schema changes.
+/// `pregnancy_milestones` (W0-002, now a real table) and `prayer_log`
+/// (W0-003) are both included below — this doc comment previously claimed
+/// otherwise after W0-003 shipped without being updated; corrected here.
 class DataExportScreen extends StatefulWidget {
   const DataExportScreen({super.key});
 
@@ -68,6 +69,11 @@ class _DataExportScreenState extends State<DataExportScreen> {
         ),
         'cycle_entries': await _fetchMany(client, 'cycle_entries', userId),
         'prayer_log': await _fetchMany(client, 'prayer_log', userId),
+        'pregnancy_milestones': await _fetchMany(
+          client,
+          'pregnancy_milestones',
+          userId,
+        ),
         'community_posts': await _fetchMany(
           client,
           'community_posts',

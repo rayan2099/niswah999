@@ -1558,3 +1558,190 @@ supabase db push --project-ref <production-ref>
 **Owner actions required**: (1) rotate/revoke the exposed Gemini key in Google Cloud Console — the sole remaining gate on `SEC-001`/`ROOT-002`, confirmed this session cannot perform it; (2) review and execute the production deployment package above (Phase M) — apply the migration, deploy the Edge Functions, run the production load test — to move `W1-001`/`AB-002`/`SEC-005`/`AB-008` toward `VERIFIED_CLOSED`; (3) resolve the Google Cloud quota/billing condition blocking Fiqh Search-grounding; (4) the standing owner actions from every prior wave (public privacy-policy hosting, `PC-008`/`PC-009`, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, among others) remain outstanding and untouched by this wave.
 
 **Overall verdict: remains NO-GO** — real, substantial progress was made (a previously-disproven control is now genuinely fixed and validated to a strong evidentiary bar), but none of it is live in production yet, the Gemini key rotation remains genuinely blocked, and the engagement's other standing blockers are untouched by this wave's scope.
+
+---
+
+## 26. W0-002 Pregnancy Tracking Data-Model Remediation Wave (2026-09-06)
+
+**No production DB schema/migration/RLS/trigger/function/RPC was applied to production.** The new migration exists only in the repository, tested exclusively against a disposable local Supabase stack, then torn down completely. `W1-001`'s own pending production deployment (from §25) was not touched or executed.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below:** `W1-001` (`PARTIALLY_REMEDIATED — CODE_COMPLETE/LOCALLY_VERIFIED`), `SEC-001`/`ROOT-002` (`OPEN`, rotation owner-blocked), `AB-002` (`PARTIALLY_REMEDIATED`), Fiqh Search-grounding (`B — DEGRADED`), `BR-001` (`OPEN`), `RD-009` (`OPEN`), `DC-010` (`OPEN`), `OB-006` (`PARTIALLY_REMEDIATED`), remaining Privacy/Compliance findings, the entire Accessibility domain (`AU-009` `OPEN`, all else closed per §24).
+
+### Phase A — Reconstructing the actual pregnancy domain model
+
+Read every file touching pregnancy data end-to-end, not assumed from names:
+
+1. **Pregnancy identity/profile — ONE-PER-USER, REMOTE-AUTHORITATIVE.** `pregnancy_profile` (`lib/features/pregnancy_profile/`) — `UNIQUE(user_id)`, no local caching, throws on write failure (a failed write here means the "طبيبة" chat silently reverts to generic advice, so it must not fail silently). Backs `PregnancyStatusEngine`'s week/trimester/postpartum computation, which feeds `dr-niswah-chat`'s context block, the dashboard's pregnancy overview, and all three PDF reports (doctor/fiqh/husband). **Confirmed working correctly** — not touched by this wave.
+2. **Pregnancy lifecycle state — ONE-PER-USER, LOCAL-ONLY.** `PregnancyStatusController` (`lib/core/preferences/`) — a separate, simpler, `SharedPreferences`-backed "is pregnant / start week / nifas" toggle the dashboard's own quick overview card uses directly, independent of `pregnancy_profile`. Pre-existing, not introduced or altered by this wave.
+3. **Dated milestone/event tracking — MANY-PER-USER, intended LOCAL-AUTHORITATIVE-WITH-SYNC.** `PregnancyMilestone`/`PregnancyTrackingRepositoryImpl`/`PregnancyTrackingViewModel`/`PregnancyTrackingScreen` — the subject of `W0-002`. **Newly discovered this wave**: `PregnancyTrackingScreen` is unreachable from any navigation route anywhere in the app (`grep -rln "PregnancyTrackingScreen("` across all of `lib/` returns only its own definition file; its git history shows it present, unwired, since the repository's very first commit, `6d59bfe`). The ViewModel's `lmp`/`dueDate`/`currentWeek` were `DateTime.now().subtract(30 weeks)` — a hardcoded constant, connected to no real user input at all, and `loadMilestones`/`saveDailyTracker` defaulted to a literal `'demo-user'` string rather than the real signed-in user.
+4. **Weekly notes — UNKNOWN, LEGACY_ONLY.** `pregnancy_records.weekly_notes` (jsonb) — live in production, but `pregnancy_records` itself is **not queried by any current Flutter code** (`grep -rn "pregnancy_records" lib/` returns only descriptive comments inside the very file this wave rewrites, never a real query). It predates `pregnancy_profile` and appears to have been superseded and abandoned in place, not actively maintained.
+5. **Symptoms/measurements** — none exist as a distinct concept; the (unreachable) daily tracker's hydration/movement/symptom checkboxes are folded into each `PregnancyMilestone`'s free-text `summary`, not separate columns.
+6. **Doctor/report dependencies** — `doctor_report_insights_engine.dart`/`fiqh_report_insights_engine.dart`/`husband_report_insights_engine.dart` all read `pregnancy_profile` exclusively (`highRiskFlags`, mode/week/trimester via the status engine) — **none of the three reports have ever read `pregnancy_milestones` or `pregnancy_records`**.
+
+### Phase B — Product semantics from existing code
+
+- Can a user create multiple pregnancy tracking events? **Yes, by design** — `saveDailyTracker` (as it existed before this wave, and unchanged in this respect) generates a fresh `PregnancyMilestone` with a timestamp-based id on every save, never overwriting a prior entry.
+- Are events date-specific/week-specific? **Yes** — every entry carries `week`, `trimester`, and `date`.
+- Can users edit past entries? Not through the UI as built, but the repository interface already exposed `deleteMilestone(id)` — individual addressability was already assumed by the original design, just never wired to a matching edit affordance.
+- Can more than one event exist for the same pregnancy? **Yes** — this is the entire point of the "daily tracker" concept (analogous to `wellbeing_logs`' daily mood/energy/sleep check-ins).
+- Does the UI expect history/timeline behavior? **Yes** — `getMilestonesForUser` returns a full list, sorted by date descending.
+- Does Doctor's Report aggregate multiple entries? **No** — confirmed in Phase A, it never reads this data at all.
+- Does AI context depend on latest state or event history? **Neither** — `dr-niswah-chat` reads only `pregnancy_profile`, never milestones.
+- Does data export expect multiple rows? Not previously (the table didn't exist to export from); now yes, added this wave.
+- Does deletion expect cascading child records? Not previously wired to any parent; now yes, via a direct FK to `users(id) ON DELETE CASCADE`.
+
+**Conclusion**: the intended product concept — a personal, many-per-user, dated journal of pregnancy check-ins — is real, coherent, and partially built (calculator logic, entity shape, repository interface all already assumed it), but the **feature was never connected to any way for a user to reach it**, and the table it needed was never created. Both facts, not previously documented this precisely anywhere in the engagement.
+
+### Phase C — Canonical data model chosen
+
+**Option A (parent/child), simplified**: `pregnancy_milestones` as a **direct per-user child table** — no intermediate `pregnancy_records`/pregnancy-header row. Rejected alternatives and why:
+
+- **A full parent/child model nested under `pregnancy_records`** — rejected because `pregnancy_records` is itself confirmed orphaned (Phase A #4), and resurrecting its relevance solely to give `pregnancy_milestones` a parent would reintroduce exactly the kind of "two competing pregnancy-identity tables" confusion `pregnancy_profile` already resolved once. The app's own `PregnancyMilestone` entity has **never** had a `pregnancy_id`/`pregnancy_record_id` field — evidence from the code itself, not a guess, that no such relationship was ever intended.
+- **JSONB on `pregnancy_records.weekly_notes`** (Option B) — rejected: the app's existing domain design already assumes independently-addressable rows (`deleteMilestone(id)`, per-entry sync status, individual queryability/sortability by date) — cramming that into one shared JSONB blob on a table nothing currently reads would be a structural regression from what the code already assumes, not a simplification. This was also explicitly considered and rejected in the original `W0-002` finding for the same reason.
+- **Nesting under `pregnancy_profile` instead** — considered and rejected: `pregnancy_profile` is `UNIQUE(user_id)` by design (one profile per user, continuously updated in place) — it has no row identity a child table could stably reference across profile updates, and conflating "the personalization record for AI chat" with "a history of daily check-ins" would blur two already-cleanly-separated concerns (Phase A #1 vs #3).
+
+**Chosen**: `pregnancy_milestones(id, user_id, week, trimester, label, summary, date, sync_status, created_at, updated_at)` — FK directly to `users(id) ON DELETE CASCADE`, matching `wellbeing_logs`' own established convention exactly. No field was added beyond what the existing (already-written, pre-this-wave) `PregnancyMilestone` Dart entity already modeled, plus `sync_status` (new, added to close `RR-001` for this data type using the same pattern already proven for `CycleLog`).
+
+### Phase D — Migration design
+
+`supabase/migrations/20260907090000_pregnancy_milestones.sql` (SHA-256: `08e6acf12a8e3daeb9c5571cc9908afa41ac81da2867bb599f8176465a45e67a`). Explicit, not `IF NOT EXISTS`-masked drift: primary key (`id UUID DEFAULT uuid_generate_v4()`), FK with `ON DELETE CASCADE`, `CHECK` constraints on `week` (1-42) and `trimester` (enum-equivalent text), `NOT NULL` on every substantive column, `created_at`/`updated_at` timestamps, an index on `(user_id, date DESC)` matching the app's actual read pattern, RLS enabled with four explicit own-row-only policies (matching `wellbeing_logs`' exact policy style), no `SECURITY DEFINER` function needed for this table (unlike `W1-001`'s rate limiter, ordinary RLS-scoped CRUD is sufficient and simpler here — no service-role dependency in the client).
+
+### Phase E — Existing-data migration strategy
+
+**No data is migrated from `pregnancy_records` into `pregnancy_milestones`, and none should be** — these are different concepts, not a renamed/reshaped version of the same thing. Field-by-field classification, for the record:
+
+| `pregnancy_records` field | Classification | Reasoning |
+|---|---|---|
+| `id` | NO_EQUIVALENT | A milestone's identity is per-entry, not per-pregnancy; nothing to carry over |
+| `user_id` | DIRECTLY_MIGRATABLE (if ever needed) | Same concept, but there is nothing to attach it to without also deciding what to do with the other fields |
+| `lmp_date` / `due_date` / `current_week` | AMBIGUOUS | These are profile-level facts, already properly modeled by `pregnancy_profile.reference_date`/`tracking_basis` — not a "dated milestone entry" at all. Whether any live row's values are current/authoritative or stale pre-`pregnancy_profile` data is unknown without live inspection |
+| `birth_date` | AMBIGUOUS | Could inform `pregnancy_profile.postpartum_start_date` for a given user, same uncertainty as above |
+| `nifas_id` | LEGACY_ONLY | FK into `nifas_records`, itself already flagged in the Wave 0 execution report as `UNREFERENCED / CANDIDATE_FOR_LATER_REMOVAL` |
+| `weekly_notes` (jsonb) | AMBIGUOUS | Real internal shape is undocumented and unverified — nothing in any current or historical app code path has ever written a known shape into it. **Not guessed at or fabricated into milestone rows per the explicit instruction** |
+
+**`pregnancy_records` is left completely untouched by this wave** — not read from, not written to, not dropped. Whether it holds real historical user data or is genuinely empty/vestigial is an **explicit, deferred, owner-level question** requiring live production read access this session does not have (the CLI's keychain-auth constraint blocks an authenticated row-count check; querying via the app's anon key alone returns nothing regardless of actual content, since RLS requires a real authenticated session matching the row's `user_id`).
+
+Synthetic fixtures for the required scenarios were reasoned through analytically against this classification (empty pregnancy → no row at all, currently the default; a `weekly_notes`-populated row → would fall under the AMBIGUOUS classification above, not migrated; multiple weeks / incomplete or malformed legacy JSON → all equally AMBIGUOUS/undocumented shape, correctly not acted on) rather than executed as a live migration script, since **no migration of this data is being performed** — there is nothing to validate a transformation against.
+
+### Phase F — RLS / authorization: fully tested
+
+Validated against a disposable local Supabase stack via real HTTP calls through PostgREST (not just `psql` role-simulation) — the actual access path the Flutter app itself uses:
+
+| Check | Result |
+|---|---|
+| User A creates own milestone | ✅ `201` |
+| User A creates a second, later milestone | ✅ `201` |
+| User A reads own timeline, newest first | ✅ 2 rows, correct order |
+| User A updates own entry | ✅ `204` |
+| User A deletes one entry, other remains | ✅ `204`; exactly 1 remains |
+| User B cannot read User A's rows | ✅ 0 rows returned (RLS-filtered, not an error — matches PostgREST's row-filtering semantics) |
+| User B's update to User A's row has no effect | ✅ original `summary` unchanged |
+| User B's delete of User A's row has no effect | ✅ row still exists |
+| Unauthenticated (anon-only) read | ✅ 0 rows |
+| User B cannot insert a row claiming `user_id = User A` | ✅ `403` (RLS `WITH CHECK` denies) |
+| Out-of-range `week` (999) rejected | ✅ `400` (`CHECK` constraint) |
+| Invalid `trimester` value rejected | ✅ `400` (`CHECK` constraint) |
+
+14/14 assertions passed. Client-supplied `user_id` is not trusted for authorization — the `WITH CHECK (auth.uid() = user_id)` clause on every mutating policy is what actually enforces this (confirmed by the User-B-spoofing-User-A test above returning `403`), not merely convention.
+
+### Phase G — Flutter domain/repository remediation
+
+`PregnancyTrackingRepositoryImpl` rewritten: real table name (`pregnancy_milestones`, was querying a nonexistent name), `AppErrorReporter.report()` on every remote failure path (previously three bare `catch (_) {}` blocks swallowed everything with zero trace), remote-authoritative-with-sync semantics via `PregnancySyncStatus` (`pending`/`synced`/`failed`) mirroring `CycleTrackingRepositoryImpl`'s exact, already-proven pattern — including `mapRepositoryError`'s retryable/non-retryable classification, and a new `syncPendingMilestones()` retry method. `PregnancyMilestone.toRemoteJson()` added (a `DATE`-only variant distinct from the local `toJson()`, matching the migration's `date DATE` column). `PregnancyTrackingViewModel` rewritten to read real `PregnancyStatusController` state instead of a hardcoded constant, and to derive the real signed-in user id from `NiswahSupabase.clientOrNull` instead of defaulting to a literal `'demo-user'` string. `PregnancyTrackingScreen` given an honest "pregnancy tracking is not active yet" empty state instead of always fabricating a week/due-date display regardless of real user state — a minimal, non-redesigning change scoped strictly to the data-correctness defect this wave is about, not a UI overhaul.
+
+**Deliberately not done**: wiring `PregnancyTrackingScreen` into app navigation. This is an explicit, separate product/UX decision this session is not making unilaterally — the wave fixes the *data model and code correctness* the charter asked for; whether/where this feature should become reachable by a real user is flagged as an owner action, not decided here.
+
+### Phase H — RR-001 recovery behavior: LOCAL-AUTHORITATIVE-WITH-SYNC, chosen intentionally
+
+Same reasoning as `CycleLog`: this is a personal, journal-style entry (daily hydration/movement/symptom check-in), not a high-stakes record like `pregnancy_profile` (where a failed write means the AI chat silently degrades) — offline-friendly, eventually-consistent local-authoritative-with-sync is the correct, intentional choice, not a default. Failure/success behavior verified: local save always succeeds first (matches the UI's "Saving…" state completing promptly); a retryable remote failure leaves the entry `pending` (eligible for a later `syncPendingMilestones()` call) without ever hiding the just-saved local entry from the caller; a non-retryable failure is marked `failed` and not retried again, matching "do not retry non-retryable errors blindly." **`syncPendingMilestones()` was deliberately not wired to `main.dart`'s app-start/app-resume lifecycle** the way `syncPendingLogs()` is (via `NiswahHomeShell`) — doing so would mean modifying the app-wide shell to know about a feature screen nobody can currently reach, which was judged disproportionate; the retry method exists, is tested, and is ready to be triggered from a real lifecycle hook if/when this feature is ever wired into navigation.
+
+### Phase I — PJ-006 interaction: confirmed unaffected, correctly preserved OPEN
+
+Traced `doctor_report_insights_engine.dart`/`fiqh_report_insights_engine.dart`/`husband_report_insights_engine.dart` directly (not assumed): all three read `pregnancy_profile` exclusively via `PregnancyStatusEngine`; **none has ever read `pregnancy_milestones` or `pregnancy_records`**, and this wave does not change that. `PJ-006`'s actual concern (the Doctor's Report red-flag section cannot represent "this section may be incomplete") is entirely about `flagged_conversations` insert failures — an unrelated data path this wave does not touch. **`PJ-006` correctly remains `OPEN`**, per the explicit instruction not to close it merely because pregnancy tracking is now structurally valid elsewhere.
+
+### Phase J — Export / delete / privacy
+
+**Export**: `DataExportScreen` extended to fetch `pregnancy_milestones` (RLS-scoped to `auth.uid()`, same pattern as every other table already fetched) — verified via the exact query the screen uses, against the isolated stack, returning the correct single row for the correct user. A stale doc-comment claiming both prayer and pregnancy-tracking data were excluded "structurally blocked by `W0-002`" was also corrected — prayer had already been fixed in the `W0-003` wave and was already being fetched; the comment was simply never updated at the time, a real (if harmless) inaccuracy caught and fixed in the same pass.
+
+**Account deletion**: directly tested — created one milestone for a test user, called the real `delete_my_account()` RPC as that user, confirmed the milestone row count dropped from 1 to 0 with zero orphans (the `ON DELETE CASCADE` from `users` did the work, no application-level cleanup code needed for the remote copy). Local encrypted pregnancy-tracking data cleanup was already wired into `local_sensitive_data_cleanup.dart` during the earlier Local Sensitive Storage wave (`'pregnancy_tracking': LocalPregnancyTrackingDataSource.clearForUser`) — unaffected by this wave's entity/repository changes (the cleanup operates on the encrypted-storage category as a whole, agnostic to the entity's internal shape).
+
+**Sentry/logging**: every new `AppErrorReporter.report()` call site added this wave passes only `context`/`feature`/`recordId` (an opaque milestone id) — never `summary`/`label`/free-text content, matching every other repository's existing, already-audited contract.
+
+### Phase K — Recovery baseline
+
+A completely fresh restore (canonical baseline → `20260906090000_ai_rate_limit.sql` → `20260907090000_pregnancy_milestones.sql`, applied in that sequence against a newly-provisioned local stack) succeeded with zero errors and zero conflicts between the two pending waves' migrations — confirmed via direct inspection (`\dt`/`\df`) that `pregnancy_milestones`, `ai_rate_limit_counters`, and `check_and_increment_ai_rate_limit()` all exist correctly together. This is the same "prove it from version control, not from what's already running" standard the Wave 0 canonical baseline itself was built to satisfy. Zero material difference between the intended post-migration architecture and what a fresh restore actually produces.
+
+### Phase L — End-to-end local validation
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | Create pregnancy profile | N/A — `pregnancy_profile` untouched by this wave, already working (Phase A) |
+| 2 | Create first milestone entry | ✅ `201` |
+| 3 | Create multiple dated entries | ✅ 2 independent rows |
+| 4 | Read timeline/history | ✅ correctly ordered, newest first |
+| 5 | Update one entry | ✅ `204`, confirmed changed |
+| 6 | Delete one entry | ✅ `204` |
+| 7 | Verify another remains | ✅ exactly 1 remaining |
+| 8 | Cross-user read denial | ✅ 0 rows |
+| 9 | Cross-user update denial | ✅ no effect |
+| — | Cross-user delete denial (added beyond the minimum list, same category) | ✅ no effect |
+| 10 | Malformed payload rejection | ✅ `400` ×2 (week range, trimester enum) |
+| 11 | Failed write UX | ✅ verified via unit test — a retryable failure leaves `pending`, a non-retryable one `failed`, never a false "saved to your account" claim |
+| 12 | Export includes correct pregnancy data | ✅ confirmed via the export screen's exact query pattern |
+| 13 | Delete account removes pregnancy data | ✅ cascade confirmed, zero orphans |
+| 14 | Local encrypted pregnancy data cleanup | ✅ already wired (Local Sensitive Storage wave), unaffected by this wave's entity changes |
+| 15 | Fresh restore preserves behavior | ✅ Phase K |
+
+Weekly-notes legacy fixtures: not applicable — no migration of that data is being performed (Phase E).
+
+### Phase M — Flutter testing
+
+`test/pregnancy_tracking_test.dart` extended from 3 to 7 tests: the 3 original (`PregnancyCalculator` ×2, basic repository persistence ×1) plus 4 new — `syncPendingMilestones` safe-no-op behavior, delete-one-leaves-others-intact, and two ViewModel tests proving `isTrackingPregnancy`/`currentWeek` now genuinely reflect `PregnancyStatusController` state instead of a hardcoded fake value. `dart analyze lib/`: 27 pre-existing, zero new. `flutter test`: **323/331** — prior baseline (319/327) plus these 4 new tests, same 8 pre-existing golden-image diffs byte-for-byte (`parity_community_test.dart` ×2, `parity_today_lower_test.dart` ×1, `parity_profile_test.dart` ×2, `parity_dashboard_test.dart` ×2, `parity_cycle_log_sheet_test.dart` ×1), zero regressions — directly re-run and confirmed, not assumed.
+
+### Phase N — Finding reassessment
+
+| Finding | Status | Notes |
+|---|---|---|
+| `W0-002` | **PARTIALLY_REMEDIATED — CODE_COMPLETE / LOCALLY_VERIFIED** | Full schema/code fix, exhaustively tested locally; not production-deployed. A deeper, previously-undocumented root cause (the consuming screen is unreachable) discovered and documented, not silently fixed around |
+| `RR-001` | **OPEN**, unchanged overall status, extended | Now applies to two features (cycle tracking, pregnancy tracking) instead of one; still not app-wide |
+| `PJ-006` | **OPEN**, unchanged | Re-traced this wave; confirmed genuinely unaffected by the pregnancy data-model fix |
+| `PC-006` | **PARTIALLY_REMEDIATED**, unchanged overall status, gap narrowed | `pregnancy_milestones` no longer excluded from data export |
+
+### Phase O — Production deployment package (prepared, NOT executed)
+
+**1. Migration file(s)**: `supabase/migrations/20260907090000_pregnancy_milestones.sql` (creates `pregnancy_milestones` only; no changes to any existing table).
+
+**2. Migration SHA-256**: `08e6acf12a8e3daeb9c5571cc9908afa41ac81da2867bb599f8176465a45e67a`.
+
+**3. Expected schema diff**: `+1 table (pregnancy_milestones)`, `+1 index (idx_pregnancy_milestones_user_date)`, `+RLS enabled with 4 policies`. Zero changes to `pregnancy_records`, `pregnancy_profile`, or any other existing object.
+
+**4. Preconditions**: confirm no table named `pregnancy_milestones` already exists in production (expected: none). No extension dependency. Purely additive — no existing table is altered.
+
+**5. Mandatory backup/recovery checkpoint**: per the standing `BR_recovery_runbook.md` rule, take/confirm a current backup checkpoint immediately before applying any production migration, uniformly, regardless of this migration's additive-only nature.
+
+**6. Existing-data migration behavior**: **none** — this migration creates an empty table; no data is copied, transformed, or backfilled from `pregnancy_records` or anywhere else (Phase E).
+
+**7. Ambiguous legacy-data handling**: `pregnancy_records`' actual content and disposition remain an open, deferred, owner-level question — this migration does not touch that table, positively or negatively, in any way.
+
+**8. Migration execution command**: `supabase db push --project-ref <production-ref>`, or apply the single file directly via `psql`/the SQL editor if migration history has drifted (per `BR-002`'s known issue) — same caveat and same safe workaround this engagement has used throughout.
+
+**9. Flutter deployment ordering**: the updated `PregnancyTrackingRepositoryImpl`/`PregnancyTrackingViewModel`/`PregnancyMilestone`/`PregnancyTrackingScreen`/`DataExportScreen` code should ship **after** the migration is confirmed applied — the app code now queries a table that must exist, or every remote call fails (gracefully, to the local-only fallback, per the existing try/catch — not a crash, but not functional either) until both are in place. Deploying the migration first with the old app code still running is inert and safe (the old code doesn't know the new table exists yet).
+
+**10. Edge Function deployment ordering**: none required — this feature has no Edge Function dependency.
+
+**11. Smoke-test checklist** (post-deploy, disposable test account):
+1. Insert one milestone via the real app flow (or a direct authenticated REST call), confirm `201`.
+2. Read it back via `getMilestonesForUser`, confirm it round-trips correctly.
+3. Delete it, confirm removal.
+4. Delete the test account, confirm the milestone (if any remains) is gone via cascade.
+
+**12. Rollback strategy**: `DROP TABLE pregnancy_milestones;` — safe, nothing else references it (confirmed: no other table has a FK to it, and it introduces no new function/trigger).
+
+**13. Rollback limitations**: any rows written between deployment and a rollback are lost with the table — acceptable, since this is a personal journal-style feature with local-first semantics (the local encrypted copy on each device would still hold the data even if the remote table were rolled back, matching the local-authoritative-with-sync design's own resilience property).
+
+**14. Post-migration data validation**: `SELECT count(*) FROM pregnancy_milestones;` should be `0` immediately after migration (a fresh, empty table) — any other result indicates the migration command targeted an unexpected environment.
+
+**15. `W0-002` closure criteria**: may move to `VERIFIED_CLOSED` only after (a) the migration is applied to production, (b) the updated Flutter code is deployed, and (c) the smoke-test checklist above passes against production. The unreachable-screen question (whether/how to wire this feature into real navigation) is a separate, explicit product decision that does not gate this finding's technical closure — the schema/code mismatch is the defect `W0-002` describes, and that is what closure is measured against.
+
+**Owner actions required**: (1) execute the production deployment package above (Phase O) once approved; (2) decide, separately, whether/how `PregnancyTrackingScreen` should be wired into real app navigation — this session found and precisely documented the gap but does not have the product authority to decide it; (3) determine `pregnancy_records`' actual disposition (real historical data requiring careful handling, vs. safe to eventually drop) — requires live production data inspection this session cannot perform; (4) the standing owner actions from every prior wave (Gemini key rotation, `W1-001`'s own production deployment, public privacy-policy hosting, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, among others) remain outstanding.
+
+**Overall verdict: remains NO-GO** — this wave closed a real, long-deferred schema/code defect and surfaced a deeper, previously-undocumented root cause, but none of it is live in production, and the engagement's other standing blockers (Gemini key rotation, `W1-001`'s pending deployment, the entire Accessibility domain's `AU-009` gap, among others) remain untouched by this wave's scope.
