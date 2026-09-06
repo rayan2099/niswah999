@@ -15,7 +15,6 @@ import '../../../legal/presentation/screens/data_export_screen.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
 import '../../../onboarding/presentation/screens/onboarding_screen.dart';
 import 'sign_in_screen.dart';
-import '../../../private_messaging/data/repositories/mock_private_messaging_repository.dart';
 import '../../../private_messaging/presentation/screens/conversations_screen.dart';
 import '../../../private_messaging/domain/repositories/private_messaging_repository_base.dart';
 import '../../../private_messaging/presentation/viewmodels/conversations_view_model.dart';
@@ -527,18 +526,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
     MaterialPageRoute<void>(fullscreenDialog: true, builder: (_) => screen),
   );
 
-  /// Resolves the messaging repository: mock data in demo mode, Supabase
-  /// when a user is signed in.
-  PrivateMessagingRepositoryBase get _messagingRepository {
-    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
-    if (userId == null) {
-      return MockPrivateMessagingRepository(currentUserId: 'You');
-    }
-    return privateMessagingRepository;
-  }
+  /// Resolves the messaging repository — always the real, Supabase-backed
+  /// one. **No demo-mode/mock fallback here** (PJ-005/CQ-007): this
+  /// screen is only reachable from inside `NiswahHomeShell`, which the
+  /// root router (`main.dart`) already gates behind
+  /// `AuthController.isAuthenticated` — a genuinely unauthenticated user
+  /// is shown `SignInScreen` before ever reaching this screen at all. A
+  /// null user id here can therefore only mean a session that was valid a
+  /// moment ago has since died — not a deliberate "browse without an
+  /// account" state. Silently substituting fabricated named-contact
+  /// conversations in that case previously gave no indication anything
+  /// was wrong; `_openPrivateMessages` now checks for this explicitly and
+  /// shows an honest prompt instead of ever calling this getter with no
+  /// session.
+  PrivateMessagingRepositoryBase get _messagingRepository =>
+      privateMessagingRepository;
 
   void _openPrivateMessages() {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _pr(
+              'Your session has ended. Please sign in again to use messaging.',
+              'انتهت جلستكِ. يُرجى تسجيل الدخول مرة أخرى لاستخدام الرسائل.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     Navigator.of(context)
         .push(
           MaterialPageRoute<void>(
@@ -546,7 +564,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             builder: (_) => ConversationsScreen(
               viewModel: ConversationsViewModel(
                 repository: _messagingRepository,
-                currentUserId: userId ?? 'You',
+                currentUserId: userId,
               ),
             ),
           ),

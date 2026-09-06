@@ -1,5 +1,7 @@
 # Code Quality Audit — Findings Register
 
+> **Status update (2026-09-06):** `CQ-007` (private messaging's demo-mode fabricated-conversation fallback) is **VERIFIED_CLOSED** as of the Final Application Code Blockers wave — see `production-readiness-results/master/00_04_MASTER_FINDING_REGISTER.md` and `00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §33 for full evidence. No other finding in this document has been remediated by any wave; this document remains the frozen original audit for every finding besides `CQ-007`.
+
 | Field | Value |
 |---|---|
 | System | Niswah — Flutter mobile app |

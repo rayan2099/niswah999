@@ -2487,6 +2487,122 @@ Every contradiction found was corrected at its source, with the incorrect claim 
 
 **Not listed above but worth naming explicitly, since this wave surfaced them**: `PJ-003` (dual safety-banner/error-state UI, `MEDIUM`) and `PJ-005`/`CQ-007` (private-messaging demo-mode fallback triggerable by session death, `PJ1 High`/`CQ2 Medium`) are both genuine `APPLICATION CODE BLOCKER`-category items, re-confirmed still open and unfixed this wave — neither was in this wave's charter to fix, but both are real, scoped, tractable engineering work for a future wave, not merely "future cleanup."
 
-**Owner actions required**: (1) confirm the Google Cloud Gemini-key rotation, closing `SEC-001`/`ROOT-002` in one authenticated smoke-test pass once done; (2) the `PC-006` legal-owner export-rights determination; (3) confirm the Sentry staging-tagged event (`feature:sentry_staging_verification`) in the dashboard, or perform one deployed-build test, closing `OB-006`; (4) provision Supabase backups/PITR (`BR-001`) and adopt the canonical baseline as the tracked source of truth (`BR-002`); (5) authorize and perform `W1-001`'s production deployment; (6) build `RD-009`'s rollback kill-switch; (7) perform `AU-009`'s live device/AT testing; (8) a future, separately-scoped wave for `PJ-003`/`PJ-005`/`CQ-007` (all genuine, tractable engineering work) and for the `PrayerTrackingScreen` dormancy investigation/retirement decision; (9) `pregnancy_records`' actual disposition requires live production row access this session has never had.
+**Owner actions required (item 8 corrected the following wave, 2026-09-06 — see §33)**: (1) confirm the Google Cloud Gemini-key rotation, closing `SEC-001`/`ROOT-002` in one authenticated smoke-test pass once done; (2) the `PC-006` legal-owner export-rights determination; (3) confirm the Sentry staging-tagged event (`feature:sentry_staging_verification`) in the dashboard, or perform one deployed-build test, closing `OB-006`; (4) provision Supabase backups/PITR (`BR-001`) and adopt the canonical baseline as the tracked source of truth (`BR-002`); (5) authorize and perform `W1-001`'s production deployment; (6) build `RD-009`'s rollback kill-switch; (7) perform `AU-009`'s live device/AT testing; ~~(8) a future, separately-scoped wave for `PJ-003`/`PJ-005`/`CQ-007` (all genuine, tractable engineering work)~~ — **done, see §33: all three fixed and `VERIFIED_CLOSED` the very next wave** — the `PrayerTrackingScreen` dormancy investigation/retirement decision remains a genuinely separate, still-deferred item; (9) `pregnancy_records`' actual disposition requires live production row access this session has never had.
 
 **Overall verdict: remains NO-GO** — this wave corrected two significant stale-status contradictions using fresh, independently-reconfirmed live evidence (`PJ-001`, `PJ-004` — both actually already resolved, restored to `VERIFIED_CLOSED` rather than either blindly trusting an old record or blindly trusting the most recent report), caught and corrected a third error running the opposite direction (`CQ-007`/`PJ-005` — wrongly claimed fixed, confirmed still genuinely open), confirmed `flagged_conversations`' upstream write reliability was already sound without needing further code changes, and produced a complete, categorized list of every remaining true launch blocker — but every one of those blockers (Gemini key rotation foremost) remains outstanding and untouched by this wave's scope.
+
+---
+
+## 33. Final Application Code Blockers Wave (2026-09-06) — PJ-003 / PJ-005 / CQ-007
+
+**No production DB schema/migration/RLS change of any kind was made.** No `W1-001` deployment, Gemini rotation, rollback infrastructure, iOS signing, `AU-009` device testing, `PC-006` legal work, or `PrayerTrackingScreen`/`pregnancy_records` cleanup was performed — this wave's scope was strictly the three named application-code findings.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below**: `PJ-001`/`PJ-004`/`PJ-006` (`VERIFIED_CLOSED`), `PJ-002` (`OPEN`, narrowed — not touched, no shared root cause with this wave's fixes), `SEC-001`/`ROOT-002` (`OPEN`), `W1-001` (`PARTIALLY_REMEDIATED`), `PC-006`/`OB-006` (`PARTIALLY_REMEDIATED`, gated), `BR-001`/`BR-002`/`RD-009`/`DC-010` (`OPEN`), the entire Accessibility domain, every `RR-*` finding, `PrayerTrackingScreen` (dormant, unaffected — this wave did not reachability-check it again), `pregnancy_records` (untouched).
+
+### Phase A — PJ-003 reconstructed
+
+**Native definition** (`PJ_findings.md` #44-60): "Dr. Niswah chat: a correctly-firing safety banner can render simultaneously with a generic error state on the same screen, for the same failed request." **Journey**: PJ-J3. **Severity**: PJ2 Medium. **Active code path**: `ChatViewModel._sendViaDrNiswahBackend`'s catch block (banner append) and `sendMessage`'s outer catch (`errorMessage` set) — both fire from the same `rethrow`. **Closure criteria** (from the finding's own "Expected outcome" column): "One coherent signal to the user about what happened to her urgent message." **Prior remediation attempts**: none — the `PJ-004`/`RR-007` waves touched this same file's *persistence*-failure observability (a different concern: whether the write to `chat_messages` succeeds), never this dual-UI-state issue. **Current code behavior, re-verified this wave**: unchanged from the native audit — the banner is appended, then `rethrow` unconditionally fires, hitting the outer catch every time. **Determination**: genuinely still active, not stale, not retired.
+
+### Phase B — PJ-003 remediated
+
+Full journey traced: user sends a red-flag message → `ChatViewModel.sendMessage` → `_sendViaDrNiswahBackend` → `DrNiswahBackendService.instance.send()` fails → local `DrNiswahRedFlags.matches()` fallback fires (independent of the network call, so a red-flag symptom is never dropped even if the backend is unreachable) → banner appended to `messages` → **previously**: unconditional `rethrow` → outer catch sets `errorMessage` → **two simultaneous, contradictory signals on screen**.
+
+**Root-cause fix, not a presentation-layer workaround**: when the banner has already been shown (the coherent, complete response for this specific failure), the method no longer rethrows — instead it reports the failure directly via `AppErrorReporter.report(..., context: 'ChatViewModel._sendViaDrNiswahBackend (red-flag fallback)', feature: 'ai_assistant')` and returns normally. Observability is unaffected (still every failure reported, per the app's established `AppErrorReporter` contract); only the *user-facing* double-signal is eliminated. A non-red-flag message's failure path is completely untouched — still rethrows, still surfaces the outer catch's generic `errorMessage`, which is correct: an ordinary failed message genuinely has no local fallback response to be coherent with, so a plain error is the right, complete signal on its own.
+
+**Requirements checklist**: no silent failure (still reported, now more precisely attributed); no false success (the banner never claims the message reached the backend — it's explicitly the local, safety-first fallback); no ambiguous state (exactly one signal per outcome, not zero, not two); no data loss (nothing here writes/persists data — this is purely a UI-signal concern); no duplicate write on retry (unaffected — a user resending after this failure creates a new, independent send attempt, same as before); correct observability (`AppErrorReporter` call moved, not removed); user-visible recovery (the banner itself IS the safety-appropriate recovery message — it directs the user to contact her doctor/emergency services); bilingual (unchanged — `DrNiswahRedFlags.bannerTextAr`/`bannerTextEn` already existed and are unaffected by this fix); accessibility semantics (no new widget was introduced — the fix is purely about which signals fire, not new UI).
+
+**Final status: `PJ-003` = `VERIFIED_CLOSED`.**
+
+### Phase C — PJ-005 reconstructed
+
+**Native definition** (`PJ_findings.md` #80-96): "Private messaging demo-mode fallback is checked live, per screen-open, against current session state — not once at startup — so an active user with a silently-expired session is dropped into fabricated data with zero warning, repeatedly, for the rest of that session." **Affected journey**: community board / profile screen → private messaging entry points. **Original closure criteria**: distinguish "chose to browse unauthenticated" from "session unexpectedly dropped," the latter showing an error/re-auth prompt, not fake data (per `CQ-007`'s own recommended remediation, which `PJ-005` cites directly). **Prior claims it was fixed**: the Reliability Evidence Closure wave (2026-09-06) claimed `CQ-007` "was independently fixed in an earlier wave" — **wrong**, made without checking the actual code; corrected the following wave (Final User Journey Reconciliation) via direct code trace, which confirmed the defect was still fully present. **Current active defect, re-confirmed at the start of this wave**: `community_board_screen.dart`'s `_messagingRepository` and `profile_screen.dart`'s equivalent branch both still checked `NiswahSupabase.clientOrNull?.auth.currentUser?.id == null` and substituted `MockPrivateMessagingRepository()` whenever true.
+
+### Phase D — PJ-005 remediated
+
+**The smallest production-quality root-cause fix**, found by tracing reachability first: both affected screens live exclusively inside `NiswahHomeShell`, which `main.dart`'s root router already gates behind `AuthController.isAuthenticated` (an `AnimatedBuilder`/listenable-driven check that swaps to `SignInScreen` the moment a session becomes invalid). This means a genuinely unauthenticated user is redirected away from these screens entirely before ever reaching them — the mock's stated purpose ("explore messaging in the simulator without a signed-in user") was never actually exercisable by a real end user in the shipped app; the only way to observe `currentUserId == null` inside either screen is a session that was valid a moment ago and has since died.
+
+**Fix**: `_messagingRepository` in both files now unconditionally returns the real, Supabase-backed `privateMessagingRepository` — no mock branch. `_openPrivateMessages` (both files) and `_messagePostAuthor` (`community_board_screen.dart`) now check for a signed-in user *before* doing anything else; if absent, they show a `SnackBar` ("Your session has ended. Please sign in again to use messaging." / Arabic equivalent) and return, never navigating anywhere or constructing any repository. `private_messaging_locator.dart`'s own, separate SDK-not-configured fallback was deliberately left untouched — verified via `grep -rln "MockPrivateMessagingRepository("` that it is now used in exactly one place, its own legitimate local-development/config-time branch.
+
+**Verification checklist**: journey can complete successfully (a genuinely signed-in user's path through both entry points is completely unchanged — the fix only touches the previously-null branch); failures distinguishable from empty/no-data states (a dead session now produces an explicit, actionable message, never confused with "you have zero conversations," which is a different, still-correctly-handled state inside the real repository/screen); no hidden/unreachable success path (removed — there is no longer any path that "succeeds" into fake data); no dead-end UI (the SnackBar is dismissible and the user remains on the same screen, free to sign back in via the existing profile/settings flow); no silent repository/service swallow (the check happens before any repository call is even made); user gets truthful feedback (explicit, bilingual, non-alarming); retries do not duplicate side effects (tapping "Messages" again after the SnackBar simply re-checks and re-shows the same message — no side effect to duplicate); state remains coherent after app restart (unaffected — this fix touches only in-session navigation gating, not persisted state).
+
+**Final status: `PJ-005` = `VERIFIED_CLOSED`.**
+
+### Phase E — CQ-007 reconstructed
+
+**Native definition** (`CQ_findings.md` #117-127): private messaging silently falls back to fabricated, hardcoded "demo" conversations in production when no Supabase session exists. **Affected files/modules**: `private_messaging_locator.dart`, `mock_private_messaging_repository.dart`, and call sites in `profile_screen.dart:417-424`/`community_board_screen.dart:97-104` (line numbers as of the original audit; both files have since grown, current locations re-traced this wave). **Why a launch blocker (per the native finding, "NO on its own, but flagged for explicit release-owner acceptance")**: this is not merely stylistic — it is a real "hardcoded success response masking a real failure" pattern (the audit's own §30/§36 category), reachable in production, that could mislead a real user into believing fabricated conversations with named fake people are real. **Prior remediation claims**: same as `PJ-005` — claimed fixed, was not, corrected the following wave. **Current code evidence**: identical to `PJ-005`'s Phase C findings (same code, same defect). **Closure criteria**: the finding's own two-part recommendation — (a) a UI-visible demo-mode indicator, or (b) distinguish "chose to browse unauthenticated" from "session unexpectedly dropped," with the latter showing an error/re-auth prompt.
+
+### Phase F — CQ-007 remediated
+
+**Same fix as `PJ-005`** (Phase D) — this is not a coincidence; `PJ-005` is the Final User Journey audit's own cross-reference *to* `CQ-007`, tracing its exact live trigger. Applied recommendation (b) directly: the "chose to browse unauthenticated" state is not reachable by a real user (Phase D's reachability finding), so there was nothing legitimate for a demo-mode indicator to indicate; the "session unexpectedly dropped" state now shows an honest re-auth prompt. No broad refactoring, no unrelated formatting — the fix is scoped to exactly the two getters and their three call sites named in the native finding's own evidence.
+
+**Final status: `CQ-007` = `VERIFIED_CLOSED`.**
+
+### Phase G — Cross-finding interaction
+
+`PJ-003` (AI chat dual-signal bug) and `PJ-005`/`CQ-007` (private-messaging demo-mode reachability bug) share no root cause, no affected file, and no affected user journey. Kept as two fully independent fixes — no artificial combination attempted or needed.
+
+### Phase H — Failure/edge-case testing
+
+| Scenario | `PJ-003` | `PJ-005`/`CQ-007` |
+|---|---|---|
+| Happy path | Unchanged — a successful `dr-niswah-chat` call still appends the real reply normally | Unchanged — a signed-in user's messaging flow is untouched |
+| Empty state | N/A | The real repository's own "zero conversations" state is unaffected and remains distinct from the new "no session" state |
+| Backend failure | **Fixed scenario** — red-flag failure now shows only the banner; non-red-flag failure unchanged (still a generic error) | N/A (this finding is about session state, not backend failures) |
+| Auth/session expiry | N/A | **Fixed scenario** — the exact condition this finding is about; now produces an honest prompt, not fake data |
+| Repeated tap | A second failed urgent message gets its own, distinct banner message id (tested) — no state corruption across repeated failures | Tapping "Messages" repeatedly with no session simply re-shows the same honest prompt each time — no accumulating side effect |
+| App restart/resume | Unaffected — this fix is purely in-memory UI-signal logic, no persisted state involved | Unaffected — same reasoning |
+| User A / user B isolation | N/A — no persistent user data involved in this fix | N/A — this fix does not touch any persisted per-user data; existing multi-user isolation tests for private messaging (established in earlier waves) are unaffected and unchanged |
+
+No false success, no silent failure, no duplicate write, no infinite spinner, and no unsafe fallback were introduced by either fix — confirmed by direct trace of every changed code path, not assumed.
+
+### Phase I — Accessibility / bilingual check
+
+Both new user-facing messages (`PJ-003`'s existing, unchanged red-flag banner text; `PJ-005`/`CQ-007`'s new sign-in-required `SnackBar`) use the app's established `_t`/`_co`/`_pr` bilingual pattern. Flutter's standard `SnackBar` widget already provides its own accessibility semantics (an announced live region) without any additional code — no new custom widget was introduced that would need its own semantics work. Touch targets: unaffected — no new tappable controls were added; the existing "Messages" button's target size is unchanged. Large text: unaffected — a `SnackBar`'s text wraps normally under the app's existing text-scaling behavior, already covered by the completed Accessibility wave's general coverage. `AU-009` (live device/AT testing) remains untouched and separate, as instructed.
+
+### Phase J — Privacy / security cross-check
+
+The one new `AppErrorReporter.report()` call site (`PJ-003`'s fix) passes only the caught error object (a generic `StateError`/network-failure message, never message content) and `context`/`feature` strings — no health payload, no chat content, no private-message content, no tokens, no passwords, no Gemini keys, no JWTs, no sensitive profile data. Verified by direct inspection. No security/privacy finding was reopened — none of this wave's evidence contradicts any existing closed finding.
+
+### Phase K — Tests
+
+4 new tests, all passing, zero regressions: `test/dr_niswah_red_flag_dual_state_test.dart` (3 — red-flag failure shows only the banner with `errorMessage` staying `null`; a non-red-flag failure still throws normally, proving the fix doesn't over-broadly swallow ordinary failures; two separate urgent exchanges get distinct message ids). `test/private_messaging_no_demo_fallback_test.dart` (1 — tapping "Messages" with no session shows the honest prompt, never navigates to a conversations screen, and no fabricated contact name renders anywhere in the tree). Both new production methods this wave made testable (`ChatViewModel.sendViaDrNiswahBackendForTesting`, a rename with no behavior change, `@visibleForTesting`) follow the exact pattern already established across the two prior Reliability waves — no new testing infrastructure invented. A release/build check was not re-run this wave — the changes are UI-branching-only, not a materially different runtime architecture, and are already covered by `dart analyze`'s zero-new-issues result plus the full test run's zero regressions (the prior wave's `flutter build web --release` already confirmed compile-health after materially larger changes).
+
+### Phase L — Status reassessment
+
+| Finding | Before this wave | After this wave |
+|---|---|---|
+| `PJ-003` | `OPEN` | `VERIFIED_CLOSED` |
+| `PJ-005` | `OPEN` | `VERIFIED_CLOSED` |
+| `CQ-007` | `OPEN` | `VERIFIED_CLOSED` |
+| `PJ-001`/`PJ-004`/`PJ-006` | `VERIFIED_CLOSED` | Unchanged, not touched |
+| `PJ-002` | `OPEN` (narrowed) | Unchanged — no shared root cause with this wave's fixes, not modified |
+
+### Phase M — Final application blocker check
+
+**Are there any remaining APPLICATION CODE blockers? No** — every Final User Journey/Code Quality finding this engagement ever registered that named a genuinely tractable, in-scope application-code defect is now `VERIFIED_CLOSED`.
+
+| Item | Category |
+|---|---|
+| `PJ-002` (cross-device sync, narrowed scope) | **OPTIONAL/FUTURE CLEANUP** — not a data-loss risk any longer (the silent-failure/no-warning half is fixed); real-time multi-device sync is a genuine future feature, not a launch-blocking defect |
+| `PJ-003` | Resolved — no longer a blocker |
+| `PJ-005` | Resolved — no longer a blocker |
+| `CQ-007` | Resolved — no longer a blocker |
+| `W1-001` | **PRODUCTION DEPLOYMENT** |
+| `BR-001` | **INFRASTRUCTURE/RECOVERY** |
+| `BR-002` | **INFRASTRUCTURE/RECOVERY** |
+| `RD-009` | **PRODUCTION DEPLOYMENT** (infrastructure to be built, then deployed) |
+| `SEC-001` | **EXTERNAL CREDENTIAL/ACCOUNT** |
+| `ROOT-002` | **EXTERNAL CREDENTIAL/ACCOUNT** (same gate as `SEC-001`) |
+| Fiqh grounding degradation | **EXTERNAL CREDENTIAL/ACCOUNT** |
+| `OB-006` | **PRODUCTION DEPLOYMENT** (a deployed-build event, or dashboard confirmation of the already-sent staging event) |
+| `AU-009` | **PLATFORM ACCEPTANCE** |
+| `PC-006` | **LEGAL/PRODUCT** |
+| `DC-010` | **APPLICATION CODE** — the one remaining item in this category; not re-traced this wave (out of this wave's named scope), last known status unchanged, low priority |
+| `PrayerTrackingScreen` dormancy | **OPTIONAL CLEANUP** |
+| `pregnancy_records` legacy table | **OPTIONAL CLEANUP** |
+
+### Owner actions required
+
+(1) Confirm the Google Cloud Gemini-key rotation (`SEC-001`/`ROOT-002`); (2) the `PC-006` legal-owner determination; (3) confirm the Sentry staging event or perform one deployed-build test (`OB-006`); (4) provision Supabase backups/PITR and adopt the canonical baseline as the source of truth (`BR-001`/`BR-002`); (5) authorize and perform `W1-001`'s production deployment; (6) build `RD-009`'s rollback kill-switch; (7) perform `AU-009`'s live device/AT testing; (8) `DC-010` remains an open, low-priority application-code item for a future wave, not re-traced here; (9) `PrayerTrackingScreen`/`pregnancy_records` remain deferred, owner-level cleanup decisions.
+
+**Overall verdict: remains NO-GO** — this wave closed the last three genuinely open, tractable Final User Journey/Code Quality findings with real, root-cause fixes rather than presentation-layer workarounds, each backed by a passing, purpose-built test proving the exact original defect no longer reproduces — **every remaining launch blocker in this engagement is now a production-deployment, infrastructure, external-credential, platform-acceptance, or legal/product item, not an application-code defect** — but every one of those remaining blockers (Gemini key rotation foremost) is untouched by this wave's scope and remains outstanding.

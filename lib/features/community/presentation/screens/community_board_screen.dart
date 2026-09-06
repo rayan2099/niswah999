@@ -9,7 +9,6 @@ import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/load_error_banner.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
-import '../../../private_messaging/data/repositories/mock_private_messaging_repository.dart';
 import '../../../private_messaging/domain/repositories/private_messaging_repository_base.dart';
 import '../../../private_messaging/presentation/screens/chat_detail_screen.dart';
 import '../../../private_messaging/presentation/screens/conversations_screen.dart';
@@ -94,25 +93,51 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
     }
   }
 
-  /// Resolves the messaging repository: mock data in demo mode, Supabase
-  /// when a user is signed in.
-  PrivateMessagingRepositoryBase get _messagingRepository {
-    if (_currentUserId == null) {
-      return MockPrivateMessagingRepository(currentUserId: 'You');
-    }
-    return privateMessagingRepository;
+  /// Resolves the messaging repository — always the real, Supabase-backed
+  /// one. **No demo-mode/mock fallback here** (PJ-005/CQ-007): this screen
+  /// is only reachable from inside `NiswahHomeShell`, which the root
+  /// router (`main.dart`) already gates behind `AuthController.isAuthenticated`
+  /// — a genuinely unauthenticated user is shown `SignInScreen` before
+  /// ever reaching this screen at all. `_currentUserId == null` here can
+  /// therefore only mean a session that was valid a moment ago has since
+  /// died (token expiry, a dropped refresh, an auth bug) — not a
+  /// deliberate "browse without an account" state. Silently substituting
+  /// fabricated named-contact conversations in that case previously gave
+  /// no indication anything was wrong; callers now check for this
+  /// explicitly (see `_requireSignedIn`) and show an honest prompt instead
+  /// of ever calling this getter with no session.
+  PrivateMessagingRepositoryBase get _messagingRepository =>
+      privateMessagingRepository;
+
+  /// Returns the signed-in user id, or shows an honest "please sign in"
+  /// message and returns `null` if the session has died — never silently
+  /// substitutes fabricated content (PJ-005/CQ-007).
+  String? _requireSignedIn() {
+    final userId = _currentUserId;
+    if (userId != null) return userId;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _co(
+            'Your session has ended. Please sign in again to use messaging.',
+            'انتهت جلستكِ. يُرجى تسجيل الدخول مرة أخرى لاستخدام الرسائل.',
+          ),
+        ),
+      ),
+    );
+    return null;
   }
 
   void _openPrivateMessages() {
-    final userId = _currentUserId;
-    // Demo mode: no signed-in user — explore messaging with mock data.
+    final userId = _requireSignedIn();
+    if (userId == null) return;
     Navigator.of(context)
         .push(
           MaterialPageRoute<void>(
             builder: (_) => ConversationsScreen(
               viewModel: ConversationsViewModel(
                 repository: _messagingRepository,
-                currentUserId: userId ?? 'You',
+                currentUserId: userId,
               ),
             ),
           ),
@@ -124,7 +149,8 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
   }
 
   Future<void> _messagePostAuthor(CommunityPost post) async {
-    final userId = _currentUserId ?? 'You';
+    final userId = _requireSignedIn();
+    if (userId == null) return;
     if (userId == post.userId) return;
     try {
       final conversation = await _messagingRepository.getOrCreateConversation(

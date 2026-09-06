@@ -204,7 +204,7 @@ class ChatViewModel extends ChangeNotifier {
               'Dr. Niswah chat is temporarily unavailable. Please try again shortly.',
             );
           }
-          await _sendViaDrNiswahBackend(
+          await sendViaDrNiswahBackendForTesting(
             threadId: threadId,
             userId: userId,
             content: content,
@@ -239,7 +239,17 @@ class ChatViewModel extends ChangeNotifier {
   /// Backend path: the edge function owns the persona system prompt, the
   /// pregnancy-context lookup, the red-flag check, and the Gemini call, and
   /// persists both chat_messages rows itself.
-  Future<void> _sendViaDrNiswahBackend({
+  ///
+  /// Public (not `_`-prefixed) and `@visibleForTesting` — a real, live
+  /// production code path, exposed under this name specifically so its
+  /// PJ-003 dual-signal fix can be exercised directly in a unit test:
+  /// `DrNiswahBackendService.instance` is a hardcoded singleton with no DI
+  /// seam, and throws deterministically when Supabase isn't configured
+  /// (the default in a plain test environment), which is exactly the
+  /// failure this method needs to be driven through to prove the fix.
+  /// Same idiom as this file's own `persistUserMessageForTesting`.
+  @visibleForTesting
+  Future<void> sendViaDrNiswahBackendForTesting({
     required String threadId,
     required String userId,
     required String content,
@@ -267,7 +277,7 @@ class ChatViewModel extends ChangeNotifier {
       messages = [...messages, assistantMessage];
       notifyListeners();
       if (response.urgent) _notifyUrgent();
-    } catch (error) {
+    } catch (error, stack) {
       if (isRedFlagLocally) {
         final bannerMessage = ChatMessage(
           id: 'local_urgent_${DateTime.now().microsecondsSinceEpoch}',
@@ -281,6 +291,21 @@ class ChatViewModel extends ChangeNotifier {
         messages = [...messages, bannerMessage];
         notifyListeners();
         _notifyUrgent();
+        // PJ-003: the reassuring banner above is already a complete,
+        // coherent response to this failure for an urgent message — it
+        // must not also be followed by a generic/alarming `errorMessage`
+        // from the outer sendMessage() catch, which would previously
+        // contradict the banner on the same screen for the same failed
+        // request. The failure is still reported (never silently
+        // discarded) directly here instead of relying on the outer
+        // catch, since this path deliberately does not reach it anymore.
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'ChatViewModel._sendViaDrNiswahBackend (red-flag fallback)',
+          feature: 'ai_assistant',
+        );
+        return;
       }
       rethrow;
     }
