@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../data/repositories/community_repository_impl.dart';
 import '../../domain/entities/community_comment.dart';
@@ -37,6 +38,12 @@ class PostDetailViewModel extends ChangeNotifier {
     }
   }
 
+  /// Stable id for the comment currently being submitted, reused across
+  /// manual retries of the same submit so a retry after a timeout upserts
+  /// the same row instead of creating a duplicate comment — same pattern
+  /// as `CommunityFeedViewModel._pendingPostId`.
+  String? _pendingCommentId;
+
   Future<bool> addComment(String content) async {
     final trimmed = content.trim();
     if (trimmed.isEmpty) return false;
@@ -46,6 +53,7 @@ class PostDetailViewModel extends ChangeNotifier {
       return false;
     }
     final userId = currentUserId ?? 'demo-user';
+    final commentId = _pendingCommentId ??= const Uuid().v4();
 
     isSubmittingComment = true;
     errorMessage = null;
@@ -57,9 +65,11 @@ class PostDetailViewModel extends ChangeNotifier {
         userId: userId,
         authorName: currentUserName,
         content: trimmed,
+        commentId: commentId,
       );
       comments = [...comments, comment];
       post = post.copyWith(commentCount: post.commentCount + 1);
+      _pendingCommentId = null;
       return true;
     } catch (error) {
       errorMessage = error.toString();

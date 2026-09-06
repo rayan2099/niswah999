@@ -40,6 +40,7 @@ class _DataExportScreenState extends State<DataExportScreen> {
   bool _loading = true;
   String? _error;
   String? _json;
+  List<String> _partialFailureSections = const [];
 
   @override
   void initState() {
@@ -61,46 +62,74 @@ class _DataExportScreenState extends State<DataExportScreen> {
       return;
     }
 
-    try {
-      final export = <String, dynamic>{
-        'exported_at': DateTime.now().toIso8601String(),
-        'account': await _fetchOne(client, 'users', userId),
-        'profile': await _fetchOne(client, 'profiles', userId, idColumn: 'id'),
-        'pregnancy_profile': await _fetchOne(
-          client,
-          'pregnancy_profile',
-          userId,
-        ),
-        'cycle_entries': await _fetchMany(client, 'cycle_entries', userId),
-        'prayer_log': await _fetchMany(client, 'prayer_log', userId),
-        'community_posts': await _fetchMany(
-          client,
-          'community_posts',
-          userId,
-        ),
-        'chat_threads': await _fetchMany(client, 'chat_threads', userId),
-        'chat_messages': await _fetchMany(client, 'chat_messages', userId),
-      };
+    // Every section is fetched independently and failures are isolated
+    // per-section (RR-001 data-export resilience audit, 2026-09-06) —
+    // this replaces a single shared try block where one bad/unreachable
+    // table aborted the entire export for every user (the exact live bug
+    // `pregnancy_milestones` caused before it was removed, Dormant
+    // Pregnancy Tracking Retirement wave). A transient failure on any one
+    // table must never hide data the user could otherwise have exported.
+    final export = <String, dynamic>{'exported_at': DateTime.now().toIso8601String()};
+    final failedSections = <String>[];
 
-      setState(() {
-        _loading = false;
-        _json = const JsonEncoder.withIndent('  ').convert(export);
-      });
-    } catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'DataExportScreen._load',
-        feature: 'data_export',
-      );
-      setState(() {
-        _loading = false;
-        _error = _pr(
-          "Couldn't load your data. Please try again.",
-          'تعذّر تحميل بياناتكِ. يُرجى المحاولة مرة أخرى.',
+    Future<void> fetchOneInto(
+      String key,
+      String table, {
+      String idColumn = 'user_id',
+    }) async {
+      try {
+        export[key] = await _fetchOne(client, table, userId, idColumn: idColumn);
+      } catch (error, stack) {
+        failedSections.add(key);
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'DataExportScreen._load',
+          feature: 'data_export',
+          recordId: key,
         );
-      });
+      }
     }
+
+    Future<void> fetchManyInto(String key, String table) async {
+      try {
+        export[key] = await _fetchMany(client, table, userId);
+      } catch (error, stack) {
+        failedSections.add(key);
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'DataExportScreen._load',
+          feature: 'data_export',
+          recordId: key,
+        );
+      }
+    }
+
+    await fetchOneInto('account', 'users');
+    await fetchOneInto('profile', 'profiles', idColumn: 'id');
+    await fetchOneInto('pregnancy_profile', 'pregnancy_profile');
+    await fetchManyInto('cycle_entries', 'cycle_entries');
+    await fetchManyInto('prayer_log', 'prayer_log');
+    await fetchManyInto('community_posts', 'community_posts');
+    await fetchManyInto('chat_threads', 'chat_threads');
+    await fetchManyInto('chat_messages', 'chat_messages');
+
+    // Explicit completeness marker — never silently omit a section that
+    // failed; a consumer of this JSON (the user, or anyone they share it
+    // with) must be able to tell a genuinely empty section from one that
+    // simply couldn't be fetched this time.
+    export['export_complete'] = failedSections.isEmpty;
+    if (failedSections.isNotEmpty) {
+      export['sections_unavailable'] = failedSections;
+    }
+
+    setState(() {
+      _loading = false;
+      _json = const JsonEncoder.withIndent('  ').convert(export);
+      _error = null;
+      _partialFailureSections = failedSections;
+    });
   }
 
   Future<Map<String, dynamic>?> _fetchOne(
@@ -168,6 +197,28 @@ class _DataExportScreenState extends State<DataExportScreen> {
                         style: const TextStyle(fontSize: 11.5, height: 1.5),
                       ),
                     ),
+                    if (_partialFailureSections.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7E6),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _pr(
+                            'This export is incomplete: ${_partialFailureSections.join(", ")} '
+                            'could not be loaded this time. Try exporting again '
+                            'later to include them.',
+                            'هذا التصدير غير مكتمل: تعذّر تحميل '
+                            '${_partialFailureSections.join("، ")} في '
+                            'هذه المرة. حاولي التصدير مرة أخرى لاحقاً '
+                            'لتضمينها.',
+                          ),
+                          style: const TextStyle(fontSize: 11.5, height: 1.5),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 14),
                     Expanded(
                       child: SingleChildScrollView(

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../data/repositories/community_repository_impl.dart';
 import '../../domain/entities/community_post.dart';
@@ -31,6 +32,16 @@ class CommunityFeedViewModel extends ChangeNotifier {
   List<CommunityPost> posts = const <CommunityPost>[];
 
   DateTime? _cursor;
+
+  /// A stable id for the post currently being composed, generated once and
+  /// reused across manual retries of the same submit — so a retry after a
+  /// timeout upserts the same row instead of creating a duplicate post if
+  /// the first attempt actually reached the server (RR-001 idempotency
+  /// audit: `createPost` previously used a bare `.insert()` with no
+  /// client-supplied id, unlike the established pattern already used by
+  /// dream_interpreter's `_activeEntryId`). Reset to null after a
+  /// successful submit so the next post gets a fresh id.
+  String? _pendingPostId;
 
   Future<void> loadPosts() async {
     isLoading = true;
@@ -123,6 +134,7 @@ class CommunityFeedViewModel extends ChangeNotifier {
     }
 
     final userId = currentUserId ?? 'demo-user';
+    final postId = _pendingPostId ??= const Uuid().v4();
 
     isSubmitting = true;
     errorMessage = null;
@@ -133,7 +145,7 @@ class CommunityFeedViewModel extends ChangeNotifier {
         userId: userId,
         authorName: currentUserName,
         post: CommunityPost(
-          id: '',
+          id: postId,
           userId: userId,
           authorName: currentUserName,
           title: trimmedTitle,
@@ -146,6 +158,7 @@ class CommunityFeedViewModel extends ChangeNotifier {
       );
 
       posts = [created, ...posts];
+      _pendingPostId = null;
       return true;
     } catch (error) {
       errorMessage = error.toString();

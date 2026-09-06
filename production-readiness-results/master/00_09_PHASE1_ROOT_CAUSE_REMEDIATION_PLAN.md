@@ -1977,3 +1977,171 @@ Per the explicit instruction to consider whether old app versions could have str
 **Owner actions required**: (1) ship this wave's Flutter changes — in particular the data-export fix, which resolves a currently-live, total-export-failure bug for every user; (2) `pregnancy_records`' actual disposition (Phase F) remains a deferred, owner-level question requiring live production access this session does not have; (3) the newly-observed `PrayerTrackingScreen`/`savePrayer` dormancy pattern (Phase G) is flagged for a future, separately-scoped investigation — not acted on this wave; (4) every other standing owner action from every prior wave (Gemini key rotation, `W1-001`'s production deployment, public privacy-policy hosting, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, among others) remains outstanding and untouched.
 
 **Overall verdict: remains NO-GO** — this wave performed real repository/audit cleanup (a full, correctly-authorized feature retirement rather than deploying unused production schema), fixed a genuinely live, total-export-failure production bug, and corrected a real cross-document finding-id contradiction (`RR-003`/`RR-005`) rather than carrying it forward silently — but `PJ-006` remains open by design, `RR-001`'s automatic-retry gap remains real for every path but cycle tracking, and every other standing blocker in this engagement (Gemini key rotation foremost) is untouched by this wave's scope.
+
+---
+
+## 29. Reliability / Resilience Final Closure Wave (2026-09-06)
+
+**No production DB schema/migration/RLS/RPC change of any kind was made.** No `W1-001` deployment, Gemini rotation, iOS signing, rollback kill-switch, or `AU-009` work was performed. This wave is application/repository/audit reconciliation and remediation only, exactly as scoped.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below**: `SEC-001`/`ROOT-002` (`OPEN`), `W1-001` (`PARTIALLY_REMEDIATED — CODE_COMPLETE/LOCALLY_VERIFIED`), `AB-002`/`SEC-005`/`AB-008` (`PARTIALLY_REMEDIATED`), Fiqh Search-grounding (`B — DEGRADED`), `BR-001` (`OPEN`), `RD-009` (`OPEN`), `DC-010` (`OPEN`), `PJ-006` (`OPEN`), remaining Privacy/Compliance findings, the entire Accessibility domain (`AU-009` `OPEN`, all else closed per §24), `W0-002` (`VERIFIED_CLOSED`), `RR-003`/`RR-005` (`VERIFIED_CLOSED`, re-confirmed), `pregnancy_records` (`UNREFERENCED_LEGACY`, untouched), `AB-003` (out of scope — Edge Function code, a different backend-level duplicate-insert risk for `dr-niswah-chat`'s own two internal inserts, unaffected by anything in this wave).
+
+### Phase A — Native RR-001/RR-002/RR-004 definitions, reconstructed from source
+
+Read directly from `production-readiness-results/reliability/RR_findings.md` (the frozen original audit), not from any later summary:
+
+- **`RR-001`** (RR1 High): "No systematic retry/backoff strategy anywhere in the app; a single transient network failure is terminal for that attempt." Also: no connectivity-awareness package. Production impact centers on "permanently unrecorded health data with no automatic recovery attempt and no visible indication to the user that recovery is even needed" — i.e., the defect is really two things bundled together: (a) no automatic retry, (b) no visibility that retry might be needed. Status before this wave: `PARTIALLY_REMEDIATED`.
+- **`RR-002`** (RR1 High): App-wide `runZonedGuarded` handler (`main.dart:34-61` at audit time) silently discards every uncaught async error via `debugPrint` only, for the app's entire lifetime, not just startup; no crash-reporting/`FlutterError.onError`/`PlatformDispatcher.onError` safety net exists at all. Status before this wave, in the register: `OPEN` — **found stale, see Phase E**.
+- **`RR-003`** (RR2 Medium): Notification scheduling silent no-op on failed init, unguarded plugin calls. `VERIFIED_CLOSED` 2026-09-05, re-confirmed correct and unchanged this wave (Phase H, prior wave).
+- **`RR-004`** (RR2 Medium): "No offline/degraded-network product experience beyond what individual repositories happen to implement ad hoc" — offline behavior "inconsistent by accident, not by design." Explicitly recommends "a single documented offline/degraded-network product decision rather than three-plus different ad hoc behaviors." Status before this wave: `OPEN`.
+- **`RR-005`** (registered two waves ago, correcting a documentation error): `PregnancyProfileRepository` write call sites silently discarding failures. `VERIFIED_CLOSED`, re-confirmed.
+
+### Phase B — Active critical write-path inventory
+
+| # | Path | Authority model | Initial persistence | Failure detection | User-visible on failure | Retry/recovery | Idempotency | Observability | App-restart behavior |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | Cycle/haid | `LOCAL_AUTHORITATIVE_WITH_SYNC` | Local (always) | Yes | Honest "pending"/"failed" state, never false success | Automatic, `NiswahHomeShell` app-start/resume | Upsert on `id` | `AppErrorReporter` | `retryPendingSync()` sweeps pending rows once per trigger |
+| 2 | Pregnancy profile | `REMOTE_AUTHORITATIVE` | Remote only | Yes | Honest error, input preserved | Manual (user re-submits) | Upsert on `user_id` (natural single-row key) | `AppErrorReporter` (`RR-005`) | N/A — no local pending state to recover |
+| 3 | Profile/account edits | `REMOTE_AUTHORITATIVE` | Remote only | Yes | Honest `errorMessage`, form stays populated | Manual | Ordinary `update()` by id — idempotent by construction | Surfaced to UI only, not `AppErrorReporter` (minor, not fixed — lower-stakes than a create) | N/A |
+| 4 | Community posts/comments | `REMOTE_AUTHORITATIVE` | Remote only | Yes | Honest error, composer stays open with typed content preserved | Manual | **Fixed this wave** — was bare `insert()`, now stable-id `upsert()` (`RR-006`) | Surfaced to UI; not routed to `AppErrorReporter` (unchanged, matches profile/account) | N/A |
+| 5 | Community likes | `REMOTE_AUTHORITATIVE` | Remote only | Yes | Optimistic UI reverts on failure — no false success | Manual (re-tap) | Already correct — natural-key unique-violation caught and treated as success | N/A (not a data-loss-risk path) | N/A |
+| 6 | Prayer tracking (`savePrayer`) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | **Excluded — dormant.** `PrayerTrackingScreen` is unreachable from any navigation route (identical pattern to the retired pregnancy tracker); the dashboard's embedded prayer card is read-only and never calls `savePrayer`. Confirmed again this wave, not acted on (out of scope) |
+| 7 | Notifications/preferences | `LOCAL_ONLY` | Local (device) | Yes | N/A — not user-facing per send | N/A — not a network-sync concern | N/A | `AppErrorReporter` (`RR-002`/`RR-003`) | N/A |
+| 8 | Dr. Niswah chat | `DUAL/SPLIT AUTHORITY` | Server-side (edge function persists both rows) | Yes (edge function level) | Live reply always shown; red-flag banner independent of backend success | Manual (resend) | Edge-function-level, out of scope (`AB-003`, pre-existing, unaffected) | `AppErrorReporter` client-side; edge function's own logging out of scope | N/A |
+| 9 | Fiqh Advisor / general assistant / dream interpreter chat | `DUAL/SPLIT AUTHORITY` | Client-side `ChatRepositoryImpl` | **Was silently swallowed — fixed this wave** | Live reply always shown regardless of persistence outcome (unchanged, correct) | Manual (resend) | **Fixed this wave** — was bare `insert()`, now stable-id `upsert()` (`RR-007`) | **Fixed this wave** — now `AppErrorReporter` (`RR-007`) | N/A |
+| 10 | Private messaging | `REMOTE_AUTHORITATIVE` | Remote only | Yes (already) | Honest `errorMessage` (already) | Manual | **Fixed this wave** — was bare `insert()`, now stable-id `upsert()` (`RR-007`) | **Fixed this wave** — was missing `AppErrorReporter`, now present (`RR-007`) | N/A |
+| 11 | Wellbeing check-in | `REMOTE_AUTHORITATIVE` | Remote only | Yes (already) | Honest error (already) | Manual | Already correct — natural-key `upsert(user_id,log_date)` | **Fixed this wave** — was missing `AppErrorReporter`, now present (`RR-008`) | N/A |
+| 12 | Account deletion | `REMOTE_AUTHORITATIVE`, destructive | Remote RPC, then local cleanup | Yes | RPC failure throws immediately, no local wipe | RPC failure: none (irreversible action, user must retry deletion from scratch, correct). Local-cleanup failure: automatic, retried at next app start | RPC is server-side and inherently one-shot; local cleanup keyed by category, safe to re-run | Local-cleanup failure reported, not thrown, per its own design comment | `retryPendingLocalSensitiveDataCleanups()` at app start (already tested in an earlier wave) |
+| 13 | Data export generation | `REMOTE_AUTHORITATIVE` (read-only) | N/A (read) | **Was all-or-nothing — redesigned this wave** | **Was a single generic failure hiding which section broke — fixed** | Manual (re-open the screen) | N/A (idempotent by nature — reads) | `AppErrorReporter`, one call per failed section now (was one call for the whole screen) | N/A |
+
+### Phase C — The reliability contract, defined explicitly per authority model
+
+**`LOCAL_AUTHORITATIVE_WITH_SYNC`** (cycle tracking; the personal, journal-style, high-frequency, low-individual-stakes case): local durable save always happens first and is what the UI's "saved" state reflects → a retryable remote failure leaves the record `pending`, a non-retryable one `failed`, both reported via `AppErrorReporter`, neither ever hidden from the caller → a bounded, one-pass, non-looping automatic retry fires at app start and app resume → success transitions the record to `synced` exactly once, never replayed again → the upsert-by-id write pattern guarantees no duplicate remote row regardless of how many times a retry sweep runs.
+
+**`REMOTE_AUTHORITATIVE`** (pregnancy profile, profile/account, community, chat/private-messaging persistence, wellbeing — everything else): the user's action attempts a remote write directly; success is only reported after the backend confirms it; a failure is surfaced honestly (an error message, never a false "saved" claim) with the user's input preserved wherever the UI structure allows it (a form staying open, a composer not clearing); recovery is user-controlled — the user decides whether/when to retry, not the app silently replaying a stale request in the background; **now uniformly** protected against duplicate rows on retry via a caller-generated, reused-until-success stable id plus `upsert()` (this wave's `RR-006`/`RR-007` fix, extending community's already-partial pattern and dream_interpreter's already-correct one to chat and private messaging); and **now uniformly** observable via `AppErrorReporter` for every path where persistence — not just user-facing display — is the concern (this wave's `RR-007`/`RR-008` fix).
+
+**`DUAL/SPLIT AUTHORITY`** (AI chat): response delivery and durable persistence are explicitly separate concerns with separate failure semantics. The live AI-generated reply is response-delivery-authoritative — it is always shown to the user the moment it's received, regardless of whether the separate, best-effort attempt to persist it (and the user's own message) to `chat_messages` succeeds. This is a deliberate, safety-conscious design (matches the established `PJ-004`/red-flag precedent: the most important signal must never be gated behind the least reliable dependency) and was already correct before this wave. What was **not** already correct: the persistence half's failures were silently discarded with zero observability — fixed this wave (`RR-007`) without touching the correct response-delivery half at all.
+
+**`LOCAL_ONLY`** (notifications/preferences): a local write's success is verified via the underlying plugin call actually completing without throwing; a failure is surfaced via `AppErrorReporter`, never silently absorbed; there is no "false success" risk here in the network sense, since there is no network round-trip to lie about. Already correct (`RR-002`/`RR-003`).
+
+Per the explicit instruction, **automatic retry everywhere is not a closure requirement** — `REMOTE_AUTHORITATIVE`'s contract is deliberately user-controlled retry, and satisfying it does not require an automatic background queue.
+
+### Phase D — RR-001 reassessment
+
+Applying the contracts above to the Phase B inventory: every currently-active path now meets its own model's contract. The `REMOTE_AUTHORITATIVE` paths (pregnancy profile, profile/account, community, chat, private messaging, wellbeing) all have visible failure, preserved input where the UI structure allows it, deliberate user-controlled retry, no false success, and (after this wave's fixes) full `AppErrorReporter` observability plus duplicate-write protection. Per the explicit instruction, **the lack of automatic background retry on these paths does not by itself keep `RR-001` open** — that is the correct, intentional design for this authority model, not a gap.
+
+**What does keep `RR-001` at `PARTIALLY_REMEDIATED` rather than `VERIFIED_CLOSED`**: the instruction is explicit that closure requires every active path to have a *tested* recovery strategy, not merely a correct one. Of this wave's fixes: `RR-006` (community) has fresh, passing automated tests (`test/community_repository_idempotency_test.dart`, 4 tests, using a fake repository that fails once then succeeds to prove id-reuse). `RR-007` (AI chat, private messaging) and the data-export redesign (`PC-006`) and the account-deletion audit have **no fresh automated test** — verified only by direct code review and `dart analyze`, because `AiAdvisorService`/direct Supabase Functions calls and `NiswahSupabase.clientOrNull`-backed screens have no existing dependency-injection seam this wave's effort could reach without a disproportionate test-infrastructure refactor. This is stated plainly, not glossed over: **RR-001 remains `PARTIALLY_REMEDIATED`.**
+
+### Phase E — RR-002 remediation
+
+Read `main.dart` directly rather than trusting the register's `OPEN` status. Found the defect **already fully fixed**:
+
+```dart
+runZonedGuarded(
+  () async { ... },
+  (error, stack) {
+    AppErrorReporter.report(error, stack, context: 'runZonedGuarded');
+  },
+);
+FlutterError.onError = (details) {
+  AppErrorReporter.report(details.exception, details.stack, context: 'FlutterError');
+};
+PlatformDispatcher.instance.onError = (error, stack) {
+  AppErrorReporter.report(error, stack, context: 'PlatformDispatcher');
+  return true;
+};
+```
+
+`AppErrorReporter.onReport` is wired to `Sentry.captureException` when a DSN is configured (`_runApp()`, same file). This matches the native finding's exact remediation ask — the handler no longer discards errors, and both previously-absent safety nets (`FlutterError.onError`, `PlatformDispatcher.onError`) are present. **No code change was needed or made** — this phase's work was entirely reconciling a stale register entry against the code that had already moved on, per the explicit instruction: "If a finding's status is stale because its affected code was retired or fixed in a prior wave, correct it." Root-caused: this fix almost certainly landed during the `OB-006` Sentry-integration wave (same file, same commit-era, `OB-006`'s own row was updated at the time) — but `RR-002`/`OB-002`/`FQ-002`, despite explicitly being "the same code," were never updated alongside it. All three corrected to `PARTIALLY_REMEDIATED`, matching `OB-006`'s own remaining closure gate exactly (a release/staging-build-confirmed Sentry event; the current evidence is a local-`development`-environment confirmation only).
+
+### Phase F — RR-004 remediation
+
+Per instruction, verified rather than assumed already resolved by prior waves' individual fixes. `RR-004`'s complaint was specifically the *inconsistency* — different features behaving differently by accident, not a documented choice. The Phase C contract, and the Phase B inventory proving it now holds for every active path, directly is that documented choice: exactly two intentional models (`LOCAL_AUTHORITATIVE_WITH_SYNC` for cycle tracking, `REMOTE_AUTHORITATIVE` for everything else that isn't purely local or dual-authority), applied consistently, not per-feature ad hoc. The specific worst-case example the original finding named — private messaging's demo-mode fabricated-conversation fallback (`CQ-007`) — was already independently fixed in an earlier wave (confirmed via the master register's own `CQ-007` row, unaffected by this wave). **Corrected to `PARTIALLY_REMEDIATED`**: the inconsistency is resolved in code, but this contract has not been written up anywhere as a standalone product-facing decision document, and (per Phase D) most of the paths proving it holds were code-reviewed, not freshly tested, this wave.
+
+### Phase G — Network failure matrix
+
+Per the explicit instruction not to inject failures into production, this was performed via code-path tracing (the isolated-Supabase/live-forced-outage infrastructure used in earlier waves for cycle tracking/`PJ-002` was not re-run this wave — no code change was made to any path that infrastructure already validated) and the new fake-repository test for community:
+
+| Scenario | Cycle (LOCAL_AUTH_WITH_SYNC) | Community/Chat/Messaging (REMOTE_AUTHORITATIVE, this wave's fix) |
+|---|---|---|
+| A. Network unavailable before action | Saves locally, marks `pending`, no error shown | Fails immediately, honest error, input preserved |
+| B. Connection drops mid-request | Same as A (retry sweep picks it up later) | Error surfaced; retry reuses the same id — **no duplicate** (this wave's fix; previously would have duplicated if the drop happened after the server processed the insert) |
+| C. Backend 5xx | `mapRepositoryError` classifies retryable → `pending` | Error surfaced, manual retry available |
+| D. Auth/session expired | Classified `AuthFailure`, non-retryable, reported | Surfaced as an error; not specially distinguished from other failures in the UI copy (pre-existing, unchanged, out of scope) |
+| E. Non-retryable 4xx (validation) | Marked `failed`, not retried again | Rejected with a validation-shaped error, no retry loop |
+| F. Timeout | Same as B | Same as B — the exact scenario this wave's idempotency fix targets |
+| G. App killed/restarted with a local pending save | `retryPendingSync()` fires again at next start, one bounded pass | N/A — no local pending state for `REMOTE_AUTHORITATIVE` paths by design |
+
+No infinite retry loop is possible anywhere in this matrix: cycle tracking's sweep is a single bounded pass per lifecycle trigger (confirmed via `main.dart`'s own comment and code shape, unchanged this wave); `REMOTE_AUTHORITATIVE` paths have no automatic retry at all, only user-initiated ones.
+
+### Phase H — Retry / idempotency audit
+
+Full sweep of every `.insert(`/`.upsert(` call site across `lib/features/` active repositories (retired pregnancy tracking and dormant prayer tracking excluded):
+
+| Table | Before this wave | After this wave |
+|---|---|---|
+| `cycle_entries` | `upsert(payload, onConflict: 'id')` | Unchanged — already correct |
+| `pregnancy_profile` | `upsert(payload, onConflict: 'user_id')` | Unchanged — already correct |
+| `wellbeing_logs` | `upsert(payload, onConflict: 'user_id,log_date')` | Unchanged — already correct |
+| `community_posts` | `insert(payload)`, no id | **`upsert(payload)`, stable caller id** |
+| `community_comments` | `insert(payload)`, no id | **`upsert(payload)`, stable caller id** |
+| `community_likes` | `insert({...})`, natural key + unique-violation catch | Unchanged — already correct |
+| `dream_entries` | `upsert(payload)`, stable caller id (`_activeEntryId`) | Unchanged — already correct, the reference pattern this wave extended |
+| `chat_threads` | `insert(payload)`, no id | **`upsert(payload)`, optional stable caller id** |
+| `chat_messages` | `insert(payload)`, no id | **`upsert(payload)`, stable caller id** |
+| `private_messages` | `insert({...})`, no id | **`upsert({...})`, stable caller id** |
+
+`CommunityFeedViewModel._pendingPostId`, `PostDetailViewModel._pendingCommentId`, `ChatViewModel`'s per-persist-attempt id (via a new `_persistUserMessage` helper), and `ChatDetailViewModel._pendingMessageId` all follow the identical lifecycle: generated once (`??=`) on first attempt, reused verbatim on every retry of the same logical submit, reset to `null` only after a confirmed success — so a genuinely new, later post/comment/message always gets its own fresh id, never accidentally colliding with a prior one. Verified for community via the new test file; verified for chat/messaging by code inspection only (Phase D).
+
+### Phase I — App start/resume recovery
+
+- **Pending cycle logs**: `retryPendingSync()` fires from both `initState`'s post-frame callback and `didChangeAppLifecycleState`'s `resumed` branch, unchanged from the established, already-tested design; confirmed the code comment's own claim — "A bounded, one-pass sweep per trigger — not a timer/loop — so this can never spin indefinitely" — matches the actual code shape.
+- **No retired `PregnancyMilestone` sync call remains**: confirmed via `grep -n "pregnancy_tracking\|PregnancyTracking\|syncPendingMilestones" lib/main.dart` — zero matches.
+- **No stale pending task creates an infinite loop**: confirmed above — every retry trigger is a single bounded pass, not a recurring timer.
+- **App resume does not duplicate work**: `retryPendingSync()` (unchanged) only ever processes rows still in `pending` state; already-`synced` rows are untouched, so a resume immediately after a successful sync is a safe no-op.
+- **Auth state transitions do not expose another user's local state**: unchanged from prior waves' multi-user isolation tests (`SecureLocalStore.debugUserIdOverride`-based); not re-tested this wave since no code on this path changed.
+
+### Phase J — AI persistence resilience
+
+Covered in full in Phases B/C/H above. Summary: the response-delivery half of the DUAL/SPLIT AUTHORITY contract was already correct (verified unchanged, not regressed, by re-reading `_sendViaDrNiswahBackend`/`_sendViaFiqhAdvisor`/`_sendViaGeneralAssistant` in full) — no direct-Gemini fallback exists for Dr. Niswah (an explicit `StateError` is thrown instead, per the standing `SEC-001`/`AB-002` closure), and the red-flag banner's independence from backend success (`RED-FLAG-01`) is unchanged. The persistence half's silent-swallow gap is fixed (`RR-007`). `PJ-004` was not reopened — its own evidence (a live forced-failure test against an isolated stack) remains valid and untouched by this wave's changes, which only added observability to a different, previously-unobserved failure path, not code `PJ-004` itself covers.
+
+### Phase K — Account deletion resilience
+
+Audited `AuthRepositoryImpl.deleteAccount()` directly: RPC failure throws before any local state is touched (no false "deleted" claim); remote success is required before local cleanup ever runs; local cleanup failure is caught, reported via the existing `AppErrorReporter`-backed cleanup-task contract, and does not block sign-out or the RPC's own success from being honored; sign-out itself is wrapped separately so its own failure (extremely unlikely — the account is already gone server-side by this point) is not misreported as a deletion failure. Startup retry of incomplete local cleanup (`retryPendingLocalSensitiveDataCleanups`) was already tested in an earlier wave and is unchanged. Re-login after confirmed deletion is inherently prevented by Supabase Auth itself (the `auth.users` row no longer exists) — not something this app's own code needs to separately guard against. **No code change made** — found already correctly designed. Not freshly unit-tested this wave (see Phase D's honest accounting of what is/isn't test-covered).
+
+### Phase L — Data export resilience
+
+Classified the export's 8 datasets: none are `UNAVAILABLE_BY_DESIGN` in the sense of being deliberately excluded from the fetch loop (that classification applies only to `flagged_conversations`, which was never fetched at all, by design, unchanged); all 8 are effectively `REQUIRED_FOR_EXPORT` in the sense that the user would want every one of them if available, but **none should be treated as all-or-nothing** — a failure on any single one must not hide the other seven. Redesigned `DataExportScreen._load()` accordingly: each section is fetched and caught independently; `export['export_complete']` is `true` only if every section succeeded; a failed section's key is listed in `export['sections_unavailable']` and the JSON simply omits that key's data (never a fabricated empty value pretending to be a real "no data" result) rather than fabricating a complete-looking export. The UI surfaces a plain-language banner naming exactly which sections failed. This directly prevents a repeat of the exact live regression the prior wave found and fixed for `pregnancy_milestones` specifically — this wave fixes the *architecture* that allowed it, not just that one instance.
+
+### Phase M — Observability cross-check
+
+Every new/changed `AppErrorReporter.report()` call site this wave passes only `context`/`feature`/`recordId` (an opaque post/comment/message id, or a dataset-name string for the export screen) — never message/post/comment content, never chat text, never tokens or secrets, matching the existing, already-audited contract every other call site in the app follows. `OB-006` was not reopened — this wave's calls flow through the exact same, already-integrated `AppErrorReporter.onReport → Sentry` pipeline; no new sink, no new scrubbing logic, no change to `scrubSecretsForSentry`.
+
+### Phase N — Targeted tests
+
+`test/community_repository_idempotency_test.dart` (new, 4 tests): a fake `CommunityRepository` that fails the first `createPost`/`addComment` call and succeeds the second, proving (1) a retry reuses the same id, (2) a genuinely new post/comment after a success gets a fresh id — directly covering "retryable network failure," "duplicate-prevention on retry," and implicitly "no false success" (the ViewModel correctly returns `false` on the first, failed attempt). `test/private_messaging_test.dart` and `test/chat_assistant_test.dart` were both updated (interface signature changes) and re-run, passing, confirming no regression to existing "sendMessage surfaces failure"/model-serialization coverage. Per the explicit instruction not to add tests solely to inflate coverage, no test was added for scenarios already covered by existing, unrelated-to-this-wave test files (e.g., `pregnancy_profile_repository_test.dart`'s existing `RR-003`/`RR-005`-labeled tests, cycle tracking's existing sync-status tests).
+
+### Phase O — Full regression
+
+`dart analyze lib/`: 27 pre-existing issues, zero new. `dart analyze test/`: 6 pre-existing, zero new. `flutter test`: **320/328** — prior baseline (316/324, confirmed directly from the master register, not assumed) plus the 4 new community-idempotency tests, same 8 pre-existing golden-image diffs byte-for-byte (`parity_community_test.dart` ×2, `parity_today_lower_test.dart` ×1, `parity_profile_test.dart` ×2, `parity_dashboard_test.dart` ×2, `parity_cycle_log_sheet_test.dart` ×1), zero regressions, directly confirmed via a full background run. No release/build re-check was performed this wave (the prior wave's `flutter build web --release` already confirmed compile-health after the larger pregnancy-tracking deletion; this wave's changes are smaller and fully covered by `dart analyze`'s zero-new-issues result plus the full test run's zero regressions).
+
+### Phase P — Finding reassessment
+
+| Finding | Before this wave | After this wave | Notes |
+|---|---|---|---|
+| `RR-001` | `PARTIALLY_REMEDIATED` | `PARTIALLY_REMEDIATED` | Substantially re-verified and strengthened; not closed because not every fix is test-covered yet |
+| `RR-002` | `OPEN` (stale) | `PARTIALLY_REMEDIATED` | Code already fixed in a prior wave, never reflected here; corrected |
+| `OB-002` | `OPEN` (stale, duplicate of `RR-002`) | `PARTIALLY_REMEDIATED` | Same correction |
+| `FQ-002` | `MEDIUM`/`OPEN` (stale, duplicate of `RR-002`) | `PARTIALLY_REMEDIATED` | Same correction |
+| `RR-003` | `VERIFIED_CLOSED` | `VERIFIED_CLOSED` | Unchanged, re-confirmed correct (this is the true notification-scheduling defect) |
+| `RR-004` | `OPEN` | `PARTIALLY_REMEDIATED` | Two-model contract resolves the "accidental inconsistency"; not yet a formal product document |
+| `RR-005` | `VERIFIED_CLOSED` | `VERIFIED_CLOSED` | Unchanged, re-confirmed correct |
+| `RR-006` (new) | — | `VERIFIED_CLOSED` | Community idempotency fix, test-covered |
+| `RR-007` (new) | — | `PARTIALLY_REMEDIATED` | AI chat + private messaging idempotency/observability fix, code-review-verified only |
+| `RR-008` (new) | — | `VERIFIED_CLOSED` | Wellbeing observability fix, simple enough to verify by inspection with high confidence, and `dart analyze` confirms no regression |
+| `PC-006` | `PARTIALLY_REMEDIATED` | `PARTIALLY_REMEDIATED` | Export architecture redesigned for resilience; still excludes `flagged_conversations` by design |
+| `PJ-004` | `VERIFIED_CLOSED` | `VERIFIED_CLOSED` | Not reopened — re-confirmed unaffected, its own evidence untouched |
+
+**Owner actions required**: (1) add automated test coverage for the AI-chat/private-messaging idempotency+observability fix, the data-export per-section redesign, and the account-deletion orchestration — each needs a small amount of dependency-injection work (an injectable `AiAdvisorService`, an injectable Supabase client for `DataExportScreen`/`AuthRepositoryImpl` tests) this wave's scope did not include; (2) confirm a real Sentry event from a compiled release/staging build, closing `RR-002`/`OB-002`/`FQ-002`/`OB-006` together in one step, since all four are gated on the exact same evidence; (3) write up the two-model reliability contract (Phase C) as a standalone product-facing decision document to fully close `RR-004`; (4) investigate the newly-reconfirmed `PrayerTrackingScreen`/`savePrayer` dormancy pattern in a future, separately-scoped wave; (5) every other standing owner action from every prior wave (Gemini key rotation, `W1-001`'s production deployment, `pregnancy_records`' disposition, public privacy-policy hosting, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, among others) remains outstanding and untouched.
+
+**Overall verdict: remains NO-GO** — this wave corrected two real stale/contradictory finding statuses (`RR-002`/`OB-002`/`FQ-002`, and re-confirmed the `RR-003`/`RR-005` correction) instead of letting them compound, established and applied a coherent reliability contract that resolves `RR-004`'s core complaint in code, found and fixed two genuinely new defect classes (duplicate-on-retry, silent persistence failure) consistently across every feature they appeared in rather than patching one instance, and redesigned data export's fragile architecture instead of only patching its symptom — but per the engagement's own no-overclaiming standard, several of these fixes remain code-review-verified rather than test-verified, and every other standing blocker in this engagement (Gemini key rotation foremost) is untouched by this wave's scope.

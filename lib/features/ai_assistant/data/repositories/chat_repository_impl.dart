@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/supabase_client.dart';
 import '../../domain/entities/chat_message.dart';
@@ -40,6 +41,7 @@ class ChatRepositoryImpl implements ChatRepository {
     required ChatThreadType threadType,
     String? title,
     Map<String, dynamic>? metadata,
+    String? threadId,
   }) async {
     final client = _client;
     if (client == null) {
@@ -48,6 +50,7 @@ class ChatRepositoryImpl implements ChatRepository {
 
     final createdAt = DateTime.now();
     final payload = {
+      'id': threadId ?? const Uuid().v4(),
       'user_id': userId,
       'title': title ?? 'New conversation',
       'thread_type': threadType.name,
@@ -59,7 +62,7 @@ class ChatRepositoryImpl implements ChatRepository {
 
     final response = await client
         .from('chat_threads')
-        .insert(payload)
+        .upsert(payload)
         .select()
         .single();
     return ChatThread.fromJson(Map<String, dynamic>.from(response));
@@ -98,13 +101,20 @@ class ChatRepositoryImpl implements ChatRepository {
     required ChatRole role,
     required String content,
     Map<String, dynamic>? metadata,
+    String? messageId,
   }) async {
     final client = _client;
     if (client == null) {
       throw StateError('Supabase is not initialized.');
     }
 
+    // A caller-supplied, stable id (see ChatViewModel's
+    // `_persistUserMessage`/`_showAssistantReplyAndPersist`) makes this
+    // upsert-safe under retry, matching the pattern already used by
+    // dream_entries/community_posts — a retry after a client-side timeout
+    // no-ops or genuinely creates the row, never duplicates it.
     final payload = {
+      'id': messageId ?? const Uuid().v4(),
       'thread_id': threadId,
       'user_id': userId,
       'role': role.name,
@@ -115,7 +125,7 @@ class ChatRepositoryImpl implements ChatRepository {
 
     final response = await client
         .from('chat_messages')
-        .insert(payload)
+        .upsert(payload)
         .select()
         .single();
     return ChatMessage.fromJson(Map<String, dynamic>.from(response));

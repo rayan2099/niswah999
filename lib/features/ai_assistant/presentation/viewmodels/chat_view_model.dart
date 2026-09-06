@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/network/supabase_client.dart';
@@ -293,14 +294,11 @@ class ChatViewModel extends ChangeNotifier {
     required String userId,
     required String content,
   }) async {
-    final persistUser = _repository
-        .sendMessage(
-          threadId: threadId,
-          userId: userId,
-          role: ChatRole.user,
-          content: content,
-        )
-        .then<ChatMessage?>((message) => message, onError: (_) => null);
+    final persistUser = _persistUserMessage(
+      threadId: threadId,
+      userId: userId,
+      content: content,
+    );
 
     final result = await AiAdvisorService.instance.askFiqh(
       question: content,
@@ -334,14 +332,11 @@ class ChatViewModel extends ChangeNotifier {
       throw StateError('Supabase is not initialized.');
     }
 
-    final persistUser = _repository
-        .sendMessage(
-          threadId: threadId,
-          userId: userId,
-          role: ChatRole.user,
-          content: content,
-        )
-        .then<ChatMessage?>((message) => message, onError: (_) => null);
+    final persistUser = _persistUserMessage(
+      threadId: threadId,
+      userId: userId,
+      content: content,
+    );
 
     final response = await client.functions.invoke(
       'ai-assistant-chat',
@@ -364,6 +359,45 @@ class ChatViewModel extends ChangeNotifier {
     );
   }
 
+  /// Persists the user's own message in the background — a failure here
+  /// must never block or hide the visible reply (DUAL/SPLIT AUTHORITY: the
+  /// live response is response-delivery-authoritative; `chat_messages` is
+  /// a separate, best-effort durable-history concern), but it must not be
+  /// silently swallowed either (RR-001/DI-002: previously discarded via
+  /// `onError: (_) => null` with zero observability — a message could
+  /// vanish from persisted chat history forever with no trace anywhere).
+  /// `messageId` is a stable, caller-generated id so persistence is safe
+  /// to retry without risking a duplicate row (same pattern used by
+  /// `CommunityFeedViewModel`/`DreamInterpreterViewModel`).
+  Future<ChatMessage?> _persistUserMessage({
+    required String threadId,
+    required String userId,
+    required String content,
+  }) {
+    final messageId = const Uuid().v4();
+    return _repository
+        .sendMessage(
+          threadId: threadId,
+          userId: userId,
+          role: ChatRole.user,
+          content: content,
+          messageId: messageId,
+        )
+        .then<ChatMessage?>(
+          (message) => message,
+          onError: (error, stack) {
+            AppErrorReporter.report(
+              error,
+              stack,
+              context: 'ChatViewModel._persistUserMessage',
+              feature: 'ai_assistant',
+              recordId: messageId,
+            );
+            return null;
+          },
+        );
+  }
+
   Future<void> _showAssistantReplyAndPersist({
     required String threadId,
     required String userId,
@@ -383,6 +417,7 @@ class ChatViewModel extends ChangeNotifier {
     messages = [...messages, optimisticAssistantMessage];
     notifyListeners();
 
+    final assistantMessageId = const Uuid().v4();
     unawaited(() async {
       await persistUser;
       try {
@@ -392,9 +427,19 @@ class ChatViewModel extends ChangeNotifier {
           role: ChatRole.assistant,
           content: text,
           metadata: metadata,
+          messageId: assistantMessageId,
         );
-      } catch (_) {
-        // The live response remains visible if history persistence fails.
+      } catch (error, stack) {
+        // The live response remains visible if history persistence fails
+        // (unchanged) — but the failure itself must be observable, not
+        // silently discarded (RR-001/DI-002).
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'ChatViewModel._showAssistantReplyAndPersist',
+          feature: 'ai_assistant',
+          recordId: assistantMessageId,
+        );
       }
     }());
   }

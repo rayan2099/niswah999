@@ -526,7 +526,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           content: Text(_l('Your check-in was saved', 'تم حفظ حالتكِ اليوم')),
         ),
       );
-    } catch (_) {
+    } catch (error, stack) {
+      // WellbeingRepository.upsertToday() has no internal AppErrorReporter
+      // call of its own (unlike CycleTrackingRepositoryImpl) — this was a
+      // genuinely silent failure until now (RR-001/DI-002 pattern): the
+      // user saw an honest error, but the operator had zero visibility.
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'DashboardScreen._showWellbeingCheckIn',
+        feature: 'wellbeing',
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

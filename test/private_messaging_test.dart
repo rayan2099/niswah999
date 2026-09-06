@@ -109,6 +109,7 @@ class FakePrivateMessagingRepository implements PrivateMessagingRepositoryBase {
     required String conversationId,
     required String senderId,
     required String content,
+    String? messageId,
   }) async {
     sendMessageCalls++;
     if (failSends) throw const PrivateMessagingException('send failed');
@@ -513,6 +514,7 @@ class _FailingRepository implements PrivateMessagingRepositoryBase {
     required String conversationId,
     required String senderId,
     required String content,
+    String? messageId,
   }) async {
     throw const PrivateMessagingException('network down');
   }

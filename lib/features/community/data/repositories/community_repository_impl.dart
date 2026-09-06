@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/errors/failures.dart';
@@ -144,7 +145,14 @@ class CommunityRepositoryImpl implements CommunityRepository {
       );
     }
 
+    // A client-generated, stable id (see CommunityFeedViewModel's
+    // `_pendingPostId`) makes this call idempotent under retry: `upsert`
+    // on the primary key means a retry after a client-side timeout either
+    // no-ops (the first attempt actually reached the server) or genuinely
+    // creates the row (it didn't) — never a duplicate post, unlike the
+    // bare `.insert()` this replaces.
     final payload = {
+      if (post.id.isNotEmpty) 'id': post.id,
       'user_id': userId,
       'author_name': authorName,
       'title': post.title,
@@ -158,7 +166,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
 
     final response = await client
         .from(_postsTable)
-        .insert(payload)
+        .upsert(payload)
         .select()
         .single();
     return CommunityPost.fromJson(Map<String, dynamic>.from(response)).copyWith(
@@ -213,12 +221,13 @@ class CommunityRepositoryImpl implements CommunityRepository {
     required String userId,
     required String authorName,
     required String content,
+    String? commentId,
   }) async {
     final client = _client;
     if (client == null) {
       final createdAt = DateTime.now();
       return CommunityComment(
-        id: 'comment-${createdAt.millisecondsSinceEpoch}',
+        id: commentId ?? 'comment-${createdAt.millisecondsSinceEpoch}',
         postId: postId,
         userId: userId,
         authorName: authorName,
@@ -227,7 +236,11 @@ class CommunityRepositoryImpl implements CommunityRepository {
       );
     }
 
+    // Same idempotency reasoning as createPost above: a caller-supplied,
+    // stable id turns a retry-after-timeout into a safe no-op/re-upsert
+    // instead of a duplicate comment row.
     final payload = {
+      'id': commentId ?? const Uuid().v4(),
       'post_id': postId,
       'user_id': userId,
       'author_name': authorName,
@@ -237,7 +250,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
 
     final response = await client
         .from(_commentsTable)
-        .insert(payload)
+        .upsert(payload)
         .select()
         .single();
     return CommunityComment.fromJson(Map<String, dynamic>.from(response));

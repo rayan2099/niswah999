@@ -13,10 +13,15 @@ abstract class PrivateMessagingRepositoryBase {
     String otherUserId,
   );
 
+  /// [messageId], when supplied, must be a stable id generated once by the
+  /// caller — retrying this call with the same [messageId] safely upserts
+  /// the same row instead of creating a duplicate message. Falls back to
+  /// a fresh id if omitted.
   Future<PrivateMessage> sendMessage({
     required String conversationId,
     required String senderId,
     required String content,
+    String? messageId,
   });
 
   Future<void> markMessagesAsRead({

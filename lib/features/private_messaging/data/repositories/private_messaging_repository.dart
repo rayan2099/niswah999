@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../domain/repositories/private_messaging_repository_base.dart';
 import '../../domain/entities/private_conversation.dart';
@@ -103,15 +104,22 @@ class PrivateMessagingRepository implements PrivateMessagingRepositoryBase {
     required String conversationId,
     required String senderId,
     required String content,
+    String? messageId,
   }) async {
     final trimmed = content.trim();
     if (trimmed.isEmpty) {
       throw ArgumentError('Message content cannot be empty.');
     }
     try {
+      // A caller-supplied, stable id makes this upsert-safe under retry —
+      // same idempotency reasoning as chat_messages/community_posts
+      // (RR-001 idempotency audit, Reliability/Resilience Final Closure
+      // wave, 2026-09-06): a retry after a client-side timeout no-ops or
+      // genuinely creates the row, never duplicates it.
       final response = await _client
           .from('private_messages')
-          .insert({
+          .upsert({
+            'id': messageId ?? const Uuid().v4(),
             'conversation_id': conversationId,
             'sender_id': senderId,
             'content': trimmed,

@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
 import '../../domain/entities/private_message.dart';
 import '../../domain/repositories/private_messaging_repository_base.dart';
 
@@ -19,6 +21,12 @@ class ChatDetailViewModel extends ChangeNotifier {
   bool isLoading = false;
   bool isSending = false;
   String? errorMessage;
+
+  /// Stable id for the message currently being sent, reused across manual
+  /// retries of the same submit so a retry after a timeout upserts the
+  /// same row instead of creating a duplicate message — same pattern as
+  /// `CommunityFeedViewModel._pendingPostId` (RR-001 idempotency audit).
+  String? _pendingMessageId;
 
   Future<void> loadMessages() async {
     isLoading = true;
@@ -52,16 +60,26 @@ class ChatDetailViewModel extends ChangeNotifier {
     isSending = true;
     errorMessage = null;
     notifyListeners();
+    final messageId = _pendingMessageId ??= const Uuid().v4();
     try {
       final message = await _repository.sendMessage(
         conversationId: conversationId,
         senderId: currentUserId,
         content: content,
+        messageId: messageId,
       );
       messages = [...messages, message];
+      _pendingMessageId = null;
       return true;
-    } catch (e) {
+    } catch (e, stack) {
       errorMessage = e.toString();
+      AppErrorReporter.report(
+        e,
+        stack,
+        context: 'ChatDetailViewModel.sendMessage',
+        feature: 'private_messaging',
+        recordId: messageId,
+      );
       return false;
     } finally {
       isSending = false;

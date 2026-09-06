@@ -163,12 +163,13 @@ class MockPrivateMessagingRepository implements PrivateMessagingRepositoryBase {
     required String conversationId,
     required String senderId,
     required String content,
+    String? messageId,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 300));
     final trimmed = content.trim();
     _idCounter++;
     final message = PrivateMessage(
-      id: 'mock-msg-$_idCounter',
+      id: messageId ?? 'mock-msg-$_idCounter',
       conversationId: conversationId,
       senderId: senderId,
       content: trimmed,
