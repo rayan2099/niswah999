@@ -7,6 +7,7 @@ import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../domain/data_export_builder.dart';
 
 String _pr(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -62,99 +63,31 @@ class _DataExportScreenState extends State<DataExportScreen> {
       return;
     }
 
-    // Every section is fetched independently and failures are isolated
-    // per-section (RR-001 data-export resilience audit, 2026-09-06) —
-    // this replaces a single shared try block where one bad/unreachable
-    // table aborted the entire export for every user (the exact live bug
-    // `pregnancy_milestones` caused before it was removed, Dormant
-    // Pregnancy Tracking Retirement wave). A transient failure on any one
-    // table must never hide data the user could otherwise have exported.
-    final export = <String, dynamic>{'exported_at': DateTime.now().toIso8601String()};
-    final failedSections = <String>[];
-
-    Future<void> fetchOneInto(
-      String key,
-      String table, {
-      String idColumn = 'user_id',
-    }) async {
-      try {
-        export[key] = await _fetchOne(client, table, userId, idColumn: idColumn);
-      } catch (error, stack) {
-        failedSections.add(key);
+    // Orchestration lives in buildDataExport (data_export_builder.dart) —
+    // extracted so the per-section failure-isolation logic is directly
+    // unit-testable with a fake ExportSectionFetcher, without needing a
+    // live/mocked SupabaseClient (Reliability Evidence Closure wave,
+    // 2026-09-06).
+    final result = await buildDataExport(
+      fetcher: SupabaseExportSectionFetcher(client),
+      userId: userId,
+      onSectionError: (error, stack, section) {
         AppErrorReporter.report(
           error,
           stack,
           context: 'DataExportScreen._load',
           feature: 'data_export',
-          recordId: key,
+          recordId: section,
         );
-      }
-    }
-
-    Future<void> fetchManyInto(String key, String table) async {
-      try {
-        export[key] = await _fetchMany(client, table, userId);
-      } catch (error, stack) {
-        failedSections.add(key);
-        AppErrorReporter.report(
-          error,
-          stack,
-          context: 'DataExportScreen._load',
-          feature: 'data_export',
-          recordId: key,
-        );
-      }
-    }
-
-    await fetchOneInto('account', 'users');
-    await fetchOneInto('profile', 'profiles', idColumn: 'id');
-    await fetchOneInto('pregnancy_profile', 'pregnancy_profile');
-    await fetchManyInto('cycle_entries', 'cycle_entries');
-    await fetchManyInto('prayer_log', 'prayer_log');
-    await fetchManyInto('community_posts', 'community_posts');
-    await fetchManyInto('chat_threads', 'chat_threads');
-    await fetchManyInto('chat_messages', 'chat_messages');
-
-    // Explicit completeness marker — never silently omit a section that
-    // failed; a consumer of this JSON (the user, or anyone they share it
-    // with) must be able to tell a genuinely empty section from one that
-    // simply couldn't be fetched this time.
-    export['export_complete'] = failedSections.isEmpty;
-    if (failedSections.isNotEmpty) {
-      export['sections_unavailable'] = failedSections;
-    }
+      },
+    );
 
     setState(() {
       _loading = false;
-      _json = const JsonEncoder.withIndent('  ').convert(export);
+      _json = const JsonEncoder.withIndent('  ').convert(result.export);
       _error = null;
-      _partialFailureSections = failedSections;
+      _partialFailureSections = result.failedSections;
     });
-  }
-
-  Future<Map<String, dynamic>?> _fetchOne(
-    dynamic client,
-    String table,
-    String userId, {
-    String idColumn = 'user_id',
-  }) async {
-    final row = await client
-        .from(table)
-        .select()
-        .eq(idColumn, userId)
-        .maybeSingle();
-    return row == null ? null : Map<String, dynamic>.from(row as Map);
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchMany(
-    dynamic client,
-    String table,
-    String userId,
-  ) async {
-    final rows = await client.from(table).select().eq('user_id', userId);
-    return (rows as List)
-        .map((row) => Map<String, dynamic>.from(row as Map))
-        .toList();
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/core/errors/app_error_reporter.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:niswah/features/private_messaging/data/repositories/private_messaging_repository.dart';
@@ -57,6 +58,8 @@ class FakePrivateMessagingRepository implements PrivateMessagingRepositoryBase {
   int sendMessageCalls = 0;
   int markReadCalls = 0;
   final List<String> sentContents = [];
+  final List<String?> messageIdsSeen = [];
+  bool failNextSend = false;
 
   @override
   Future<int> fetchUnreadCount() async {
@@ -112,7 +115,12 @@ class FakePrivateMessagingRepository implements PrivateMessagingRepositoryBase {
     String? messageId,
   }) async {
     sendMessageCalls++;
+    messageIdsSeen.add(messageId);
     if (failSends) throw const PrivateMessagingException('send failed');
+    if (failNextSend) {
+      failNextSend = false;
+      throw const PrivateMessagingException('simulated timeout');
+    }
     // Mirror the real repository, which trims content before persisting.
     final trimmed = content.trim();
     sentContents.add(trimmed);
@@ -323,6 +331,85 @@ void main() {
       expect(viewModel.messages, isEmpty);
       expect(viewModel.isSending, isFalse);
     });
+
+    test(
+      'a send failure is reported via AppErrorReporter, not silently '
+      'swallowed (RR-007)',
+      () async {
+        final repository = FakePrivateMessagingRepository(failSends: true);
+        final viewModel = ChatDetailViewModel(
+          repository: repository,
+          conversationId: 'conv-1',
+          currentUserId: _me,
+        );
+        Object? reported;
+        AppErrorReporter.onReport =
+            (error, stack, {context, feature, retryAttempt, recordId}) {
+              reported = error;
+            };
+        addTearDown(() => AppErrorReporter.onReport = null);
+
+        await viewModel.sendMessage('hi');
+
+        expect(
+          reported,
+          isNotNull,
+          reason: 'previously this failure was surfaced to the user only, '
+              'with zero operator-side visibility',
+        );
+      },
+    );
+
+    test(
+      'a manual retry after a failed send reuses the same message id — '
+      'so a retry that actually reaches the server does not create a '
+      'duplicate row (RR-007)',
+      () async {
+        final repository = FakePrivateMessagingRepository()
+          ..failNextSend = true;
+        final viewModel = ChatDetailViewModel(
+          repository: repository,
+          conversationId: 'conv-1',
+          currentUserId: _me,
+        );
+
+        final firstAttempt = await viewModel.sendMessage('hello');
+        expect(firstAttempt, isFalse);
+        final secondAttempt = await viewModel.sendMessage('hello');
+        expect(secondAttempt, isTrue);
+
+        expect(repository.messageIdsSeen, hasLength(2));
+        expect(repository.messageIdsSeen[0], isNotNull);
+        expect(
+          repository.messageIdsSeen[0],
+          repository.messageIdsSeen[1],
+          reason: 'a retry of the same logical message must reuse the '
+              'same id',
+        );
+      },
+    );
+
+    test(
+      'a new message after a successful send gets a fresh id, not the '
+      "previous message's id",
+      () async {
+        final repository = FakePrivateMessagingRepository();
+        final viewModel = ChatDetailViewModel(
+          repository: repository,
+          conversationId: 'conv-1',
+          currentUserId: _me,
+        );
+
+        await viewModel.sendMessage('first');
+        await viewModel.sendMessage('second');
+
+        expect(repository.messageIdsSeen, hasLength(2));
+        expect(
+          repository.messageIdsSeen[0],
+          isNot(repository.messageIdsSeen[1]),
+        );
+      },
+    );
 
     test('onIncomingMessage appends foreign messages only once', () {
       final repository = FakePrivateMessagingRepository();

@@ -294,7 +294,7 @@ class ChatViewModel extends ChangeNotifier {
     required String userId,
     required String content,
   }) async {
-    final persistUser = _persistUserMessage(
+    final persistUser = persistUserMessageForTesting(
       threadId: threadId,
       userId: userId,
       content: content,
@@ -311,7 +311,7 @@ class ChatViewModel extends ChangeNotifier {
       'madhhab': MadhhabController.instance.selected.name,
       'citations': result.citations.map((item) => item.toJson()).toList(),
     };
-    await _showAssistantReplyAndPersist(
+    await showAssistantReplyAndPersistForTesting(
       threadId: threadId,
       userId: userId,
       text: result.text,
@@ -332,7 +332,7 @@ class ChatViewModel extends ChangeNotifier {
       throw StateError('Supabase is not initialized.');
     }
 
-    final persistUser = _persistUserMessage(
+    final persistUser = persistUserMessageForTesting(
       threadId: threadId,
       userId: userId,
       content: content,
@@ -350,7 +350,7 @@ class ChatViewModel extends ChangeNotifier {
       );
     }
 
-    await _showAssistantReplyAndPersist(
+    await showAssistantReplyAndPersistForTesting(
       threadId: threadId,
       userId: userId,
       text: data['text']?.toString() ?? '',
@@ -369,7 +369,17 @@ class ChatViewModel extends ChangeNotifier {
   /// `messageId` is a stable, caller-generated id so persistence is safe
   /// to retry without risking a duplicate row (same pattern used by
   /// `CommunityFeedViewModel`/`DreamInterpreterViewModel`).
-  Future<ChatMessage?> _persistUserMessage({
+  ///
+  /// Public (not `_`-prefixed) and `@visibleForTesting` — this is a real,
+  /// live production code path (called from `_sendViaFiqhAdvisor`/
+  /// `_sendViaGeneralAssistant`), exposed under this name specifically so
+  /// its retry/observability behavior can be exercised directly in a unit
+  /// test with an injected fake [ChatRepository], without needing to mock
+  /// `AiAdvisorService`/Supabase Edge Functions (Reliability Evidence
+  /// Closure wave, 2026-09-06). Same idiom as this file's own
+  /// `SecureLocalStore.debugUserIdOverride`/`scrubSecretsForSentry`.
+  @visibleForTesting
+  Future<ChatMessage?> persistUserMessageForTesting({
     required String threadId,
     required String userId,
     required String content,
@@ -398,7 +408,10 @@ class ChatViewModel extends ChangeNotifier {
         );
   }
 
-  Future<void> _showAssistantReplyAndPersist({
+  /// Public/`@visibleForTesting` for the same reason as
+  /// [persistUserMessageForTesting] — see its doc comment.
+  @visibleForTesting
+  Future<void> showAssistantReplyAndPersistForTesting({
     required String threadId,
     required String userId,
     required String text,

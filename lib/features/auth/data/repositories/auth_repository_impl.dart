@@ -5,6 +5,7 @@ import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/storage/local_sensitive_data_cleanup.dart';
 import '../models/user_profile.dart';
+import '../../domain/account_deletion_orchestrator.dart';
 import '../../domain/entities/app_user.dart';
 import '../../domain/repositories/auth_repository.dart';
 
@@ -327,34 +328,51 @@ class AuthRepositoryImpl implements AuthRepository {
     }
     final deletedUserId = sessionUser.id;
 
-    try {
-      await _client.rpc('delete_my_account');
-    } on PostgrestException catch (error) {
-      throw AuthFailure(error.message);
-    }
-
-    // Remote deletion succeeded. Remove this user's locally-cached
-    // sensitive data (cycle/prayer/pregnancy) before clearing the session —
-    // best-effort per category: a failure here is reported, not thrown, and
-    // must not block sign-out or make the app claim the deletion itself
-    // failed. Any category that fails is retried on the next app start
-    // (see `retryPendingLocalSensitiveDataCleanups` in main.dart).
-    await cleanUpLocalSensitiveDataForDeletedAccount(deletedUserId);
-
-    // The RPC deletes `auth.users` server-side — it does not by itself
-    // invalidate this client's locally-cached session/tokens or fire
-    // Supabase's auth-state-change stream (the mechanism `AuthController`
-    // uses to reactively swap the app back to the sign-in screen). Signing
-    // out locally here is what actually clears the session and triggers
-    // that transition; without it, the app would keep behaving as if
-    // still authenticated until some other request happened to fail.
-    try {
-      await _client.auth.signOut();
-    } on AuthException {
-      // The account (and its session) is already gone server-side by this
-      // point — a local signOut failure here doesn't change that outcome,
-      // and must not be reported as if the deletion itself failed.
-    }
+    // Sequencing/failure-isolation contract lives in
+    // performAccountDeletion (account_deletion_orchestrator.dart) —
+    // extracted so it is directly unit-testable with injected fakes
+    // instead of a live/mocked SupabaseClient (Reliability Evidence
+    // Closure wave, 2026-09-06).
+    await performAccountDeletion(
+      deleteRemote: () async {
+        try {
+          await _client.rpc('delete_my_account');
+        } on PostgrestException catch (error) {
+          throw AuthFailure(error.message);
+        }
+      },
+      // Removes this user's locally-cached sensitive data (cycle/prayer/
+      // pregnancy). Any category that fails is retried on the next app
+      // start (see `retryPendingLocalSensitiveDataCleanups` in main.dart).
+      cleanupLocal: () => cleanUpLocalSensitiveDataForDeletedAccount(
+        deletedUserId,
+      ),
+      // The RPC deletes `auth.users` server-side — it does not by itself
+      // invalidate this client's locally-cached session/tokens or fire
+      // Supabase's auth-state-change stream (the mechanism `AuthController`
+      // uses to reactively swap the app back to the sign-in screen). Signing
+      // out locally here is what actually clears the session and triggers
+      // that transition; without it, the app would keep behaving as if
+      // still authenticated until some other request happened to fail.
+      signOutLocal: () async {
+        try {
+          await _client.auth.signOut();
+        } on AuthException {
+          // The account (and its session) is already gone server-side by
+          // this point — a local signOut failure here doesn't change that
+          // outcome, and must not be reported as if the deletion itself
+          // failed. Rethrown so the orchestrator's own bookkeeping still
+          // sees this step as failed (it's swallowed here, not there).
+          rethrow;
+        }
+      },
+      // cleanUpLocalSensitiveDataForDeletedAccount never actually throws
+      // (it catches and reports per-category internally, via
+      // SecureLocalStore.runAccountDeletionCleanup) — this callback exists
+      // so the sequencing contract itself stays testable and explicit even
+      // though this real callee doesn't currently exercise it.
+      onCleanupFailure: (_, _) {},
+    );
   }
 
   @override

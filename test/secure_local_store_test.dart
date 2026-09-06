@@ -330,6 +330,144 @@ void main() {
         expect(reportedFeature, 'prayer_tracking');
       },
     );
+
+    test(
+      'a partially-failed cleanup is retried at the next app start and '
+      'succeeds once the underlying condition clears — simulating an app '
+      'restart after a partial local cleanup (account deletion resilience, '
+      'Reliability Evidence Closure wave)',
+      () async {
+        var prayerAttempts = 0;
+
+        // First "app run": cleanup partially fails (prayer_tracking keeps
+        // throwing), so the user id is recorded as pending.
+        await SecureLocalStore.runAccountDeletionCleanup(
+          userId: 'user-restart',
+          cleanupTasks: {
+            'cycle_tracking': (_) async {},
+            'prayer_tracking': (_) async {
+              prayerAttempts++;
+              throw StateError('simulated transient failure');
+            },
+          },
+        );
+        expect(prayerAttempts, 1);
+
+        // "App restart": the underlying condition has since cleared (e.g.
+        // the transient failure that caused it is gone) — the startup
+        // retry hook picks the pending user back up automatically.
+        await SecureLocalStore.retryPendingAccountDeletionCleanups(
+          cleanupTasks: {
+            'cycle_tracking': (_) async {},
+            'prayer_tracking': (_) async {
+              prayerAttempts++;
+              // succeeds this time
+            },
+          },
+        );
+        expect(
+          prayerAttempts,
+          2,
+          reason: 'the startup retry hook must actually re-invoke the '
+              'previously-failed category for the previously-failed user',
+        );
+
+        // A second, later "app restart" with nothing pending must be a
+        // safe no-op — it must not re-run cleanup for a user who has
+        // already fully succeeded (no re-replay of resolved work).
+        await SecureLocalStore.retryPendingAccountDeletionCleanups(
+          cleanupTasks: {
+            'cycle_tracking': (_) async {},
+            'prayer_tracking': (_) async {
+              prayerAttempts++;
+            },
+          },
+        );
+        expect(
+          prayerAttempts,
+          2,
+          reason: 'nothing should be pending anymore after the successful '
+              'retry — a further restart must not re-run resolved cleanup',
+        );
+      },
+    );
+
+    test(
+      'a still-failing category remains pending across multiple restarts '
+      '— the retry is safe to run repeatedly without ever claiming false '
+      'success',
+      () async {
+        Future<void> alwaysFails(String userId) async {
+          throw StateError('still failing');
+        }
+
+        await SecureLocalStore.runAccountDeletionCleanup(
+          userId: 'user-stuck',
+          cleanupTasks: {'prayer_tracking': alwaysFails},
+        );
+
+        // Three simulated restarts in a row — none should throw, crash,
+        // or silently mark the user as cleaned up.
+        for (var i = 0; i < 3; i++) {
+          await SecureLocalStore.retryPendingAccountDeletionCleanups(
+            cleanupTasks: {'prayer_tracking': alwaysFails},
+          );
+        }
+
+        // The user must still be recorded as pending — verified indirectly:
+        // a retry with a now-succeeding task still finds and clears it,
+        // proving it was never silently dropped from the pending list.
+        var finalAttempt = false;
+        await SecureLocalStore.retryPendingAccountDeletionCleanups(
+          cleanupTasks: {
+            'prayer_tracking': (_) async {
+              finalAttempt = true;
+            },
+          },
+        );
+        expect(
+          finalAttempt,
+          isTrue,
+          reason: 'the user must still be pending after repeated failed '
+              'retries, not silently forgotten',
+        );
+      },
+    );
+
+    test(
+      'independent users pending cleanup are each retried without one '
+      "affecting another's outcome",
+      () async {
+        final cleaned = <String>{};
+
+        await SecureLocalStore.runAccountDeletionCleanup(
+          userId: 'user-a',
+          cleanupTasks: {
+            'prayer_tracking': (_) async {
+              throw StateError('fails for A only, this run');
+            },
+          },
+        );
+        await SecureLocalStore.runAccountDeletionCleanup(
+          userId: 'user-b',
+          cleanupTasks: {
+            'prayer_tracking': (_) async {
+              throw StateError('fails for B only, this run');
+            },
+          },
+        );
+
+        await SecureLocalStore.retryPendingAccountDeletionCleanups(
+          cleanupTasks: {
+            'prayer_tracking': (userId) async {
+              cleaned.add(userId);
+            },
+          },
+        );
+
+        expect(cleaned, {'user-a', 'user-b'});
+      },
+    );
   });
 
   group('Logout / cross-user local data isolation (Phase G — mandatory)', () {

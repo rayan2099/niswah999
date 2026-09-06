@@ -1,15 +1,20 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/errors/failures.dart';
 import '../../data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/app_user.dart';
+import '../../domain/repositories/auth_repository.dart';
 import '../models/profile_form_data.dart';
 
 class ProfileViewModel extends ChangeNotifier {
-  ProfileViewModel({AuthRepositoryImpl? authRepository})
+  // Typed against the abstract AuthRepository (not AuthRepositoryImpl) so
+  // a fake can be injected in tests — this only ever calls interface
+  // methods (Reliability Evidence Closure wave, 2026-09-06).
+  ProfileViewModel({AuthRepository? authRepository})
     : _authRepository = authRepository ?? _safeAuthRepository();
 
-  final AuthRepositoryImpl? _authRepository;
+  final AuthRepository? _authRepository;
   AppUser? user;
   bool isLoading = false;
   bool isSaving = false;
@@ -64,7 +69,17 @@ class ProfileViewModel extends ChangeNotifier {
       }
     } on Failure {
       rethrow;
-    } catch (error) {
+    } catch (error, stack) {
+      // Previously only a generic AuthFailure replaced the real error
+      // before rethrowing — the user still saw an honest failure, but the
+      // operator had zero visibility into what actually went wrong
+      // (RR-001 observability audit, Reliability Evidence Closure wave).
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'ProfileViewModel.updateProfile',
+        feature: 'profile',
+      );
       throw const AuthFailure('Unable to update your profile right now.');
     } finally {
       isSaving = false;
@@ -95,7 +110,17 @@ class ProfileViewModel extends ChangeNotifier {
       }
     } on Failure {
       rethrow;
-    } catch (error) {
+    } catch (error, stack) {
+      // Previously only a generic AuthFailure replaced the real error
+      // before rethrowing — the user still saw an honest failure, but the
+      // operator had zero visibility into what actually went wrong
+      // (RR-001 observability audit, Reliability Evidence Closure wave).
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'ProfileViewModel.setAnonymousMode',
+        feature: 'profile',
+      );
       throw const AuthFailure('Unable to update your profile right now.');
     } finally {
       notifyListeners();
