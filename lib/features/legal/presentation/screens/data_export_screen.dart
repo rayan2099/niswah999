@@ -158,12 +158,12 @@ class _DataExportScreenState extends State<DataExportScreen> {
                       child: Text(
                         _pr(
                           'This is a raw technical export of your account, '
-                          'cycle, prayer, chat, and community data. It does '
-                          'not include pregnancy-tracking milestones or '
-                          'internal safety-review records.',
+                          'cycle, prayer, pregnancy-tracking, chat, and '
+                          'community data. It does not include internal '
+                          'safety-review records.',
                           'هذا تصدير تقني خام لبيانات حسابكِ ودورتكِ '
-                          'وصلاتكِ ومحادثاتكِ ومحتوى مجتمعكِ. لا يشمل '
-                          'معالم تتبع الحمل أو سجلات المراجعة الداخلية '
+                          'وصلاتكِ ومتابعة حملكِ ومحادثاتكِ ومحتوى '
+                          'مجتمعكِ. لا يشمل سجلات المراجعة الداخلية '
                           'للسلامة.',
                         ),
                         style: const TextStyle(fontSize: 11.5, height: 1.5),

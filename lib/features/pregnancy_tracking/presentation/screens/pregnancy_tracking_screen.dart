@@ -5,6 +5,46 @@ import '../../domain/controllers/pregnancy_calculator.dart';
 import '../../domain/entities/pregnancy_milestone.dart';
 import '../viewmodels/pregnancy_tracking_view_model.dart';
 
+// DORMANT, NOT WIRED TO NAVIGATION — confirmed intentionally, not an
+// oversight (Pregnancy Tracking Product Integration wave, 2026-09-06).
+//
+// This screen is unreachable from any route in the app (confirmed via
+// exhaustive search — zero references to `PregnancyTrackingScreen(`
+// anywhere outside this file) and has been since the repository's first
+// commit. Evidence reviewed this wave points to genuine supersession, not
+// an unwired bug:
+//   - The dashboard's `_PregnancyOverview` (dashboard_screen.dart) already
+//     provides a materially richer, embedded pregnancy status experience
+//     (week-by-week baby-size comparisons, stage names, progress percent,
+//     days-to-birth, "log birth" action) than this screen's overview ever
+//     did.
+//   - The design reference (`src/components/PregnancyTracker.tsx`) is
+//     itself embedded inside `Today.tsx`, not a standalone page — this
+//     screen's standalone-route design was a divergence from that
+//     reference, not something the port was working toward.
+//   - `PrayerTrackingScreen` shows the identical pattern (also unreachable,
+//     also superseded by dashboard-embedded content) — this is a
+//     consistent app-wide architectural choice (consolidate into the
+//     dashboard/"Today" experience), not a pregnancy-specific accident.
+//   - The "daily tracker" concept here (hydration/movement/symptom
+//     checkboxes + notes) has no basis in the design reference and no
+//     other product evidence (no notification hook, no profile-screen
+//     copy) suggesting it was ever a planned, wanted feature in its own
+//     right.
+//
+// Per instruction, confirmed-dead UI is not force-fit into the product —
+// but this file is kept in place rather than deleted (a destructive action
+// outside this session's authority to take unilaterally here) since its
+// underlying data layer (`PregnancyMilestone`/`PregnancyTrackingRepository`
+// /the `pregnancy_milestones` migration, W0-002) is independently correct,
+// tested infrastructure worth preserving even with this specific UI
+// dormant. See `00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §27 for the
+// full evidence trail. RR-001's lifecycle-recovery requirement does not
+// apply here in any live sense: no reachable UI can ever create a pending
+// write through this screen, so there is no real recovery gap to close for
+// this specific path (the repository's `syncPendingMilestones()` exists
+// and is unit-tested regardless, ready if this ever changes).
+
 String _pg(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
 class PregnancyTrackingScreen extends StatefulWidget {

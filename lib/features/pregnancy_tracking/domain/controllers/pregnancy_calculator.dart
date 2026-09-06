@@ -2,6 +2,13 @@ import 'package:equatable/equatable.dart';
 
 import '../entities/pregnancy_milestone.dart';
 
+// DORMANT — only consumed by the equally-dormant PregnancyTrackingViewModel
+// /PregnancyTrackingScreen. See pregnancy_tracking_screen.dart's header
+// comment for the full evidence trail (Pregnancy Tracking Product
+// Integration wave, 2026-09-06). The dashboard's own `_PregnancyOverview`
+// independently reimplements equivalent week→stage logic rather than
+// using this class.
+
 class PregnancyMilestoneSnapshot extends Equatable {
   const PregnancyMilestoneSnapshot({
     required this.week,

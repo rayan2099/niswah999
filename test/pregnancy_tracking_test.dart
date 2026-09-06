@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:niswah/core/preferences/pregnancy_status_controller.dart';
+import 'package:niswah/core/storage/local_sensitive_data_cleanup.dart';
+import 'package:niswah/core/storage/secure_local_store.dart';
+import 'package:niswah/features/pregnancy_tracking/data/datasources/local_pregnancy_tracking_data_source.dart';
 import 'package:niswah/features/pregnancy_tracking/domain/entities/pregnancy_milestone.dart';
 import 'package:niswah/features/pregnancy_tracking/domain/controllers/pregnancy_calculator.dart';
 import 'package:niswah/features/pregnancy_tracking/data/repositories/pregnancy_tracking_repository_impl.dart';
@@ -14,6 +17,11 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     resetSecureLocalStoreForTest();
+    SecureLocalStore.debugUserIdOverride = null;
+  });
+
+  tearDown(() {
+    SecureLocalStore.debugUserIdOverride = null;
   });
 
   group('PregnancyCalculator', () {
@@ -112,6 +120,147 @@ void main() {
       expect(remaining.length, 1);
       expect(remaining.single.id, 'm2');
     });
+
+    test(
+      'create A, create B, edit A, delete A — B remains, no duplicate or '
+      'whole-history replacement',
+      () async {
+        final repository = PregnancyTrackingRepositoryImpl();
+        await repository.saveMilestone(
+          PregnancyMilestone(
+            id: 'a',
+            userId: 'user-1',
+            week: 12,
+            trimester: PregnancyTrimester.first,
+            label: 'A original',
+            summary: 'A original summary',
+            date: DateTime(2026, 8, 1),
+          ),
+        );
+        await repository.saveMilestone(
+          PregnancyMilestone(
+            id: 'b',
+            userId: 'user-1',
+            week: 13,
+            trimester: PregnancyTrimester.first,
+            label: 'B',
+            summary: 'B summary',
+            date: DateTime(2026, 8, 8),
+          ),
+        );
+        // Edit A (same id, upsert semantics — not a new row).
+        await repository.saveMilestone(
+          PregnancyMilestone(
+            id: 'a',
+            userId: 'user-1',
+            week: 12,
+            trimester: PregnancyTrimester.first,
+            label: 'A edited',
+            summary: 'A edited summary',
+            date: DateTime(2026, 8, 1),
+          ),
+        );
+
+        var all = await repository.getMilestonesForUser('user-1');
+        expect(all.length, 2, reason: 'editing A must not create a 3rd row');
+        expect(
+          all.firstWhere((m) => m.id == 'a').label,
+          'A edited',
+          reason: 'the edit must have taken effect',
+        );
+
+        await repository.deleteMilestone('a');
+        all = await repository.getMilestonesForUser('user-1');
+        expect(all.length, 1);
+        expect(all.single.id, 'b');
+        expect(
+          all.single.label,
+          'B',
+          reason:
+              'B must be untouched by A\'s edit/delete — no whole-history '
+              'replacement',
+        );
+      },
+    );
+  });
+
+  group('Multi-user local isolation (re-verified post secure-storage remediation)', () {
+    test(
+      'User A creates a milestone locally, logs out, User B logs in — '
+      'User B cannot see User A\'s milestone',
+      () async {
+        SecureLocalStore.debugUserIdOverride = 'preg-user-a';
+        final source = LocalPregnancyTrackingDataSource();
+        await source.upsert(
+          PregnancyMilestone(
+            id: 'a-milestone',
+            userId: 'preg-user-a',
+            week: 20,
+            trimester: PregnancyTrimester.second,
+            label: 'A',
+            summary: 'A',
+            date: DateTime(2026, 8, 1),
+          ),
+        );
+        expect(await source.loadMilestones(), isNotEmpty);
+
+        // User A logs out; User B logs in on the same device.
+        SecureLocalStore.debugUserIdOverride = 'preg-user-b';
+        expect(
+          await source.loadMilestones(),
+          isEmpty,
+          reason: 'User B must not see User A\'s cached pregnancy milestone',
+        );
+
+        // User A's own data is unaffected.
+        SecureLocalStore.debugUserIdOverride = 'preg-user-a';
+        expect(await source.loadMilestones(), isNotEmpty);
+      },
+    );
+
+    test(
+      'account-deletion cleanup clears only the deleted user\'s pregnancy '
+      'milestones, not another user\'s',
+      () async {
+        SecureLocalStore.debugUserIdOverride = 'preg-user-a';
+        final source = LocalPregnancyTrackingDataSource();
+        await source.upsert(
+          PregnancyMilestone(
+            id: 'a-milestone',
+            userId: 'preg-user-a',
+            week: 20,
+            trimester: PregnancyTrimester.second,
+            label: 'A',
+            summary: 'A',
+            date: DateTime(2026, 8, 1),
+          ),
+        );
+
+        SecureLocalStore.debugUserIdOverride = 'preg-user-b';
+        await source.upsert(
+          PregnancyMilestone(
+            id: 'b-milestone',
+            userId: 'preg-user-b',
+            week: 22,
+            trimester: PregnancyTrimester.second,
+            label: 'B',
+            summary: 'B',
+            date: DateTime(2026, 8, 1),
+          ),
+        );
+
+        await cleanUpLocalSensitiveDataForDeletedAccount('preg-user-a');
+
+        SecureLocalStore.debugUserIdOverride = 'preg-user-a';
+        expect(await source.loadMilestones(), isEmpty);
+        SecureLocalStore.debugUserIdOverride = 'preg-user-b';
+        expect(
+          await source.loadMilestones(),
+          isNotEmpty,
+          reason: 'deleting User A must not clear User B\'s data',
+        );
+      },
+    );
   });
 
   group('PregnancyTrackingViewModel — real data, not fabricated (W0-002)', () {

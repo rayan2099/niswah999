@@ -1745,3 +1745,107 @@ Weekly-notes legacy fixtures: not applicable — no migration of that data is be
 **Owner actions required**: (1) execute the production deployment package above (Phase O) once approved; (2) decide, separately, whether/how `PregnancyTrackingScreen` should be wired into real app navigation — this session found and precisely documented the gap but does not have the product authority to decide it; (3) determine `pregnancy_records`' actual disposition (real historical data requiring careful handling, vs. safe to eventually drop) — requires live production data inspection this session cannot perform; (4) the standing owner actions from every prior wave (Gemini key rotation, `W1-001`'s own production deployment, public privacy-policy hosting, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, among others) remain outstanding.
 
 **Overall verdict: remains NO-GO** — this wave closed a real, long-deferred schema/code defect and surfaced a deeper, previously-undocumented root cause, but none of it is live in production, and the engagement's other standing blockers (Gemini key rotation, `W1-001`'s pending deployment, the entire Accessibility domain's `AU-009` gap, among others) remain untouched by this wave's scope.
+
+---
+
+## 27. Pregnancy Tracking Product Integration + RR-001 Closure Wave (2026-09-06)
+
+**No production DB schema/migration/RLS/data change of any kind was made this wave.** No `W0-002`/`W1-001` production deployment was executed. No Gemini credential rotation, iOS signing, rollback kill-switch, or `AU-009` work was performed. Exactly one Dart/Flutter user-facing bug was fixed (Phase J), three files gained explanatory header comments in lieu of the deletion this wave attempted and had blocked, and `test/pregnancy_tracking_test.dart` was extended.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below**: `SEC-001`/`ROOT-002` (`OPEN`, rotation owner-blocked), `W1-001` (`PARTIALLY_REMEDIATED — CODE_COMPLETE/LOCALLY_VERIFIED`), `AB-002`/`SEC-005`/`AB-008` (`PARTIALLY_REMEDIATED`), Fiqh Search-grounding (`B — DEGRADED`), `BR-001` (`OPEN`), `RD-009` (`OPEN`), `DC-010` (`OPEN`), `OB-006` (`PARTIALLY_REMEDIATED`), remaining Privacy/Compliance findings, the entire Accessibility domain (`AU-009` `OPEN`, all else closed per §24), `RR-003` (`OPEN` — `PregnancyProfileRepository` silent-failure gap, untouched by this wave).
+
+### Phase A — Classification: PregnancyTrackingScreen is DUPLICATED BY ANOTHER CURRENT FEATURE (Classification C)
+
+Per explicit instruction not to decide "based only on file existence," four independent evidence sources were gathered before classifying:
+
+1. **The dashboard's own richer implementation.** `dashboard_screen.dart`'s `_PregnancyOverview` widget already provides a materially more complete pregnancy status experience than `PregnancyTrackingScreen` ever did — week-by-week baby-size comparison text, a named developmental stage, a progress percentage, a days-to-birth countdown, and a "log birth" action — reading from the same `PregnancyStatusController` this session confirmed `PregnancyTrackingViewModel` also reads from (Phase A of `W0-002`, §26). Two competing surfaces for the same underlying state is the defining signature of Classification C, not A.
+2. **The design reference (`src/`), read-only per standing memory instruction.** `src/components/PregnancyTracker.tsx` is embedded directly inside `src/components/Today.tsx` — it is not, and was never designed as, a standalone routed page. `PregnancyTrackingScreen`'s standalone-`Scaffold`-with-`AppBar` shape is a structural divergence from the reference the Flutter port is meant to track, not a step toward completing it.
+3. **A consistent app-wide pattern, not a pregnancy-specific accident.** `PrayerTrackingScreen` was found to show the identical signature: present in the codebase since first commit, zero navigation references anywhere (`grep -rln "PrayerTrackingScreen(" lib/` returns only its own file), and superseded by dashboard-embedded prayer content. One orphaned screen could be an oversight; two, in different features, both consistently superseded by the same dashboard consolidation pattern, is architecture.
+4. **A red herring investigated and ruled out.** Before concluding, the `planPregnancyMilestone`/pregnancy-notification scheduling feature was checked as a possible sign the tracker screen was still an active, intended surface reachable some other way (e.g., a notification deep-link). It is not — it schedules generic reminder notifications keyed off `PregnancyStatusController`'s week, with no navigation target into `PregnancyTrackingScreen` or anywhere else; it is a wholly separate, unrelated feature that happens to read the same underlying state. Ruled out on direct code inspection, not assumption.
+5. **Absence of a distinct product concept.** The screen's one feature not duplicated elsewhere — a "daily tracker" of hydration/movement/symptom checkboxes plus free-text notes — has no counterpart anywhere in the design reference, no notification hook referencing it, and no other screen's copy or navigation implies it was ever a planned, separately-valued feature in its own right, as opposed to placeholder content built alongside the calculator logic and never carried further.
+
+**Conclusion: Classification C.** This is not an unwired bug (A) — there is no evidence a launch was ever planned and simply missed; the richer, actually-shipped alternative already exists and has existed since this screen was written. Per the charter's explicit instruction — "Do not force a feature into the product if existing UX evidence strongly indicates it was abandoned" — this screen is not wired into navigation this wave.
+
+### Phase B — Navigation integration: N/A (not integrated, by design)
+
+Since Phase A concluded Classification C, no navigation route, drawer entry, dashboard card, or deep link was added for `PregnancyTrackingScreen`. No new top-level navigation destination was created merely because the screen exists, per the explicit hard rule. This is a deliberate non-action, not an oversight.
+
+### Phase C — First-use UX: N/A live; repository-level correctness already validated
+
+No reachable UI exists through which a first-use experience could occur in production today. The empty-state fix from the prior wave (`_buildNotTrackingContent()`, an honest "pregnancy tracking is not active yet" message replacing a previously-always-fabricated week/due-date display) remains correct and in place, should this screen ever become reachable in the future, but there is no live path to observe it through today.
+
+### Phase D — RR-001: dormant, complete, tested infrastructure — not a live recovery gap for this specific path
+
+`PregnancyTrackingRepositoryImpl.syncPendingMilestones()` (built in `W0-002`, §26 Phase G/H) is fully implemented and unit-tested (`test/pregnancy_tracking_test.dart`'s "syncPendingMilestones is a safe no-op with no client configured" test, unchanged this wave). Because `PregnancyTrackingScreen` is the only code path that can call `saveMilestone()`, and that screen is unreachable, **no live write — pending or otherwise — can ever be created against this table by a real user today.** A recovery mechanism cannot have a live deficiency for a write path nothing can trigger. This is recorded as dormant-but-correct infrastructure, not as a second *reachable* RR-001 success alongside cycle tracking. `RR-001` is **not** closed on this basis — see Phase M and the master register's `RR-001` row: `RR-003`'s `PregnancyProfileRepository` silent-failure gap remains a genuinely live, unaddressed write-path recovery deficiency, and per the explicit instruction ("Do not close RR-001 solely because pregnancy milestones are fixed if another known recovery gap remains"), that alone keeps `RR-001` `OPEN`.
+
+### Phase E — Multi-user local isolation: re-verified, 2 new passing tests
+
+Added to `test/pregnancy_tracking_test.dart`'s new "Multi-user local isolation" group, using the established `SecureLocalStore.debugUserIdOverride` test seam (the same technique validated in the earlier Local Sensitive Storage wave):
+
+1. User A creates a milestone locally; switching the active-user override to User B, `LocalPregnancyTrackingDataSource.loadMilestones()` returns empty for B and User A's own data is confirmed still intact and isolated on switching back. ✅ Pass.
+2. User A and User B each create a milestone; calling `cleanUpLocalSensitiveDataForDeletedAccount('preg-user-a')` clears only User A's cached milestone, leaving User B's untouched. ✅ Pass.
+
+Both tests exercise the real `LocalPregnancyTrackingDataSource`/`local_sensitive_data_cleanup.dart` code paths, not mocks.
+
+### Phase F — UI success/failure semantics: N/A live; already validated at the repository level
+
+No reachable UI exists to observe live success/failure messaging through. The repository-level contract (a retryable failure leaves an entry `pending` without hiding it from the caller; a non-retryable failure is marked `failed` and not silently retried; a successful local save never claims a remote save that didn't happen) was already proven correct and unit-tested in `W0-002` (§26 Phase H) and is unchanged this wave.
+
+### Phase G — Edit / delete / history behavior: tested, 1 new passing test
+
+Added: "create A, create B, edit A, delete A — B remains, no duplicate or whole-history replacement." Confirms editing an existing milestone (same `id`, upsert semantics) does not create a third row, the edit's new content is actually persisted, and deleting the edited entry afterward leaves the unrelated second entry completely untouched — directly exercising the repository's upsert-by-id contract rather than assuming it from the delete-only test that already existed. ✅ Pass.
+
+### Phase H — PregnancyProfile / PregnancyMilestone / PregnancyStatusController authority separation
+
+Confirmed via a grep of every call site across `lib/`: `PregnancyProfileRepository` (remote-authoritative, feeds AI chat/reports), `PregnancyStatusController` (local `SharedPreferences`-only lifecycle toggle, feeds the dashboard overview and notification scheduling), and `PregnancyTrackingRepositoryImpl`/`pregnancy_milestones` (local-authoritative-with-sync journal entries) have **zero cross-writes between them** — none of the three ever writes to another's storage, table, or preference key. The three-way separation identified in `W0-002`'s Phase A (§26) holds exactly as documented; this wave's classification decision does not blur or merge any of the three.
+
+### Phase I — PJ-006 reassessment: confirmed unaffected, remains OPEN
+
+Re-traced `doctor_report_insights_engine.dart` once more this wave: it aggregates from `pregnancy_profile` only, exactly as confirmed in `W0-002` (§26 Phase I), and has never read `pregnancy_milestones`. This wave's classification of `PregnancyTrackingScreen` as dormant does not change milestone reachability in a direction that would affect report completeness — the milestones were already unreachable before this wave's classification made that status explicit and documented. No redesign was performed, per the explicit instruction not to redesign Doctor's Report absent direct evidence requiring it — there is none. `PJ-006` remains `OPEN`.
+
+### Phase J — Privacy / export / deletion recheck: one real bug found and fixed
+
+`lib/features/legal/presentation/screens/data_export_screen.dart` contained a stale, incorrect user-facing disclaimer (both English and Arabic) claiming the export "does not include pregnancy-tracking milestones," even though the actual fetch already included `pregnancy_milestones` (added in `W0-002`, §26 Phase J) — the disclaimer text was simply never updated when the fetch was added. This is the same category of bug as the earlier `W0-003`-wave stale prayer-data disclaimer. Fixed:
+
+- **Before (EN)**: "...It does not include pregnancy-tracking milestones or internal safety-review records."
+- **After (EN)**: "This is a raw technical export of your account, cycle, prayer, pregnancy-tracking, chat, and community data. It does not include internal safety-review records."
+- Arabic disclaimer corrected to the equivalent effect.
+
+Account-deletion cascade behavior for `pregnancy_milestones` (validated in `W0-002`, §26 Phase J) is unaffected by this wave and was not re-tested, since nothing touching that path changed.
+
+### Phase K — Accessibility / bilingual recheck: N/A, no reachable UI to audit
+
+Since `PregnancyTrackingScreen` is not exposed and was not wired into navigation this wave, there is no live screen for a user (assistive-technology or otherwise) to reach, and therefore nothing new to audit against the AU-wave standards. This is distinct from, and does not touch, `AU-009` (no live AT/device testing performed across the app), which remains `OPEN` and out of scope for this wave per the explicit stop condition.
+
+### Phase L — Testing
+
+`test/pregnancy_tracking_test.dart` extended from 7 to 10 tests this wave (imports added for `local_sensitive_data_cleanup.dart`, `secure_local_store.dart`, `local_pregnancy_tracking_data_source.dart`; `setUp`/`tearDown` now reset `SecureLocalStore.debugUserIdOverride`):
+
+| # | New test | Result |
+|---|---|---|
+| 8 | Create A, create B, edit A, delete A — B remains (Phase G) | ✅ Pass |
+| 9 | Multi-user local isolation — User B cannot see User A's cached milestone (Phase E.1) | ✅ Pass |
+| 10 | Multi-user local isolation — account deletion clears only the deleted user's cached milestone (Phase E.2) | ✅ Pass |
+
+All 10 tests in the file pass. `dart analyze lib/features/pregnancy_tracking/`: clean, zero issues, after the header-comment additions to `pregnancy_tracking_screen.dart`, `pregnancy_tracking_view_model.dart`, and `pregnancy_calculator.dart`. `dart analyze lib/`: confirmed still at the same 27 pre-existing issues, zero new. Full-suite `flutter test` was re-run in the background this wave: **326/334** — prior baseline (323/331) plus 3 net new tests, confirmed against the exact same 8 known pre-existing golden-image diffs, byte-for-byte the same set as every prior wave (`parity_community_test.dart` ×2 — English/Arabic, `parity_today_lower_test.dart` ×1 — Fiqh state Arabic, `parity_profile_test.dart` ×2 — English/Arabic, `parity_dashboard_test.dart` ×2 — English/Arabic, `parity_cycle_log_sheet_test.dart` ×1 — Arabic), zero regressions, zero new failures.
+
+### Phase M — Finding reassessment
+
+| Finding | Status | Notes |
+|---|---|---|
+| `W0-002` | **PARTIALLY_REMEDIATED — CODE_COMPLETE / LOCALLY_VERIFIED**, unchanged overall status, classification decision documented | The consuming screen is confirmed dormant/superseded (Classification C), not an unwired bug — the underlying data-model fix from §26 stands independently correct and is preserved regardless of the UI's dormant status |
+| `RR-001` | **OPEN**, unchanged overall status | Pregnancy tracking's sync/retry mechanism is code-complete and tested but has no live trigger (Phase D); `RR-003`'s `PregnancyProfileRepository` gap is untouched and alone keeps this finding open — explicitly not closed "solely because pregnancy milestones are fixed" |
+| `PJ-006` | **OPEN**, unchanged | Re-confirmed unaffected a second time (Phase I); no redesign performed, none warranted |
+| `PC-006` | **PARTIALLY_REMEDIATED**, unchanged | Export disclaimer text corrected to match the already-correct fetch behavior (Phase J); no change to the underlying export mechanism itself |
+
+**Deletion vs. dormant-preservation, documented for the record**: this wave attempted `git rm` on `pregnancy_tracking_screen.dart`, `pregnancy_tracking_view_model.dart`, and `pregnancy_calculator.dart` after concluding Classification C — consistent with this engagement's own precedent (`CQ-003`'s confirmed-dead `cycle_log_repository.dart` was resolved via deletion). This was **blocked by the Claude Code auto-mode permission classifier** as a destructive action requiring explicit user authorization this session does not have standing to grant itself. No workaround was attempted. Per the charter's own explicitly-offered non-destructive alternative ("remain a dormant-code/data-model issue"), all three files were left in place, unwired, with detailed header comments added documenting the full evidence trail above so a future session or the product owner can act on this with full context — either by deleting the files (a two-minute, low-risk action for whoever has that authority) or by reversing this wave's classification if new product evidence emerges.
+
+### Phase N — Updated production deployment package
+
+No change from `W0-002`'s package (§26 Phase O) in substance — this wave made **no schema, RLS, or migration change**, and **no navigation/route change**, so items 1–8 and 10–15 of that package are unaffected and remain valid as written. The one addition:
+
+**16. Flutter code accompanying any future `W0-002` production deployment must also include this wave's changes**: the corrected `data_export_screen.dart` disclaimer text (Phase J — a real user-facing accuracy bug independent of the migration itself, but bundled with the same release since it touches the same file area), and the three dormant-code header comments (no functional effect, safe to ship or omit independently). None of these three files' additions require the `pregnancy_milestones` migration to be present first — the comments are inert, and the export disclaimer fix is correct regardless of whether the underlying table exists yet in a given environment.
+
+**Owner actions required, in addition to `W0-002`'s standing list (§26 Phase O)**: (1) decide the actual disposition of the three dormant pregnancy-tracking files — delete them (this session's classification recommends this, but lacked deletion authority) or explicitly retain them as intentionally-dormant infrastructure; (2) if retained, no further action is needed — the infrastructure is correct and tested as-is; (3) the standing owner actions from every prior wave (Gemini key rotation, `W1-001`'s production deployment, `W0-002`'s production deployment, `RR-003`'s `PregnancyProfileRepository` fix, public privacy-policy hosting, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, among others) remain outstanding and untouched by this wave.
+
+**Overall verdict: remains NO-GO** — this wave resolved genuine product-integration ambiguity with real evidence rather than guessing or forcing a feature live, fixed one real user-facing privacy-disclaimer bug, and closed out the pregnancy-tracking-specific portion of `RR-001`'s investigation with a documented, evidence-based non-closure — but `RR-001` itself cannot close while `RR-003` remains open, `PJ-006` remains open by design, and every other standing blocker in this engagement (Gemini key rotation foremost) is untouched by this wave's scope.

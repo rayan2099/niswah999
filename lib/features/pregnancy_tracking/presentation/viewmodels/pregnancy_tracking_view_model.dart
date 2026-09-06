@@ -7,6 +7,11 @@ import '../../domain/controllers/pregnancy_calculator.dart';
 import '../../domain/entities/pregnancy_milestone.dart';
 import '../../domain/repositories/pregnancy_tracking_repository.dart';
 
+// DORMANT — only consumed by the equally-dormant PregnancyTrackingScreen.
+// See that file's header comment for the full evidence trail on why this
+// is kept in place, unwired, rather than deleted or forced into
+// navigation (Pregnancy Tracking Product Integration wave, 2026-09-06).
+
 class PregnancyTrackingViewModel extends ChangeNotifier {
   PregnancyTrackingViewModel({PregnancyTrackingRepository? repository})
     : _repository = repository ?? PregnancyTrackingRepositoryImpl();
