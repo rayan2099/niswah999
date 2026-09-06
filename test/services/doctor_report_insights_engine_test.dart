@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/cycle_log.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import 'package:niswah/features/doctor_report/domain/entities/flagged_conversation.dart';
+import 'package:niswah/features/doctor_report/domain/entities/report_completeness.dart';
+import 'package:niswah/features/doctor_report/domain/entities/report_source_status.dart';
 import 'package:niswah/features/doctor_report/domain/services/doctor_report_insights_engine.dart';
 import 'package:niswah/features/fiqh_report/domain/services/fiqh_report_insights_engine.dart';
 import 'package:niswah/features/pregnancy_profile/domain/entities/pregnancy_profile.dart';
@@ -161,5 +163,91 @@ void main() {
       expect(insights.recentNotes, isEmpty);
       expect(insights.recentFlags, isEmpty);
     });
+  });
+
+  group('DoctorReportInsightsEngine.analyze completeness (PJ-006)', () {
+    test(
+      'no data anywhere, but every source resolved successfully → '
+      'insufficient, not complete',
+      () {
+        final insights = DoctorReportInsightsEngine.analyze(
+          cycleLogs: const [],
+          madhhab: Madhhab.hanbali,
+          currentWellbeingLogs: const [],
+          previousWellbeingLogs: const [],
+          recentFlags: const [],
+          now: DateTime(2026, 1, 10),
+          cycleStatus: ReportSourceStatus.empty,
+          wellbeingStatus: ReportSourceStatus.empty,
+          flagsStatus: ReportSourceStatus.empty,
+        );
+
+        expect(insights.completeness, ReportCompleteness.insufficient);
+      },
+    );
+
+    test('real cycle data with everything else resolved → complete', () {
+      final insights = DoctorReportInsightsEngine.analyze(
+        cycleLogs: [_cycleLog(1, flow: FlowLevel.medium)],
+        madhhab: Madhhab.hanbali,
+        currentWellbeingLogs: const [],
+        previousWellbeingLogs: const [],
+        recentFlags: const [],
+        now: DateTime(2026, 1, 10),
+        wellbeingStatus: ReportSourceStatus.empty,
+        flagsStatus: ReportSourceStatus.empty,
+      );
+
+      expect(insights.completeness, ReportCompleteness.complete);
+    });
+
+    test(
+      'the flagged-conversations source failing to load produces a '
+      'partial report, carrying the failure status through to the '
+      'rendered insights — the exact PJ-006 architectural gap, now '
+      'distinguishable end-to-end from a genuinely empty result',
+      () {
+        final insights = DoctorReportInsightsEngine.analyze(
+          cycleLogs: [_cycleLog(1, flow: FlowLevel.medium)],
+          madhhab: Madhhab.hanbali,
+          currentWellbeingLogs: const [],
+          previousWellbeingLogs: const [],
+          recentFlags: const [],
+          now: DateTime(2026, 1, 10),
+          wellbeingStatus: ReportSourceStatus.empty,
+          flagsStatus: ReportSourceStatus.failed,
+        );
+
+        expect(insights.completeness, ReportCompleteness.partial);
+        expect(insights.flagsStatus, ReportSourceStatus.failed);
+        expect(
+          insights.recentFlags,
+          isEmpty,
+          reason: 'the data itself is still an empty list (a safe '
+              'fallback) — completeness/status is what actually carries '
+              'the "this failed" signal, not a fabricated non-empty value',
+        );
+      },
+    );
+
+    test(
+      'cycle logs failing to load produces loadFailure even when other '
+      'sources are fine',
+      () {
+        final insights = DoctorReportInsightsEngine.analyze(
+          cycleLogs: const [],
+          madhhab: Madhhab.hanbali,
+          currentWellbeingLogs: const [],
+          previousWellbeingLogs: const [],
+          recentFlags: const [],
+          now: DateTime(2026, 1, 10),
+          cycleStatus: ReportSourceStatus.failed,
+          wellbeingStatus: ReportSourceStatus.empty,
+          flagsStatus: ReportSourceStatus.empty,
+        );
+
+        expect(insights.completeness, ReportCompleteness.loadFailure);
+      },
+    );
   });
 }

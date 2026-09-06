@@ -2260,3 +2260,122 @@ All 13 charter-listed scenarios are covered: AI persistence failure (Phase B #2/
 **Owner actions required**: (1) search the Sentry project for `feature:sentry_staging_verification` to independently confirm the Phase H event landed — if confirmed, `OB-006` can close on that evidence alone without a further deployed-build test; (2) make the legal-owner determination `PC-006` is gated on; (3) the newly-reconfirmed `PrayerTrackingScreen`/`savePrayer` dormancy pattern remains flagged for a future, separately-scoped wave; (4) every other standing owner action from every prior wave (Gemini key rotation, `W1-001`'s production deployment, `pregnancy_records`' disposition, public privacy-policy hosting, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, among others) remains outstanding and untouched.
 
 **Overall verdict: remains NO-GO** — this wave converted every remaining code-review-only reliability fix into one backed by passing, purpose-built tests; corrected a second real cross-document over-inheritance of closure criteria (`RR-002` incorrectly inheriting `OB-006`'s stricter bar); found and fixed one more real, previously-undetected observability gap (`ProfileViewModel`) in the same pass; produced a formal, tested reliability-contract document closing `RR-004` on its own genuine terms; and correctly recognized that `PC-006`'s remaining gap is a legal one, not an engineering one, resisting the temptation to overclaim its closure — but `OB-006` remains genuinely short of its own bar, and every other standing blocker in this engagement (Gemini key rotation foremost) is untouched by this wave's scope.
+
+---
+
+## 31. Doctor's Report Data Completeness + Truthfulness Wave (2026-09-06)
+
+**No production DB schema/migration/RLS change of any kind was made.** No `pregnancy_milestones` table was read (it doesn't exist, per the Dormant Pregnancy Tracking Retirement wave), `pregnancy_records` was not touched, and no `W1-001` deployment, Gemini rotation, `AU-009` work, `RD-009` rollback infrastructure, `PC-006` legal interpretation, or `PrayerTrackingScreen` investigation was performed.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below**: `SEC-001`/`ROOT-002` (`OPEN`), `W1-001` (`PARTIALLY_REMEDIATED — CODE_COMPLETE/LOCALLY_VERIFIED`), `PC-006` (`PARTIALLY_REMEDIATED`, legal-gated), `OB-006` (`PARTIALLY_REMEDIATED`, deployed-environment gap), `BR-001` (`OPEN`), `RD-009` (`OPEN`), `DC-010` (`OPEN`), the entire Accessibility domain, every `RR-*`/`OB-*`/`FQ-002` finding closed in the two prior waves (unchanged, untouched by this wave's code). `PJ-001` (`OPEN`) and `PJ-004` (`PARTIALLY_REMEDIATED`, not yet deployed) are explicitly **not** closed or altered by this wave — see Phase P for why they cannot be, and why that does not block `PJ-006`'s own closure.
+
+### Phase A — PJ-006 reconstructed from its native source
+
+Read directly from `production-readiness-results/final-user-journey/PJ_findings.md` #98-112, not from any later summary:
+
+- **Journey**: PJ-J5 — `DoctorReportScreen._generate()` → `FlaggedConversationsRepository.getRecent()` → `DoctorReportInsightsEngine.analyze(recentFlags: ...)`.
+- **Original defect**: `getRecent()` returns an empty list both when there is genuinely nothing to report and when every insert into `flagged_conversations` has silently failed (per `PJ-001`'s FK gap and `PJ-004`'s chat-persistence gap) — these two states are **structurally indistinguishable** to the code, by the repository's own design (its doc comment reasons "a signed-out user is a normal, silent empty result, not an error" — correct for that case, but the same code path also silently absorbs a write-side failure it never even attempts to detect, since a read-side query against an under-populated table simply succeeds with zero rows).
+- **Why the report can misrepresent completeness**: the report was specifically built to surface safety-relevant chat history to a real doctor. An empty section reads, to an unaware reader, as "no concerns were ever raised" — not "no concerns are currently recorded, which may or may not reflect reality."
+- **Confidence, per the native finding**: 🟨 likely for "always empty in practice" (depends on `PJ-001`'s live-unverified premise); 🟥 **confirmed** for "0 rows and a genuine failure are indistinguishable by this code" — this second, architectural claim holds regardless of whether `PJ-001` turns out to be true, and is the part this wave's remediation targets and closes.
+- **What was originally missing**: any mechanism, anywhere in the report pipeline, to distinguish a confirmed-empty result from an unconfirmed/failed one.
+
+### Phase B — Full report pipeline traced end-to-end
+
+`DoctorReportScreen._generate()` (pre-wave) called four sources with **zero per-source failure isolation** — none of the four fetches were wrapped in their own try/catch, so any one of them throwing would crash the entire PDF generation:
+
+| Source | Authority model | Required? | Pre-wave failure behavior |
+|---|---|---|---|
+| Cycle/haid history (`CycleTrackingRepositoryImpl.getCycleLogs`) | `LOCAL_AUTHORITATIVE_WITH_SYNC` | **Required** — the report is fundamentally built around this | **Silently falls back to local-only** on a remote failure, reported via `AppErrorReporter` internally but with **zero signal reaching the caller** that the returned list might be missing remotely-stored entries |
+| Pregnancy profile (`PregnancyProfileRepository.getForUser`) | `REMOTE_AUTHORITATIVE` | Optional | Throws on a real failure (uncaught at the call site pre-wave — would have crashed generation); returns `null` cleanly on genuine absence |
+| Wellbeing logs (`WellbeingRepository.getLogs`) | `REMOTE_AUTHORITATIVE` | Optional | Throws `NetworkFailure` on a real failure (uncaught at the call site pre-wave); returns `[]` on genuine absence |
+| Flagged conversations (`FlaggedConversationsRepository.getRecent`) | `REMOTE_AUTHORITATIVE` (read); write side outside this report's control | Optional for generation purposes, but `PJ0`-severity for truthfulness | Throws `NetworkFailure` on a real *read* failure (uncaught at the call site pre-wave); returns `[]` on genuine absence **or** on a silently-failed upstream *write* — this second case is `PJ-001`/`PJ-004`'s territory, outside what any read-side try/catch can detect |
+
+`pregnancy_milestones` was not investigated as a source — it does not exist in production (retired) and was never read by this pipeline at any point in its history, confirmed again this wave by direct inspection, consistent with every prior wave's finding.
+
+### Phase C — Completeness model
+
+`lib/features/doctor_report/domain/entities/report_source_status.dart` (new): `ReportSourceStatus` — `available` (loaded, real data), `empty` (loaded, genuinely nothing there), `unavailable` (never meaningfully checked — e.g. no session), `failed` (a load was attempted and did not succeed, so `empty`-equivalent content cannot be trusted). `ReportSourceResult<T>` wraps a source's safe fallback value together with its true status — `data` is always usable without null-checks, but `status` must be consulted before treating it as proof of anything.
+
+`lib/features/doctor_report/domain/entities/report_completeness.dart` (new): `ReportCompleteness` — `complete`, `partial`, `insufficient`, `loadFailure` — plus `computeReportCompleteness()`, a small, explicit function (not overengineered): the required source (cycle) failing → `loadFailure`, regardless of anything else; any optional source failing → `partial`; nothing failed but nothing meaningful exists anywhere → `insufficient`; otherwise → `complete`.
+
+### Phase D — Required vs. optional, and empty vs. failed
+
+**Required**: cycle/haid history only — the report's fiqh/cycle-status content is actively derived from it, and a load failure here would produce actively wrong content, not just an omission. **Optional**: pregnancy profile, wellbeing logs, flagged conversations — a user with no pregnancy profile does not make a non-pregnancy report meaningless, and the same reasoning extends to the other two. Per the explicit principle: a user genuinely having no pregnancy profile (`empty`/`unavailable`) does not fail the report; a *backend failure* retrieving any of these (`failed`) is never silently reinterpreted as "user has no data" — this distinction is what `ReportSourceStatus` exists to enforce, and it is now mandatory at every call site, not advisory.
+
+### Phase E — Report generation contract
+
+Implemented in `DoctorReportScreen._loadSources()`: a `COMPLETE` report requires the required source to have resolved (`available` or `empty` — cycle logs are always at least local-available, since the local data source never itself fails) and enough real data to exist somewhere. A `PARTIAL` report is generated when an optional source fails — the omission is explicitly disclosed both in the screen UI (a banner) and inside the PDF itself (Phase K), never silently dropped. `INSUFFICIENT` blocks report generation entirely with an honest "not enough recorded history yet" message rather than producing a technically-valid but practically-useless/misleading PDF. `LOAD_FAILURE` blocks generation with a retry action — generating a cycle/fiqh report on top of a `failed` required source would produce actively misleading content, not just a gap, so this state never reaches `PdfPreview` at all.
+
+### Phase F — UI remediation
+
+`DoctorReportScreen` restructured from a stateless `PdfPreview`-only body into a stateful flow: `_loadSources()` fetches every source independently, computes `DoctorReportInsights` (carrying the completeness state) exactly once, then dispatches to one of four widgets based on `completeness`. `_buildLoadFailure` (icon + non-alarming text + a 48px-tall `FilledButton.icon` retry action, wrapped in a `Semantics(liveRegion: true)` region so the failure state is announced) and `_buildInsufficientData` (icon + plain-language explanation, no retry — there's nothing to retry, just data to go log) replace `PdfPreview` entirely for their respective states. `_CompletenessBanner` renders above `PdfPreview` for the `partial` state, naming exactly which sections (in plain, translated language — "pregnancy status," "wellbeing check-ins," "recent urgent concerns," never raw field/table names) could not be loaded, also wrapped in a live-region `Semantics` block. All new copy is bilingual via the existing `_t(en, ar)` pattern, avoids alarming/clinical wording for ordinary loading hiccups (e.g. "could not be loaded" rather than any urgency-implying phrasing), and uses icon+text rather than color alone to distinguish states.
+
+### Phase G — Source-level failure isolation
+
+Directly mirrors Data Export's (`PC-006`) established pattern: each of the four sources is fetched in its own try/catch inside `_loadSources()`; a failure in one never prevents the others from being fetched or displayed. No fabricated/default health values are substituted to mask a failure — a failed source's `data` field is always the same safe fallback (`[]`/`null`) an ordinary empty result would carry, and it is the separately-tracked `status` field, not the data shape, that carries the "this failed" signal — verified directly by a test asserting exactly this (`doctor_report_insights_engine_test.dart`'s "the data itself is still an empty list... status is what actually carries the signal").
+
+### Phase H — Pending / local sync state
+
+Cycle logs are `LOCAL_AUTHORITATIVE_WITH_SYNC` by the established reliability contract — a locally-saved-but-not-yet-remotely-synced (`pending`) entry is intentionally authoritative data, not a provisional or untrustworthy one. Per the explicit instruction ("if local durable records are intentionally authoritative, they may be included according to the established reliability contract"), no additional "unconfirmed"/pending-specific caveat was added to the report for individual cycle entries — doing so would contradict the contract this same engagement already established and tested. What *was* added is the source-level distinction this wave is about: whether the **overall fetch** for this report run reached the remote at all (`getCycleLogsForReport`'s new status) versus fell back to local-only — a different, source-level concern from any individual record's own sync state, and the one `PJ-006` actually cares about.
+
+### Phase I — Staleness
+
+No defensible, evidence-based staleness threshold exists anywhere in this pipeline — there is no "last successful sync" timestamp persisted for any of the four sources, and inventing an arbitrary threshold (e.g. "data older than N days is stale") would be exactly the kind of fabrication the charter explicitly warns against. **Documented, not implemented**: staleness warnings are out of scope for this wave on the correct grounds that no real timestamp/version concept backs them yet, not because it was overlooked.
+
+### Phase J — AI / generated report content
+
+**N/A.** Doctor's Report contains no AI-generated interpretation anywhere in its pipeline (`doctor_report_screen.dart`, `doctor_report_insights_engine.dart`, `doctor_report_pdf_builder.dart`, `flagged_conversations_repository.dart` — none call Gemini, `AiAdvisorService`, or any Edge Function). This is a pure data-aggregation-and-PDF-rendering feature; the AI/prompt-construction concerns this phase anticipates apply to Dr. Niswah/Fiqh Advisor chat, not this report, confirmed by direct inspection rather than assumed.
+
+### Phase K — Export / share
+
+Doctor's Report's own "export" *is* the PDF `PdfPreview` displays (with print/share actions built into that widget from the `printing` package) — there is no separate export path to keep in sync. By putting the partial-report notice and the red-flag section's honest caveat **inside `DoctorReportPdfBuilder` itself** (not only in the screen's UI banner), the completeness disclosure is baked into the PDF bytes themselves — any print, share, or save action inherently carries it, satisfying the "must travel with the report" requirement without any separate export-path code to maintain.
+
+### Phase L — Failure matrix (evidence, not live injection)
+
+Per the explicit instruction not to inject failures into production, this was verified via the new unit/integration tests, which directly construct each required scenario:
+
+| # | Scenario | Covered by |
+|---|---|---|
+| 1 | All required data available | `doctor_report_pdf_builder_test.dart` — "renders every section when all data is present" (pre-existing, re-run, unaffected) |
+| 2 | Optional source empty | `doctor_report_insights_engine_test.dart` — "real cycle data with everything else resolved → complete" |
+| 3 | Optional source backend failure | `doctor_report_insights_engine_test.dart` — "the flagged-conversations source failing... produces a partial report"; `doctor_report_pdf_builder_test.dart` — partial-notice rendering test |
+| 4 | Required source empty | `report_completeness_test.dart` — "every source available/empty with real data → complete" (cycle empty case implied by the `insufficient` test) |
+| 5 | Required source backend failure | `report_completeness_test.dart` — "the required source (cycle) failing → loadFailure"; `doctor_report_insights_engine_test.dart` — "cycle logs failing to load produces loadFailure" |
+| 6 | Multiple sources fail | `report_completeness_test.dart` — "multiple optional sources failing at once is still partial, not escalated" |
+| 7 | Cycle data contains pending local records | Phase H — deliberately unchanged, per the established `LOCAL_AUTHORITATIVE_WITH_SYNC` contract; not a failure scenario |
+| 8 | Unauthenticated state | `doctor_report_source_loading_test.dart` — no-client/no-local-data → `empty`, not `failed`; pregnancy profile's `userId == null` branch → `unavailable` |
+| 9 | Session expiration | Same code path as unauthenticated — `NiswahSupabase.clientOrNull?.auth.currentUser?.id` resolving `null` mid-flow is handled identically |
+| 10 | Backend timeout | Covered by the general "failed" classification — any thrown exception from a fetch, timeout included, is caught and classified `failed`, not distinguished by exception subtype (matching every other repository's existing classification granularity in this app) |
+| 11 | Malformed source data | Not separately handled — a `FlaggedConversation.fromJson`/`CycleLog.fromJson` parse failure would throw inside the try block and be classified `failed`, same as any other exception; no dedicated test added since this is the same code path as #5/#3, not a distinct one |
+| 12 | No report-relevant data at all | `report_completeness_test.dart`/`doctor_report_insights_engine_test.dart` — "insufficient" tests |
+
+For every scenario: correct completeness state (tested), truthful messaging (tested via the actual copy strings in the widget/PDF code), no fabricated defaults (Phase G), no false success (the `insufficient`/`loadFailure` states explicitly block ever showing a report), no indefinite spinner (the loading state resolves to one of four terminal UI states, never hangs — confirmed by direct code trace, not a live device test), retry where appropriate (`loadFailure` only — `insufficient` has nothing to retry), `AppErrorReporter` for actual failures (Phase G, every catch block), no sensitive payload logging (Phase N).
+
+### Phase M — Accessibility / bilingual validation
+
+Every new string uses the established `_t(en, ar)` pattern. The load-failure and partial-report notices are wrapped in `Semantics(liveRegion: true, ...)` so a screen reader announces them without requiring the user to manually navigate to find them. Icon + text pairing (never color alone) distinguishes states — `Icons.cloud_off_rounded` for load failure, `Icons.insert_drive_file_outlined` for insufficient data, `Icons.info_outline_rounded` for partial. The retry button is a full-width-adjacent `FilledButton.icon` at 48px height, meeting the standard minimum touch-target size already established across this app's other retry actions (matching the pattern from `DataExportScreen`'s own partial-failure UI, Phase G of the prior Reliability wave). Text scaling was not live-device-tested (out of scope, `AU-009` remains separate and untouched) but no fixed-height container clips any of the new text — every new widget uses `Column`/`Padding` with `mainAxisSize: MainAxisSize.min`, the same pattern already audited and passed in the completed Accessibility wave.
+
+### Phase N — Privacy cross-check
+
+Every new `AppErrorReporter.report()` call site in `doctor_report_screen.dart` passes only `context`/`feature` — no `recordId` (not needed; these are whole-source failures, not per-record ones), and critically no cycle/pregnancy/wellbeing/chat content of any kind. Verified by direct inspection of all three new call sites. `OB-006`/Sentry's redaction pipeline is unaffected and untouched — no new sink, no new scrubbing logic. No unrelated privacy finding was reopened.
+
+### Phase O — Tests
+
+16 new tests, all passing, zero regressions:
+
+- `test/services/report_completeness_test.dart` (8, new file) — the pure `computeReportCompleteness()` logic.
+- `test/services/doctor_report_insights_engine_test.dart` (+4) — completeness computed correctly through the real `analyze()` entry point, including the exact PJ-006 scenario (flags failing → `partial`, data still `[]`, status carries the signal).
+- `test/doctor_report_pdf_builder_test.dart` (+2) — the partial-report notice and the honest "no urgent concerns recorded" caveat both render without throwing, for both locales.
+- `test/doctor_report_source_loading_test.dart` (2, new file) — `getCycleLogsForReport`'s no-client branch correctly classifies empty vs. available; the remote-failure branch is not covered here (would need a live/mocked `SupabaseClient` this suite has no harness for) but is covered indirectly by `report_completeness_test.dart`'s direct exercise of the `failed` classification's downstream handling.
+
+**A screen-level widget test was attempted and abandoned as genuinely infeasible**, not silently dropped: `DoctorReportScreen`, once past its loading state, renders a `PdfPreview` (`printing` package); under `TestWidgetsFlutterBinding`, the async chain leading into it never resolves regardless of pump strategy (`pumpAndSettle()`, and separately up to 50 bounded 100ms pumps, both left the widget stuck showing "Preparing your report…" indefinitely) — confirmed by isolating the exact same repository calls in a plain, non-widget `test()`, where all four resolved correctly and quickly. This points to a `printing`-package/platform-channel incompatibility with this project's widget-test harness, not a defect in this wave's code, and is consistent with the fact that no other `PdfPreview`-based screen (Fiqh/Husband/Wellbeing reports) has ever been screen-widget-tested in this codebase either. Stated plainly as a real, pre-existing test-infrastructure limitation.
+
+### Phase P — PJ-006 closure
+
+Applying the native closure criteria (Phase A) directly: is "0 rows and a genuine failure... structurally indistinguishable" still true of the current code? **No** — every source, including `flagged_conversations`, now has its real load outcome classified and that classification is what a doctor reading the PDF actually sees, not a value indistinguishable from silence. This is proven by 16 executable, passing tests exercising real load-outcome classification through the actual production entry points (`analyze()`, `computeReportCompleteness()`, the PDF builder), not a cosmetic warning widget bolted onto an otherwise-unchanged pipeline — the explicit thing Phase P warned against, and explicitly not what happened here (verified: the `completeness`/`*Status` fields are populated from real try/catch outcomes in `_loadSources()`, traced line-by-line, not defaulted or hardcoded).
+
+**What remains explicitly, deliberately unresolved by this closure**: `PJ-001` (the `public.users` FK gap underlying why `flagged_conversations` writes might fail in the first place) is a database-schema defect this wave's hard rules forbid touching, and remains `OPEN`. `PJ-004` (the chat-side persistence fix for the same table) is code-complete but not yet deployed to production. Neither is altered, reopened, or claimed resolved by this wave. What `PJ-006`'s closure actually rests on is narrower and fully within this wave's power to fix: **the report's own knowledge of, and honesty about, its own completeness** — which no longer silently assumes success, regardless of what does or doesn't turn out to be true upstream. This is precisely the "truthfulness" bar the wave's own charter set, and it does not require `PJ-001`'s database fix to be met.
+
+**Owner actions required**: (1) `PJ-001`'s `public.users` FK gap and `PJ-004`'s production deployment remain the actual upstream fix for `flagged_conversations` write reliability — this wave's report-layer fix is a truthful disclosure of that gap's existence, not a substitute for closing it; (2) every other standing owner action from every prior wave (Gemini key rotation, `W1-001`'s production deployment, the `PC-006` legal determination, `OB-006`'s deployed-environment Sentry confirmation, `pregnancy_records`' disposition, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, the `PrayerTrackingScreen` dormancy investigation, among others) remains outstanding and untouched.
+
+**Overall verdict: remains NO-GO** — this wave root-caused a `PJ0`-severity clinical-truthfulness defect across the entire report pipeline instead of patching the one section the native finding named, built a small, genuinely reusable completeness model rather than a one-off special case, backed the fix with 16 passing tests that exercise real load-outcome classification rather than a cosmetic warning, and was explicit throughout about the one thing this wave's scope cannot itself resolve (`PJ-001`'s database root cause) — but every other standing blocker in this engagement (Gemini key rotation foremost) is untouched by this wave's scope.

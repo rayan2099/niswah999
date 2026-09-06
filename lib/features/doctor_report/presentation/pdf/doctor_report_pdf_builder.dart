@@ -8,6 +8,8 @@ import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import '../../../fiqh_report/domain/services/fiqh_report_insights_engine.dart';
 import '../../../wellbeing/domain/services/wellbeing_insights_engine.dart';
 import '../../domain/entities/flagged_conversation.dart';
+import '../../domain/entities/report_completeness.dart';
+import '../../domain/entities/report_source_status.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../domain/services/doctor_report_insights_engine.dart';
 
@@ -216,6 +218,8 @@ class DoctorReportPdfBuilder {
     pw.Font semiBold,
   ) {
     final widgets = <pw.Widget>[
+      if (insights.completeness == ReportCompleteness.partial)
+        _partialReportNotice(insights, isArabic),
       _sectionLabel(isArabic ? 'نظرة عامة' : 'Overview', semiBold),
       ..._overviewSection(isArabic, insights.cycleAndPregnancy, semiBold),
     ];
@@ -256,19 +260,110 @@ class DoctorReportPdfBuilder {
       ..add(_sectionLabel(isArabic ? 'الحالة النفسية' : 'Wellbeing', semiBold))
       ..add(_wellbeingSummary(isArabic, insights.wellbeing, semiBold));
 
-    if (insights.recentFlags.isNotEmpty) {
-      widgets
-        ..add(
-          _sectionLabel(
-            isArabic ? 'مخاوف عاجلة حديثة' : 'Recent urgent concerns',
-            semiBold,
-          ),
-        )
-        ..add(_flaggedConcerns(insights.recentFlags, isArabic));
-    }
+    // Always rendered — never silently omitted when empty (PJ-006). A
+    // doctor reading this report must be able to tell "no urgent concerns
+    // were recorded" from "this section simply isn't here," since the
+    // second reads, to an unaware reader, as indistinguishable from the
+    // first despite meaning something very different.
+    widgets
+      ..add(
+        _sectionLabel(
+          isArabic ? 'مخاوف عاجلة حديثة' : 'Recent urgent concerns',
+          semiBold,
+        ),
+      )
+      ..add(_urgentConcernsSection(insights, isArabic));
 
     return widgets;
   }
+
+  static pw.Widget _urgentConcernsSection(
+    DoctorReportInsights insights,
+    bool isArabic,
+  ) {
+    if (insights.flagsStatus == ReportSourceStatus.failed) {
+      return _limitationNote(
+        isArabic
+            ? 'تعذّر تحميل هذا القسم لهذا التقرير. لا يعني عدم ظهور مخاوف '
+                  'هنا عدم وجودها.'
+            : "This section could not be loaded for this report. Its "
+                  "absence here does not mean no concerns exist.",
+      );
+    }
+
+    if (insights.recentFlags.isEmpty) {
+      return _limitationNote(
+        isArabic
+            ? 'لا توجد مخاوف عاجلة مسجّلة لهذه الفترة. يعكس هذا فقط '
+                  'المحادثات التي تم تسجيلها بنجاح داخل التطبيق، ولا ينفي '
+                  'احتمال وجود مخاوف لم تُحفظ بسبب عطل تقني.'
+            : 'No urgent concerns are recorded for this period. This '
+                  'reflects only conversations the app successfully '
+                  'recorded, and does not rule out a concern that went '
+                  'unsaved due to a technical issue.',
+      );
+    }
+
+    return _flaggedConcerns(insights.recentFlags, isArabic);
+  }
+
+  /// Travels with the report wherever it goes — printed, saved, or
+  /// shared — so a partial report can never lose its own disclosure by
+  /// being exported out of the app (PJ-006/Phase K).
+  static pw.Widget _partialReportNotice(
+    DoctorReportInsights insights,
+    bool isArabic,
+  ) {
+    final failedLabels = <String>[];
+    if (insights.pregnancyStatus == ReportSourceStatus.failed) {
+      failedLabels.add(isArabic ? 'حالة الحمل' : 'pregnancy status');
+    }
+    if (insights.wellbeingStatus == ReportSourceStatus.failed) {
+      failedLabels.add(isArabic ? 'المتابعة النفسية' : 'wellbeing check-ins');
+    }
+    if (insights.flagsStatus == ReportSourceStatus.failed) {
+      failedLabels.add(isArabic ? 'المخاوف العاجلة' : 'recent urgent concerns');
+    }
+
+    return pw.Container(
+      width: double.infinity,
+      margin: const pw.EdgeInsets.only(bottom: 16),
+      padding: const pw.EdgeInsets.all(12),
+      decoration: pw.BoxDecoration(
+        color: const PdfColor.fromInt(0xFFFFF7E6),
+        borderRadius: pw.BorderRadius.circular(10),
+        border: pw.Border.all(color: const PdfColor.fromInt(0xFFF3D9A8)),
+      ),
+      child: pw.Text(
+        isArabic
+            ? 'هذا التقرير غير مكتمل. يعكس فقط المعلومات التي أمكن '
+                  'تحميلها. تعذّر تحميل التالي: ${failedLabels.join("، ")}.'
+            : 'This report is partial. It reflects only the information '
+                  'that could be loaded. The following could not be '
+                  'loaded: ${failedLabels.join(", ")}.',
+        style: pw.TextStyle(
+          color: PdfColor.fromHex(_advisory),
+          fontSize: 9.5,
+        ),
+      ),
+    );
+  }
+
+  static pw.Widget _limitationNote(String text) => pw.Container(
+    width: double.infinity,
+    padding: const pw.EdgeInsets.all(10),
+    decoration: pw.BoxDecoration(
+      color: const PdfColor.fromInt(0xFFF3F4F6),
+      borderRadius: pw.BorderRadius.circular(10),
+    ),
+    child: pw.Text(
+      text,
+      style: pw.TextStyle(
+        color: PdfColor.fromHex(_textSecondary),
+        fontSize: 9,
+      ),
+    ),
+  );
 
   static List<pw.Widget> _overviewSection(
     bool isArabic,

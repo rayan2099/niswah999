@@ -7,6 +7,8 @@ import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
 import '../../../wellbeing/domain/entities/wellbeing_log.dart';
 import '../../../wellbeing/domain/services/wellbeing_insights_engine.dart';
 import '../entities/flagged_conversation.dart';
+import '../entities/report_completeness.dart';
+import '../entities/report_source_status.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 
 /// Everything the comprehensive Doctor's Report needs. A thin composition
@@ -23,6 +25,11 @@ class DoctorReportInsights extends Equatable {
     required this.recentBloodColors,
     required this.recentFlags,
     this.highRiskFlags = const [],
+    this.completeness = ReportCompleteness.complete,
+    this.cycleStatus = ReportSourceStatus.available,
+    this.pregnancyStatus = ReportSourceStatus.unavailable,
+    this.wellbeingStatus = ReportSourceStatus.available,
+    this.flagsStatus = ReportSourceStatus.available,
   });
 
   final FiqhReportInsights cycleAndPregnancy;
@@ -41,6 +48,15 @@ class DoctorReportInsights extends Equatable {
   /// but it's exactly what a doctor's report should surface).
   final List<String> highRiskFlags;
 
+  /// Report-level completeness state (PJ-006) — must travel with this
+  /// object everywhere it goes, including into the PDF, so a partial or
+  /// load-failed report can never be silently presented as complete.
+  final ReportCompleteness completeness;
+  final ReportSourceStatus cycleStatus;
+  final ReportSourceStatus pregnancyStatus;
+  final ReportSourceStatus wellbeingStatus;
+  final ReportSourceStatus flagsStatus;
+
   @override
   List<Object?> get props => [
     cycleAndPregnancy,
@@ -50,6 +66,11 @@ class DoctorReportInsights extends Equatable {
     recentBloodColors,
     recentFlags,
     highRiskFlags,
+    completeness,
+    cycleStatus,
+    pregnancyStatus,
+    wellbeingStatus,
+    flagsStatus,
   ];
 }
 
@@ -64,6 +85,10 @@ class DoctorReportInsightsEngine {
     required List<WellbeingLog> previousWellbeingLogs,
     required List<FlaggedConversation> recentFlags,
     required DateTime now,
+    ReportSourceStatus cycleStatus = ReportSourceStatus.available,
+    ReportSourceStatus pregnancyStatus = ReportSourceStatus.unavailable,
+    ReportSourceStatus wellbeingStatus = ReportSourceStatus.available,
+    ReportSourceStatus flagsStatus = ReportSourceStatus.available,
   }) {
     final cycleAndPregnancy = FiqhReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
@@ -78,14 +103,40 @@ class DoctorReportInsightsEngine {
       daysElapsedInPeriod: now.day,
     );
 
+    final topSymptoms = CycleSymptomDecoder.aggregateSymptoms(cycleLogs);
+    final recentNotes = CycleSymptomDecoder.recentNotes(cycleLogs);
+    final recentBloodColors = CycleSymptomDecoder.recentBloodColors(
+      cycleLogs,
+    );
+
+    final hasAnyMeaningfulData =
+        cycleLogs.isNotEmpty ||
+        pregnancyProfile != null ||
+        currentWellbeingLogs.isNotEmpty ||
+        previousWellbeingLogs.isNotEmpty ||
+        recentFlags.isNotEmpty;
+
+    final completeness = computeReportCompleteness(
+      cycleStatus: cycleStatus,
+      pregnancyStatus: pregnancyStatus,
+      wellbeingStatus: wellbeingStatus,
+      flagsStatus: flagsStatus,
+      hasAnyMeaningfulData: hasAnyMeaningfulData,
+    );
+
     return DoctorReportInsights(
       cycleAndPregnancy: cycleAndPregnancy,
       wellbeing: wellbeing,
-      topSymptoms: CycleSymptomDecoder.aggregateSymptoms(cycleLogs),
-      recentNotes: CycleSymptomDecoder.recentNotes(cycleLogs),
-      recentBloodColors: CycleSymptomDecoder.recentBloodColors(cycleLogs),
+      topSymptoms: topSymptoms,
+      recentNotes: recentNotes,
+      recentBloodColors: recentBloodColors,
       recentFlags: recentFlags,
       highRiskFlags: pregnancyProfile?.highRiskFlags ?? const [],
+      completeness: completeness,
+      cycleStatus: cycleStatus,
+      pregnancyStatus: pregnancyStatus,
+      wellbeingStatus: wellbeingStatus,
+      flagsStatus: flagsStatus,
     );
   }
 }

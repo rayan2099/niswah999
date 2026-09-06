@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../doctor_report/domain/entities/report_source_status.dart';
 import '../datasources/local_cycle_tracking_data_source.dart';
 import '../../domain/entities/cycle_log.dart';
 import '../../domain/repositories/cycle_tracking_repository.dart';
@@ -287,5 +288,78 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       stillPending: stillPending,
       permanentlyFailed: permanentlyFailed,
     );
+  }
+
+  /// A report-consuming variant of [getCycleLogs] that surfaces whether
+  /// the returned logs are the full, merged local+remote picture, or a
+  /// local-only fallback because the remote read failed. [getCycleLogs]
+  /// itself deliberately swallows a remote failure into a silent
+  /// local-only return (correct for the main cycle-tracking UI — a remote
+  /// read hiccup must never make an already-saved local entry disappear),
+  /// but a downstream report consumer needs to know when that happened
+  /// rather than silently presenting a possibly-incomplete history as
+  /// definitive (PJ-006 — Doctor's Report Data Completeness +
+  /// Truthfulness wave, 2026-09-06). Does not change [getCycleLogs]'s own
+  /// behavior or contract at all.
+  Future<ReportSourceResult<List<CycleLog>>> getCycleLogsForReport({
+    int limit = 1000,
+  }) async {
+    final localLogs = await _localDataSource.loadLogs();
+    final client = _client;
+    if (client == null) {
+      return ReportSourceResult(
+        status: localLogs.isEmpty
+            ? ReportSourceStatus.empty
+            : ReportSourceStatus.available,
+        data: localLogs,
+      );
+    }
+
+    final sessionUser = client.auth.currentUser;
+    if (sessionUser == null) {
+      return ReportSourceResult(
+        status: localLogs.isEmpty
+            ? ReportSourceStatus.empty
+            : ReportSourceStatus.available,
+        data: localLogs,
+      );
+    }
+
+    try {
+      final response = await client
+          .from('cycle_entries')
+          .select()
+          .eq('user_id', sessionUser.id)
+          .order('date', ascending: false)
+          .limit(limit);
+      final remote = (response as List<dynamic>)
+          .map((item) => CycleLog.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+      final merged = <String, CycleLog>{};
+      for (final entry in [...localLogs, ...remote]) {
+        merged[entry.id] = entry;
+      }
+      final ordered = merged.values.toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+
+      return ReportSourceResult(
+        status: ordered.isEmpty
+            ? ReportSourceStatus.empty
+            : ReportSourceStatus.available,
+        data: ordered,
+      );
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'CycleTrackingRepositoryImpl.getCycleLogsForReport',
+        feature: 'doctor_report',
+      );
+      return ReportSourceResult(
+        status: ReportSourceStatus.failed,
+        data: localLogs,
+      );
+    }
   }
 }

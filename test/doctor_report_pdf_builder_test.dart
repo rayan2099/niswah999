@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/cycle_log.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import 'package:niswah/features/doctor_report/domain/entities/flagged_conversation.dart';
+import 'package:niswah/features/doctor_report/domain/entities/report_source_status.dart';
 import 'package:niswah/features/doctor_report/domain/services/doctor_report_insights_engine.dart';
 import 'package:niswah/features/doctor_report/presentation/pdf/doctor_report_pdf_builder.dart';
 import 'package:niswah/features/pregnancy_profile/domain/entities/pregnancy_profile.dart';
@@ -148,4 +149,64 @@ void main() {
 
     expect(bytes.isNotEmpty, isTrue);
   });
+
+  test(
+    'renders successfully with a partial-report notice when an optional '
+    'source failed (PJ-006)',
+    () async {
+      final insights = DoctorReportInsightsEngine.analyze(
+        cycleLogs: [_cycleLog(1, flow: FlowLevel.medium)],
+        madhhab: Madhhab.hanbali,
+        currentWellbeingLogs: const [],
+        previousWellbeingLogs: const [],
+        recentFlags: const [],
+        now: DateTime(2026, 1, 20),
+        wellbeingStatus: ReportSourceStatus.empty,
+        flagsStatus: ReportSourceStatus.failed,
+      );
+
+      final bytesAr = await DoctorReportPdfBuilder.build(
+        isArabic: true,
+        insights: insights,
+        generatedAt: DateTime(2026, 1, 20),
+      );
+      final bytesEn = await DoctorReportPdfBuilder.build(
+        isArabic: false,
+        insights: insights,
+        generatedAt: DateTime(2026, 1, 20),
+      );
+
+      expect(bytesAr.isNotEmpty, isTrue);
+      expect(bytesEn.isNotEmpty, isTrue);
+    },
+  );
+
+  test(
+    'renders an honest "no urgent concerns recorded" caveat — not a '
+    'silently omitted section — when recentFlags is genuinely empty '
+    '(PJ-006)',
+    () async {
+      final insights = DoctorReportInsightsEngine.analyze(
+        cycleLogs: [_cycleLog(1, flow: FlowLevel.medium)],
+        madhhab: Madhhab.hanbali,
+        currentWellbeingLogs: const [],
+        previousWellbeingLogs: const [],
+        recentFlags: const [],
+        now: DateTime(2026, 1, 20),
+        wellbeingStatus: ReportSourceStatus.empty,
+        flagsStatus: ReportSourceStatus.empty,
+      );
+
+      expect(insights.recentFlags, isEmpty);
+      expect(insights.completeness.name, 'complete');
+
+      final bytes = await DoctorReportPdfBuilder.build(
+        isArabic: false,
+        insights: insights,
+        generatedAt: DateTime(2026, 1, 20),
+      );
+
+      expect(bytes.isNotEmpty, isTrue);
+    },
+  );
 }
