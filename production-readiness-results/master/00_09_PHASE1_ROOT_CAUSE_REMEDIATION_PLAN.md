@@ -2606,3 +2606,198 @@ The one new `AppErrorReporter.report()` call site (`PJ-003`'s fix) passes only t
 (1) Confirm the Google Cloud Gemini-key rotation (`SEC-001`/`ROOT-002`); (2) the `PC-006` legal-owner determination; (3) confirm the Sentry staging event or perform one deployed-build test (`OB-006`); (4) provision Supabase backups/PITR and adopt the canonical baseline as the source of truth (`BR-001`/`BR-002`); (5) authorize and perform `W1-001`'s production deployment; (6) build `RD-009`'s rollback kill-switch; (7) perform `AU-009`'s live device/AT testing; (8) `DC-010` remains an open, low-priority application-code item for a future wave, not re-traced here; (9) `PrayerTrackingScreen`/`pregnancy_records` remain deferred, owner-level cleanup decisions.
 
 **Overall verdict: remains NO-GO** — this wave closed the last three genuinely open, tractable Final User Journey/Code Quality findings with real, root-cause fixes rather than presentation-layer workarounds, each backed by a passing, purpose-built test proving the exact original defect no longer reproduces — **every remaining launch blocker in this engagement is now a production-deployment, infrastructure, external-credential, platform-acceptance, or legal/product item, not an application-code defect** — but every one of those remaining blockers (Gemini key rotation foremost) is untouched by this wave's scope and remains outstanding.
+
+---
+
+## 34. Production Database Change Safety Gate Wave (2026-09-06) — BR-001 / BR-002 / W1-001 Pre-Deployment Readiness
+
+**PRE-DEPLOYMENT ONLY, per explicit instruction.** No production database mutation of any kind occurred this wave: no `W1-001` deployment, no migration repair, no production setting change (PITR/backups), no production data alteration, no credential rotation performed by this session. The objective was solely to determine whether production *can* be changed safely and to prepare (not execute) the exact deployment/rollback procedure.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below:** `SEC-001`/`ROOT-002` (`OPEN`, rotation owner-blocked), Fiqh Search-grounding (`B — DEGRADED`), `RD-009` (`OPEN`), `DC-010` (`OPEN`), `OB-006` (`PARTIALLY_REMEDIATED`), `PC-006` (`PARTIALLY_REMEDIATED`, legal-gated), `AU-009` (`OPEN`), `PrayerTrackingScreen`/`pregnancy_records` (untouched), the entire Accessibility domain, every `PJ-*`/`RR-*`/`CQ-*` finding closed in prior waves.
+
+### Phase A — Live production state
+
+Used authenticated Supabase CLI tooling (all Management-API-based, non-destructive, non-wire-connecting) to re-check state fresh this wave, rather than citing stale Wave 0/Backup-Recovery-wave evidence:
+
+- `supabase backups list --project-ref jkmjobvxfrmuwafczvtw`: `{"pitr_enabled": false, "backups": [], "physical_backup_data": {}}` — unchanged from every prior wave. Zero restorable managed backups exist today.
+- `supabase migration list --linked`: all 13 local migrations (the 12 historical ones + the new `20260906090000_ai_rate_limit.sql`) show an empty `"remote"` field. Production's tracked-migration ledger remains completely disconnected from the live schema — confirmed fresh, not assumed unchanged. No trace of the retired `pregnancy_milestones` migration (`20260907090000`, deleted in the Dormant Pregnancy Tracking Retirement wave) leaked back into the ledger.
+- `supabase functions list --project-ref jkmjobvxfrmuwafczvtw`: 4 Edge Functions, all `ACTIVE` (`dr-niswah-chat` v8, `fiqh-advisor-chat` v2, `dream-interpreter-chat` v2, `ai-assistant-chat` v2), all `verify_jwt: true` — unchanged from prior waves' evidence.
+
+**No CLI auth hang this wave** — the recurring keychain-auth blocker documented in the Backup/Recovery wave (2026-09-05) did not reproduce; all of the above commands ran successfully on the first attempt.
+
+### Phase B — BR-001 reassessed against its native definition
+
+BR-001's native definition is about **Supabase-managed backup/PITR configuration existing and being verified** — a platform-level guarantee, distinct from schema-recoverability (BR-002, addressed by the canonical baseline) and distinct from a manually-produced logical dump (which this phase attempted, see Phase C). Acceptable mechanisms per the charter: Supabase managed backup/PITR, a verified logical dump, or another provider-supported durable mechanism. **Current state: none of the three exist.** PITR is disabled, managed backups are empty, and — as this wave's own Phase C attempt shows — a logical dump was not completed this wave either. BR-001 remains genuinely `OPEN`; a reproducible schema is not a substitute for a user-data backup, and this wave does not conflate the two.
+
+### Phase C — Logical backup attempt and the credential-exposure incident
+
+Investigated whether authenticated CLI tooling supports a non-destructive logical backup of production data. `supabase db dump --linked --data-only --dry-run` was run expecting purely informational output (the script that *would* run). **Instead, the CLI connected to production to compose the script and printed a real, live, plaintext Postgres password** (`PGPASSWORD` for `cli_login_postgres@db.jkmjobvxfrmuwafczvtw.supabase.co`) directly into command output.
+
+**Immediate response**: stopped all further data-dump attempts; deleted the local task-output file that had briefly captured the value (`rm -f`, confirmed removed); disclosed the exposure to the operator in plain terms without re-printing the password; used a structured question (not a unilateral decision) to ask how to proceed, offering: rotate-and-continue-without-further-data-dump-testing (recommended), treat-as-ephemeral-and-continue-with-full-dump, or stop-all-further-dump-attempts. **Operator selected**: rotate the password, continue without further data-dump testing. Honored for the remainder of this wave — no further `db dump` call was made without an explicit `-s <schema>` (schema-only) argument, no data-only or full dump was attempted, and the exposed value was never reused or re-printed in this document or elsewhere.
+
+**Consequence for BR-001**: the one mechanism that could have partially closed BR-001 this wave (a completed, verified logical data backup) was not completed, specifically because pursuing it further would have required repeating the same class of operation that just leaked a live production credential. This is registered as new evidence *against* BR-001's closure this wave, and as a new owner action (rotate `cli_login_postgres`) — not glossed over, not treated as a backup substitute.
+
+**A broader suspicion, not yet independently confirmed**: it is possible the schema-only dumps (`-s public`/`-s auth`) used safely in earlier waves carry the same underlying wire-connection risk without it having been specifically noticed before, since `--dry-run` was assumed (incorrectly) to avoid any live connection. This wave did not re-test that suspicion (doing so would itself repeat the exact risk just identified) — flagged here as an open question for a future wave using tooling that can be confirmed non-connecting before use, not resolved.
+
+### Phase D — Local restore test
+
+Used the established isolated-local-Supabase methodology: moved `supabase/migrations/` aside, started a clean local stack (`SUPABASE_ACCESS_TOKEN="sbp_local_dummy_..." supabase start`, after resolving a Docker-not-running blocker via `open -a Docker`), applied the canonical baseline (`supabase/canonical_baseline/00_public_baseline_draft.sql`) via `docker cp` + `docker exec ... psql -v ON_ERROR_STOP=1`, then applied `20260906090000_ai_rate_limit.sql` on top.
+
+**Results**:
+- Baseline applied cleanly, 0 errors.
+- W1-001 applied cleanly in **0.136s**, 0 errors (`CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE`, `REVOKE`, `CREATE FUNCTION`, `ALTER FUNCTION`, `REVOKE`, `GRANT` — exactly the 8 statements the file contains, no more, no fewer).
+- Verified objects directly via `information_schema`/`pg_catalog` queries: `ai_rate_limit_counters` table present; both indexes present (`ai_rate_limit_counters_pkey`, `idx_ai_rate_limit_counters_window_start`); RLS enabled (`relrowsecurity = t`) with **zero policies**; `check_and_increment_ai_rate_limit()` present, `prosecdef = t` (`SECURITY DEFINER` confirmed); table grants restricted to `postgres`/`service_role` only — `anon`/`authenticated` correctly excluded; function `EXECUTE` grant present for `anon`, `authenticated`, `postgres`, `service_role` (see Phase G/`W1-002` below for why `anon` unexpectedly appears here).
+- RPC smoke-tested as an authenticated caller (`SET LOCAL role authenticated` + a JWT-claims `sub`): two sequential calls returned `(allowed=true, retry_after=0, count=1)` then `(allowed=true, retry_after=0, count=2)` — atomic increment confirmed correct.
+- Direct table access confirmed denied for both `anon` and `authenticated` roles (`permission denied for table ai_rate_limit_counters`).
+
+**Only synthetic/no data was involved — production-user-data recoverability is explicitly not claimed by this test.** This test proves schema/object recoverability and correctness only, consistent with Phase B's distinction.
+
+**Duration**: local stack cold-start ~90s (once Docker was running), baseline apply <5s, migration apply 0.136s, full verification query pass <5s. Total restore-to-verified time well under 2 minutes once Docker/CLI prerequisites are met. **Manual interventions required**: one (starting Docker Desktop, since it was not already running) — not a defect in the restore procedure itself.
+
+Cleanup performed immediately after: real migration files restored to `supabase/migrations/` (confirmed 13 files present), local stack torn down (`supabase stop --no-backup`), all `supabase`-prefixed Docker volumes removed, confirmed via `git status` showing a clean working tree with no stray transient state.
+
+### Phase E — Migration chain reconstruction
+
+**A second, independent local-restore attempt was made this phase specifically to test the full tracked chain (not just baseline+W1-001)**: with all 13 real migrations restored to `supabase/migrations/`, a fresh `supabase start` was run to let the CLI auto-replay the entire chain from empty, as `supabase db push` would attempt against production.
+
+**Result: failed outright, reproducibly.** The first migration (`20260820174500_niswah_production_schema_security.sql`) applied with only benign `NOTICE`s (objects already handled idempotently). The **second** migration (`20260822014500_niswah_schema_sync_and_indexes.sql`) failed with:
+
+```
+ERROR: relation "public.prayer_log" does not exist (SQLSTATE 42P01)
+At statement: 0
+... DROP POLICY IF EXISTS "Users can only read their own prayer_log" ON public.prayer_log ...
+```
+
+This is direct, reproducible evidence — not inference from the ledger's empty `remote` fields alone — that the tracked migration chain cannot be linearly replayed from empty: `prayer_log` was never created by any tracked migration (it must have been created via the same out-of-band direct SQL execution documented in the original Wave 0 finding), so the second migration's own reference to it fails immediately.
+
+**Classification: `UNSAFE_TO_REPLAY`** for the full chain via `supabase db push` or any linear-replay mechanism. No newly-retired `pregnancy_milestones` reference was found anywhere in the current chain (confirmed via the Phase A migration-list output and a direct grep of `20260906090000_ai_rate_limit.sql`, which references nothing outside its own two new objects). The canonical baseline remains the sole authoritative, proven-working recovery path for schema reconstruction (`BR_recovery_runbook.md`).
+
+Cleanup: migrations moved aside again, volumes removed, stack restarted clean for Phase D/G's remaining tests (see below), then final restoration and teardown performed once all local testing concluded.
+
+### Phase F — W1-001 dependency/safety analysis
+
+Full file re-read (155 lines) and checksum recomputed: `4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639` — exact match to the value recorded in the AI Security wave (2026-09-05), confirming the file is unchanged since its original 13-scenario RLS test harness, 25-concurrent-request load test, and combined fresh-restore test.
+
+**Confirmed via direct inspection**: contains exactly the intended objects (`ai_rate_limit_counters` table, its primary key and one supporting index, `check_and_increment_ai_rate_limit()` function, the exact REVOKE/GRANT statements described in Phase D) and nothing else. **No dependency on `pregnancy_milestones`** (confirmed via grep — zero matches). **No dependency on broken historical migration order** — the file creates its objects with `IF NOT EXISTS`/`CREATE OR REPLACE`, references no pre-existing table or function by name anywhere in its body, and its only foreign concept (`auth.uid()`) is a Supabase platform primitive present since project creation, not something any tracked migration creates. **No destructive `ALTER`/`DROP`** anywhere in the file (confirmed via grep — the only `DELETE` is the function body's own bounded, 2-hour-window retention sweep on its own new table, not a schema-destructive statement). **No production data rewrite, no `auth` trigger modification, no unrelated schema change.**
+
+**Conclusion: W1-001 is independently deployable without replaying any historical migration.** It can be applied to a database at production's actual current live state (built from the canonical baseline plus whatever out-of-band SQL produced the live schema) without requiring the 12 broken/historical tracked migrations to be replayed first.
+
+### Phase G — Deployment safety: transaction, lock, idempotency, re-run behavior — tested, not assumed
+
+**Idempotency directly tested this wave** (the charter's own instruction: "test locally against a production-compatible restored schema," not reason about it): re-ran `20260906090000_ai_rate_limit.sql` a **second time** against the already-migrated local schema from Phase D. Result: **succeeded cleanly, exit code 0**, with two benign `NOTICE`s (`relation "ai_rate_limit_counters" already exists, skipping`; `relation "idx_ai_rate_limit_counters_window_start" already exists, skipping`) and no errors. **Data survived the re-run untouched**: the counter row written during Phase D's RPC test (`request_count = 2`) was confirmed present and unmodified immediately after the second apply. This proves the migration is safely re-runnable if a deployment attempt needs to be retried after a partial failure or an operator mistake.
+
+**Transaction/lock/duration characteristics**: the file contains no explicit `BEGIN`/`COMMIT` — when applied via `psql -f` (as this wave did) or the Supabase SQL editor/CLI's own migration-apply path, each statement runs in its own implicit transaction by default; Postgres DDL (`CREATE TABLE`, `CREATE INDEX`, `CREATE FUNCTION`) is transactional in PostgreSQL specifically, so an interrupted individual statement rolls back cleanly rather than leaving a half-created object — directly observed this wave (0.136s apply time for the whole file leaves negligible interruption window regardless). Lock characteristics are minimal: `CREATE TABLE IF NOT EXISTS`/`CREATE INDEX IF NOT EXISTS` on a brand-new (in production: previously-nonexistent) object take no contended locks against existing application tables; the function replacement takes only a lock on the function itself, not on any table other than its own new one. **Expected production duration: sub-second**, matching this wave's local measurement, since the statements are identical regardless of environment and the table starts empty either way. **Partial-application risk: low** — each DDL statement is independently transactional, and re-running the whole file after any single-statement failure is proven safe (idempotency test above).
+
+**A new minor gap found via this fresh testing (`W1-002`, registered in `00_04`)**: `anon` unexpectedly holds `EXECUTE` on `check_and_increment_ai_rate_limit()` in the local restored environment, despite the migration's `REVOKE ALL ... FROM PUBLIC` + `GRANT ... TO authenticated` intending to keep it authenticated-only. Root cause: the canonical baseline sets `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon` (and `authenticated`, `service_role`, `postgres`) — a direct grant to `anon`, made automatically at `CREATE FUNCTION` time, which `REVOKE ... FROM PUBLIC` does not touch (`PUBLIC` and a named role's direct grant are separate ACL entries). The migration's own table-level revoke correctly names `anon`/`authenticated` explicitly and does strip the equivalent default table grant — the function-level revoke does not follow the same pattern. **Empirically confirmed the practical impact is contained**: calling the RPC as `anon` with no JWT claims set raises `ERROR: Not authenticated` from the function's own `auth.uid() IS NULL` check before any counter logic runs — the intended access control still holds via defense-in-depth layer 2, just not via the grant-level layer 1 the code comment claims. **Not a blocker for W1-001's deployment** — logged as a low-severity, non-blocking follow-up (`W1-002`), with the exact one-line fix identified (`REVOKE EXECUTE ON FUNCTION check_and_increment_ai_rate_limit(TEXT, INT, INT) FROM anon;`), not applied this wave since it constitutes a production schema change outside this wave's read-only-preparation scope.
+
+### Phase H — Old-app/new-app compatibility window
+
+Re-confirmed via direct code trace (grep, not re-reading full files, since the relevant contract was already established and unchanged):
+1. **Old app + new table/RPC present**: the currently-shipped app never calls `check_and_increment_ai_rate_limit` (it doesn't know it exists) — deploying the migration alone, before any client/Edge-Function change, is a pure no-op for existing traffic. Safe.
+2. **New Edge Functions + migration missing**: `supabase/functions/_shared/rate_limit.ts`'s `checkRateLimit` maps any RPC-call failure (including "function does not exist") to `{status: 'limiter_unavailable'}`; `ai-assistant-chat/index.ts` calls `checkRateLimit` at line ~59 and returns the fail-closed 503 response at line ~68, **before** `callGemini` is ever reached at line ~85 — confirmed by direct grep this wave. **Fail-closed, no Gemini call, matches the charter's expected scenario exactly.**
+3. **New Edge Functions + migration present**: already proven by the AI Security wave's real 25-concurrent-request HTTP load test against the actual deployed `ai-assistant-chat` function (15 allowed, 10 rejected, 0 unexpected) — cited here as existing evidence for this specific scenario, not re-run this wave (checksum-verified unchanged file, see Phase F).
+
+**Recommended deployment order** (evidence-based, not blindly following the charter's suggested default): **(1)** confirm/complete a real production user-data backup (BR-001 — currently blocking, see Phase M) **(2)** apply W1-001 via an isolated mechanism (Phase I) **(3)** run the DB-level smoke test (Phase K items 1-4) directly against production **(4)** deploy no new Edge Function code is actually required — the currently-deployed `ai-assistant-chat` (v2) already contains the calling code for this RPC (confirmed via Phase A's functions-list evidence showing `ai-assistant-chat` already `ACTIVE` and unchanged in version since the AI Security wave) — so the only deployment action is the migration itself, which collapses steps that would otherwise need Edge-Function-redeploy ordering **(5)** run the full post-deployment verification plan (Phase K) **(6)** run the production concurrency/load test (Phase K item 9).
+
+### Phase I — Exact isolated deployment commands (prepared, NOT run)
+
+Because the full migration chain is `UNSAFE_TO_REPLAY` (Phase E), `supabase db push` **must not** be used — it would attempt to replay all 12 historical migrations first and fail on the same `prayer_log` error reproduced this wave. The safe alternative, evaluated against the charter's own listed options:
+
+**Chosen mechanism: direct, targeted SQL execution of only the single file**, via the Supabase SQL Editor (dashboard) or an equivalent single-statement-batch `psql`/`pgAdmin` connection scoped to exactly this file — not a general "run migrations" command. Exact prepared procedure:
+
+```
+# 1. Confirm current file integrity immediately before applying (must match this wave's recorded value)
+shasum -a 256 supabase/migrations/20260906090000_ai_rate_limit.sql
+# expect: 4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639
+
+# 2. Apply ONLY this file's contents against production, via the Supabase Dashboard's SQL Editor
+#    (paste the file's exact contents, run once) — this executes the statements directly against
+#    the live database without invoking any migration-history replay mechanism at all.
+#    Equivalent CLI-based alternative, if dashboard access is unavailable, IF AND ONLY IF a
+#    single-file-scoped apply command is confirmed to exist in the installed CLI version without
+#    touching the broader migration ledger (NOT YET CONFIRMED THIS WAVE — dashboard SQL Editor is
+#    the verified-safe path; do not substitute an unverified CLI flag).
+
+# 3. Immediately after, mark the migration as applied in the ledger for future consistency
+#    (does not affect schema, only bookkeeping — safe, matches this file's own timestamp):
+supabase migration repair --status applied 20260906090000 --project-ref jkmjobvxfrmuwafczvtw
+```
+
+**Not run this wave, per the explicit stop condition.** The `migration repair` step is deliberately last and separate from the schema-mutating step, so that even if it were mistakenly run early, it only affects ledger bookkeeping, never the schema itself.
+
+### Phase J — Rollback / forward-fix procedure
+
+**Preferred: forward fix, not destructive rollback.** If a serious issue is found post-deployment:
+- **Edge Function level**: no new Edge Function version needs deploying for this migration alone (Phase H) — the currently-live `ai-assistant-chat` already contains the RPC-calling code and was already proven to fail closed (503, no Gemini call) if the RPC becomes unavailable again. If a genuinely bad Edge Function version were ever involved, Supabase's own function-version history allows redeploying the prior working version directly — no DB action required for that half.
+- **DB/RPC level**: the safest disposition if a problem is found is to **leave the table and function in place** and, if necessary, temporarily `REVOKE EXECUTE ... FROM authenticated;` on the RPC — this immediately makes every call fail closed (503, matching the already-tested fail-closed contract) without touching any data or dropping any object, fully reversible by re-granting.
+- **Destructive DB rollback (`DROP FUNCTION`/`DROP TABLE`) is explicitly NOT recommended** as a first response: it is irreversible without reapplying the migration, provides no benefit over the revoke-based fail-closed approach above, and risks losing legitimate in-flight rate-limit state for no gain.
+- **AI traffic during rollback**: with the RPC revoked (fail-closed), all 4 AI features return 503 rather than silently allowing unlimited Gemini calls — matches this engagement's fail-closed design principle throughout (never fail open on a safety/cost control).
+
+### Phase K — Post-deployment verification plan (prepared, NOT executed)
+
+1. `ai_rate_limit_counters` table exists in production (`information_schema.tables`).
+2. Both indexes exist (`pg_indexes`).
+3. `check_and_increment_ai_rate_limit()` exists, `SECURITY DEFINER` (`pg_proc.prosecdef`).
+4. Direct `SELECT`/`INSERT` against `ai_rate_limit_counters` as `anon`/`authenticated` (via the REST API, not `psql`) is denied.
+5. RPC is callable only as an authenticated user (unauthenticated REST call to the RPC endpoint returns an auth error, not a rate-limit result).
+6. Identity is derived from the caller's own JWT (`auth.uid()`) — a spoofed `user_id` parameter cannot be passed (the function signature has no such parameter, confirmed in Phase F).
+7. An unauthenticated request to `ai-assistant-chat` is rejected before the RPC is ever reached (existing, unrelated auth gate — unaffected by this migration).
+8. A normal authenticated AI request within quota succeeds end-to-end (200, real Gemini response).
+9. Exactly the configured number of requests are permitted, then request quota+1 receives a rate-limit rejection — repeat the AI Security wave's exact 25-concurrent-requests-against-quota-15 test directly against production (this is the step that actually closes `W1-001`, per its own stated closure criteria — production evidence, not local proof alone).
+10. Concurrent requests at the boundary do not overshoot the quota beyond the single documented fixed-window edge case.
+11. Temporarily revoking the RPC's execute grant produces 503 for subsequent calls, with no Gemini call made (fail-closed re-confirmed live).
+12. A rejected (over-quota) request results in zero Gemini API calls (cost-control property, not just an HTTP-status property).
+13. `dr-niswah-chat`'s red-flag exemption still bypasses the limiter correctly in production (re-run the AI Security wave's exact exemption test).
+14. No secrets/internal error detail are exposed in any client-facing response across all of the above (grep response bodies for `PGPASSWORD`, connection strings, stack traces).
+15. Sentry receives events only for genuinely unexpected failures (a normal 429/503 rate-limit rejection is not reported as an error; a limiter-unavailable/503 fail-closed event is reported, matching existing `AppErrorReporter` conventions) — and every other existing DB/application journey (auth, cycle logging, community, chat persistence, pregnancy profile, wellbeing, data export, account deletion) is spot-checked unaffected.
+
+### Phase L — BR-001 through BR-008 reassessed
+
+| Finding | Reassessed status | Basis |
+|---|---|---|
+| `BR-001` | **OPEN** (unchanged) | Still zero PITR/managed backups; this wave's own credential-exposure incident specifically prevented completing a fresh logical data backup. Not closed merely because a backup *procedure* exists — closure requires actual recoverability evidence, which still does not exist for real production user data. |
+| `BR-002` | **OPEN** (unchanged) | Full chain re-confirmed `UNSAFE_TO_REPLAY` with a fresh, specific, reproducible error this wave. Not closed merely because W1-001 itself can be isolated — the finding is about the *whole* migration history, which remains broken. |
+| `BR-003` | Not re-assessed this wave — out of this wave's named scope (W1-001/BR-001/BR-002 specifically); last-known status carried forward unchanged. |
+| `BR-004` | `PARTIALLY_REMEDIATED` (unchanged, carried forward from the Backup/Recovery wave) — the runbook exists; still not exercised by anyone other than this session. |
+| `BR-005`/`BR-006` | Not re-assessed this wave; last-known status carried forward unchanged. |
+| `BR-007` | `VERIFIED_CLOSED` (unchanged, re-confirmed in prior waves; not re-touched this wave). |
+| `BR-008` | `PARTIALLY_REMEDIATED` (unchanged) — a real restore was again demonstrated this wave (twice, in fact — Phase D and Phase E), but only ever against an isolated local environment, never the real production project. |
+
+### Phase M — Decision
+
+**`NOT_SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`**
+
+This is a narrow, specific finding — not a judgment that W1-001 itself is poorly built. W1-001 is independently isolable (Phase F), idempotent and safely re-runnable (Phase G), additive-only with sub-second expected production duration and minimal lock contention (Phase G), and has a proven fail-closed compatibility story across all three old/new deployment-window scenarios (Phase H). **The blocker is entirely external to the migration file itself**: `BR-001` still has zero real production user-data recoverability by any mechanism, and this wave's own credential-exposure incident specifically foreclosed the one path (a fresh logical data backup) that could have partially closed that gap this session. Deploying a schema-mutating migration to production — even a well-isolated, additive, thoroughly-tested one — without a real, verified backup of the data it will sit alongside violates this engagement's standing rule that database safety requires both a safe migration *and* a safe recovery guarantee, not either alone.
+
+**Smallest exact blocker to become `SAFE_TO_AUTHORIZE`**: a real, verified production user-data backup must exist (Supabase-managed PITR/backup enabled and confirmed, OR a completed and restore-tested logical dump produced via a mechanism that does not repeat this wave's credential-exposure risk). Once that single condition is met, this wave's own evidence (Phases D-K) already establishes everything else needed to authorize W1-001's deployment specifically.
+
+### Phase N — Documentation updates
+
+`00_04_MASTER_FINDING_REGISTER.md`: `BR-001`/`BR-002` rows updated with this wave's fresh live evidence (third independent reproduction of `BR-002`'s replay failure, with a new specific error signature; new credential-exposure incident registered against `BR-001`); new wave narrative section appended; new finding `W1-002` registered. `BR_recovery_runbook.md`/`DI_findings.md`/`AB_findings.md`/`RD_release_rollback_runbook.md` were reviewed for relevance this wave (via targeted grep) and found to already correctly defer to `00_04`/`00_09` as the live-status source of truth (an explicit convention stated in `BR_findings.md`'s own header note) — no edit needed there to avoid duplicating status in two places that could drift out of sync. This section (`00_09` §34) is the authoritative, detailed record of this wave's evidence.
+
+---
+
+## Consolidated Report — Production Database Change Safety Gate (BR-001 / BR-002 / W1-001)
+
+1. **Current PITR/managed-backup state**: `pitr_enabled: false`, `backups: []` — unchanged from every prior wave, re-confirmed live this wave via `supabase backups list`.
+2. **Production user-data recoverability state**: **does not exist by any mechanism.** No PITR, no managed backup, no completed logical data dump (attempt aborted this wave after a credential-exposure incident, per operator direction).
+3. **Logical backup procedure/status**: attempted (`supabase db dump --linked --data-only --dry-run`); **aborted** — the command minted and printed a live production DB password as a side effect; not completed this wave; the exact schema-only dump commands used safely in prior waves remain the only currently-trusted CLI-based backup mechanism, and even those are now flagged (Phase C) as warranting independent re-verification of their safety before reuse.
+4. **Restore-test result**: **PASSED**, twice — (a) canonical baseline + W1-001 applied cleanly to a fresh isolated local stack, all expected objects/RLS/grants/RPC behavior verified correct, idempotent re-run also verified with no data loss; (b) full 13-migration tracked chain replay attempted and failed reproducibly on the second migration, directly confirming `BR-002`'s classification. Only synthetic/no data involved in either — production-user-data recoverability is not claimed.
+5. **RPO/RTO**: for **schema-only** recovery via the canonical baseline: RTO ≈ under 2 minutes end-to-end (measured this wave), RPO = 0 for schema (baseline is current and proven). For **user data**: RPO and RTO are both **undefined/infinite** — no backup exists from which any point-in-time or full-data restore could be performed today.
+6. **Migration-ledger state**: all 13 local migrations (12 historical + W1-001) show empty `remote` in `supabase migration list --linked` — the production ledger remains fully disconnected from tracked migrations, re-confirmed live this wave.
+7. **Migration-chain classification**: **`UNSAFE_TO_REPLAY`** for the full chain via `supabase db push`/linear replay — directly reproduced this wave with a specific, fresh error (`relation "public.prayer_log" does not exist`, second migration). **W1-001 itself is independently `SAFE_TO_APPLY`** via a targeted, isolated mechanism (see item 13).
+8. **W1-001 checksum**: `4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639` — matches the value recorded and validated in the AI Security wave (2026-09-05); file unchanged.
+9. **W1-001 dependency/safety analysis**: no dependency on `pregnancy_milestones`, no dependency on the broken historical migration order, no destructive `ALTER`/`DROP`, no production data rewrite, no `auth` trigger modification, no unrelated schema change — confirmed via direct file inspection and grep this wave.
+10. **Transaction/idempotency result**: idempotent — directly tested by re-running the file a second time against an already-migrated schema; succeeded cleanly, zero errors, prior data intact. DDL statements are individually transactional; expected production apply time is sub-second (0.136s measured locally).
+11. **Old/new compatibility result**: all three scenarios verified — old app + new schema (no-op, safe); new Edge Functions + missing migration (fail-closed 503, no Gemini call, confirmed via code trace); new Edge Functions + migration present (already proven via the AI Security wave's real 25-concurrent-request production load test).
+12. **Recommended deployment order**: (1) resolve BR-001 (real verified backup) → (2) apply W1-001 via the isolated SQL-Editor mechanism (item 13) → (3) DB-level smoke test → (4) no separate Edge Function redeploy needed (already live) → (5) full post-deployment verification (item 15) → (6) production concurrency/load test.
+13. **Exact isolated deployment commands** (prepared, NOT run): checksum-verify the file immediately before applying; apply its exact contents via the Supabase Dashboard SQL Editor (verified-safe path — does not touch the migration ledger or replay history); afterward, run `supabase migration repair --status applied 20260906090000 --project-ref jkmjobvxfrmuwafczvtw` as a separate, later, ledger-bookkeeping-only step.
+14. **Rollback/forward-fix procedure**: prefer forward fix — temporarily `REVOKE EXECUTE` on the RPC to force fail-closed (503) behavior without touching data or dropping objects, fully reversible; avoid destructive `DROP TABLE`/`DROP FUNCTION` as a first response; no separate Edge Function rollback is needed since the currently-deployed function already contains the RPC-calling code and was already proven to fail closed if the RPC is unavailable.
+15. **Post-deployment verification plan**: 15 specific checks prepared (Phase K above) covering object existence, access-control enforcement, identity derivation, quota enforcement (including the production load test that is W1-001's own actual closure criterion), fail-closed behavior, red-flag exemption, no secret exposure, and no regression to unrelated journeys.
+16. **BR-001 status**: **OPEN** — re-confirmed live a third time this wave; new credential-exposure incident registered against it as additional negative evidence and a new owner action (rotate `cli_login_postgres`).
+17. **BR-002 status**: **OPEN** — re-confirmed live a third time this wave with a fresh, specific, reproducible error; the working recovery path (canonical baseline) remains proven; W1-001 itself remains independently isolable despite this finding staying open.
+18. **Other BR finding updates**: `BR-004`/`BR-008` remain `PARTIALLY_REMEDIATED` (unchanged); `BR-007` remains `VERIFIED_CLOSED` (unchanged); `BR-003`/`BR-005`/`BR-006` not re-assessed this wave, out of named scope. New finding `W1-002` (low-severity, non-blocking function-grant defense-in-depth gap) registered against the AI-rate-limiter work, discovered by this wave's own fresh local testing.
+19. **Decision**: **`NOT_SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`**.
+20. **Exact remaining prerequisite if blocked**: a real, verified production user-data backup (Supabase-managed PITR/backup confirmed enabled, or a completed and restore-tested logical dump obtained via a mechanism that does not repeat this wave's credential-exposure risk) must exist before any production-database-mutating deployment — including W1-001 — is authorized.
+21. **Unavoidable owner actions**: (1) rotate the exposed `cli_login_postgres` production database password (in progress, per the operator's own stated direction this wave); (2) provision Supabase-managed backups/PITR, or arrange a safely-executed logical data backup, to resolve `BR-001`; (3) once resolved, authorize and execute W1-001's deployment using the prepared procedure above; (4) the standing owner actions from every prior wave remain outstanding and untouched by this wave (Gemini key rotation, the `PC-006` legal determination, `OB-006`'s Sentry confirmation, `RD-009`'s rollback kill-switch, `AU-009`'s live device/AT testing, `PrayerTrackingScreen`/`pregnancy_records` disposition).
+22. **Updated overall verdict**: **NO-GO** (unchanged) — this wave neither closed nor was authorized to close any standing blocker; it produced real, freshly-tested, evidence-backed readiness for a future W1-001 deployment, correctly escalated a genuine new security incident to the operator rather than concealing or unilaterally resolving it, and surfaced one new minor defense-in-depth gap (`W1-002`) via its own testing rather than overclaiming completeness. Every remaining launch blocker — most acutely, a real production data backup and the Gemini key rotation — is untouched by this wave's scope and remains outstanding.
