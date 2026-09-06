@@ -11,7 +11,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getPregnancyStatus, PregnancyProfileRow, PregnancyStatus } from './pregnancy_status.ts';
 import { callGemini } from '../_shared/gemini_client.ts';
-import { AI_ENDPOINT_RATE_LIMIT, checkRateLimit, rateLimitedResponse } from '../_shared/rate_limit.ts';
+import {
+  AI_ENDPOINT_RATE_LIMIT,
+  checkRateLimit,
+  limiterUnavailableResponse,
+  rateLimitedResponse,
+} from '../_shared/rate_limit.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -197,12 +202,16 @@ Deno.serve(async (req) => {
     // A red-flag safety message must never be blocked by abuse controls —
     // the rate limit applies only to non-urgent traffic (closes AB-008).
     if (!urgent) {
-      const rateLimit = checkRateLimit(
-        `dr-niswah-chat:${userId}`,
+      const rateLimit = await checkRateLimit(
+        userClient,
+        'dr-niswah-chat',
         AI_ENDPOINT_RATE_LIMIT,
       );
-      if (!rateLimit.allowed) {
-        return rateLimitedResponse(rateLimit.retryAfterSeconds!, corsHeaders);
+      if (rateLimit.status === 'rate_limited') {
+        return rateLimitedResponse(rateLimit.retryAfterSeconds, corsHeaders);
+      }
+      if (rateLimit.status === 'limiter_unavailable') {
+        return limiterUnavailableResponse(corsHeaders);
       }
     }
 

@@ -8,7 +8,12 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { callGemini } from '../_shared/gemini_client.ts';
-import { AI_ENDPOINT_RATE_LIMIT, checkRateLimit, rateLimitedResponse } from '../_shared/rate_limit.ts';
+import {
+  AI_ENDPOINT_RATE_LIMIT,
+  checkRateLimit,
+  limiterUnavailableResponse,
+  rateLimitedResponse,
+} from '../_shared/rate_limit.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,12 +56,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    const rateLimit = checkRateLimit(
-      `ai-assistant-chat:${userData.user.id}`,
+    const rateLimit = await checkRateLimit(
+      userClient,
+      'ai-assistant-chat',
       AI_ENDPOINT_RATE_LIMIT,
     );
-    if (!rateLimit.allowed) {
-      return rateLimitedResponse(rateLimit.retryAfterSeconds!, corsHeaders);
+    if (rateLimit.status === 'rate_limited') {
+      return rateLimitedResponse(rateLimit.retryAfterSeconds, corsHeaders);
+    }
+    if (rateLimit.status === 'limiter_unavailable') {
+      return limiterUnavailableResponse(corsHeaders);
     }
 
     const { content } = await req.json();

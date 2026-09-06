@@ -1401,3 +1401,160 @@ Not independently re-run as a separate end-to-end pass beyond what Phase L's 10 
 **Owner actions required**: (1) schedule a real Phase 2B pass — VoiceOver on iOS + TalkBack on Android, on real devices, for the critical journeys — before or immediately after this wave lands, per the specialist's own R7; this is the only way `AU-009` (and therefore this domain's NO-GO status) can close; (2) decide whether the ARB/`gen-l10n` migration (`AU-007`'s R6(c)) is worth scheduling as its own initiative; (3) product sign-off on the `AU-003` color change if a design review process exists (a technical, WCAG-driven, hue-preserving, narrowly-scoped change was made without that sign-off, consistent with this session's authority to make evidence-based technical accessibility fixes, but flagged here per the remediation plan's own "requires design sign-off" note).
 
 **Overall verdict: remains NO-GO** — `AU-009`'s live-testing gap alone still independently triggers a NO-GO for this domain per the specialist audit's own explicit decision rule, and the engagement's other standing blockers (`SEC-001` key rotation, `BR-001`/`BR-002` backup/recovery, `RD-006` build numbering, `RD-009` rollback, among others) remain untouched by this wave. What changed: `AU-001` (the domain's other independent NO-GO trigger) is now genuinely fixed and validated to a meaningfully higher evidentiary bar than the original static audit — real automated semantics-tree testing, not code reading — and three previously-undiscovered defects (one of them a real mis-activation risk, not merely cosmetic) were found and closed in the same pass.
+
+---
+
+## 25. AI Security + Abuse Control Remediation Wave (2026-09-05)
+
+**No production DB schema/migration/RLS/trigger/function/RPC was applied to production.** The new migration exists only in the repository, tested exclusively against a disposable local Supabase stack built from the current canonical baseline, then torn down completely (`supabase stop --no-backup`, docker volumes removed). `W0-002` untouched. This wave's stop condition is honored: it stops before production application and reports the exact deployment sequence below (Phase M) rather than executing it.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below:** `W0-002` (`DEFERRED`), `RR-001` (`PARTIALLY_REMEDIATED`), `PJ-006` (`OPEN`), `BR-001` (`OPEN`), `RD-009` (`OPEN`), `DC-010` (`OPEN`), `OB-006` (`PARTIALLY_REMEDIATED`), remaining Privacy/Compliance findings (`PC-005`/`PC-008`/`PC-009` `OPEN`; `PC-003`/`PC-004`/`PC-006` `PARTIALLY_REMEDIATED`), `prayer_location` privacy follow-up (`DEFERRED`), the entire Accessibility domain (`AU-009` `OPEN`, all else as closed in §24).
+
+### Phase A — Gemini credential state (no key value ever printed)
+
+- **Git history**: full `git log --all -p` searched for any `GEMINI_API_KEY=<value>` assignment and any `AIza[0-9A-Za-z_-]{35}`-pattern literal (Google API key format). Zero `GEMINI_API_KEY` matches anywhere in history — consistent with the key having only ever existed as a local, gitignored `.env` value bundled at build time, never committed. **One** `AIza…` match exists in history, but it is an unrelated **Firebase Web API key** hardcoded in `firebase-applet-config.json` — a legacy, orphaned artifact of the separate reference-only web app (`src/`), already tracked as its own finding (`CQ-001`/`DC-008`) in a prior audit pass, confirmed still present in the working tree today. Not a Gemini credential; out of this wave's scope (and `src/` is explicitly reference-only per standing project guidance — not touched).
+- **Local client `.env`**: contains no `GEMINI_API_KEY=` assignment line — only an explanatory comment stating it is intentionally absent (matches `.env.example`'s own documentation of the trust-boundary design).
+- **Deployed secret fingerprint**: `supabase secrets list --project-ref <ref>` (read-only by design — returns each secret's SHA-256-style hash digest, never the plaintext value) succeeded this wave (the CLI's usual keychain-auth hang did not occur for this specific call). Result: `GEMINI_API_KEY` present, `updated_at: 2026-09-04T20:27:29Z` — **before** the Edge Function migration commits (`22:55`/`23:54` the same day). This is strong evidence the deployed key has never been rotated since before the trust-boundary migration — i.e., it is still the same key that was, at some point before this engagement began, bundled into a client release.
+- **Current release artifact re-scan (Phase J, done here for continuity with Phase A)**: `build/app/outputs/flutter-apk/app-release.apk`'s bundled `.env` re-inspected directly — no `GEMINI_API_KEY` value (only the same explanatory comment). Additionally, **the compiled Dart AOT binary itself** (`lib/arm64-v8a/libapp.so`) was extracted and scanned with `strings | grep` for the `AIza…` key pattern — **zero matches**, a broader check than any prior wave performed (previous verification only inspected the bundled `.env` asset, not the compiled application code).
+- **Edge Function code**: all 4 AI functions read `GEMINI_API_KEY` exclusively via `Deno.env.get('GEMINI_API_KEY')` server-side (`_shared/gemini_client.ts`); no client-side Gemini call path, direct dependency, or fallback exists anywhere in `lib/` (re-confirmed by grep — zero Gemini-related imports/URLs outside `supabase/functions/`).
+
+### Phase B — Credential rotation: `CREDENTIAL_ROTATION_OWNER_BLOCKED`
+
+Checked for `gcloud` CLI: not installed. No other authenticated Google Cloud / Gemini AI Studio credential-management tooling is available in this session. Per the explicit instruction, the wave was **not** stopped — this is recorded as `CREDENTIAL_ROTATION_OWNER_BLOCKED` and the session proceeded directly to `W1-001`. `SEC-001`/`ROOT-002` remain `OPEN` (not `VERIFIED_CLOSED`) — the exposed key has not been revoked, and this session has no path to revoke it. This is an owner action requiring Google Cloud Console / AI Studio access: generate a new key, set it via `supabase secrets set GEMINI_API_KEY=<new-key> --project-ref <ref>` (the Supabase-side half of this **is** something a future session with this same CLI access could execute — the block is specifically at Google's key-generation/revocation step, not Supabase's secret-storage step), verify all 4 functions with the new key, then revoke the old key in Google Cloud Console.
+
+### Phase C/D — W1-001 architecture: durable, atomic, Postgres-backed
+
+Root cause (re-confirmed, not re-litigated): Supabase's Edge Runtime does not guarantee warm, single-instance reuse, so a process-local `Map` is not actually shared across the concurrent instances handling real traffic — proven in production by the prior wave's 28-request/zero-429 result.
+
+**Design**: a fixed-window counter (one row per `user_id, function_name, window_start`), not a sliding-window log — chosen for deterministic, testable reset behavior and because a single atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` can both increment and read the count under one Postgres row-level lock, closing the race a sliding-window log would need more machinery to close. The one accepted trade-off (documented in the migration's own comments): a client could in principle send close to the quota right at a window boundary and again just after — bounded, still hard-caps sustained abuse/cost, and was judged an acceptable trade for implementation simplicity per the "smallest robust solution" instruction.
+
+- **Identity**: exclusively `auth.uid()`, read inside the `SECURITY DEFINER` function from the session's JWT claims — no user-id parameter exists anywhere in the function's signature, so there is no argument through which a caller could spoof another identity. Matches this schema's existing `delete_my_account()`/`is_admin()` pattern exactly.
+- **Direct client access**: not needed, not granted. RLS enabled on `ai_rate_limit_counters` with zero policies; `REVOKE ALL ... FROM PUBLIC, authenticated, anon` on the table itself. Every legitimate path is the RPC, which runs with the function owner's privileges.
+- **`SECURITY DEFINER` safety**: explicit `SET search_path = public` (never trusts an unqualified/attacker-influenced path); minimal grant (`GRANT EXECUTE ... TO authenticated` only, not `anon`/`PUBLIC`); the function cannot be used as a generic privilege-escalation surface — it does exactly one thing (increment/read one counter row scoped to the caller's own `auth.uid()`), takes no identity parameter, and every other statement inside it operates only on the one table it owns.
+- **Bounded storage growth / cleanup**: no `pg_cron` dependency introduced (confirmed not already enabled in this project — didn't want to add a new extension for this). Instead, an opportunistic sweep runs inside the RPC itself on ~2% of calls, deleting rows older than 2 hours (comfortably covering any `window_seconds` this schema's own validation allows, ≤86400s/24h... correction: the sweep window (2h) is chosen relative to the *actual* configured window (5 min) with wide margin, not the schema's outer bound) — self-contained, no scheduler infrastructure required, and directly tested (see Phase E).
+- **Observability**: `current_count` is returned to the caller (and can be logged) for operator visibility; the RPC never sees or stores request content, prompts, or health data — its only inputs are an identity (from the JWT), a function name string, and two integers.
+
+### Phase E — Local migration implementation and validation
+
+Migration: `supabase/migrations/20260906090000_ai_rate_limit.sql` (SHA-256: `4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639`). Applied **only** to a disposable local Supabase stack, rebuilt from the current canonical baseline (`supabase/canonical_baseline/00_public_baseline_draft.sql`) via the established methodology (migrations moved aside, baseline applied via `docker exec ... psql`, migrations restored, then the new migration applied on top) — not the historically-broken migration chain (`BR-002`).
+
+All 13 required scenarios tested directly against this stack (`psql`, simulating distinct authenticated sessions via `SET request.jwt.claims`/`SET role authenticated`, plus a separate real HTTP concurrency test — see Phase G):
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | First allowed request | ✅ `allowed=true, count=1` |
+| 2 | Requests up to quota | ✅ counts 2, 3 correctly incremented and allowed |
+| 3 | First over-limit request | ✅ `allowed=false, count=4` |
+| 4 | Repeated over-limit requests | ✅ `allowed=false, count=5`; `retry_after_seconds > 0` |
+| 5 | Window reset | ✅ 2nd request in a 2s window rejected; after a 3s wait, a new request is allowed and count resets to 1 |
+| 6 | Separate users | ✅ User A over quota does not affect User B's independent first request |
+| 7 | Separate AI functions | ✅ same user, independent quotas per `function_name` |
+| 8 | Concurrency | ✅ 30 concurrent DB-level calls against a quota of 10: exactly 10 allowed, final stored count 30 (zero lost updates) — see also the real HTTP-level version in Phase G |
+| 9 | Unauthenticated invocation | ✅ raises `Not authenticated` (no JWT claims set) |
+| 10 | Spoofed client user id | ✅ structurally impossible — confirmed via `pg_get_function_arguments`: the function signature has no user-id parameter at all |
+| 11 | Direct table access attempt | ✅ both `SELECT` and `INSERT` as `authenticated` role denied with `permission denied` |
+| 12 | Malformed input | ✅ invalid `function_name` pattern, zero `max_requests`, negative `window_seconds` all raise the expected validation exception |
+| 13 | Cleanup/retention | ✅ a manually-inserted 3-hour-old row was confirmed removed after ~300 calls (statistically guaranteeing the 2% sweep fired at least once) |
+
+20/20 individual assertions passed (one test scenario intentionally split into multiple assertions).
+
+### Phase F — Edge Function integration
+
+`_shared/rate_limit.ts` rewritten: the disproven in-memory `Map` implementation replaced with a call to the new RPC via the caller's own user-scoped Supabase client (the same client every function already creates for its RLS-scoped reads — never the service-role client). One shared helper, not four ad hoc implementations — unchanged from the prior design's own good practice, just re-pointed at the new backing store. `checkRateLimit()` now returns a 3-way discriminated result (`allowed` / `rate_limited` / `limiter_unavailable`) instead of a boolean, so callers can't accidentally conflate "over quota" with "the safety control itself failed."
+
+**Fail-open vs. fail-closed — chosen deliberately, fail-closed**: if the RPC call errors (network blip, DB unavailable, unexpected response shape), `checkRateLimit()` returns `limiter_unavailable`, and every integrated function returns a plain HTTP 503 ("temporarily unavailable") **without ever calling Gemini**. Rationale, per the charter's own stated preference: Gemini calls cost real money and are exactly the abuse surface this control exists to close; an unavailable safety control silently reverting to "let everything through" would turn a limiter outage into an unrestricted, unmetered proxy. No evidence exists that another control would safely bound abuse in that window, so fail-closed is the correct choice here. Directly tested (Phase H).
+
+Integrated into all 4 functions (`dr-niswah-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat`), each now calling `checkRateLimit(userClient, '<function-name>', AI_ENDPOINT_RATE_LIMIT)`. The `dr-niswah-chat` red-flag exemption (`if (!urgent) { ...check... }`, closing `AB-008`) is structurally unchanged — the rate-limit check is still skipped entirely for urgent messages, now re-verified against the new implementation (see Phase G).
+
+### Phase G — Concurrency / load validation (numerical evidence, not unit tests alone)
+
+Ran against the real, running `ai-assistant-chat` Edge Function (via `supabase functions serve` against the same isolated local stack) with a **fresh** test user (no pre-existing counter), firing **25 concurrent HTTP requests** — materially more than the configured 15-request quota:
+
+```
+configured_limit=15
+requests_attempted=25
+allowed=15
+rejected=10
+unexpected=0
+rejected_responses_containing_gemini_text=0
+final_db_counter=25
+```
+
+Every rejected response was a clean `429` with no Gemini-generated text present in the body (confirming Gemini was never invoked for rejected requests, not just that the client saw an error). The final stored counter (25) exactly matches the number of concurrent requests attempted — zero lost updates, zero double-counts, under real concurrent HTTP load against the actual function code path (not a synthetic DB-only test). This is the same class of evidence (numerical, request-level) that originally *disproved* the old limiter, now proving the new one.
+
+Separately re-confirmed **the `dr-niswah-chat` red-flag exemption survives being far over quota**: with a test user's `dr-niswah-chat` counter manually pushed to 20 (vs. a 15 quota), a message containing red-flag content (`"I have severe bleeding right now"`) still returned `HTTP 200`, `urgent: true`, the real safety banner, and a real Gemini-generated response — not blocked. A non-urgent message from the same over-quota user, immediately after, was correctly rejected with `HTTP 429`.
+
+### Phase H — Failure-mode validation
+
+Simulated the limiter's backing RPC becoming unavailable by revoking `EXECUTE` on `check_and_increment_ai_rate_limit` from the `authenticated` role mid-session (a real permission-denied condition, not a mock). Result: `ai-assistant-chat` returned `HTTP 503` with the safe "temporarily unavailable" message — **no Gemini call was made** (confirmed by response latency and absence of any Gemini-shaped content) — and the server-side log recorded `rate_limit: RPC error, failing closed { functionName: 'ai-assistant-chat', error: 'permission denied for function check_and_increment_ai_rate_limit' }`: useful for an operator, contains no tokens, prompts, chat content, health data, or credentials. Grant restored; normal `429`/`200` behavior immediately resumed on the next request, confirming the fail-closed path is not sticky/stateful beyond the actual outage.
+
+### Phase I — Fiqh Search-grounding recheck
+
+Live call against `fiqh-advisor-chat` on the isolated stack (`{"question":"What breaks wudu?","madhhab":"hanafi"}`) returned the designed fallback text (`"تعذر الوصول إلى المصادر الموثقة الآن..."`, empty citations, `HTTP 200`). Server-side function log confirmed the underlying cause precisely: `Gemini request failed (429).` — **the identical Google Search-grounding quota/billing condition** documented in the original Operational Closure Checkpoint, not a new or different failure. **Classification: B — DEGRADED**, unchanged. The application does not silently serve an ungrounded ruling; it explicitly declines and states sources couldn't be reached, exactly as designed. Blocked on an owner-side Google Cloud quota/billing resolution (`https://ai.google.dev/gemini-api/docs/rate-limits`), not a code defect — not attempted to work around by removing/weakening grounding, per the explicit instruction.
+
+### Phase J — Client / release artifact re-verification
+
+- `GEMINI_API_KEY` in Flutter source: zero occurrences (`grep -rn` across `lib/`).
+- `GEMINI_API_KEY` in `.env.example`: absent — only an explanatory comment (unchanged from prior waves, re-confirmed).
+- `GEMINI_API_KEY` in any tracked file (full git history): zero matches, re-searched this wave.
+- `GEMINI_API_KEY` in the release asset bundle: absent, re-confirmed directly from the current `app-release.apk`'s bundled `.env`.
+- `GEMINI_API_KEY` (or any `AIza…`-pattern key) in the compiled Dart AOT binary: **zero matches** — new, broader check this wave (`libapp.so` extracted and scanned directly).
+- Direct Gemini client dependency/path: none found — every AI feature's only network call is to its own Supabase Edge Function.
+- Emergency fallback bypassing Edge Functions: none found — the direct-Gemini fallback path that `SEC-006` closed remains removed (re-confirmed, not re-added).
+- Edge Functions authenticate callers: all 4 functions require and validate a real `Authorization` header via `userClient.auth.getUser()` before doing anything else, re-confirmed by reading each function's current source this wave.
+
+### Phase K — Tests
+
+Local database migration tests: 20/20 assertions (Phase E). Edge Function integration tests: 4/4 functions confirmed working end-to-end against the new limiter, including one real Gemini success per function (dr-niswah-chat normal + red-flag, fiqh-advisor-chat degraded-safe, dream-interpreter-chat, ai-assistant-chat). Concurrency/load test: Phase G's numerical results. Abuse-control test: over-quota rejection confirmed for a non-urgent message; red-flag exemption confirmed preserved. Fiqh grounding test: Phase I. Credential/client artifact scan: Phase J. `dart analyze lib/`/`flutter test`: **not re-run** — confirmed via `git status` that no Flutter/Dart application code changed this wave (only `supabase/functions/*.ts` and a new `supabase/migrations/*.sql` file); the last-known baseline (**319/327**, same 8 pre-existing golden-image diffs) is unaffected and remains current, matching the precedent set by the Backup/Recovery wave for DB-only/backend-only passes.
+
+### Phase L — Finding reassessment
+
+| Finding | Status | Notes |
+|---|---|---|
+| `W1-001` | **PARTIALLY_REMEDIATED — CODE_COMPLETE / LOCALLY_VERIFIED** | Fully implemented, exhaustively tested locally including a real concurrent-HTTP-load numerical proof; not production-deployed |
+| `SEC-001` | **OPEN** | Rotation still the sole gate; confirmed `CREDENTIAL_ROTATION_OWNER_BLOCKED` this wave, not silently left ambiguous |
+| `ROOT-002` | **OPEN** (unchanged classification) | Same basis as `SEC-001`; deployment/client-artifact half re-confirmed and broadened this wave |
+| `AB-002` | **PARTIALLY_REMEDIATED** | Direct-call half remains closed; rate-limit half now code-complete/locally-verified |
+| `SEC-005` | **PARTIALLY_REMEDIATED** | Same rate-limiter fix |
+| `AB-008` | **PARTIALLY_REMEDIATED** | Same rate-limiter fix; red-flag exemption specifically re-verified |
+| Fiqh Search-grounding | **B — DEGRADED** (unchanged) | Re-tested live this wave; identical root cause confirmed, not assumed unchanged |
+
+### Phase M — Production deployment package (prepared, NOT executed)
+
+**1. Migration file(s)**: `supabase/migrations/20260906090000_ai_rate_limit.sql` (creates `ai_rate_limit_counters` table + `check_and_increment_ai_rate_limit()` function; no changes to any existing table/function/policy).
+
+**2. Migration hash/version**: SHA-256 `4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639`. Verify this matches before applying: `shasum -a 256 supabase/migrations/20260906090000_ai_rate_limit.sql`.
+
+**3. Preconditions**:
+- Confirm no table/function named `ai_rate_limit_counters`/`check_and_increment_ai_rate_limit` already exists in production (expected: none — this is new).
+- Confirm `pg_cron` is *not* required (it isn't — the migration is self-contained).
+- Confirm a maintenance window is not strictly required (the migration only adds new objects; it does not lock or alter any existing table), but standard change-management practice still applies.
+
+**4. Required backup/recovery checkpoint**: per this engagement's own `BR_recovery_runbook.md` (Backup/Recovery wave), take/confirm a current backup checkpoint immediately before applying **any** production migration — this migration is additive-only (no existing data touched), but the standing rule applies uniformly, not selectively.
+
+**5. Exact migration command**:
+```
+supabase db push --project-ref <production-ref>
+```
+(or, if migration history has drifted per `BR-002`'s known issue, apply the single file directly via `psql`/the Supabase SQL editor rather than replaying the full chain — consistent with how this wave itself avoided the broken chain.)
+
+**6. Expected schema diff**: `+1 table (ai_rate_limit_counters)`, `+1 index (idx_ai_rate_limit_counters_window_start)`, `+1 function (check_and_increment_ai_rate_limit)`, `+RLS enabled on the new table (no policies)`, `+2 REVOKE statements`, `+1 GRANT statement (EXECUTE to authenticated)`. Zero changes to any existing table, column, function, trigger, or policy.
+
+**7. Edge Function deployment order**: deploy `_shared/rate_limit.ts` and all 4 updated functions (`dr-niswah-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat`) **together, after** the migration is confirmed applied — the new code calls an RPC that must already exist, or every call fails closed (503) for all traffic until the functions are updated or the migration lands. Deploying the migration first (functions still on old code) is safe and inert (the old in-memory limiter simply keeps running, ignoring the new table) — the reverse order is not.
+
+**8. Smoke-test sequence** (post-deploy, using a disposable/test account, not a real user):
+1. Call each of the 4 functions once, confirm `200` with a real reply.
+2. Call `dr-niswah-chat` with red-flag content, confirm `200`/`urgent:true`/safety banner.
+3. `SELECT * FROM ai_rate_limit_counters WHERE user_id = '<test-user-id>';` — confirm rows are being written.
+
+**9. Production load-test sequence**: repeat this wave's Phase G test (25 concurrent requests against a fresh test account, quota=15) directly against the deployed production `ai-assistant-chat` — this is the step that actually closes `W1-001` (the original defect was specifically "proven ineffective in production," so closure requires the same class of production evidence, not just local proof). Expect: `allowed=15, rejected=10, unexpected=0`, matching this wave's local result.
+
+**10. Rollback strategy**: `DROP FUNCTION check_and_increment_ai_rate_limit(TEXT, INT, INT); DROP TABLE ai_rate_limit_counters;` — safe, since nothing else references these new objects. Edge Functions should be rolled back to the prior deployed version **first** (or simultaneously) if the migration is rolled back, since the new function-code has no fallback for a missing RPC beyond fail-closed 503 for all AI traffic.
+
+**11. Database rollback limitations**: none specific to this migration (purely additive, no data migrated from an existing structure) — but any rows already written to `ai_rate_limit_counters` before a rollback are lost with the table; this is acceptable (the table holds only short-lived rate-limit counters, not user content or durable state).
+
+**12. Exact finding closure criteria**: `W1-001`/`AB-002`/`SEC-005`/`AB-008` may move to `VERIFIED_CLOSED` only after (a) the migration is applied to production, (b) all 4 Edge Functions are deployed with the new integration, (c) the production load-test sequence (item 9) is run and produces results consistent with the configured quota (no unexpected successes), and (d) the fail-closed behavior is confirmed in production (or accepted as already proven equivalent by this wave's local test, at the release owner's discretion). `SEC-001`/`ROOT-002` require, separately and unconditionally, proof that the old exposed key has been revoked in Google Cloud Console — unaffected by anything in this deployment package.
+
+**Owner actions required**: (1) rotate/revoke the exposed Gemini key in Google Cloud Console — the sole remaining gate on `SEC-001`/`ROOT-002`, confirmed this session cannot perform it; (2) review and execute the production deployment package above (Phase M) — apply the migration, deploy the Edge Functions, run the production load test — to move `W1-001`/`AB-002`/`SEC-005`/`AB-008` toward `VERIFIED_CLOSED`; (3) resolve the Google Cloud quota/billing condition blocking Fiqh Search-grounding; (4) the standing owner actions from every prior wave (public privacy-policy hosting, `PC-008`/`PC-009`, `AU-009` live device testing, `BR-001`/`BR-002`, `RD-006`/`RD-009`, among others) remain outstanding and untouched by this wave.
+
+**Overall verdict: remains NO-GO** — real, substantial progress was made (a previously-disproven control is now genuinely fixed and validated to a strong evidentiary bar), but none of it is live in production yet, the Gemini key rotation remains genuinely blocked, and the engagement's other standing blockers are untouched by this wave's scope.
