@@ -67,20 +67,35 @@ android {
     buildTypes {
         release {
             // No more silent debug-signing fallback (DC-005/SEC-003): a
-            // release build without `key.properties` now fails loudly at
-            // configuration time instead of producing a store-unpublishable,
-            // debug-signed artifact that looks like a real release build.
+            // release build without `key.properties` fails loudly instead of
+            // producing a store-unpublishable, debug-signed artifact that
+            // looks like a real release build. The failure itself is raised
+            // below via taskGraph.whenReady, not here — the `release {}`
+            // block body is evaluated at Gradle *configuration* time for
+            // every invocation regardless of which task is requested (a
+            // real defect this repo's own CI caught: `assembleDebug` failed
+            // configuration entirely because this block used to throw
+            // unconditionally). Only actually assembling/bundling the
+            // release variant should require a real keystore.
             signingConfig = if (hasKeystoreProperties) {
                 signingConfigs.getByName("release")
             } else {
-                throw GradleException(
-                    "android/key.properties not found — a release build requires " +
-                    "a real signing keystore (DC-005/SEC-003). See " +
-                    "production-readiness-results/release-deployment/ for the " +
-                    "keystore-generation and custody procedure. Debug-signing a " +
-                    "release build is exactly the defect this check prevents."
-                )
+                null
             }
+        }
+    }
+}
+
+if (!hasKeystoreProperties) {
+    gradle.taskGraph.whenReady {
+        if (allTasks.any { it.name.contains("Release") }) {
+            throw GradleException(
+                "android/key.properties not found — a release build requires " +
+                "a real signing keystore (DC-005/SEC-003). See " +
+                "production-readiness-results/release-deployment/ for the " +
+                "keystore-generation and custody procedure. Debug-signing a " +
+                "release build is exactly the defect this check prevents."
+            )
         }
     }
 }
