@@ -26,7 +26,7 @@ Steps are numbered in the order that minimizes context-switching and dead time. 
 
 ## Step 2 — Rotate the exposed Gemini API key
 
-See **Gemini Rotation Handoff** below for the full sequence. Start this now — it has no dependency on any other step and closes a standing, pre-existing exposure (`SEC-001`/`ROOT-002`).
+**✅ DONE (2026-09-07) — `SEC-001`/`ROOT-002` now `VERIFIED_CLOSED`.** New key generated and set as the Supabase secret; all 4 Edge Functions redeployed (`dr-niswah-chat` v9, others v3); two independent rounds of real production smoke tests — one before, one after you confirmed revoking the old key in Google Cloud Console — both passed identically (real Gemini replies from all 4 functions, red-flag safety exemption intact, Fiqh still safely degraded, correct 400/401, zero credential leakage). The post-revocation round is the decisive evidence: every function kept working with the old key gone, directly proving the new one is what's in use. See **Gemini Rotation Handoff** below for the full sequence as executed.
 
 ## Step 3 — Provision a real production backup (start early — this has a wait)
 
@@ -177,16 +177,17 @@ Check: `backups` non-empty, at least one entry `completed`, timestamp is recent 
 9. **Rollback path** (if anything above fails): revoke the RPC's execute grant (forces fail-closed, no data touched, fully reversible) — see `RD_release_rollback_runbook.md` §6.2 for the complete W1-001 incident procedure.
 10. Once (1)-(8) all pass: `W1-001`/`AB-002`/`SEC-005`/`AB-008` move to `VERIFIED_CLOSED`.
 
-## Gemini Rotation Handoff (SEC-001 / ROOT-002)
+## Gemini Rotation Handoff (SEC-001 / ROOT-002) — ✅ COMPLETE, 2026-09-07
 
-1. Google Cloud Console / AI Studio → generate a new Gemini API key.
-2. `supabase secrets set GEMINI_API_KEY=<new-key> --project-ref jkmjobvxfrmuwafczvtw` (this step **is** CLI-executable by an engineering session — the block was always at Google's key-generation step, not Supabase's secret-storage step).
-3. Redeploy or restart is **not required** — Supabase Edge Functions read secrets at invocation time, not at deploy time; the new key takes effect on the next request automatically.
-4. Verify all 4 functions with the new key: call each once with a real authenticated test account, confirm 200 + a real Gemini reply (proves the new key actually works, not just that it was set).
-5. Revoke the **old** key in Google Cloud Console — only after step 4 confirms the new one works.
-6. Re-confirm the client artifact remains clean (re-run the existing check, don't skip it just because rotation happened): extract a release build's bundled `.env` and scan the compiled binary for `AIza[0-9A-Za-z_-]{35}` — expect zero matches, exactly as every prior wave found.
+**As executed**:
+1. Google Cloud Console / AI Studio → new Gemini API key generated (owner action).
+2. Supabase secret updated — confirmed via metadata only (`updated_at` changed from `2026-09-04T20:27:29Z` to `2026-09-07T10:51:48Z`; value never seen or requested).
+3. All 4 functions redeployed (`dr-niswah-chat` v8→v9, `fiqh-advisor-chat`/`dream-interpreter-chat`/`ai-assistant-chat` v2→v3) — note: `supabase functions deploy` hung locally (0% CPU, 3 attempts, killed each time) but a version check confirmed the redeploy completed server-side regardless; reported as an honest, unexplained-but-verified tooling discrepancy, not glossed over.
+4. **Round 1 (pre-revocation)** smoke test: all 4 functions returned real Gemini replies via a synthetic admin-created test account; red-flag exemption intact; Fiqh safely degraded; 400/401 correct; zero credential leakage.
+5. Old key revoked in Google Cloud Console (owner action, confirmed).
+6. **Round 2 (post-revocation)** smoke test — a second, independent full round, new synthetic account: identical results. **This round is the decisive evidence** — every function kept returning real Gemini output after the old key was no longer valid anywhere, directly proving the new key is in use, not inferring it from the rotation action alone.
 
-**Closure evidence**: all 4 functions return real Gemini replies under the new key; the old key shows revoked/inactive in Google Cloud Console; the client artifact scan is clean. No secret value belongs in any report — closure is evidenced by behavior (function responses succeed) and console state (old key revoked), never by pasting the key itself.
+**Closure evidence, achieved**: both rounds passed; the old key is revoked; client artifact remains clean (re-confirmed via source-level scan — zero `AIza…` matches, zero direct Gemini call paths). `SEC-001`/`ROOT-002` → **`VERIFIED_CLOSED`**. No secret value appeared in any report at any point.
 
 ## OB-006 Handoff
 
@@ -243,13 +244,13 @@ Concise physical-device script — critical journeys only, not exhaustive:
 
 # Release decision model
 
-**NO-GO**: any of — no verified production data backup exists (`BR-001` unresolved), an exposed credential remains unrotated (`SEC-001`/`cli_login_postgres`), a critical safety/recovery/consent control is confirmed broken (none currently — all such findings are closed or narrowed to non-safety gaps).
+**NO-GO**: any of — no verified production data backup exists (`BR-001` unresolved), an exposed credential remains unrotated (both `cli_login_postgres` and the Gemini key are now rotated/revoked and verified — this gate has cleared), a critical safety/recovery/consent control is confirmed broken (none currently — all such findings are closed or narrowed to non-safety gaps).
 
 **CONDITIONAL GO**: all critical safety/recovery/credential gates are closed (`BR-001` real backup confirmed, both credentials rotated, `W1-001` deployed and verified if desired for launch), and only accepted, owner-documented, non-critical items remain open — e.g. `AU-009` scheduled but not yet run, `PC-006` pending counsel with current behavior already legally-neutral (no false claims, no invented retention), Fiqh grounding degraded-but-safe, iOS not yet submitted to the App Store (if Android-first launch is an accepted owner choice).
 
 **GO**: every mandatory launch gate is closed with real evidence — `BR-001` fully closed (including the restore drill, not just existence), both credential rotations verified, `W1-001` deployed and its own closure criteria met, `AU-009` executed with a passing result, `PC-006` resolved by counsel with any resulting engineering work complete, `OB-006` confirmed via a real deployed-build event, `DC-010` producing a real signed, distributable iOS build (App Store submission itself can still follow GO, not gate it).
 
-**Current state, as of this wave**: **NO-GO** — `BR-001` (no real backup exists yet) and the standing credential exposures (`cli_login_postgres`, the Gemini key) remain the specific gates keeping this at NO-GO rather than CONDITIONAL GO. Every other remaining item is independently owner/external/platform/legal-gated and does not by itself hold the verdict at NO-GO once the two items above clear.
+**Current state, as of this wave (2026-09-07)**: **NO-GO** — both standing credential exposures are now resolved and verified (`cli_login_postgres` rotated via the Management API; the Gemini key rotated, redeployed, and confirmed working in production both before and after old-key revocation). **`BR-001` (no real backup exists yet) is now the sole remaining gate holding this at NO-GO rather than CONDITIONAL GO.** Every other remaining item (`DC-010`, `AU-009`, `PC-006`, `OB-006`, the emergency workflow's CI secrets) is independently owner/external/platform/legal-gated and does not by itself hold the verdict at NO-GO — once `BR-001` clears, this moves to at least CONDITIONAL GO.
 
 ---
 

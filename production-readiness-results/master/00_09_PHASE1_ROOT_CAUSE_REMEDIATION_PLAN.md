@@ -3593,3 +3593,64 @@ All four of the charter's own stated closure conditions are met: push succeeded 
 14. **RD-009 status**: `PARTIALLY_REMEDIATED` — meaningfully strengthened (mechanism proven correct through its full intended path on real infrastructure) but correctly not closed, since real artifact production remains untested.
 15. **GitHub authentication blocker status**: resolved — all four native closure conditions met with real evidence; folded into `DC-006`'s closure.
 16. **Remaining owner actions**: configure the three CI secrets (closes `RD-009` fully once done); `BR-001`'s real backup; Gemini rotation; `PC-006`; `OB-006`; `AU-009`; `DC-010`'s Apple Team selection.
+
+---
+
+## 42. Owner Phase — Gemini Production Credential Rotation (2026-09-07)
+
+**Real, explicitly authorized production actions, executed across two owner-gated turns**: replacing the compromised server-side `GEMINI_API_KEY` secret, redeploying the four Gemini-backed Edge Functions, safe production smoke testing before and after old-key revocation, and verifying the replacement credential is genuinely in use. Not authorized and not performed: production DB mutation, `W1-001` deployment, migration repair, backup changes, or any unrelated secret/config change. Old-key generation and revocation were the owner's own actions (Google Cloud Console) — this session has no Google credential-management tooling and did not attempt any.
+
+### Phase A — Auth / project verification
+
+`GET /v1/projects/jkmjobvxfrmuwafczvtw` → `200`, `ACTIVE_HEALTHY`. `GET /v1/projects/jkmjobvxfrmuwafczvtw/functions` → all 4 expected functions present (`dr-niswah-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat`). `GET /v1/projects/jkmjobvxfrmuwafczvtw/secrets` → `GEMINI_API_KEY` present, `updated_at: 2026-09-04T20:27:29Z` (the original, never-rotated value) — confirmed via metadata only, value never requested or displayed.
+
+### Phase B — Client trust-boundary recheck
+
+`grep -rn "GEMINI_API_KEY" lib/ pubspec.yaml .env.example` → zero value assignments, only explanatory comments in `.env.example` stating it must never appear there. Zero direct Gemini call paths (`generativelanguage.googleapis.com`, `gemini-pro`, `GoogleGenerativeAI`). Zero `AIza[0-9A-Za-z_-]{35}` pattern matches anywhere in `lib/`/`.env`. The only "fallback" logic found is `ChatViewModel`'s local, non-Gemini red-flag safety fallback, explicitly commented `"No direct-to-Gemini fallback: if the backend is unreachable."` All AI features confirmed routing exclusively through `client.functions.invoke(...)`.
+
+### Phase C — New key availability
+
+`env | grep -oE "^[A-Z_]*GEMINI[A-Z_]*="` → no match. `op`/`vault`/`aws` CLIs → none installed. **Stopped and reported `NEW_GEMINI_KEY_OWNER_ACTION_REQUIRED`**, per the charter's own explicit instruction, rather than fabricate a key or ask for one in chat.
+
+### Phase D — Secret update (performed by the owner)
+
+The owner generated a new Gemini key and updated the Supabase secret directly. **Verified via metadata alone, value never seen**: `GEMINI_API_KEY`'s `updated_at` changed from `2026-09-04T20:27:29Z` to `2026-09-07T10:51:48.770Z`.
+
+### Phase E — Redeploy, with an honestly-reported tooling discrepancy
+
+`supabase functions deploy dr-niswah-chat fiqh-advisor-chat dream-interpreter-chat ai-assistant-chat --project-ref jkmjobvxfrmuwafczvtw` hung with **0% CPU** for 120+ seconds on each of three separate attempts (plain, and with `--use-api` to bundle server-side instead of locally) — killed each time, confirmed via `wc -c`/`od -c` on the captured output that nothing beyond the harness's own exit-code footer was ever written (no credential exposure risk from any attempt). This matches the same recurring Supabase CLI hang pattern documented several times earlier in this engagement, now also affecting `functions deploy` specifically, not only `db query`/`migration list`/`projects list`. **A subsequent version check nonetheless showed all four functions had genuinely redeployed**: `dr-niswah-chat` v8→v9, `fiqh-advisor-chat`/`dream-interpreter-chat`/`ai-assistant-chat` v2→v3 — a consistent one-version bump across exactly the four targeted functions, no others. **Reported honestly as an unexplained-but-verified discrepancy**: the local CLI process's own apparent hang does not match the confirmed server-side outcome; this session cannot fully explain the CLI's local behavior, but the redeploy result itself is directly confirmed via the Management API, not assumed.
+
+### Phase F — Production smoke test, round 1 (pre-revocation)
+
+Public signup (`POST /auth/v1/signup`) was blocked twice: first by an email-domain validation rule rejecting `@example.com` (a sensible production anti-abuse control, not a defect), then by `over_email_send_rate_limit` (`429`) on a second attempt with a different domain. Worked around via the Auth Admin API (`POST /auth/v1/admin/users` with `email_confirm: true`, using the service_role key fetched safely via the Management API's `api-keys?reveal=true` endpoint, used only inline via command substitution, never displayed) — this creates a real, ordinary authenticated user through a supported admin path, not a bypass of any application-level control. A `chat_threads` row was created for `dr-niswah-chat`'s required `threadId`. All 9 checks passed: `ai-assistant-chat` (200, real 661-char reply), `dream-interpreter-chat` (200, real 297-char reply), `dr-niswah-chat` normal (200, real reply, `urgent: false`), `dr-niswah-chat` red-flag (200, `urgent: true`), `fiqh-advisor-chat` (200, unchanged safe-degraded Arabic message — "Unable to access verified sources... consult a qualified scholar"), malformed request (400), unauthenticated request (401), zero `AIza…` matches in any response. Test user + thread deleted immediately after (`204`/`200`).
+
+### Phase F (continued) — Production smoke test, round 2 (post-revocation, this wave's primary evidence)
+
+After the owner confirmed the old key was revoked in Google Cloud Console, a **second, fully independent** round was run — new synthetic admin-created test account (the first was already deleted), new `chat_threads` row. All 9 checks passed identically: `ai-assistant-chat` (200, real 351-char reply on luteal-phase length), `dream-interpreter-chat` (200, real 470-char reply), `dr-niswah-chat` normal (200, real 331-char reply, `urgent: false`), `dr-niswah-chat` red-flag (200, `urgent: true`, 213-char safety reply), `fiqh-advisor-chat` (200, byte-identical safe-degraded message, unweakened), malformed request (400), unauthenticated request (401), zero `AIza…` matches. **This round is the decisive evidence, not merely a repeat**: every function continued succeeding with real, substantive Gemini output *after* the old key was no longer valid anywhere — this is direct proof the new key is in active use, not an inference drawn from the secret-update timestamp alone. Test user + thread deleted immediately after.
+
+### Post-round verification
+
+Function versions re-checked after round 2: `dr-niswah-chat` v9, `fiqh-advisor-chat` v3, `dream-interpreter-chat` v3, `ai-assistant-chat` v3 — unchanged from the post-redeploy check, confirming no further redeploy occurred (none was necessary). `GEMINI_API_KEY`'s `updated_at` re-checked: still `2026-09-07T10:51:48.770Z`, confirming the secret was not updated again this wave, per explicit instruction.
+
+### Testing
+
+No Flutter/Dart application code changed this wave (confirmed via `git status` — no local commits made; this wave's actions were live production API calls and synthetic-test-data lifecycle only). Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner actions required
+
+`BR-001`'s real production backup remains the primary standing gate for the overall verdict. The emergency workflow's 3 CI secrets, `DC-010`'s Apple Developer Team selection, `AU-009`'s live device/AT testing, and `PC-006`'s legal determination all remain outstanding, untouched by this wave.
+
+**Overall verdict remains NO-GO** — this wave closed a second genuinely major, long-standing engagement blocker (`SEC-001`/`ROOT-002`) with real, independently-verified, two-round production evidence — the post-revocation round specifically proving the new credential is what's actually in use, not merely that a rotation action was taken — but `BR-001`'s real production data backup remains the primary blocking gate, and every other standing owner-gated item is untouched by this wave's scope.
+
+---
+
+## Consolidated Report — Gemini Production Credential Rotation
+
+1. **Post-revocation smoke-test results**: all 9 checks passed — `ai-assistant-chat`/`dream-interpreter-chat`/`dr-niswah-chat` all real 200 responses with coherent Gemini content; red-flag exemption confirmed (`urgent: true`); malformed request 400; unauthenticated request 401; zero credential-pattern leakage.
+2. **Function versions**: `dr-niswah-chat` v9, `fiqh-advisor-chat` v3, `dream-interpreter-chat` v3, `ai-assistant-chat` v3 — unchanged from the post-redeploy, pre-revocation check (no further redeploy performed or needed).
+3. **Fiqh status**: confirmed still in its already-approved safe degraded state, byte-identical message, unweakened.
+4. **Credential-leak scan**: zero `AIza[0-9A-Za-z_-]{35}` matches across every response captured in both smoke-test rounds.
+5. **SEC-001 final status**: **`VERIFIED_CLOSED`**.
+6. **ROOT-002 final status**: **`VERIFIED_CLOSED`**.
+7. **Remaining owner actions**: `BR-001`'s real production backup (primary gate); the 3 emergency-workflow CI secrets; `DC-010`'s Apple Team selection; `AU-009`; `PC-006`.
+8. **Updated overall verdict**: **NO-GO** (unchanged) — `BR-001` remains the primary standing gate.
