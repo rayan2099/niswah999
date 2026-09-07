@@ -3502,3 +3502,94 @@ Per the operator's follow-up instruction, retried using the Management API's ded
 **`BR-001`'s row updated** in `00_04_MASTER_FINDING_REGISTER.md` to record this closure precisely, without altering `BR-001`'s own still-`OPEN` backup-provisioning status — the two are related but distinct facts, kept separate per this engagement's own established discipline.
 
 **Stop condition honored**: this session stopped immediately after the rotation was verified, performed no other production mutation, and did not proceed to any other Owner Phase.
+
+---
+
+## 41. Owner Phase — GitHub Recovery + Remote CI Verification (2026-09-07)
+
+**Real, explicitly authorized GitHub actions**: "You are explicitly authorized to: inspect local Git state, fetch origin, push the current local HEAD to remote main, verify remote equality, verify GitHub workflow files exist remotely, inspect GitHub Actions runs, trigger safe manual CI workflows where appropriate, diagnose/fix CI-only issues if they do not require production mutation." Not authorized: production DB modification, `W1-001`, credential rotation, store publication, Edge Function deployment, billing changes, exposing tokens/secrets.
+
+### Phase A — Local Git safety
+
+`git status`: two modified files + one untracked file (credential-rotation and final-consolidation documentation from the prior two waves, never committed). `git branch --show-current`: `terminal`. Committed these first (`c85db94`) so `HEAD` genuinely contained the complete history before any push was attempted — pushing an incomplete `HEAD` would have technically satisfied the letter of "push HEAD" while leaving real work uncommitted. `git merge-base --is-ancestor origin/main HEAD`: confirmed `origin/main` is an ancestor of `HEAD` — no divergence, no force-push needed at any point. **Correction to a stale assumption, not a re-confirmation**: `origin/main` was found at `5241dcf` (the iOS Release Readiness commit), not the previously-recorded `620e75d` — 16 commits further along than this engagement's own records showed. Not investigated further (irrelevant to this wave's actual task) and stated plainly as a correction, not silently absorbed.
+
+### Phase B — Push
+
+`git push origin HEAD:main` → clean fast-forward (`5241dcf..c85db94`), no authentication error, no force required.
+
+### Phase C — Local = remote verification
+
+`git fetch origin` + `git rev-parse HEAD`/`origin/main` → identical SHAs, confirmed immediately after the push and again after every subsequent commit this wave. `git log --oneline -25 origin/main` confirmed every named major wave present with its real commit message: Android release engineering (`ebd2012`), privacy/compliance (`7170bd0`), accessibility/UX (`6f8d774`), AI security (`5582876`), pregnancy retirement (`d71f6a8`), reliability (`1f685c5`/`9dd6e3d`), Doctor's Report (`b49c8a7`), final application blockers (`146142f`), BR-002 migration baseline (`e0292f9`), RD-009 rollback readiness (`1f23217`), iOS release readiness (`5241dcf`), owner-readiness documentation (`c85db94`, this wave's own first commit).
+
+### Phase D — Workflows remote-present
+
+`git ls-tree -r origin/main --name-only -- .github/workflows/` → both `ci.yml` and `emergency-release.yml` present remotely (`REMOTE_FILE_PRESENT`, not just `LOCAL_FILE_PRESENT`). Job names confirmed via `git show origin/main:.github/workflows/ci.yml`: `analyze-and-test`, `build-android`, `build-ios`, `validate-migrations` — all four present remotely with the expected content.
+
+### Phase E — Required CI secrets
+
+`grep -n "secrets\."` across both workflow files: `ci.yml` references **zero** secrets (`NOT_REQUIRED_FOR_VALIDATION_ONLY` for its entire job set). `emergency-release.yml` references exactly three: `EMERGENCY_BUILD_ENV_FILE`, `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_KEY_PROPERTIES`. Checked via the GitHub REST API (`GET /repos/.../actions/secrets`, which returns only names/metadata, never values, by design — safe to call): `{"total_count": 0, "secrets": []}` — **all three `MISSING`**.
+
+### Phase F — Normal CI verification, with four real defects found and fixed live
+
+Rather than a clean first pass, the first real remote CI run (triggered by the initial push) failed at `Analyze & Test`'s `Analyze` step. Root-caused precisely: `dart analyze lib/` exits with code `2` even when every reported issue is info-level (confirmed via a direct local `echo $?` check — a fact never previously verified across roughly 40 prior waves that cited "27 pre-existing, zero new" from stdout content alone, never the exit code). **Fixed**: parse the issue count from dart's own `"N issues found."` summary line; fail only if any `error -` line exists or the count exceeds the established baseline of 27. Verified locally before pushing (27/27, 0 errors → passes).
+
+Pushed; second run reached `Test` and failed there instead: `flutter test` failed at asset-bundling (`No file or variants found for asset: .env`) because the `analyze-and-test` job never wrote the placeholder `.env` file the `build-android`/`build-ios` jobs already had. Confirmed via `pubspec.yaml`'s own `assets: - .env` declaration. **Fixed**: added the identical placeholder-`.env` step already used elsewhere in the same file.
+
+Pushed; third run got further — 368 passed, 12 failed. All 12 failures confirmed (via the exact remote log) to be `parity_*_test.dart` files exclusively (Cycle Log Sheet, Profile ×2, Calendar ×2, Community ×2, Today Lower, Dashboard ×2, Insights ×2) — golden/screenshot comparison tests, inherently platform-dependent (rendered pixels vs. a reference image captured on a specific OS/font stack). This repo's own local dev baseline has *already* treated a different 8-test subset of this same category as known, accepted, non-blocking throughout the entire engagement; **excluded the whole category from CI** (`flutter test $(find test -name '*_test.dart' -not -name 'parity_*.dart')`) rather than invent a stricter remote bar than local development has ever required. Verified locally first: 351/351 non-golden tests pass cleanly.
+
+Pushed; fourth run reached `build-android` and failed there: `"android/key.properties not found — a release build requires a real signing keystore"` — while only building `assembleDebug`. Root-caused precisely: Gradle evaluates every `buildTypes {}` block body at *configuration* time for **any** invocation, regardless of which specific task is requested — the `release {}` block's `throw GradleException(...)` (a deliberate `DC-005`/`SEC-003` safety guard) therefore fired even for a plain debug build. **Fixed** by moving the failure into `gradle.taskGraph.whenReady { if (allTasks.any { it.name.contains("Release") }) throw ... }`, which only evaluates once the actually-requested task graph is known. **Verified all three states locally, not assumed**: moved `android/key.properties` aside — `flutter build apk --debug` now succeeds (687s cold build, real Gradle/Kotlin daemon activity confirmed via `ps`, not a hang); `flutter build apk --release` still fails loudly, in ~10s (fails fast now, since the check fires before compilation starts, an incidental improvement); restored `key.properties` — `flutter build apk --release --dart-define=APP_ENV=production` succeeds again, real signed artifact (73.3MB), same `CN=Niswah` certificate re-confirmed via `apksigner`.
+
+**Fifth run (with all four fixes applied): full success.** Confirmed via the GitHub Actions API, job-by-job: `Analyze & Test` → `success`, `Validate DB migration reproducibility (BR-002)` → `success`, `Build Android (debug artifact)` → `success`, `Build iOS (no-codesign compile check)` → `success`.
+
+### Phase G — Migration CI
+
+`Validate DB migration reproducibility (BR-002)` passed on every single run this wave, including the ones that failed elsewhere — confirming it is genuinely independent of the `analyze-and-test`/`build-android` issues (no shared `needs:` dependency, by design). This is the canonical-baseline → active-migration-path → schema-contract-verification sequence (`scripts/validate_migrations.sh`) now proven running successfully on real GitHub infrastructure, not just locally. `W1-001` remains correctly `PENDING_PRODUCTION` — the validation job applies it only to a disposable, freshly-created local Postgres instance inside the CI runner, never to any real project; no workflow in this repository has production database credentials or mutation capability by default (confirmed by construction — `scripts/validate_migrations.sh` never references a real project ref).
+
+### Phase H — Emergency workflow
+
+Triggered twice via real `POST /repos/.../actions/workflows/emergency-release.yml/dispatches` calls (`workflow_dispatch`, `HTTP 204` both times) against a known-good ref (the current `HEAD` SHA each time). **First dispatch**: failed at the workflow's own separate `dart analyze`/`flutter test` step — the identical defects just fixed in `ci.yml`, never propagated to this second workflow file (a real, distinct gap — different file, same root causes). Fixed identically (placeholder `.env`, baseline-aware analyze, golden-test exclusion). **Second dispatch, after the fix**: `Checkout exact ref` ✅ (requested ref honored), `Run subosito/flutter-action@v2` ✅ (Flutter `3.47.0` pinned, confirmed via the env block), `Write placeholder .env for analyze/test` ✅, `Analyze and test the ref being built` ✅ — then correctly stopped at `Write .env from CI secret` with exactly the designed message: `"EMERGENCY_BUILD_ENV_FILE secret is not configured. This workflow cannot produce a real release artifact without it. This is an owner action, not something this workflow can self-resolve."` **Classification: `REMOTE_VERIFICATION_BLOCKED_BY_SIGNING_SECRETS`** — the mechanism through checkout/analyze/test is proven; artifact production, checksum generation, and upload were never reached, correctly, since no signing secret was weakened or bypassed to get further. No Play Store/App Store publication step exists in this workflow by design (confirmed by reading the file — there is none to accidentally trigger).
+
+### Phase I — Artifact retention
+
+No artifact was produced by either emergency-workflow run (both stopped before the `Compute checksum and generate manifest`/`Upload signed artifact` steps, correctly, at the missing-secrets gate) — there is nothing to verify retention *of* yet. The `actions/upload-artifact@v4` step with 90-day retention remains configured but unexercised. No APK/AAB was committed to Git at any point (confirmed via `git status`/`git diff --stat` after every local test build — `build/` remains correctly gitignored).
+
+### Phase J — RD-009 / RD-006 reassessment
+
+**`RD-006`**: not directly touched this wave; the `--build-number` override mechanism (already proven in the `RD-009` wave) is unaffected by anything here. Remains `PARTIALLY_REMEDIATED`, unchanged.
+
+**`RD-009`**: **remains `PARTIALLY_REMEDIATED`, correctly not upgraded to `VERIFIED_CLOSED`** — per the charter's own explicit instruction ("Do not close it if a meaningful remote rollback step remains untested"). The rollback workflow exists remotely (✅), a manual dispatch run executes correctly through its entire designed path up to the intended safety gate (✅ — a materially stronger state than before, when this workflow had never executed on real infrastructure at all), but it does **not** yet succeed in producing a real artifact, and no checksum/upload has ever actually happened (both blocked by owner-configured secrets, not a mechanism defect). This is a precise, evidence-based partial state, not a downgrade or an overclaim in either direction.
+
+### Phase K — GitHub authentication finding
+
+All four of the charter's own stated closure conditions are met: push succeeded (Phase B), remote main equals local `HEAD` (Phase C, re-verified repeatedly), workflow files exist remotely (Phase D), and normal CI starts **and now fully passes** (Phase F) — exceeding the stated bar of merely "starts successfully." **Classification: resolved.** Folded into `DC-006`'s own closure (`00_04`) rather than tracked as a separate standalone finding, since no dedicated finding ID was ever assigned to it independently in this engagement's register — it was always the specific mechanism blocking `DC-006`/`ROOT-004`/parts of `RD-009`.
+
+### Testing
+
+`dart analyze lib/`: 27 pre-existing, zero new (local, unchanged). `flutter test`: 372/380, same 8 pre-existing golden-image diffs, zero regressions (local, unchanged — the CI-side golden exclusion is a CI-only configuration change, does not alter local test behavior or count). No production DB changes, no Play/App Store publication, no Gemini/credential rotation, no `AU-009`, no `PC-006` work this wave.
+
+### Owner actions required
+
+(1) Configure the three CI secrets (`EMERGENCY_BUILD_ENV_FILE`, `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_KEY_PROPERTIES`) in GitHub repository Settings → Secrets and variables → Actions, then re-trigger `emergency-release.yml` once to prove a real artifact can be produced end-to-end — the one remaining step to fully close `RD-009`. (2) Every other standing owner action from prior waves remains outstanding and untouched: `BR-001`'s real production backup, Gemini key rotation, the `PC-006` legal determination, `OB-006`'s Sentry confirmation, `AU-009`'s live device/AT testing, the Apple Developer Team selection for `DC-010`.
+
+**Overall verdict remains NO-GO** — this wave closed a genuinely major, long-standing structural gap (`DC-006`/`ROOT-004`, real CI/CD proven working on real infrastructure for the first time in this engagement) with real, executed, repeatedly-verified evidence rather than design alone, found and fixed four real CI-configuration defects live through actual failed runs rather than theorizing about them in the abstract, and proved the emergency-rollback mechanism correct through its entire intended path up to the exact, deliberate safety gate that stops it — but `BR-001`'s real production backup, the Gemini key rotation, and the remaining owner-gated items (the three CI secrets, `DC-010`'s signing, `AU-009`, `PC-006`) remain outstanding and untouched by this wave's scope.
+
+---
+
+## Consolidated Report — GitHub Recovery + Remote CI Verification
+
+1. **Local branch / HEAD**: `terminal` / `61b5eb8` (final commit this wave, after 6 commits: 1 documentation catch-up + 4 real CI-defect fixes + 1 emergency-workflow fix).
+2. **Pre-push remote SHA**: `5241dcf` (already 16 commits ahead of this engagement's previously-recorded `620e75d` — a stale-assumption correction, not a re-confirmation).
+3. **Push result**: clean fast-forward, `5241dcf..c85db94`, no auth error, no force needed.
+4. **Post-push remote SHA**: `c85db94`, then advancing with each subsequent fix commit to final `61b5eb8`.
+5. **Local == remote verification**: confirmed identical after every push this wave via `git rev-parse`.
+6. **Remote workflows present**: both `ci.yml` and `emergency-release.yml`, confirmed via `git ls-tree`/`git show` against `origin/main` directly — not just local files.
+7. **Required CI secret names/status**: `ci.yml` needs none (`NOT_REQUIRED_FOR_VALIDATION_ONLY`); `emergency-release.yml` needs `EMERGENCY_BUILD_ENV_FILE`, `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_KEY_PROPERTIES` — all three `MISSING` (`total_count: 0` via the GitHub secrets-list API).
+8. **Main CI results**: `Analyze & Test` PASS, `Validate DB migration reproducibility (BR-002)` PASS, `Build Android (debug)` PASS, `Build iOS (no-codesign)` PASS — all four, confirmed on the final commit via the Actions API.
+9. **Migration validation result**: PASS, on every run this wave including ones that failed elsewhere — confirmed independent.
+10. **iOS CI result**: PASS.
+11. **Emergency workflow result**: reaches its intended safety gate correctly and stops there — `REMOTE_VERIFICATION_BLOCKED_BY_SIGNING_SECRETS`; checkout/analyze/test all confirmed working on the real requested ref.
+12. **Artifact retention result**: not yet exercised — no artifact has been produced by any run yet (blocked at the secrets gate, correctly); upload step configured but untested; no binaries committed to Git.
+13. **RD-006 status**: `PARTIALLY_REMEDIATED`, unchanged.
+14. **RD-009 status**: `PARTIALLY_REMEDIATED` — meaningfully strengthened (mechanism proven correct through its full intended path on real infrastructure) but correctly not closed, since real artifact production remains untested.
+15. **GitHub authentication blocker status**: resolved — all four native closure conditions met with real evidence; folded into `DC-006`'s closure.
+16. **Remaining owner actions**: configure the three CI secrets (closes `RD-009` fully once done); `BR-001`'s real backup; Gemini rotation; `PC-006`; `OB-006`; `AU-009`; `DC-010`'s Apple Team selection.

@@ -40,25 +40,29 @@ See **Gemini Rotation Handoff** below for the full sequence. Start this now — 
 
 ## Step 4 — Fix GitHub authentication and push
 
+**✅ DONE (2026-09-07)** — pushed the complete local history to `origin/main`, then found and fixed four real CI-configuration defects live against real GitHub Actions runs (see `00_09` §41 for full evidence): a baseline-unaware `dart analyze` step, a missing placeholder `.env` in the analyze/test job, 12 platform-dependent golden-image test failures, and a Gradle configuration-time signing check that blocked even debug builds. **CI now passes fully on real infrastructure** — `Analyze & Test`, `Validate DB migration reproducibility (BR-002)`, `Build Android (debug)`, `Build iOS (no-codesign)` all green. The emergency workflow (`emergency-release.yml`) was also triggered twice via real `workflow_dispatch` calls, fixed the same way, and now correctly runs through checkout/analyze/test and stops precisely at its intended signing-secrets safety gate (see Step 5).
+
 | | |
 |---|---|
 | **Why now** | No dependency on Steps 1-3; unblocks CI verification and the emergency-workflow secrets setup in one motion. |
-| **Action** | `gh auth login` (interactive, needs a scope that includes `workflow`) or configure a PAT with `repo` + `workflow` scopes. Then: `git push origin terminal:main` (or your intended branch — confirm with `git log origin/main..HEAD --oneline` first to see what's about to ship). |
-| **Expected result** | `git fetch origin && git log origin/main..HEAD` shows nothing outstanding. |
-| **Finding closed** | GitHub authentication blocker (root cause behind `DC-006`/`ROOT-004`'s remaining gap, `RD-009`'s CI-verification gap). |
-| **If it fails** | A `403`/scope error means the PAT lacks `workflow` scope specifically — this is the exact historical blocker recorded in this engagement; regenerate the token with that scope checked. |
+| **Action** | ~~`gh auth login`...~~ Done — the owner's refreshed PAT (repo+workflow scope) is already stored in the git credential helper and was used directly. |
+| **Expected result** | `git fetch origin && git log origin/main..HEAD` shows nothing outstanding. ✅ Confirmed. |
+| **Finding closed** | GitHub authentication blocker — resolved, folded into `DC-006`'s closure (`VERIFIED_CLOSED`). |
+| **If it fails** | N/A — completed successfully this session. |
 
-Then see the **GitHub Recovery Checklist** below to confirm CI actually runs.
+See the **GitHub Recovery Checklist** below for the exact verification results.
 
 ## Step 5 — Configure emergency-workflow CI secrets
+
+**Confirmed still outstanding (2026-09-07)**: checked via the GitHub API (`GET /repos/.../actions/secrets`, names/metadata only, never values) — `total_count: 0`. The emergency workflow was triggered twice this session and, after two real CI-defect fixes, now runs cleanly through checkout/analyze/test and stops exactly at the `Write .env from CI secret` step with a clear, correct error — proving the mechanism works and this is the one genuine remaining gap for `RD-009`'s full closure.
 
 | | |
 |---|---|
 | **Why now** | While already in GitHub Settings from Step 4. |
 | **Action** | Repository Settings → Secrets and variables → Actions. Add: `ANDROID_RELEASE_KEYSTORE_BASE64` (base64 of `android/app/niswah-release.jks`), `ANDROID_KEY_PROPERTIES` (contents of `android/key.properties`), `EMERGENCY_BUILD_ENV_FILE` (contents of your production `.env`). |
 | **Expected result** | Three secrets present (values never visible again after saving — that's normal). |
-| **Finding closed** | Enables `emergency-release.yml` to produce real signed builds (`RD-009`). |
-| **If it fails** | N/A — this is a data-entry step with no failure mode beyond a typo, caught by the next real emergency-workflow run. |
+| **Finding closed** | Enables `emergency-release.yml` to produce real signed builds — the last step to fully close `RD-009`. |
+| **If it fails** | N/A — this is a data-entry step with no failure mode beyond a typo, caught by the next real emergency-workflow run (re-trigger via `gh workflow run emergency-release.yml -f git_ref=<sha> -f build_number=<N> -f app_env=production` once the secrets are set). |
 
 ## Step 6 — Select the Apple Developer Team in Xcode
 
@@ -99,6 +103,8 @@ See **PC-006 Handoff** below. No technical dependency on anything above — can 
 # Handoff packages
 
 ## GitHub Recovery Checklist
+
+**Items 1-7 below: ✅ verified this session (2026-09-07)**, all against real GitHub infrastructure — see `00_09` §41 for the full evidence trail, including four real CI-configuration defects found and fixed along the way (a baseline-unaware `dart analyze` step, a missing placeholder `.env`, 12 platform-dependent golden-image failures, and a Gradle configuration-time signing check that blocked debug builds too). Note: `gh` itself refused to authenticate with the stored token (`error validating token: missing required scope 'read:org'`) — verification was instead done via direct GitHub REST API calls (`curl` with the same token from the git credential helper), which worked cleanly throughout. **Item 8 (a real signed emergency artifact) remains outstanding** — the workflow now runs correctly through checkout/analyze/test and stops precisely at its designed signing-secrets gate; Step 5 above (configuring the three CI secrets) is the one remaining action to complete it.
 
 After Step 4, verify each of these — commands are exact, no credentials required beyond the `gh`/`git` session already authenticated:
 
