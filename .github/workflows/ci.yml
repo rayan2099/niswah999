@@ -105,3 +105,25 @@ jobs:
       # a clean checkout; it does not produce an installable/signed artifact.
       - name: Build iOS (no codesign, compile-correctness check only)
         run: flutter build ios --release --no-codesign
+
+  validate-migrations:
+    name: Validate DB migration reproducibility (BR-002)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Proves supabase/canonical_baseline/ + supabase/migrations/ (active
+      # migrations only — historical, unreplayable migrations live in
+      # supabase/migrations_archive/, never executed by any tooling)
+      # deterministically rebuild the required application schema from an
+      # empty database. See docs/database-migration-strategy.md and
+      # scripts/validate_migrations.sh for the full rationale — this job
+      # runs the exact same script, not a CI-only variant.
+      - name: Run schema reproducibility validation
+        run: |
+          chmod +x scripts/validate_migrations.sh
+          ./scripts/validate_migrations.sh

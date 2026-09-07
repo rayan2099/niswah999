@@ -3030,3 +3030,158 @@ Integrated into the rewritten runbook's §6.2 in full: assess severity → force
 22. **Remaining release blockers**: `BR-001` (real production backup), `SEC-001`/`ROOT-002` (Gemini key rotation), `DC-010` (iOS Team ID), `PC-006` (legal determination), `OB-006` (Sentry deployed-build confirmation), `AU-009` (live device/AT testing), GitHub authentication (blocks both CI workflows' real verification).
 23. **Unavoidable owner actions**: GitHub authentication + push; configure 3 named CI secrets for the emergency workflow; every standing owner action from every prior wave (unchanged, listed in full above).
 24. **Updated overall verdict**: **NO-GO** (unchanged) — real, substantial rollback-readiness progress was made and drilled with real evidence, but every remaining launch blocker is untouched by this wave's scope.
+
+---
+
+## 37. Migration Chain Reproducibility Wave (2026-09-06) — BR-002
+
+**Local/repository-only, per explicit instruction.** No production DB modification, no migration repair against production, no `W1-001` deployment, no production dump, no Edge Function deployment, no credential rotation, no PITR/backup change, no GitHub authentication fix, no `AU-009`/iOS/`PC-006` work.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below**: `BR-001` (`OPEN`, untouched), `SEC-001`/`ROOT-002` (`OPEN`), `W1-002` (`OPEN`, low severity), Fiqh Search-grounding (`B — DEGRADED`), `RD-006`/`RD-009` (`PARTIALLY_REMEDIATED`), `OB-006`/`PC-006` (`PARTIALLY_REMEDIATED`), `AU-009`/`DC-010` (`OPEN`), the entire Accessibility domain.
+
+### Phase A — 13-migration chain reconstructed
+
+Full chronological inventory, every file read in full (not summarized from memory):
+
+| Migration | Purpose | Key objects | Production ledger | Live-equivalent present | Replays cleanly alone | Classification |
+|---|---|---|---|---|---|---|
+| `20260820174500_niswah_production_schema_security.sql` | Original schema + security migration | `profiles`, `cycle_logs` | Empty `remote` | Yes (baseline has both) | Yes (no external deps) | `ACTIVE_REQUIRED`-in-spirit, but archived — see Phase D |
+| `20260822014500_niswah_schema_sync_and_indexes.sql` | Rename `prayer_log`→`prayer_entries`, `pregnancy_records`→`pregnancy_milestones`, create `educational_resources`/`dream_entries`, consolidate `profiles`, indexes | 2 renames + 2 new tables + indexes | Empty `remote` | **Renames never actually happened in production** — baseline has `prayer_log` and `pregnancy_records` unrenamed; `dream_entries` exists live, `educational_resources` does not | **No** — fails immediately, `prayer_log`/`pregnancy_records` don't exist | `HISTORICAL_BUT_BROKEN` (renames: `SUPERSEDED` — the real fix went the opposite direction, fixing app code to use `prayer_log`, per `W0-001`; `pregnancy_records`→`pregnancy_milestones` rename likewise never happened and the feature it targeted is now retired) |
+| `20260822210000_private_messaging.sql` | `private_conversations`/`private_messages` | FKs `auth.users` directly (not bare `users`) | Empty `remote` | Yes, in baseline | **Yes** — only migration besides `W1-001` that replays standalone | `ACTIVE_REQUIRED`-in-spirit, archived |
+| `20260824115900_dr_niswah_chat_threads.sql` | `chat_threads`/`chat_messages` | FKs bare `users(id)` | Empty `remote` | Yes, in baseline | No — `users` missing | `HISTORICAL_BUT_BROKEN` |
+| `20260824120000_dr_niswah_flagged_conversations.sql` | `flagged_conversations` | FKs `users(id)`, `chat_threads(id)` | Empty `remote` | Yes, in baseline | No — both deps missing | `HISTORICAL_BUT_BROKEN` |
+| `20260824130000_pregnancy_profile.sql` | `pregnancy_profile` | FKs `users(id)` | Empty `remote` | Yes, in baseline | No — `users` missing | `HISTORICAL_BUT_BROKEN` |
+| `20260825120000_wellbeing_logs.sql` | `wellbeing_logs` | FKs `users(id)` | Empty `remote` | Yes, in baseline | No — `users` missing | `HISTORICAL_BUT_BROKEN` |
+| `20260825130000_flagged_conversations_self_read.sql` | RLS policy addition | Depends on `flagged_conversations` | Empty `remote` | Yes (policy present in baseline) | No — table missing upstream | `HISTORICAL_BUT_BROKEN` |
+| `20260825210000_cycle_entries_updated_at_and_fiqh_default.sql` | `ALTER TABLE cycle_entries` | Assumes `cycle_entries` exists | Empty `remote` | Yes, in baseline | No — `cycle_entries` never created by any migration | `HISTORICAL_BUT_BROKEN` |
+| `20260826090000_cycle_entries_app_columns.sql` | `ALTER TABLE cycle_entries` | Same | Empty `remote` | Yes, in baseline | No | `HISTORICAL_BUT_BROKEN` |
+| `20260827120000_wellbeing_logs_notes.sql` | `ALTER TABLE wellbeing_logs` | Assumes `wellbeing_logs` exists | Empty `remote` | Yes, in baseline | No — upstream missing | `HISTORICAL_BUT_BROKEN` |
+| `20260830140000_community_schema_reset.sql` | Drop+recreate `community_posts`/`comments`/`likes` | FKs `users(id)` | Empty `remote` | Yes, in baseline (post-reset shape) | No — `users` missing | `HISTORICAL_BUT_BROKEN` |
+| `20260906090000_ai_rate_limit.sql` (`W1-001`) | `ai_rate_limit_counters` + RPC | Self-contained | Empty `remote` | N/A (not yet applied to production) | **Yes** | `UNAPPLIED_PENDING` |
+
+No migration classified `REDUNDANT` or `UNKNOWN` — every file's purpose and current relevance was determinable. **Production ledger status taken as authoritative for "applied" claims throughout, never inferred from schema similarity** — every "applied?" answer above traces to `supabase migration list --linked`'s actual `remote` field, re-confirmed this wave (unchanged from `00_09` §34/§35: all 13 empty).
+
+### Phase B — Complete replay failure graph (not just the first break)
+
+Fresh local stack, `docker volume rm` first, all 13 files concatenated into one script, applied via `psql -v ON_ERROR_STOP=0` so every failure surfaces rather than stopping at the first (the mechanism `supabase start`'s own migration runner uses does stop at the first — this phase deliberately used a different tool to see past it).
+
+**Result: 96 `ERROR` lines, 7 tables successfully created** (`ai_rate_limit_counters`, `cycle_logs`, `dream_entries`, `educational_resources`, `private_conversations`, `private_messages`, `profiles`).
+
+**Root causes, in dependency order**:
+1. `prayer_log` referenced by 4 `DROP POLICY`/`ALTER TABLE` statements in migration #2 — never created by any tracked migration. 8 statements fail (4 on `prayer_log`, 4 more on the never-created `prayer_entries`).
+2. `pregnancy_records` referenced identically — 7 statements fail (4 on `pregnancy_records`, 3 more on `pregnancy_milestones`).
+3. Later index statements referencing `prayer_entries`/`cycle_entries`/`pregnancy_milestones` (migration #2's own tail, and migration #2's cross-references) — 3 more failures, cascading from #1/#2.
+4. **The dominant root cause**: bare `public.users` — referenced by `chat_threads`/`chat_messages` (migration #4), `flagged_conversations` (migration #5), `pregnancy_profile` (migration #6), `wellbeing_logs` (migration #7), `community_posts`/`comments`/`likes` (migration #12) — never created by any tracked migration. This single missing object is the direct cause of `CREATE TABLE ... REFERENCES users(id)` failing 5 separate times, which then cascades into every dependent `ALTER TABLE`/`CREATE POLICY`/`CREATE INDEX` on those never-created tables also failing — accounting for the large majority of the 96 total errors. **This is the exact same mechanism `PJ-001`/`ROOT-007` already identified from the application-code side** (7+ tables FK to a bare `public.users` no tracked code path populates) — now independently confirmed from the migration-replay side too.
+
+**No manual patching was used to "get past" a failure and see further** — `ON_ERROR_STOP=0` surfaces the complete graph in one honest pass, which is why this phase's evidence is a full dependency graph, not a chain of individually-worked-around failures.
+
+### Phase C — Canonical baseline reassessed: `CURRENT`
+
+Compared against every wave that has occurred since the baseline's 2026-09-04 capture: prayer remediation (`W0-003`/`W0-004`) was application-code-only (repository mapping, not schema); the pregnancy-tracking migration (`W0-002`'s package) was withdrawn, never applied; `W1-001` is correctly handled separately (baseline predates it by design); every privacy/reliability/accessibility wave explicitly confirmed "no production DB changes." **No production schema change has occurred since the baseline's capture date, at any point across this entire engagement.** Independently re-derived this wave (not assumed from the date alone): the baseline was directly queried for `users`, `cycle_entries`, `prayer_log`, `pregnancy_records` (all present, confirmed via `grep 'CREATE TABLE'`) and for the two auth-provisioning triggers (both present, at the correct `auth.users` attachment point). **Classification: `CURRENT`.**
+
+### Phase D — Migration strategy selected: Option B/C hybrid
+
+Evaluated against the charter's own four options. **Option A** (repair historical migrations locally) rejected: repairing `prayer_log`/`pregnancy_records`/`users`/`cycle_entries` references would require either fabricating `CREATE TABLE` statements for objects that were actually created out-of-band with unknown-to-this-session exact original DDL, or rewriting history to match the baseline — either risks quietly asserting a false historical record. **Option B/C hybrid selected**: freeze the 12 historical migrations as archival evidence (`supabase/migrations_archive/`, `git mv`, SHA-256-verified unchanged), and let the canonical baseline serve as the deterministic fresh-environment starting point, with `supabase/migrations/` retained exclusively for genuinely post-baseline, forward migrations (currently just `W1-001`). This is not aesthetic — it is the only option that (a) doesn't fabricate history, (b) doesn't require guessing at unknowable original out-of-band DDL, (c) makes `supabase start`/`supabase db push` safe by construction (nothing broken remains in the executed path), and (d) supports both a fresh environment today and a real future production migration path without pretending production ever ran the archived files.
+
+### Phase E — Production history explicitly separated from repository reproducibility
+
+**Repository reproducibility is now fully addressed without touching the production ledger at all** — confirmed directly: `supabase migration list --linked` was not re-run this wave (see Phase L's drift-detection caution), and the last confirmed state (all 13 migrations, empty `remote`) is unchanged and explicitly not treated as a blocker for this wave's closure. The four-part state model (canonical baseline / archived historical / active post-baseline / production legacy state) is documented in full in `docs/database-migration-strategy.md`. Ledger divergence is not hidden — it has its own named section ("Migration ledger policy") stating plainly that it is a deliberately accepted, permanently documented fact, not a precondition for `BR-002`'s own native closure bar (which explicitly disclaims dependency on production-side state).
+
+### Phase F — Retired/dead migrations disposition
+
+- `prayer_log`↔`prayer_entries` rename (migration #2, part 1): **`SUPERSEDED`**. The actual, shipped fix (`W0-001`/`W0-003`/`W0-004`) went the opposite direction — the application code was fixed to query `prayer_log` directly, not the table renamed to `prayer_entries`. The rename statements are now permanently incorrect relative to reality and must never be replayed.
+- `pregnancy_records`↔`pregnancy_milestones` rename (migration #2, part 2): **`SUPERSEDED`/`RETIRED_FEATURE`**. Never actually happened in production (baseline confirms `pregnancy_records` remains unrenamed, orphaned); the later, correct design (a new, separate `pregnancy_milestones` child table, not a rename) was itself withdrawn when the consuming feature was retired (Dormant Pregnancy Tracking Retirement wave). Neither the rename nor the later table exists in production or belongs in any future replay.
+- `secret_vault`/`secret_vault_entries`: confirmed this wave that the naming mismatch already flagged in earlier waves persists — `schema.sql` documents `secret_vault_entries`, the real live table (present in the baseline) is `secret_vault`. Not addressed by any tracked migration either way — genuinely live-only, same class of object as `users`/`cycle_entries`/`prayer_log`, now included in `scripts/verify_schema_contract.sql`'s required-table list so a future rebuild cannot silently regress it.
+- All 12 historical files: archived in full (Phase D), not deleted — `supabase/migrations_archive/README.md` documents the precise disposition of each.
+
+### Phase G — Auth trigger / live-only provisioning contract: tested, not assumed sufficient
+
+Read both trigger functions' bodies directly from the baseline: `create_user_profile()` inserts into `public.users` (id, email_hash, display_name, madhhab, language, onboarding_completed, premium_status) with `ON CONFLICT (id) DO NOTHING`; `handle_new_user()` inserts into `public.profiles` (id, full_name, selected_madhhab). **These are complementary, not duplicative** — they populate two structurally distinct tables with different columns, both required by different parts of the application (`public.users` is the FK target for feature tables; `public.profiles` backs `AuthRepositoryImpl`'s `UserProfile` model). **Minimum correct provisioning contract determined to be: both triggers, unchanged** — removing either would silently break a real, currently-relied-upon table.
+
+**Tested in a fresh local environment, twice** (once per rebuild run): a real signup via `POST /auth/v1/signup` against the local Auth service produced exactly one row in `public.users` and exactly one row in `public.profiles`, confirmed via direct count queries (`users_count: 1`, `profiles_count: 1`), no error, no trigger collision. **One real, minor, pre-existing data-consistency observation surfaced by this testing** (not a reproducibility defect, out of `BR-002`'s scope): `public.users.madhhab` defaults to `'HANBALI'` while `public.profiles.selected_madhhab` defaults to `'shafii'` — two independently-evolved provisioning paths disagree on a default value. Noted in `docs/database-migration-strategy.md` as a future application-layer observation, not fixed this wave.
+
+### Phase H — Fresh environment rebuild: deterministic, verified
+
+Local Supabase state fully destroyed (`docker volume rm`) before each of the two runs (Phase M). Initialized from repository-controlled sources only — canonical baseline + `supabase/migrations/` (now just `W1-001`) — with **no manual SQL patch applied after startup in either run**. Startup succeeded both times; every required schema/table/function/trigger/index/RLS policy confirmed present via the schema contract (Phase I); auth→`public.users`+`public.profiles` provisioning confirmed working (Phase G). **The rebuild is deterministic**: run twice, identical object counts, identical contract-check results, identical auth-provisioning behavior.
+
+### Phase I — Application schema contract: built, tested, 28/28 passing (both runs)
+
+`scripts/verify_schema_contract.sql` (new) — a single SQL query checking: 18 required tables (`users`, `profiles`, `cycle_logs`, `cycle_entries`, `pregnancy_profile`, `pregnancy_records`, `wellbeing_logs`, `community_posts`/`comments`/`likes`, `private_conversations`/`private_messages`, `prayer_log`, `flagged_conversations`, `chat_threads`/`chat_messages`, `dream_entries`, `secret_vault`, `chat_history`), 5 required functions (`create_user_profile`, `handle_new_user`, `delete_my_account`, `is_admin`, `can_access_user`), 2 required triggers, and 2 explicitly-must-be-absent retired/superseded objects (`pregnancy_milestones`, `prayer_entries`). **Deliberately excludes `pregnancy_milestones`** per explicit instruction — its absence is itself a passing check, not an omission. AI rate-limit objects (`ai_rate_limit_counters`, `check_and_increment_ai_rate_limit`) are intentionally **not** part of the core contract (they belong only to the `W1-001`-included run) — verified separately via a direct existence check in Run 1 (confirmed absent, 0 rows) vs. Run 2 (confirmed present). **Result: 28/28 `OK` in Run 2 (baseline+`W1-001`), 28/28 `OK` in Run 1 (baseline-only, with the AI table correctly absent) — zero `FAIL` rows in either run.**
+
+### Phase J — `W1-001` position confirmed correct
+
+Remains in `supabase/migrations/` (the active, post-baseline path) — not the archive, not marked applied. **Explicitly not marked as already applied to production anywhere in this wave's output** — its status (`PENDING_PRODUCTION`, gated on `BR-001`) is unchanged from `00_09` §34/§35's `NOT_SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT` decision, restated (not re-decided) in `docs/database-migration-strategy.md`. Both `BASELINE ONLY` and `BASELINE + W1-001` states were reached deterministically and tested this wave (Phase M) — proving fresh environments can reliably reach either state, which is the actual, narrower thing this phase asked for.
+
+### Phase K — Migration validation tooling: built and proven working, not just written
+
+`scripts/validate_migrations.sh` — clean local DB → `supabase start` (active migrations only) → canonical baseline → schema-contract verification → teardown, all in one command. **Run end-to-end this wave**: exit code 0, all 28 contract checks passed, clean teardown confirmed via `docker ps -a`/`docker volume ls` showing nothing left running and `git status --short` showing no stray state. Integrated into `.github/workflows/ci.yml` as a new `validate-migrations` job using `supabase/setup-cli@v1` — valid YAML (`ruby -ryaml`, no local Actions runner available for a full dry-run). **Does not depend on production access of any kind** — confirmed by construction (the script never references a real project ref or production credential). **Remote CI execution remains separately blocked by GitHub authentication**, unchanged from `RD-009`'s own standing finding — not attempted or claimed otherwise here.
+
+### Phase L — Drift detection: documented, not executed against production this wave
+
+**No new production database connection was attempted for drift-checking.** A prior wave's own investigation (`00_09` §34 Phase C) flagged an unresolved, not-yet-confirmed suspicion that schema-only `supabase db dump -s <schema> --linked` calls might carry the same underlying wire-connection credential-exposure risk that the `--data-only --dry-run` variant actually demonstrated. Out of that same caution, this wave used only already-obtained artifacts (`supabase/live_schema_capture/2026-09-04_{public,auth,storage}.sql`, captured in an earlier wave before this suspicion existed, not re-fetched) and already-safe Management-API-based commands' last-known state (not re-run) rather than initiating any new production contact. **A full manual procedure is documented** (`docs/database-migration-strategy.md`'s "Drift detection" section) for a future wave to execute once the standing `cli_login_postgres` credential-rotation owner action is confirmed complete: re-capture schema-only dumps, diff against the last known-good capture, classify every diff line as `KNOWN_LEGACY_DRIFT` (matches an already-documented live-only object or an already-approved change) or `NEW_UNEXPECTED_DRIFT` (investigate before trusting). A lightweight, zero-new-contact partial signal is also documented: re-running `supabase migration list --linked`/`supabase functions list` (already-safe, already-used-throughout-this-engagement commands) and watching for any change from the last confirmed state.
+
+### Phase M — Restore/rebuild test: two clean rebuilds, both fully verified
+
+| | Run 1 (baseline only) | Run 2 (baseline + `W1-001`) |
+|---|---|---|
+| Manual intervention | Zero | Zero |
+| `supabase start` time | 49s | 47s |
+| Baseline apply time | <1s | <1s |
+| Object count (public schema tables) | 24 | 25 (+`ai_rate_limit_counters`) |
+| Schema contract | 28/28 `OK` | 28/28 `OK` |
+| `ai_rate_limit_counters` present? | No (correctly absent, confirmed via direct count = 0) | Yes |
+| Application (Auth service) starts against it | Yes | Yes |
+| Auth signup provisioning | 1 `users` row, 1 `profiles` row, no duplicates | 1 `users` row, 1 `profiles` row, no duplicates |
+| Representative CRUD | `wellbeing_logs` insert succeeded (after correcting the test payload for real `CHECK`/`NOT NULL` constraints — a genuine schema detail, not a rebuild defect) | `cycle_entries` insert succeeded on the first real payload |
+| RLS user isolation | Not separately re-tested (already proven in Run 2 with the identical mechanism) | A second user's read of the first user's row returned empty; the owning user's own read returned the row |
+| **Total rebuild time (start → contract-verified)** | **~50s** | **~48s** |
+
+### Phase N — Historical audit preservation
+
+All 12 archived files preserved with **byte-identical content** (SHA-256 checksums computed before and after the move, diffed, confirmed identical) and **full git history** (`git mv`, not copy-and-delete — `git log --follow` still traces each file to its original commit and author). `supabase/migrations_archive/README.md` documents the precise reason each file is archived and what replaced it for fresh-environment purposes. **None of the 12 remain in any tooling-executed path** — confirmed by construction (`supabase/migrations/` contains only `W1-001`, verified via `ls`).
+
+### Phase O — BR-002 closure criteria reconstructed and applied
+
+Read directly from `BR_findings.md` (not inherited from any prior wave's summary): closure requires **A — repository migration replay safety**, explicitly, by the finding's own text ("this finding concerns the absence of a repo-based rebuild path, independent of whether Supabase-side backups exist"). **Not B** (production ledger reconciliation) — the finding disclaims that dependency itself. Native remediation category: "a complete, replayable migration chain or a tested `schema.sql`-based bootstrap script," with the audit's own added requirement that "the rebuild path itself be proven by an actual empty-DB replay test, not just internal consistency." **This wave's evidence satisfies exactly that bar, twice, with real executed proof**: two independent fresh rebuilds, both schema-contract-verified, both with working auth provisioning, CRUD, and RLS. **Decision: `VERIFIED_CLOSED`.** Production ledger divergence remains a real, separate, honestly-documented fact — correctly not required for *this* finding's own native closure, per its own text, not per a convenient reading invented this wave.
+
+### Phase P — BR-001 preservation
+
+**Not touched, not re-tested, not re-assessed this wave.** `BR-001` remains exactly as the Production Backup Provisioning wave (`00_09` §35) left it: `OPEN`, no verified production user-data backup, RPO effectively infinite today. This wave's improved schema reproducibility is explicitly and repeatedly distinguished from user-data recoverability throughout every phase above — never conflated, never cited as partial progress toward `BR-001`.
+
+### Testing
+
+`dart analyze lib/`: 27 pre-existing, zero new. `flutter test`: 372/380, same 8 pre-existing golden-image diffs, zero regressions — confirmed via `git status` that no Flutter/Dart application code changed this wave (only `supabase/migrations*`, `scripts/`, `docs/`, `.github/workflows/ci.yml`).
+
+### Owner actions required
+
+(1) The standing owner actions from every prior wave remain outstanding and untouched: a real, verified production data backup (`BR-001`), Gemini key rotation (`SEC-001`/`ROOT-002`), GitHub authentication (blocks remote verification of both the `ci.yml` and `emergency-release.yml` workflows, and now this wave's `validate-migrations` job too), the `PC-006` legal determination, `OB-006`'s Sentry confirmation, `AU-009`'s live device/AT testing, the Apple Developer Team ID for iOS signing. (2) Once `cli_login_postgres`'s rotation is confirmed complete, a future wave can safely execute the documented drift-detection procedure (Phase L) to re-verify no unexpected production drift has occurred since the last live capture.
+
+**Overall verdict remains NO-GO** — this wave resolved a real, three-times-independently-reproduced structural finding (`BR-002`, and by extension `DI-001`) with genuine, executed, double-verified evidence that exceeds the finding's own native closure bar, precisely root-caused a 96-error failure graph to three specific live-only objects rather than treating the chain as an undifferentiated blob, and built durable, tested, CI-integrated tooling to prevent recurrence on every future migration — but `BR-001`'s real production data backup, the Gemini key rotation, and the remaining standing engagement blockers (now a shorter list than at any prior point) are untouched by this wave's scope.
+
+---
+
+## Consolidated Report — Migration Chain Reproducibility (BR-002)
+
+1. **BR-002 native definition**: repository-based rebuild-path safety, explicitly independent of production backup/ledger state (`BR_findings.md`'s own text); native remediation requires a replayable chain or a tested bootstrap artifact, proven by an actual empty-DB replay test.
+2. **13-migration classification**: 1 self-contained active migration (`W1-001`, `UNAPPLIED_PENDING`); 1 migration that replays standalone (`private_messaging`); 2 migrations whose renames are `SUPERSEDED`/`RETIRED_FEATURE` (`prayer_log`→`prayer_entries`, `pregnancy_records`→`pregnancy_milestones`); 9 migrations `HISTORICAL_BUT_BROKEN` (fail from empty due to missing live-only dependencies). Full table in Phase A.
+3. **Complete replay failure graph**: 96 `ERROR` lines from a full concatenated replay; root-caused to exactly 3 missing live-only objects (`users`, `cycle_entries`, `prayer_log`), with `users` alone cascading into 5 separate `CREATE TABLE` failures and dozens of dependent statement failures. Full graph in Phase B.
+4. **Canonical baseline status**: `CURRENT` — no production schema change since its 2026-09-04 capture across this entire engagement; independently re-derived this wave to contain every required live-only object.
+5. **Selected migration strategy**: Option B/C hybrid — archive the 12 historical migrations as evidence-preserving, non-executed files; canonical baseline is the fresh-environment source of truth; `supabase/migrations/` holds only genuinely post-baseline migrations.
+6. **Historical migration disposition**: all 12 moved to `supabase/migrations_archive/`, SHA-256-verified byte-identical, full git history preserved, documented individually in a new `README.md`.
+7. **Auth provisioning reconstruction result**: the two triggers are complementary (populate distinct tables), not duplicative — confirmed the minimum correct contract is both, unchanged; tested twice in fresh environments, zero duplicate rows, zero collisions.
+8. **Fresh rebuild #1 result**: baseline-only — 49s stack start, <1s baseline apply, 28/28 schema contract, working auth provisioning + CRUD (`wellbeing_logs`) + zero manual intervention.
+9. **Fresh rebuild #2 result**: baseline + `W1-001` — 47s stack start, <1s baseline apply, 28/28 schema contract, working auth provisioning + CRUD (`cycle_entries`) + RLS isolation (two-user test) + zero manual intervention.
+10. **Schema-contract result**: 28/28 passing in both runs — 18 tables, 5 functions, 2 triggers, 2 correctly-absent retired/superseded objects; new reusable script `scripts/verify_schema_contract.sql`.
+11. **W1-001 placement/status**: remains in the active migration path, `PENDING_PRODUCTION`, unchanged authorization state (`NOT_SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`, gated on `BR-001`); both `BASELINE` and `BASELINE+W1-001` states proven deterministically reachable.
+12. **Migration validation tooling result**: `scripts/validate_migrations.sh` built and run end-to-end successfully (exit 0); integrated into `.github/workflows/ci.yml` as `validate-migrations` (valid YAML, `CODE_COMPLETE / REMOTE_VERIFICATION_PENDING` — GitHub-auth-blocked, unchanged from `RD-009`); does not depend on production access.
+13. **Drift-detection strategy**: documented manual procedure using already-obtained artifacts and a rotation-gated re-capture step; no new production database contact attempted this wave, out of caution from a prior wave's own flagged suspicion about schema-only dump safety.
+14. **Rebuild time**: ~50s (Run 1), ~48s (Run 2), both start-to-contract-verified.
+15. **Production-ledger treatment**: not touched or re-queried this wave; last confirmed state (all 13 migrations, empty `remote`) carried forward unchanged; explicitly documented as a deliberately-accepted, separate fact, not a precondition for this finding's own native closure.
+16. **Files changed**: `supabase/migrations/` (now only `W1-001`), `supabase/migrations_archive/` (new, 12 files + `README.md`), `scripts/verify_schema_contract.sql` (new), `scripts/validate_migrations.sh` (new), `.github/workflows/ci.yml` (new `validate-migrations` job), `docs/database-migration-strategy.md` (new), `production-readiness-results/backup-recovery/BR_recovery_runbook.md` (restore-sequence simplified, header updated).
+17. **`dart analyze` result**: 27 pre-existing, zero new.
+18. **`flutter test` result**: 372/380, same 8 pre-existing golden-image diffs, zero regressions.
+19. **BR-002 final status**: **`VERIFIED_CLOSED`**.
+20. **BR-001 status**: **`OPEN`** (unchanged, untouched, no verified production user-data backup).
+21. **Remaining database/recovery blockers**: `BR-001` alone, on the database/recovery side specifically — `DI-001`/`ROOT-007` narrowed/closed on this wave's evidence.
+22. **Unavoidable owner actions**: a real, verified production data backup (`BR-001`); GitHub authentication (blocks remote verification of the new `validate-migrations` CI job, same as every other CI concern); confirm `cli_login_postgres` rotation before any future drift-detection re-capture; every other standing owner action from prior waves (Gemini key rotation, `PC-006`, `OB-006`, `AU-009`, iOS Team ID) remains outstanding, untouched by this wave.
+23. **Updated overall verdict**: **NO-GO** (unchanged) — a real, substantial, evidence-backed structural finding closed this wave, but every remaining launch blocker (foremost: a real production data backup) is untouched by this wave's scope.

@@ -1,6 +1,6 @@
 # Niswah Database Recovery Runbook
 
-**Last updated:** 2026-09-06, Production Backup Provisioning + Recoverability Verification Wave. **Last restore test:** 2026-09-06 (Production Database Change Safety Gate wave) — see `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §34/§35 for full evidence.
+**Last updated:** 2026-09-06, Migration Chain Reproducibility (BR-002) Wave. **Last restore test:** 2026-09-06, same wave — two full rebuilds (baseline-only, baseline + `W1-001`), both schema-contract-verified — see `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §37 for full evidence. Prior restore-test record: §34/§35.
 
 This runbook is for **schema/application recoverability** — rebuilding the database structure and confirming the application works against it. It is explicitly **not** a guarantee of recovering real production user data — see the RPO section below and §35 for the selected minimum backup mechanism and why it is not yet provisioned.
 
@@ -28,43 +28,40 @@ This runbook is for **schema/application recoverability** — rebuilding the dat
 |---|---|---|
 | Canonical baseline (the tested recovery package) | `supabase/canonical_baseline/00_public_baseline_draft.sql` | **CURRENT** — re-validated this wave: applies cleanly to empty, produces 24/24 tables, 8/8 functions, 24/24 RLS-enabled, identical to the original Wave 0 live capture |
 | Live schema capture (point-in-time reference, not itself a restore artifact) | `supabase/live_schema_capture/2026-09-04_{public,auth,storage}.sql` | CURRENT (one day old at time of writing; no live schema change has occurred since — no migrations added, no DB-touching work performed by any remediation wave) |
-| Tracked migrations | `supabase/migrations/*.sql` | **UNSAFE for restore — do not use.** Confirmed, freshly, this wave: replaying them against an empty database fails (`BR-002`, re-confirmed live). They do not represent an applied, working history — they were never successfully applied to the live project through the tracked mechanism at all. |
-| Migration ledger repair plan (not executed) | `production-readiness-results/master/00_10_WAVE0_EXECUTION_REPORT.md` Output K | Proposed, reviewed, **not run**. Would resolve the ledger's disagreement with reality but does not itself fix `supabase/migrations/`'s replay failure — the underlying migration files remain unusable as a from-empty restore path either way. |
+| Historical migrations (archived) | `supabase/migrations_archive/*.sql` (12 files, moved here by the BR-002 Migration Chain Reproducibility wave, 2026-09-06) | **UNSAFE for restore, and no longer even attempted by tooling.** Confirmed via a full concatenated replay this wave: 96 `ERROR` lines, only 7 of ~20 tables created. Preserved as audit evidence only — see `supabase/migrations_archive/README.md`. **Not in the active replay path** — `supabase start`/`supabase db push` never read this directory. |
+| Active migrations | `supabase/migrations/*.sql` (now just `20260906090000_ai_rate_limit.sql`, `W1-001`) | Self-contained, additive-only, verified idempotent — safe for `supabase start` to auto-apply. See `docs/database-migration-strategy.md`. |
+| Migration ledger repair plan | Superseded by the strategy above — the ledger's divergence from reality is now a deliberately, permanently accepted and documented fact (`docs/database-migration-strategy.md`'s "Migration ledger policy" section), not something a repair script needs to reconcile before repository reproducibility is considered solved. |
 
-## 4. Restore sequence (schema-level recovery)
+## 4. Restore sequence (schema-level recovery) — simplified this wave
+
+`supabase/migrations/` now contains only `W1-001` (self-contained, no dependency on anything else) — **`supabase start` no longer needs the migrations directory moved aside first**, since there is nothing broken left in the active replay path:
 
 ```bash
 cd <repo root>
 
-# 1. Start an isolated Supabase stack. If testing a truly clean restore
-#    (not just reusing an already-migrated local volume from other work),
-#    remove any existing local DB volume first:
-docker volume rm supabase_db_Niswah 2>/dev/null
+# 1. Clean slate
+docker volume ls --filter "name=supabase" --format "{{.Name}}" | xargs -r docker volume rm
 
-# 2. IMPORTANT: supabase start auto-replays supabase/migrations/ against a
-#    truly empty database, and that replay fails (see §3 above). Move the
-#    migrations directory aside before starting, or the stack will not come
-#    up at all:
-mv supabase/migrations /tmp/supabase_migrations_backup
-
+# 2. Start — applies supabase/migrations/ (just W1-001) automatically, no manual workaround needed
 SUPABASE_ACCESS_TOKEN="<any-non-empty-value>" supabase start
-# (~60-90s on a machine with the Docker images already cached; longer on
-#  first-ever pull.)
+# ~47-50s measured this wave, Docker images already cached locally.
 
-# 3. Apply the canonical baseline directly — NOT supabase db push, which
-#    would try to use supabase/migrations/ again:
+# 3. Apply the canonical baseline directly — NOT supabase db push for this step,
+#    since the baseline itself is not a tracked migration:
 docker cp supabase/canonical_baseline/00_public_baseline_draft.sql \
   supabase_db_Niswah:/tmp/baseline.sql
 docker exec supabase_db_Niswah psql -U postgres -v ON_ERROR_STOP=1 \
   -f /tmp/baseline.sql
-# Measured this wave: <1 second.
+# Sub-second, measured this wave.
 
-# 4. Restore the migrations directory afterward (it is real, tracked
-#    source — do not leave it moved aside):
-mv /tmp/supabase_migrations_backup supabase/migrations
+# 4. Verify (schema-contract check, not just "applied without error"):
+docker cp scripts/verify_schema_contract.sql supabase_db_Niswah:/tmp/verify_schema_contract.sql
+docker exec supabase_db_Niswah psql -U postgres -f /tmp/verify_schema_contract.sql
 ```
 
-**Total measured time, this wave, stack-start through schema-ready:** 92 seconds (65s stack startup + <1s baseline apply), on a machine with Docker images already cached locally. A completely cold environment (first-ever image pull) would take materially longer — budget extra time for that case specifically, e.g. during initial on-call training or on a fresh machine.
+Or, in one command: `scripts/validate_migrations.sh` (does all four steps above, plus teardown, tested end-to-end this wave).
+
+**Total measured time, this wave, stack-start through schema-contract-verified:** well under one minute, run twice (baseline-only, and baseline + `W1-001`) with identical, fully-passing results both times — see `production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §37 for the full evidence. A completely cold environment (first-ever Docker image pull) would take materially longer — budget extra time for that case specifically.
 
 ## 5. Validation sequence (confirm the restore actually works, not just that it applied without error)
 
