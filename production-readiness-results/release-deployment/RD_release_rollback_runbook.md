@@ -13,7 +13,7 @@ Rollback is not one operation — each surface below has a different mechanism, 
 | Surface | Deployment mechanism | Rollback mechanism | Recovery speed | Requires new client release? | Can be server-side only? | Owner/store dependency |
 |---|---|---|---|---|---|---|
 | **Android (Flutter client)** | Manual `flutter build appbundle`/`apk --release`, uploaded to Play Console | Cannot "roll back" a Play Store versionCode — must build and submit a **new, higher-versionCode** emergency release from the last-known-good commit (§3) | Engineering prep: ~6-10 min (drilled, §4). Store review: **external, unmeasured** (§7) | Yes, always | No | Google Play Console review queue |
-| **iOS (Flutter client)** | Not currently production-ready (`DC-010` — no `DEVELOPMENT_TEAM` set) | N/A today — cannot ship any iOS build, let alone roll one back | N/A | Yes (once shippable) | No | Owner's Apple Developer Team ID (owner-blocked, unrelated to this wave) |
+| **iOS (Flutter client)** | Manual `flutter build ipa` (real signing) or `--no-codesign` (verification only), submitted via App Store Connect | Same model as Android — no in-place rollback; rebuild from last-known-good commit with a higher `CFBundleVersion` (§12) | Engineering prep: ~1-6 min once signing is configured (unsigned build drilled this wave — §12). Store review: **external, unmeasured**, same caveat as Android | Yes, always | No | Owner's Apple Developer Team ID + Distribution certificate/provisioning profile — the **only** remaining gap after `DC-010`'s Rollback wave (2026-09-07); everything else autonomously verified working |
 | **Flutter web** | `flutter build web --release` used only as a compile-health smoke test throughout this engagement | N/A — **not an actual deployment target**. No hosting config exists anywhere in this repo (no `firebase.json`/`netlify.toml`/`vercel.json` for the Flutter `web/` output; the separate `.vercel/project.json` belongs to the reference-only `src/` React app, not this app) | N/A | N/A | N/A | None — confirmed inactive, not a rollback surface today |
 | **Supabase Edge Functions** (`dr-niswah-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat`) | `supabase functions deploy <name> --project-ref <ref>` — always deploys whatever source is in the local working directory; there is no "redeploy version N" command | Check out the prior known-good commit's `supabase/functions/<name>/` source, then deploy that (§5) | Minutes, no store review — the fastest rollback lever that exists in this architecture | No | Yes | None — CLI-executable directly, once authorized |
 | **DB migrations** | `supabase db push` (historically unsafe — see §6) or a targeted single-file apply | Forward-fix preferred; destructive rollback (`DROP TABLE`/`DROP FUNCTION`) is a last resort, not a default (§6) | Varies; a well-scoped additive migration (e.g. `W1-001`) is sub-second to apply/leave in place | No | Yes | Requires a verified production backup to exist first (`BR-001`, currently `OPEN`) |
@@ -295,11 +295,52 @@ git show origin/main:.github/workflows/ci.yml   # → "fatal: path exists on dis
 
 ---
 
+## 11. iOS release path (`DC-010`, Rollback wave, 2026-09-07)
+
+```
+PRECHECK → DEPENDENCIES → TEAM/PROVISIONING → RELEASE BUILD → ARCHIVE → VALIDATION → STORE SUBMISSION
+```
+
+**PRECHECK** — confirmed clean this wave, no changes needed unless noted:
+- Bundle identifier: `com.niswah.niswah`, stable and identical to Android's — not a placeholder, confirmed via `PRODUCT_BUNDLE_IDENTIFIER` in `project.pbxproj` and `applicationId`/`namespace` in `android/app/build.gradle.kts`.
+- `IPHONEOS_DEPLOYMENT_TARGET = 15.0` across all 3 build configurations — confirmed compatible with every currently-resolved plugin (a real `flutter build ios --release` succeeded; SPM would refuse to resolve on a genuine platform-version conflict).
+- Entitlements: **no `.entitlements` file exists, correctly** — the app uses none of push notifications, Keychain groups, Associated Domains, Sign in with Apple, background modes, iCloud, app groups, or HealthKit (each verified absent from `lib/`/`pubspec.yaml`, not merely assumed). Do not add any speculatively.
+- `Info.plist` permissions: exactly one (`NSLocationWhenInUseUsageDescription`, prayer-time calculation) — matches Android's own permission set (`ACCESS_FINE_LOCATION`/`ACCESS_COARSE_LOCATION`) exactly. No camera/photo/contacts/health/tracking packages exist in `pubspec.yaml`, so no corresponding usage-description strings are needed.
+- `ITSAppUsesNonExemptEncryption = false` added this wave — evidence-based (no custom cryptography anywhere in `lib/`, only OS-level Keychain via `flutter_secure_storage` and standard HTTPS/TLS, both Apple's standard export-compliance exemption categories) — removes the export-compliance question from every future App Store Connect submission.
+- App icons: full set present (all required sizes through the 1024×1024 App Store icon). Launch screen present (`LaunchScreen.storyboard`).
+- Privacy manifests (`PrivacyInfo.xcprivacy`, Apple's "Required Reason APIs" requirement): every third-party plugin already bundles its own (confirmed present in the compiled `.app` for `flutter_secure_storage_darwin`, `app_links`, `shared_preferences_foundation`, `flutter_local_notifications`, `url_launcher_ios`, `geolocator_apple`, `package_info_plus`, `Sentry.framework`, `Flutter.framework`) — no additional root-level manifest needed unless the app's own `AppDelegate.swift` (currently minimal boilerplate) starts calling a "required reason" API directly.
+- Secure storage (iOS Keychain): `KeychainAccessibility.unlocked_this_device` hardening from the Privacy/Compliance wave re-verified still in place, unchanged.
+- Release-environment override: **verified working on iOS this wave, not assumed from the Android fix alone** — `AppEnvironment.load()`'s `String.fromEnvironment('APP_ENV')` mechanism is pure, platform-agnostic Dart; the literal string `"production"` was confirmed present in the compiled AOT binary (`strings build/ios/iphoneos/Runner.app/Frameworks/App.framework/App`) after building with `--dart-define=APP_ENV=production`, exactly mirroring the Android artifact-inspection discipline. No `GEMINI_API_KEY`/Gemini-key-pattern string found in the compiled binary either.
+
+**DEPENDENCIES** — `flutter pub get` succeeds cleanly. This project uses **Swift Package Manager, not CocoaPods** (verified `DC-012`, unchanged — no `Podfile` by design). `ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` pins exact plugin versions and was already tracked; this wave found and tracked its previously-untracked sibling copy (`ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved`, byte-identical content) for full reproducibility from a fresh checkout — a real gap closed, not assumed already covered.
+
+**TEAM/PROVISIONING** — see §11.1 below. The only step this runbook cannot complete.
+
+**RELEASE BUILD** — `flutter build ios --release --no-codesign --dart-define=APP_ENV=production` is the strongest build this session's environment can legitimately produce (zero local signing identities — `security find-identity -v -p codesigning` returns "0 valid identities found"). **Drilled and verified this wave**: succeeds cleanly (65s warm-cache, 370s cold-cache), produces `build/ios/iphoneos/Runner.app` (28.8MB, `Mach-O 64-bit executable arm64`), `CFBundleShortVersionString`/`CFBundleVersion` correctly derived from `pubspec.yaml` (`1.0.0`/`2`), matching Android's version-numbering mechanism exactly. **A `--no-codesign` build is not a release-ready artifact** — it proves compilation, native package integration, and Release-configuration correctness, nothing more; do not distribute it.
+
+**ARCHIVE** — requires real signing (an `.xcarchive`/`.ipa` export is not meaningfully producible without a Distribution certificate); not attempted this wave, correctly, per the hard rule against creating Apple certificates/identities.
+
+**VALIDATION** — once a real signed build exists, the same discipline as Android's artifact-inspection checklist (§4.3) applies: confirm the real Distribution certificate (not a development one) via `codesign -dvvv`, confirm no secret leaks in the bundled `.env`, confirm `environment` reports correctly to Sentry from a real device install.
+
+**STORE SUBMISSION** — out of scope for this wave (no publishing). App Store Connect's own metadata (screenshots, description, age rating, etc.) is separately unfilled and not fabricated here.
+
+### 11.1 Minimum owner action
+
+Every autonomously-completable item above is done and verified. **The only remaining gap is exactly `DC-010`'s original finding — nothing else**: this session has zero local Apple signing identities (`security find-identity -v -p codesigning`: 0 found) and no provisioning profiles (`~/Library/MobileDevice/Provisioning Profiles/` does not exist). `CODE_SIGN_STYLE` is already correctly `Automatic` — the minimal path forward, not a gap to fix.
+
+**OWNER ACTION**: sign into Xcode with an Apple ID enrolled in the Apple Developer Program, then in Xcode → `Runner` target → Signing & Capabilities → select that Team for the `Runner` target (all 3 build configurations). With `CODE_SIGN_STYLE = Automatic` already set, Xcode will then generate the certificate and provisioning profile itself — no further manual certificate/profile creation is required for a first release. (A later move to `CODE_SIGN_STYLE = Manual` with an explicit named provisioning profile — RD-002's "typically preferred for CI-produced releases" note — is a reasonable future refinement once initial enrollment is done, not a blocker for this first step.)
+
+### 11.2 iOS build-number / emergency-build integration
+
+`CFBundleVersion` is driven by the same `pubspec.yaml` `+N` field (or a `--build-number` override) as Android's `versionCode` — confirmed via direct inspection of the compiled `Info.plist`. `scripts/generate_release_manifest.sh` now supports iOS artifacts (`.app` directories and `.ipa` files) — tested this wave against the real `--no-codesign` build output: correctly hashes the `.app` bundle's full contents, correctly reports `"UNSIGNED (--no-codesign build)"` via `codesign -dvvv` rather than fabricating a certificate identity. An iOS emergency rebuild would follow the exact same `git worktree` + higher-build-number pattern already drilled for Android (§4.2) — not re-drilled separately this wave since the underlying mechanism (Flutter's build-number handling) is identical and already proven; the only iOS-specific addition is that `flutter build ipa` (not `apk`/`appbundle`) would be the actual command, requiring real signing to produce a distributable artifact.
+
+---
+
 ## 10. Owner actions this runbook cannot complete
 
 - **GitHub authentication / remote push** (§8) — required before either CI workflow can run for real. Explicitly deferred this wave per operator instruction.
 - **Configure `ANDROID_RELEASE_KEYSTORE_BASE64` / `ANDROID_KEY_PROPERTIES` / `EMERGENCY_BUILD_ENV_FILE` as GitHub Actions secrets** — required before the emergency workflow can produce a real signed artifact; a one-time setup step in GitHub repository Settings.
-- **iOS signing (`DC-010`)**: unchanged, requires the owner's real Apple Developer Team ID — not fabricable.
+- **iOS signing (`DC-010`)**: the single remaining gap after this wave's full precheck — sign into Xcode with an Apple ID enrolled in the Apple Developer Program and select the Team for `Runner` (§11.1). Not fabricable; everything else autonomously verified working.
 - **Backing up the Android release keystore** (`android/app/niswah-release.jks`, `android/key.properties`): unchanged standing recommendation from the Release Engineering wave — back these up externally (password manager/secrets vault) before relying on them as the app's permanent signing identity.
 - **`BR-001` (a real, verified production backup)**: unchanged, `OPEN` — the precondition for §6.3's migration review gate and for authorizing `W1-001`'s own deployment; explicitly out of this wave's scope, deferred per operator instruction.
 - **Defining an actual, paged alerting mechanism for the DETECT step (§1)**: no automated alerting exists today beyond Sentry's own dashboard; this runbook does not invent one, consistent with "do not build speculative infrastructure."

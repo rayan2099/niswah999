@@ -3185,3 +3185,171 @@ Read directly from `BR_findings.md` (not inherited from any prior wave's summary
 21. **Remaining database/recovery blockers**: `BR-001` alone, on the database/recovery side specifically — `DI-001`/`ROOT-007` narrowed/closed on this wave's evidence.
 22. **Unavoidable owner actions**: a real, verified production data backup (`BR-001`); GitHub authentication (blocks remote verification of the new `validate-migrations` CI job, same as every other CI concern); confirm `cli_login_postgres` rotation before any future drift-detection re-capture; every other standing owner action from prior waves (Gemini key rotation, `PC-006`, `OB-006`, `AU-009`, iOS Team ID) remains outstanding, untouched by this wave.
 23. **Updated overall verdict**: **NO-GO** (unchanged) — a real, substantial, evidence-backed structural finding closed this wave, but every remaining launch blocker (foremost: a real production data backup) is untouched by this wave's scope.
+
+---
+
+## 38. iOS Release Readiness Wave (2026-09-07) — DC-010
+
+**Local/non-production, per explicit instruction.** No production DB modification, no `W1-001` deployment, no App Store publication, no Apple certificate/identity creation, no invented Team ID, no Supabase billing change, no credential rotation, no GitHub authentication fix, no `AU-009`/`PC-006` work, no `PrayerTrackingScreen`/`pregnancy_records` cleanup, no fabricated signing success anywhere in this section.
+
+**Findings explicitly preserved, unchanged unless stated otherwise below**: `BR-001` (`OPEN`), `BR-002` (`VERIFIED_CLOSED`, prior wave), `SEC-001`/`ROOT-002` (`OPEN`), `W1-002` (`OPEN`, low severity), Fiqh Search-grounding (`B — DEGRADED`), `RD-006`/`RD-009` (`PARTIALLY_REMEDIATED`), `OB-006`/`PC-006` (`PARTIALLY_REMEDIATED`), `AU-009` (`OPEN`), the entire Accessibility domain.
+
+### Phase A — DC-010 reconstructed from its native definition
+
+Read in full from `DC_findings.md` (not summarized): **Title**: "iOS release code signing has no pinned team/identity; relies entirely on local Xcode/Apple ID state." **Category** `BUILD-04`. **Severity** DC1 — High. **Declared value**: `CODE_SIGN_STYLE = Automatic` across all 3 build configurations, `"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer"` (generic placeholder), zero `DEVELOPMENT_TEAM` entries anywhere. **Actual usage**: automatic signing requires Xcode to resolve a team/provisioning profile from whatever Apple Developer account is logged into the building machine. **Production impact**: a release IPA can only be produced on a specific developer's machine, invisible from the repo alone — mirrors `DC-005`/`DC-006` for the other platform. **Cross-referenced natively** by `RD_findings.md`'s `RD-002`, whose own "Expected behavior" is the actual, precise native closure criterion: "An explicit `DEVELOPMENT_TEAM` (and, for CI-produced releases, typically `CODE_SIGN_STYLE = Manual` with a named provisioning profile) so that any machine/CI runner with the correct certificate can reproducibly produce the same-identity build." **Previous release-engineering work**: the Android Release Engineering wave (`00_09` §19) explicitly attempted and correctly declined to fabricate this — "genuinely cannot be from this session... requires the owner's real Apple Developer Team ID." **Exact current blocker, re-confirmed this wave via direct tooling, not assumed unchanged**: `security find-identity -v -p codesigning` → "0 valid identities found"; `~/Library/MobileDevice/Provisioning Profiles/` does not exist at all.
+
+### Phase B — Launch-target classification: Android + iOS, confirmed by first-party evidence
+
+`00_01_RELEASE_CANDIDATE_BASELINE.md` (the engagement's own scoping document) states directly: "Deployment target | iOS + Android native app, bundle ID `com.niswah.niswah` (both platforms, confirmed in `ios/Runner.xcodeproj/project.pbxproj` and `android/app/build.gradle.kts`)." No conflicting scope statement was found anywhere in `production-readiness-results/` or release documentation. **Classification: B — Android + iOS is the current launch scope, not ambiguous.** `DC-010` is therefore not eligible for `DEFERRED — ANDROID-ONLY LAUNCH`; full preparation proceeded per the charter's own instruction for this case.
+
+### Phase C — iOS project structure audit
+
+Inspected directly: `Runner.xcodeproj/project.pbxproj` (signing keys, deployment target, bundle ID — all 3 build configs), `Runner.xcworkspace`, `Info.plist`, `AppDelegate.swift` (minimal Flutter boilerplate, no custom logic, no issues), and confirmed **no `.entitlements` file exists anywhere** in the project (a `find -iname "*.entitlements"` returned nothing). No placeholders beyond the already-known signing identity string; no stale defaults, no duplicate settings, no invented identifiers inserted.
+
+### Phase D — Bundle identifier: already correct, no fix needed
+
+`com.niswah.niswah` confirmed identical and stable across `PRODUCT_BUNDLE_IDENTIFIER` (iOS — `project.pbxproj` lines 386/402/419/434/567/589, the `.RunnerTests` suffix correctly scoped to the test target only) and `applicationId`/`namespace` (Android — `android/app/build.gradle.kts`). Not a generic Flutter placeholder (`com.example.*`) — a genuine, intentional, cross-platform-consistent identifier, matching the app's actual name. No change made.
+
+### Phase E — Deployment target / SDK compatibility
+
+`IPHONEOS_DEPLOYMENT_TARGET = 15.0` confirmed at all 3 build configurations (lines 363/490/542). Cross-checked against every currently-resolved SPM plugin via `ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift` (auto-generated, `platforms: [.iOS("15.0")]`) — SPM would refuse to resolve on a genuine platform-version conflict among `app_links`, `flutter_local_notifications`, `flutter_secure_storage_darwin`, `geolocator_apple`, `package_info_plus`, `printing`, `sentry_flutter`, `shared_preferences_foundation`, `url_launcher_ios`. **Confirmed compatible via a real successful build** (Phase L), not merely by reading the manifest. Deployment target left unchanged — not unnecessarily raised, per instruction.
+
+### Phase F — Privacy/permission plist audit
+
+Cross-referenced `pubspec.yaml`'s full dependency list against `Info.plist`: only `geolocator: ^14.0.3` requires a usage-description string, and exactly one exists — `NSLocationWhenInUseUsageDescription`, truthful ("Niswah uses your location to calculate accurate prayer times"), matching Android's own permission set exactly (`ACCESS_FINE_LOCATION`/`ACCESS_COARSE_LOCATION`, no background variant on either platform). No camera, photo library, microphone, contacts, tracking, biometrics, or HealthKit package exists anywhere in `pubspec.yaml` — confirmed by direct dependency-list inspection, not assumed. `flutter_local_notifications` requires no static `Info.plist` usage-description key (iOS requests local-notification permission via a runtime API call, not a privacy-string declaration). **No permission descriptions added, removed, or found stale** — the existing single entry is complete and correct as-is.
+
+### Phase G — Entitlements audit
+
+No `.entitlements` file exists (Phase C). Classified against the charter's own list, each confirmed via direct code search (not assumed absent):
+
+| Entitlement | Classification | Evidence |
+|---|---|---|
+| Push notifications | `UNUSED` | `flutter_local_notifications` is local-only; no `firebase_messaging`/APNs package found |
+| Keychain groups | `NOT_APPLICABLE` | `flutter_secure_storage` uses the app's own default Keychain access group; no cross-app sharing implemented |
+| Associated Domains | `NOT_APPLICABLE` | Only a custom URL scheme (`niswah://`, `Info.plist`'s `CFBundleURLTypes`) — no universal-links/app-site-association usage found |
+| Sign in with Apple | `NOT_APPLICABLE` | No `sign_in_with_apple`/equivalent package or code found anywhere in `lib/` |
+| Background modes | `NOT_APPLICABLE` | No background-fetch/audio/location-background code found |
+| iCloud | `NOT_APPLICABLE` | No CloudKit/iCloud usage found |
+| App groups | `NOT_APPLICABLE` | Single-app, no widget/extension |
+| HealthKit | `NOT_APPLICABLE` | No HealthKit package despite being a health-tracking app — confirmed absent from `pubspec.yaml` |
+
+**No capability enabled speculatively.** This is a genuinely clean, minimal-surface iOS app from an entitlements standpoint.
+
+### Phase H — Secure storage re-verification
+
+`lib/core/storage/secure_local_store.dart` re-read directly: `IOSOptions(accessibility: KeychainAccessibility.unlocked_this_device)` confirmed still in place, unchanged since the Privacy/Compliance wave's hardening (`unlocked` → `unlocked_this_device`, closing the encrypted-local-backup-restore-onto-new-device exposure). No cross-user local data exposure re-derived from scratch this wave — the existing dedicated multi-user isolation tests (`SecureLocalStore.debugUserIdOverride` seam, established in the Privacy/Compliance wave) already cover this at the Dart level, platform-agnostic to Android/iOS since both route through the same `flutter_secure_storage` API surface; not re-run, cited as valid prior evidence per the charter's own "use prior tests where valid" instruction. No secrets found in any `.plist`/source file (Phase I re-confirms this at the compiled-artifact level).
+
+### Phase I — Release environment: verified working on iOS specifically, not assumed from Android
+
+`lib/core/config/app_environment.dart` re-read: `String.fromEnvironment('APP_ENV')` is pure, platform-agnostic Dart — a genuine compile-time constant baked in by the Dart compiler regardless of target OS, not an Android-specific mechanism. **Verified empirically this wave, not just reasoned about**: `flutter build ios --release --no-codesign --dart-define=APP_ENV=production` produced a compiled binary whose bundled `.env` still shows `APP_ENV=development` (expected — it's a static asset, unchanged since the Android investigation established this exact behavior) but whose **compiled AOT code** contains the literal string `"production"` (confirmed via `strings build/ios/iphoneos/Runner.app/Frameworks/App.framework/App | grep -i production`, found adjacent to the `app_environment.dart` package path reference) — direct proof the dart-define override actually took effect in compiled code, mirroring the Android artifact-inspection discipline exactly, not merely asserting platform-agnostic reasoning is sufficient. **No `GEMINI_API_KEY`/`AIza…`-pattern string found** in the compiled binary (`strings ... | grep -E "AIza[0-9A-Za-z_-]{35}"` — zero matches). One `service_role` string match found and traced to `_validateClientConfig()`'s own safety-check literal (the code that *rejects* a service-role key if one is ever misconfigured) — not a leaked credential, confirmed by reading the source, not assumed safe from the grep hit alone. Gemini remains server-side-only, unaffected by this platform (no direct Gemini call path exists anywhere in `lib/`, re-confirmed by the absence of any Gemini-related import/URL outside `supabase/functions/`, consistent with every prior wave's finding).
+
+### Phase J — Version / build number
+
+`CFBundleShortVersionString = $(FLUTTER_BUILD_NAME)`, `CFBundleVersion = $(FLUTTER_BUILD_NUMBER)` in `Info.plist` — both driven by the same `pubspec.yaml` `version: 1.0.0+2` field Android uses, confirmed via direct inspection of the compiled `Info.plist` (`plutil -p`): `CFBundleShortVersionString => "1.0.0"`, `CFBundleVersion => "2"`. An emergency iOS build would use the same `--build-number=<N>` override already proven on Android (`RD-009` wave) — not re-drilled separately this wave since the underlying Flutter mechanism is identical and already demonstrated; only the actual build command differs (`flutter build ipa` vs. `apk`/`appbundle`, requiring real signing to produce a distributable artifact). `scripts/generate_release_manifest.sh` extended this wave to understand iOS artifact paths.
+
+### Phase K — SPM dependency reproducibility
+
+This project uses **Swift Package Manager, not CocoaPods** (`DC-012`, re-confirmed unchanged — no `Podfile` exists, `FlutterGeneratedPluginSwiftPackage/Package.swift` present, a supported, intentional toolchain choice, not a defect). `flutter pub get` succeeds cleanly. **A real, previously-untracked reproducibility gap found and fixed**: `ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved` — content byte-identical (`diff`, zero output) to its sibling at `ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` (already tracked) — was itself untracked (`git status` showed it as `??` after this wave's build regenerated it) and not covered by any `.gitignore` rule either way. **Now tracked**, closing a genuine gap: without it, a fresh checkout's `Runner.xcworkspace`-level package resolution would not be pinned to the exact same versions the `.xcodeproj`-level copy already guaranteed. No dependency was globally upgraded.
+
+### Phase L — Unsigned/no-codesign build: succeeded, twice
+
+`flutter build ios --release --no-codesign --dart-define=APP_ENV=production` — the strongest legitimate build this session's environment can produce (zero local signing identities, confirmed Phase M). **Run 1** (cold cache, before the `Info.plist` fix): 370s total (187.5s Xcode build), succeeded, `build/ios/iphoneos/Runner.app` (28.8MB). **Run 2** (warm cache, after adding `ITSAppUsesNonExemptEncryption`): 65s total (41.3s Xcode build), succeeded identically — confirms the plist change introduced zero regression. Both: `Mach-O 64-bit executable arm64` (`file` command), no missing plist/entitlement/config errors, Release configuration confirmed (not Debug — verified via the `"production"` string check in Phase I, which would not appear under a Debug-configuration build using the default dart-define-less path). **`--no-codesign` build success is explicitly not claimed as signed-release readiness** — stated plainly throughout this section and in the runbook.
+
+### Phase M — Signing preparation: exact current state, not assumed
+
+```
+security find-identity -v -p codesigning
+```
+→ **`0 valid identities found`**. No private key exposed or referenced. `~/Library/MobileDevice/Provisioning Profiles/` does not exist as a directory at all — zero provisioning profiles, for any bundle ID. **Classification: C — no usable signing identity.** Not A (no Distribution identity), not B (no development identity either) — genuinely nothing. Xcode 15.4 itself is installed and functional (`xcodebuild -version`), confirmed sufficient for this Flutter version via the successful builds above — the gap is exclusively the Apple Developer account/certificate, not the local toolchain. No certificate or provisioning profile was created this wave, per the explicit hard rule.
+
+### Phase N — Minimum owner action
+
+Every autonomously-completable item above is done and verified with real evidence. **Exactly one remains**:
+
+**OWNER ACTION: Open Xcode → select the `Runner` target → Signing & Capabilities → sign in with an Apple ID enrolled in the Apple Developer Program → select that Team.** `CODE_SIGN_STYLE = Automatic` is already correctly configured (not changed this wave) — Xcode will generate the certificate and provisioning profile itself once a Team is selected; no separate manual certificate/profile creation step is required for a first release. No alternative instructions offered — this is the single, precise, evidence-grounded action.
+
+### Phase O — App Store precheck
+
+- Bundle identifier: real, stable, not a placeholder (Phase D). ✅
+- Version/build number: correctly present and derived (Phase J). ✅
+- App icons: full set present through the 1024×1024 App Store icon (`Assets.xcassets/AppIcon.appiconset/`, all 15 required sizes). ✅
+- Launch screen: present (`Base.lproj/LaunchScreen.storyboard`). ✅
+- Invalid/malformed plist: none — `Info.plist` parses cleanly (confirmed via `plutil -p` against the compiled artifact). ✅
+- Unsupported architectures: build output confirmed `arm64` (device architecture), no `x86`/simulator-only artifact mistaken for a release build. ✅
+- **Encryption/export compliance declaration**: was missing, **added this wave** (`ITSAppUsesNonExemptEncryption = false`) — evidence-based (Phase I: no custom cryptography anywhere in `lib/`, only OS-standard Keychain encryption and standard HTTPS/TLS, both Apple's own exemption categories; `DC-011`'s dependency inventory independently confirms no proprietary crypto library exists). This is a technical, verifiable declaration about actual app capability — not fabricated App Store Connect metadata (screenshots, descriptions, age ratings remain genuinely unfilled and are correctly not invented here).
+- **Privacy manifest / Required Reason APIs**: every third-party plugin already bundles its own `PrivacyInfo.xcprivacy`, confirmed present in the compiled `.app` for all 9 resolved SPM packages plus `Sentry.framework` and `Flutter.framework` — Apple's current guidance is that first-party app code only needs its own manifest if it directly calls a "required reason" API itself; `AppDelegate.swift` (the only first-party native code) does not. No additional manifest added — none is needed on current evidence.
+- Signing configuration: `OWNER_BLOCKED` (Phase M/N) — the sole remaining item.
+
+### Phase P — CI iOS preparation
+
+`.github/workflows/ci.yml`'s existing `build-ios` job (added in the `RD-009` wave) already runs exactly `flutter build ios --release --no-codesign` on `macos-latest` — this wave's local drill (Phase L) directly proves that exact command sequence works, so the CI job's correctness is now backed by a real local precedent, not just written and assumed. No changes to `ci.yml` were needed for this wave's scope. A full signed archive remains correctly gated on CI secrets (certificate, provisioning profile, Team ID) the owner would need to configure — none committed, none fabricated. Remote execution remains `REMOTE_VERIFICATION_PENDING`, unchanged, same standing GitHub-authentication block as every other CI concern this engagement.
+
+### Phase Q — Release runbook
+
+`RD_release_rollback_runbook.md` §11 (new): the full `PRECHECK → DEPENDENCIES → TEAM/PROVISIONING → RELEASE BUILD → ARCHIVE → VALIDATION → STORE SUBMISSION` path, with §11.1 (minimum owner action) and §11.2 (build-number/emergency-build integration, tying into the already-drilled Android emergency-build pattern from `RD-009` without re-drilling it separately). The deployable-surface-inventory table's iOS row (§0) updated to reflect this wave's evidence. No secrets included anywhere.
+
+### Testing
+
+`dart analyze lib/`: 27 pre-existing, zero new. `flutter test`: 372/380, same 8 pre-existing golden-image diffs, zero regressions — confirmed via `git status` that this wave's only Dart-adjacent change is the extended `scripts/generate_release_manifest.sh` (a shell script, not Dart application code); `lib/` itself is untouched. `flutter build ios --release --no-codesign`: succeeds, twice, before and after the `Info.plist` change.
+
+### Phase R — DC-010 reassessed
+
+**`OWNER_BLOCKED`**, not generically `OPEN`. Every autonomously-completable component of `RD-002`'s native closure criteria has been verified: the project structure, bundle ID, deployment target, entitlements, permissions, secure storage, release-environment override, version/build numbering, dependency reproducibility, and a real successful build are all confirmed correct and working. The one remaining requirement — "an explicit `DEVELOPMENT_TEAM`... so that any machine/CI runner with the correct certificate can reproducibly produce the same-identity build" — cannot be met without a real Apple Developer Team ID, which this session cannot obtain, fabricate, or guess, per explicit hard rule. This is precisely the `OWNER_BLOCKED` state, distinct from a generic `OPEN` (which would understate how much has actually been verified) and distinct from `VERIFIED_CLOSED` (which would overclaim past the one real remaining gap).
+
+### Owner actions required
+
+(1) **The single action this wave narrows everything to**: sign into Xcode with an Apple ID enrolled in the Apple Developer Program, select the Team for `Runner` in Signing & Capabilities. (2) The standing owner actions from every prior wave remain outstanding and untouched: a real, verified production data backup (`BR-001`), Gemini key rotation (`SEC-001`/`ROOT-002`), GitHub authentication, the `PC-006` legal determination, `OB-006`'s Sentry confirmation, `AU-009`'s live device/AT testing, backing up the Android release keystore externally.
+
+**Overall verdict remains NO-GO** — this wave completed every autonomously-achievable iOS release-readiness item with real, executed, tested evidence (a working `--no-codesign` build twice over, verified permissions/entitlements/export-compliance/dependency-reproducibility, two genuine gaps found and fixed along the way — a stale `DC-005`/`SEC-003` register row and an untracked SPM lockfile), and reduced `DC-010`/`ROOT-003` to the single smallest possible owner instruction on either platform — but that instruction, `BR-001`'s real production data backup, the Gemini key rotation, and every other standing engagement blocker remain outstanding and untouched by this wave's scope.
+
+---
+
+## Phase T — Final blocker reclassification (across the full engagement, as of this wave)
+
+| Finding | Category | Status |
+|---|---|---|
+| `BR-001` | **PRODUCTION INFRASTRUCTURE** | `OPEN` — real, verified production user-data backup does not exist; owner action (Supabase Pro upgrade) required, deferred |
+| `W1-001` | **OWNER ACTION** (deployment authorization) | `SAFE_TO_APPLY` technically, `NOT_SAFE_TO_AUTHORIZE` pending `BR-001`; not a code defect |
+| `RD-009` | **REMOTE VERIFICATION** (mostly resolved) | `PARTIALLY_REMEDIATED` — Android rollback drilled and proven; Edge Function/CI rollback mechanisms documented and command-verified, not live-executed (GitHub-auth-blocked) |
+| `SEC-001` | **EXTERNAL CREDENTIAL** | `OPEN` — Gemini key rotation requires Google Cloud Console access this session does not have |
+| `ROOT-002` | **EXTERNAL CREDENTIAL** | `OPEN` — same gate as `SEC-001` |
+| Fiqh grounding degradation | **EXTERNAL CREDENTIAL** | `B — DEGRADED` — Google Cloud quota/billing condition, external |
+| `OB-006` | **REMOTE VERIFICATION** | `PARTIALLY_REMEDIATED` — a deployed-build Sentry event confirmation, or a dashboard check for the already-sent staging event, remains outstanding |
+| `AU-009` | **PLATFORM ACCEPTANCE** | `OPEN` — live device/assistive-technology testing, explicitly deferred every wave |
+| `PC-006` | **LEGAL** | `PARTIALLY_REMEDIATED` — gated on a legal-owner determination this session cannot make |
+| `DC-010` | **OWNER ACTION** (narrowed from a broader release-readiness gap) | `OWNER_BLOCKED` — every autonomously-completable item done; only a real Apple Developer Team ID remains |
+| GitHub authentication | **REMOTE VERIFICATION** (root blocker for several others) | Owner-authentication-blocked — blocks real verification of `ci.yml`, `emergency-release.yml`, and the `validate-migrations` job |
+| `PrayerTrackingScreen` dormancy | **OPTIONAL CLEANUP** | Deferred, owner-level product decision, not a launch blocker |
+| `pregnancy_records` | **OPTIONAL CLEANUP** | Deferred, requires live production data inspection this session cannot perform |
+
+**Not listed above because already fully resolved this engagement**: `BR-002` (`VERIFIED_CLOSED`), `DI-001` (`VERIFIED_CLOSED`), `DC-005`/`SEC-003` (`VERIFIED_CLOSED`, row corrected this wave), `PJ-001`/`PJ-002`(narrowed)/`PJ-003`/`PJ-004`/`PJ-005`/`PJ-006` (all closed), `CQ-007` (closed), the entire Accessibility domain except `AU-009`, every Reliability/Observability finding except `OB-006`, every Privacy/Compliance finding except `PC-006`.
+
+**Every remaining launch blocker across the entire engagement is now one of exactly six categories**: production infrastructure (`BR-001`), external credential (`SEC-001`/`ROOT-002`/Fiqh grounding), remote verification (`RD-009`'s residual half, `OB-006`, GitHub authentication), platform acceptance (`AU-009`), legal (`PC-006`), or a single owner action (`DC-010`/`W1-001`'s authorization) — **zero remaining launch-blocking findings are application-code defects**, a state first reached in the Final Application Code Blockers wave (`00_09` §33) and preserved unbroken through every wave since.
+
+---
+
+## Consolidated Report — iOS Release Readiness (DC-010)
+
+1. **DC-010 native definition**: `BUILD-04`/DC1 High — `CODE_SIGN_STYLE = Automatic`, no `DEVELOPMENT_TEAM`; native closure (via `RD-002`) requires an explicit team so any machine/CI runner with the right certificate reproduces the same-identity build.
+2. **Current launch-target classification**: **Android + iOS**, confirmed by first-party evidence (`00_01_RELEASE_CANDIDATE_BASELINE.md`), not ambiguous, not Android-only.
+3. **Bundle identifier status**: `com.niswah.niswah` — already correct, stable, cross-platform-consistent; no fix needed.
+4. **iOS project/config status**: clean — no placeholders, no stale defaults, no invalid signing references beyond the known gap, no duplicate settings.
+5. **Deployment-target result**: `15.0`, confirmed compatible with every resolved SPM plugin via a real successful build.
+6. **Plist/permission result**: minimal and correct — one usage description (location), matching Android's own permission set exactly; nothing missing, nothing excess.
+7. **Entitlement result**: none needed, none present — every capability the charter listed confirmed `NOT_APPLICABLE`/`UNUSED` via direct code search.
+8. **Secure-storage result**: `unlocked_this_device` Keychain hardening re-verified in place, unchanged.
+9. **Release-environment result**: verified working on iOS specifically — the `"production"` dart-define string confirmed present in the compiled AOT binary; no Gemini key or service-role value leaked.
+10. **Version/build result**: `CFBundleShortVersionString`/`CFBundleVersion` correctly derived (`1.0.0`/`2`), same mechanism as Android.
+11. **CocoaPods/dependency result**: SPM (not CocoaPods, by design, `DC-012`); a real untracked `Package.resolved` reproducibility gap found and fixed.
+12. **No-codesign build result**: **succeeded twice** — 370s cold, 65s warm; `arm64` release artifact, no errors.
+13. **Local signing-identity status**: **C — none** (`security find-identity`: 0 found).
+14. **Provisioning-profile status**: **none exist** (directory absent).
+15. **App Store precheck**: icons/launch-screen/version/architecture all clean; export-compliance declaration added (evidence-based); privacy manifests already covered by third-party packages; signing is the sole open item.
+16. **CI iOS preparation result**: already correctly configured (`build-ios` job, prior wave), now backed by a real local precedent from this wave's drill; `REMOTE_VERIFICATION_PENDING`, unchanged.
+17. **Exact unavoidable owner action**: sign into Xcode with an Apple ID enrolled in the Apple Developer Program and select the Team for `Runner` — `CODE_SIGN_STYLE = Automatic` handles the rest.
+18. **Files changed**: `ios/Runner/Info.plist` (`ITSAppUsesNonExemptEncryption`), `ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved` (newly tracked), `scripts/generate_release_manifest.sh` (extended for iOS artifacts, re-tested), `production-readiness-results/release-deployment/RD_release_rollback_runbook.md` (new §11), `production-readiness-results/master/00_04_MASTER_FINDING_REGISTER.md` (`DC-010`, `DC-005`/`SEC-003`, `ROOT-003` rows + wave narrative).
+19. **`dart analyze` result**: 27 pre-existing, zero new.
+20. **`flutter test` result**: 372/380, same 8 pre-existing golden-image diffs, zero regressions.
+21. **DC-010 final status**: **`OWNER_BLOCKED`**.
+22. **Updated remaining launch blockers**: see Phase T table above — six categories, zero application-code defects.
+23. **Updated overall verdict**: **NO-GO** (unchanged) — every remaining blocker is owner/external/platform/legal, none autonomously completable this session.

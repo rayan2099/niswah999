@@ -4,7 +4,9 @@
 # Capability wave, 2026-09-06). Never prints or embeds secrets.
 #
 # Usage: scripts/generate_release_manifest.sh <artifact-path> <environment> [build-number]
-#   artifact-path : path to a built .apk or .aab
+#   artifact-path : path to a built .apk/.aab (Android) or .app/.ipa (iOS —
+#                   .app is a directory, produced by --no-codesign builds;
+#                   .ipa is the archived/exported form, requires real signing)
 #   environment   : production | staging | development (the APP_ENV used for this build)
 #   build-number  : optional; defaults to reading pubspec.yaml's version field
 #
@@ -20,7 +22,7 @@ set -euo pipefail
 ARTIFACT_PATH="${1:?Usage: $0 <artifact-path> <environment> [build-number]}"
 ENVIRONMENT="${2:?Usage: $0 <artifact-path> <environment> [build-number]}"
 
-if [ ! -f "$ARTIFACT_PATH" ]; then
+if [ ! -e "$ARTIFACT_PATH" ]; then
   echo "error: artifact not found at $ARTIFACT_PATH" >&2
   exit 1
 fi
@@ -44,19 +46,39 @@ ARTIFACT_TYPE="apk"
 case "$ARTIFACT_PATH" in
   *.aab) ARTIFACT_TYPE="aab" ;;
   *.apk) ARTIFACT_TYPE="apk" ;;
+  *.ipa) ARTIFACT_TYPE="ipa" ;;
+  *.app) ARTIFACT_TYPE="app" ;;
 esac
 
-ARTIFACT_SHA256="$(shasum -a 256 "$ARTIFACT_PATH" | awk '{print $1}')"
-ARTIFACT_SIZE="$(stat -f%z "$ARTIFACT_PATH" 2>/dev/null || stat -c%s "$ARTIFACT_PATH")"
+if [ -d "$ARTIFACT_PATH" ]; then
+  # .app is a directory (unsigned/--no-codesign iOS build output) — hash a
+  # deterministic tar stream of its contents rather than the directory itself.
+  ARTIFACT_SHA256="$(find "$ARTIFACT_PATH" -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
+  ARTIFACT_SIZE="$(du -sk "$ARTIFACT_PATH" | awk '{print $1 * 1024}')"
+else
+  ARTIFACT_SHA256="$(shasum -a 256 "$ARTIFACT_PATH" | awk '{print $1}')"
+  ARTIFACT_SIZE="$(stat -f%z "$ARTIFACT_PATH" 2>/dev/null || stat -c%s "$ARTIFACT_PATH")"
+fi
 
 CERT_CN=""
 CERT_SHA256=""
-APKSIGNER="$(find "$HOME/Library/Android/sdk/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1)"
-JBR_HOME="$(find /Applications -maxdepth 4 -iname jbr -type d 2>/dev/null | head -1)"
-if [ -n "$APKSIGNER" ] && [ -n "$JBR_HOME" ] && [ "$ARTIFACT_TYPE" = "apk" ]; then
-  VERIFY_OUT="$(JAVA_HOME="$JBR_HOME/Contents/Home" "$APKSIGNER" verify --print-certs "$ARTIFACT_PATH" 2>/dev/null || true)"
-  CERT_CN="$(echo "$VERIFY_OUT" | grep 'certificate DN' | head -1 | sed -E 's/.*DN: (.*)/\1/')"
-  CERT_SHA256="$(echo "$VERIFY_OUT" | grep 'SHA-256 digest' | head -1 | awk '{print $NF}')"
+if [ "$ARTIFACT_TYPE" = "apk" ]; then
+  APKSIGNER="$(find "$HOME/Library/Android/sdk/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1)"
+  JBR_HOME="$(find /Applications -maxdepth 4 -iname jbr -type d 2>/dev/null | head -1)"
+  if [ -n "$APKSIGNER" ] && [ -n "$JBR_HOME" ]; then
+    VERIFY_OUT="$(JAVA_HOME="$JBR_HOME/Contents/Home" "$APKSIGNER" verify --print-certs "$ARTIFACT_PATH" 2>/dev/null || true)"
+    CERT_CN="$(echo "$VERIFY_OUT" | grep 'certificate DN' | head -1 | sed -E 's/.*DN: (.*)/\1/')"
+    CERT_SHA256="$(echo "$VERIFY_OUT" | grep 'SHA-256 digest' | head -1 | awk '{print $NF}')"
+  fi
+elif [ "$ARTIFACT_TYPE" = "app" ] || [ "$ARTIFACT_TYPE" = "ipa" ]; then
+  # codesign -dvvv reports "not signed at all" for a --no-codesign build,
+  # a real Team ID for a genuinely signed one — never invented here.
+  SIGN_OUT="$(codesign -dvvv "$ARTIFACT_PATH" 2>&1 || true)"
+  if echo "$SIGN_OUT" | grep -q "not signed at all"; then
+    CERT_CN="UNSIGNED (--no-codesign build)"
+  else
+    CERT_CN="$(echo "$SIGN_OUT" | grep '^Authority=' | head -1 | sed 's/^Authority=//')"
+  fi
 fi
 
 OUT_FILE="release-manifest_${GIT_SHA:0:7}_$(date -u +%Y%m%dT%H%M%SZ).json"
