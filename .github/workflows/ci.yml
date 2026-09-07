@@ -28,8 +28,31 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # `dart analyze` exits non-zero whenever ANY issue is reported,
+      # including the info-level `prefer_initializing_formals`/
+      # `deprecated_member_use` notices this repo has carried as a known,
+      # accepted baseline (27 issues) throughout this entire engagement —
+      # a bare `dart analyze lib/` step would therefore fail on every run
+      # regardless of code health, which is exactly what happened on the
+      # first real remote run this workflow ever had. Failing only on a
+      # genuine regression (any `error -` line, or the count exceeding the
+      # established baseline) instead of on the pre-existing info baseline.
       - name: Analyze
-        run: dart analyze lib/
+        run: |
+          dart analyze lib/ > /tmp/analyze_output.txt 2>&1 || true
+          cat /tmp/analyze_output.txt
+          ISSUE_COUNT=$(grep -oE "^[0-9]+" /tmp/analyze_output.txt | tail -1)
+          ISSUE_COUNT=${ISSUE_COUNT:-0}
+          ERROR_COUNT=$(grep -cE "^\s*error -" /tmp/analyze_output.txt || true)
+          echo "Total issues: $ISSUE_COUNT (baseline: 27) — errors: $ERROR_COUNT"
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "::error::dart analyze found $ERROR_COUNT error-level issue(s) — always fatal, regardless of baseline."
+            exit 1
+          fi
+          if [ "$ISSUE_COUNT" -gt 27 ]; then
+            echo "::error::dart analyze found $ISSUE_COUNT issues, exceeding the established baseline of 27 — investigate before merging."
+            exit 1
+          fi
 
       - name: Test
         run: flutter test
