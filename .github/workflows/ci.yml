@@ -28,6 +28,22 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # `.env` is declared as a required Flutter asset (pubspec.yaml, via
+      # flutter_dotenv) — without it, `flutter test` fails at asset-bundling
+      # before a single test runs ("No file or variants found for asset:
+      # .env"), which is exactly what happened on this job's first real
+      # remote run. The build-android/build-ios jobs below already write
+      # this same CI placeholder; this job needs it too, for the identical
+      # reason — no real secret involved, matching that existing pattern.
+      - name: Write .env (CI placeholder — no real secrets in this repo's env)
+        run: |
+          cat > .env << 'EOF'
+          SUPABASE_URL=https://placeholder.supabase.co
+          SUPABASE_ANON_KEY=placeholder
+          APP_ENV=development
+          SENTRY_DSN=
+          EOF
+
       # `dart analyze` exits non-zero whenever ANY issue is reported,
       # including the info-level `prefer_initializing_formals`/
       # `deprecated_member_use` notices this repo has carried as a known,
