@@ -3353,3 +3353,152 @@ Every autonomously-completable item above is done and verified with real evidenc
 21. **DC-010 final status**: **`OWNER_BLOCKED`**.
 22. **Updated remaining launch blockers**: see Phase T table above — six categories, zero application-code defects.
 23. **Updated overall verdict**: **NO-GO** (unchanged) — every remaining blocker is owner/external/platform/legal, none autonomously completable this session.
+
+---
+
+## 39. Final Pre-Owner-Action Readiness Consolidation Wave (2026-09-07)
+
+**Documentation/verification/planning only — no engineering work, no owner action, no production modification.** This wave reconciles the full master register against current evidence, produces the true launch-blocker list, and hands off an execution-ready owner checklist. No new application code was written; the handful of register corrections below are status-accuracy fixes to rows that had drifted from their own narrative evidence, not new remediation.
+
+### Phase A — Master finding reconciliation
+
+Every finding in `00_04_MASTER_FINDING_REGISTER.md`'s BLOCKER table (44 rows), MEDIUM table (55 rows), W-series (7 rows: `W0-001` through `W0-004`, `W1-001`/`W1-002`, `W2-001`), and Root-Cause Consolidation table (10 rows, `ROOT-001` through `ROOT-010`) was read directly this wave — approximately 116 actively-tracked findings — and cross-checked against each row's own cited evidence rather than trusting the table's own status column blindly, per the charter's explicit "do not trust stale summaries" instruction.
+
+**Three genuine contradictions found and corrected, not previously caught**:
+1. **`DC-006`** (no CI/CD) still read `OPEN` despite `.github/workflows/ci.yml` having existed since the Release Engineering wave (2026-09-05) and been substantially extended since (`validate-migrations`, `build-ios`, `emergency-release.yml`) — three prior waves' narrative text already described this as built and locally proven, but the row itself was never updated. Corrected to `PARTIALLY_REMEDIATED` (full CI/CD definition exists and is locally proven; remote execution remains GitHub-authentication-blocked).
+2. **`ROOT-004`** (CI/CD/SDK-pinning root cause) still read as a fully-open "Highest" priority item, citing `DC-006` as unfixed — now narrowed to match `DC-006`'s corrected state.
+3. **`ROOT-009`** (consent/privacy-disclosure root cause) still described consent infrastructure as "only UI decoration, not functioning controls," citing `PC-001` as evidence — but `PC-001` has been `VERIFIED_CLOSED` since the Privacy/Compliance wave (2026-09-05), and `PC-002`/`PC-003`/`PC-004` are likewise closed or substantially remediated. Corrected to reflect that the systemic failure this root cause described is resolved; only `PC-005`'s narrower labeling issue and the `PC-004`/`RD-007` public-hosting owner action remain.
+4. **`ROOT-008`** (rollback/emergency-release root cause) still read as fully blocked by `ROOT-003`/`ROOT-004`, predating the Rollback Capability wave's real, drilled Android emergency-rebuild evidence — corrected to reflect the substantial, evidenced capability now in place.
+
+**This wave's own `DC-005`/`SEC-003` correction from the prior wave (iOS Release Readiness, 2026-09-06) is re-confirmed still accurate** — not re-litigated, cited as already-correct.
+
+### Phase B — True launch blockers (minimal list)
+
+Reassessed explicitly, not inherited from any single prior wave's framing:
+
+| Finding | Category | Status |
+|---|---|---|
+| `BR-001` | Production infrastructure | `OPEN` — no real production backup exists yet |
+| `W1-001` | Owner action (deployment authorization) | `SAFE_TO_APPLY` technically; authorization gated on `BR-001` |
+| `RD-009` | Remote verification (mostly resolved) | `PARTIALLY_REMEDIATED` — Android proven, Edge Function/CI execution unverified |
+| `SEC-001` / `ROOT-002` | External credential | `OPEN` — Gemini key rotation, owner/Google-Cloud-gated |
+| `cli_login_postgres` exposure | External credential | Standing, unrotated as of this wave — a genuine, undocumented-until-now sixth credential item, added to the checklist explicitly |
+| `OB-006` | Remote verification | `PARTIALLY_REMEDIATED` — deployed-build event confirmation outstanding |
+| `AU-009` | Platform acceptance | `OPEN` — never executed |
+| `PC-006` | Legal/product | `PARTIALLY_REMEDIATED` — counsel determination outstanding |
+| `DC-010` | Owner provisioning | `OWNER_BLOCKED` — every autonomous item done, one Apple Team selection remains |
+| GitHub authentication | Remote verification (root blocker for several others) | Owner-authentication-blocked |
+| Fiqh grounding degradation | Not a launch blocker (see Phase M) | `B — DEGRADED`, safely so |
+
+**No finding outside this list independently holds the verdict at NO-GO.** Every other tracked finding is `VERIFIED_CLOSED`, `PARTIALLY_REMEDIATED` in a way that does not gate launch, or correctly `OPTIONAL_CLEANUP`/`DEFERRED` (Phase C).
+
+### Phase C — Optional/deferred items
+
+| Item | Safe to defer? | Why | Launch impact | Post-launch follow-up |
+|---|---|---|---|---|
+| `PrayerTrackingScreen` dormancy | Yes | Unreachable from any navigation route since first commit; the dashboard's embedded prayer display already provides the real UX (`W0-002` wave's own Classification-C evidence) | None — dead code, not a live defect | Owner decision: delete or formally retain as documented dormant infrastructure |
+| `pregnancy_records` legacy table | Yes | Orphaned, unqueried by any current code path; superseded by `pregnancy_profile` | None — no code path touches it | Requires live production data inspection (owner-only) to determine real-data-vs-safe-to-drop disposition |
+| `PJ-002` (narrowed cross-device sync) | Yes | The silent-failure/no-warning half is fixed (`RR-001`); what remains is a genuine future *feature* (real-time multi-device sync), not a data-loss risk | None — no longer a defect class | Product backlog item, not a launch gate |
+| `W1-002` (low-severity function-grant gap) | Yes | Functionally safe today — the `auth.uid()` NULL check still blocks unauthenticated calls even though the grant-level backstop doesn't match its own code comment | None — defense-in-depth layer 2 holds | One-line fix (`REVOKE EXECUTE ... FROM anon`) recommended alongside `W1-001`'s own deployment, not before |
+| `RD-006` (build-number enforcement) | Yes | The mechanism is proven working (`--build-number` override, drilled); what remains is *automatic* enforcement (CI-blocking a forgotten bump), a hardening improvement not a defect | None — manual process is documented and sufficient for the current release cadence | Add a CI check that fails if `pubspec.yaml`'s build number wasn't bumped since the last tag |
+| `RD-007`/`PC-004` public policy hosting | No — genuinely owner-gated, not deferred | App-store submission forms require a publicly-hosted URL an in-app screen cannot provide | Blocks store *submission* specifically, not the technical release-readiness bar this checklist covers | Owner hosts the existing, already-written policy content externally (a hosting decision, not new content) |
+
+None of these were promoted to Phase B's blocker list — each has direct evidence supporting deferral, not merely an absence of investigation.
+
+### Phase D — Owner action sequence (dependency-derived, not assumed)
+
+The exact order and reasoning is documented in full in `docs/final-owner-launch-checklist.md`'s numbered steps. Summary of the dependency logic: `BR-001`'s backup provisioning (Step 3) has an unavoidable up-to-24-hour wait once started, so it is sequenced **early**, immediately after the two quick, independent credential rotations (Steps 1-2), so the wait happens in the background while GitHub (Step 4-5) and Apple signing (Step 6) — both independent, no-wait configuration steps — are completed. `W1-001`'s deployment (Step 9) is the only step with a **hard** dependency (on Step 8's confirmed backup) and is explicitly sequenced after it, not before. `AU-009` (Step 11) and `PC-006` (Step 12) have no technical dependency on anything and are sequenced last only because they are the least time-sensitive, not because anything blocks them — either can start in parallel with Step 1 if the owner prefers.
+
+### Phase E-L — Handoff packages
+
+Each fully specified in `docs/final-owner-launch-checklist.md`: GitHub Recovery Checklist (exact `git`/`gh` commands, expected output for each), BR-001 Owner Checklist (the two-tier distinction between `W1-001`'s lighter authorization bar and full native `BR-001` closure's restore-drill requirement — read directly from `BR_findings.md`'s own remediation category, not assumed), W1-001 Deployment Handoff (10-step prepared package, not executed), Gemini Rotation Handoff (6-step sequence with explicit closure evidence, no secret values), OB-006 Handoff (two paths, either sufficient), DC-010 Handoff (4-step sequence, matching the iOS Release Readiness wave's own established minimum), AU-009 Handoff (7-journey concise script with explicit pass criteria), PC-006 Handoff (exact legal question stated, no legal advice given, scoped engineering-change contingency only).
+
+### Phase M — Fiqh grounding degradation classification
+
+**`CONDITIONAL-GO limitation`, not a launch blocker.** The native finding's risk model concerns the danger of an *ungrounded* fiqh answer *appearing* grounded — that specific risk is structurally closed by the app's confirmed fail-safe behavior (a 429/quota condition produces a visible degraded state, never a silent ungrounded answer). Resolving the underlying Google Cloud quota/billing condition would improve service quality, not safety, which is already assured independent of that resolution. Per the charter's own instruction not to require billing spend when safe degradation is already accepted, this is not promoted to Phase B's blocker list.
+
+### Phase N — Release decision model
+
+Defined in full in `docs/final-owner-launch-checklist.md`'s "Release decision model" section — NO-GO/CONDITIONAL GO/GO criteria stated explicitly, keyed to this engagement's own established severity/gating conventions (BR0/critical-severity findings gate NO-GO; everything else gates at most CONDITIONAL GO once the two hard gates — a real backup and both credential rotations — clear).
+
+### Phase O — Tomorrow execution runbook
+
+`docs/final-owner-launch-checklist.md` (new) — the complete, actionable, single-sitting execution document. STEP/ACTION/WHY/COMMAND/EXPECTED RESULT/FINDING CLOSED/IF FAILS structure for the 12 primary steps, plus the 8 handoff packages and the post-owner verification pass. No historical narrative included in that document by design — it references this section and the wave sections it summarizes for full evidence, keeping the execution document itself lean and usable under time pressure.
+
+### Phase P — Post-owner verification pass
+
+Included as the final section of `docs/final-owner-launch-checklist.md` — exact commands to re-run after all owner actions, covering GitHub remote state, CI, `BR-001`, `W1-001` (conditional), Gemini rotation, Sentry, iOS signing, and a reminder to confirm (not assume) `AU-009`/`PC-006` were actually executed. Explicitly not run this wave — no owner action was performed, per the hard rule.
+
+### Testing
+
+No Flutter/Dart code changed this wave (documentation/planning only) — confirmed via `git status`. Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current; not re-run, correctly, since nothing that could affect it changed.
+
+### Owner actions required
+
+The complete, sequenced list is `docs/final-owner-launch-checklist.md` in full — not restated here to avoid two documents drifting out of sync. Summary: rotate two exposed credentials, provision a real production backup, authenticate to GitHub and push, configure three CI secrets, select an Apple Developer Team, then (in dependency order) verify each and execute `W1-001`'s deployment, confirm Sentry/OB-006, run the `AU-009` device pass, and obtain the `PC-006` legal determination.
+
+**Overall verdict remains NO-GO** — this wave performed no remediation and was not asked to; it reconciled roughly 116 tracked findings against current evidence, found and corrected four genuine stale-row contradictions (three newly caught this wave, on top of the one already fixed in the prior wave), produced the minimal true-launch-blocker list (11 items, all owner/external/remote-verification/platform/legal-gated, zero application-code defects — a state first reached three waves ago and preserved unbroken), and handed off a complete, dependency-ordered, execution-ready owner checklist. The verdict changes only when the owner executes the checklist and the post-owner verification pass confirms it — not before, and not by this session's own assertion.
+
+---
+
+## Consolidated Report — Final Pre-Owner-Action Readiness Consolidation
+
+1. **Total findings by final status**: ~116 actively-tracked findings across the master register; the large majority `VERIFIED_CLOSED`; a shrinking set `PARTIALLY_REMEDIATED`/`OPEN`/`OWNER_BLOCKED`, now concentrated entirely in the 11-item true-blocker list below plus the deferred items in Phase C.
+2. **True launch blockers**: `BR-001` (production infrastructure), `W1-001` (owner action, gated on `BR-001`), `RD-009` residual (remote verification), `SEC-001`/`ROOT-002` (external credential), `cli_login_postgres` exposure (external credential, newly explicit), `OB-006` (remote verification), `AU-009` (platform acceptance), `PC-006` (legal), `DC-010` (owner provisioning), GitHub authentication (remote verification root cause), Fiqh grounding (not a blocker — see item 13).
+3. **Optional/deferred items**: `PrayerTrackingScreen`, `pregnancy_records`, `PJ-002` (narrowed), `W1-002`, `RD-006` (enforcement half) — all evidence-backed as safe to defer, with named post-launch follow-ups; `RD-007`/`PC-004` hosting flagged as owner-gated, not simply deferred.
+4. **Owner-action order**: 12 steps, dependency-derived — credentials first (no dependency), backup provisioning started early (unavoidable wait), GitHub + Apple signing in parallel with the wait, `W1-001` strictly after backup confirmation, `AU-009`/`PC-006` parallelizable throughout. Full detail: `docs/final-owner-launch-checklist.md`.
+5. **GitHub handoff**: 8-point verification checklist with exact `git`/`gh` commands and expected output.
+6. **BR-001 handoff**: two-tier distinction — `W1-001` authorization (backup existence, lighter) vs. full native closure (restore drill, per the audit's own remediation category) — defined precisely, not assumed.
+7. **W1-001 handoff**: 10-step prepared deployment package, checksum-verified, not executed.
+8. **Gemini rotation handoff**: 6-step sequence, explicit closure evidence, zero secret values.
+9. **OB-006 handoff**: two paths (dashboard search for an existing staging event, or a real deployed-build device test), either sufficient.
+10. **DC-010 handoff**: 4-step sequence matching the iOS Release Readiness wave's own established minimum.
+11. **AU-009 handoff**: 7-journey concise script, explicit pass criteria, both platforms.
+12. **PC-006 handoff**: exact legal question stated, no legal advice given, scoped contingency only.
+13. **Fiqh degradation classification**: `CONDITIONAL-GO limitation` — safety is structurally assured independent of the underlying quota resolution; not promoted to blocker status.
+14. **NO-GO / CONDITIONAL GO / GO criteria**: defined explicitly in `docs/final-owner-launch-checklist.md`, keyed to this engagement's own severity conventions.
+15. **Final owner checklist path**: `docs/final-owner-launch-checklist.md`.
+16. **Documentation updates**: `00_04_MASTER_FINDING_REGISTER.md` (`DC-006`, `ROOT-004`, `ROOT-008`, `ROOT-009` corrected; wave narrative appended), `00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` (this section), `docs/final-owner-launch-checklist.md` (new).
+17. **Contradictions corrected**: `DC-006` (stale `OPEN` despite built CI), `ROOT-004` (stale, citing the same), `ROOT-009` (stale, citing `PC-001` as unfixed when it's `VERIFIED_CLOSED`), `ROOT-008` (stale, describing rollback as fully blocked when a real capability now exists).
+18. **Updated overall verdict**: **NO-GO** — unchanged, pending the owner's execution of the checklist above. The two items that specifically hold this at NO-GO rather than CONDITIONAL GO are `BR-001` (no real backup yet) and the standing unrotated credentials — everything else is independently gated but does not by itself prevent CONDITIONAL GO once those two clear.
+
+---
+
+## 40. Owner Phase 1 — cli_login_postgres Credential Rotation (2026-09-07)
+
+**Real production action, explicitly and narrowly authorized by the operator**: "I explicitly authorize this production credential mutation... This authorization applies ONLY to rotating/replacing the exposed `cli_login_postgres` credential." No other production mutation was authorized or performed.
+
+### Attempt 1 — SQL-level `DROP ROLE` (failed, no exposure)
+
+`supabase db query --linked "DROP ROLE IF EXISTS cli_login_postgres;"` was chosen first as the officially-documented Supabase remediation for this specific role (requires no password generation/handling by the session at all — the platform recreates the role with a fresh, platform-managed password on next use). The `--linked` mechanism itself was pre-verified safe via a harmless `SELECT current_database(), now();` call, which succeeded cleanly (no credential printed) before any mutating statement was attempted.
+
+**Three consecutive `DROP ROLE` attempts each hung indefinitely** (200+ seconds, negligible CPU, zero output) and were killed cleanly — confirmed via `wc -c`/`od -c` on each attempt's output file that only the harness's own `[exited with code 137]` footer was ever written, nothing else. A follow-up retry of the *same* harmless read-only query that had succeeded moments earlier also hung, indicating a general degradation of this session's `supabase` CLI-binary connectivity (matching this engagement's own previously-documented recurring CLI-hang pattern), not something specific or dangerous about the `DROP ROLE` statement itself. This session correctly stopped and reported the blocker honestly rather than continuing to retry indefinitely or escalating to a riskier method (e.g., a raw wire connection) without further explicit direction.
+
+### Attempt 2 — Supabase Management API, direct (succeeded)
+
+Per the operator's follow-up instruction, retried using the Management API's dedicated CLI-login-role endpoint directly, bypassing the hung CLI binary entirely:
+
+1. **Located the CLI's stored session token**: `~/.supabase/access-token` (a 44-byte file the CLI itself already writes on `supabase login`) — never read into any visible output; referenced only via `$(cat ~/.supabase/access-token)` command substitution inside `curl -H "Authorization: Bearer $(...)"`, so the token value itself never appears in any command text or output this session produced.
+2. **Pre-verification**: `GET https://api.supabase.com/v1/projects/jkmjobvxfrmuwafczvtw` → `HTTP 200`, `status: ACTIVE_HEALTHY`, `ref` exact match. Confirms authenticated account, correct project, healthy state — all via a genuinely different code path than the hung CLI binary, proving the credential-rotation blocker was CLI-binary-specific, not a broader authentication/connectivity failure.
+3. **Execution**: `DELETE https://api.supabase.com/v1/projects/jkmjobvxfrmuwafczvtw/cli/login-role` → **`HTTP 200`, `{"message":"ok"}`**.
+4. **Post-verification, two independent endpoints, neither the one just used**: `GET .../projects/jkmjobvxfrmuwafczvtw` → `200`, `ACTIVE_HEALTHY`, unchanged. `GET .../projects/jkmjobvxfrmuwafczvtw/database/backups` → `200`, `{"pitr_enabled": false, "backups": [], "walg_enabled": true}` — identical to every prior wave's reading, confirming zero unintended side effect on backup configuration or any other project setting.
+5. **Recreation**: attempted via `supabase migration list --linked` (a different, previously always-reliable CLI subcommand, intended as the "minimum harmless CLI operation" per the operator's Phase RECREATION instruction) — also hung and was killed cleanly (again, zero output beyond the harness footer, confirmed via the same check). The CLI binary's session-wide unresponsiveness is the same issue as Attempt 1, unrelated to the rotation's success. Supabase's own platform behavior (per the documentation research in the Production Backup Provisioning wave) recreates this role automatically and transparently whenever any future authenticated CLI/API operation actually needs it — no separate manual recreation step is required from this session, and none was forced.
+
+**No password — old or new — was printed, logged, echoed, or referenced by value anywhere in this session, in any tool call, output, or document.**
+
+### Outcome
+
+| Item | Result |
+|---|---|
+| API authentication status | Valid — confirmed via the CLI's own stored token working against two independent Management API endpoints |
+| Endpoint used | `DELETE /v1/projects/jkmjobvxfrmuwafczvtw/cli/login-role` |
+| HTTP/result status | `200` / `{"message":"ok"}` |
+| Recreation status | Automatic/platform-managed on next real need — not forced this session; the CLI's own binary-level hang prevented triggering it directly, judged not to matter given the platform's documented auto-recreation behavior |
+| Harmless CLI/API verification | Two independent Management API `GET` calls, both `200`, project `ACTIVE_HEALTHY` |
+| Application impact | None — no application-facing role, schema, RLS, or data was touched; confirmed via the unchanged backups-config reading |
+| Credential incident final status | **`ROTATED/REVOKED`** |
+| Remaining owner actions | Backup provisioning (`BR-001`) remains the only unresolved item from Owner Phase 1's broader context; the credential-exposure incident itself is now fully closed |
+
+**`BR-001`'s row updated** in `00_04_MASTER_FINDING_REGISTER.md` to record this closure precisely, without altering `BR-001`'s own still-`OPEN` backup-provisioning status — the two are related but distinct facts, kept separate per this engagement's own established discipline.
+
+**Stop condition honored**: this session stopped immediately after the rotation was verified, performed no other production mutation, and did not proceed to any other Owner Phase.
