@@ -3881,3 +3881,86 @@ No Flutter/Dart application code changed. No production database/Edge Function c
 4. **Exact owner action**: for path A — perform the Dashboard restore-to-new-project action directly (cannot be delegated to this session); for path B — explicitly authorize provisioning a temporary billed micro compute branch (e.g., "I authorize creating a temporary micro compute branch for the BR-001 restore drill, to be destroyed immediately after verification"), after which this session can execute Phases B-J of the original charter against that branch via the API.
 
 **Overall verdict remains NO-GO**, unchanged. `BR-001` remains `PARTIALLY_REMEDIATED` — its remaining gap is now precisely scoped rather than generically described, but not closed. No other finding touched by this wave.
+
+---
+
+## 46. BR-001 Restore Drill — Phases E-J: Real Restored-Project Behavioral Verification (2026-09-08)
+
+The owner performed the Path A Dashboard restore-to-new-project action identified in §45: restored the `2026-09-07T16:24:18.189Z` `COMPLETED` physical production backup into a new, isolated project (`niswah-br001-restore-drill`, ref `rpopudibfpoefejyarhe`). This wave verified that restored project against the canonical recovery suite — never touching production (`jkmjobvxfrmuwafczvtw`), confirmed `ACTIVE_HEALTHY` and unmodified throughout, at both the start and end of this wave.
+
+### Phase E — Restored database integrity
+
+Restored project confirmed `ACTIVE_HEALTHY`, created `2026-09-08T07:43:45.287838Z`. Schema/data checks, all via the Management API's direct SQL endpoint against `rpopudibfpoefejyarhe`:
+
+- **Tables**: 24/24 public-schema tables present, matching the canonical baseline's expected count exactly.
+- **`auth` schema**: present and populated — `auth.users` count = 23 (real production users, count only, no row content read or printed).
+- **RLS**: enabled on 24/24 public tables (`pg_class.relrowsecurity = true` for every one).
+- **Functions**: 8/8 public-schema functions present (`can_access_user`, `create_user_profile`, `delete_my_account`, `handle_new_user`, `is_admin`, `is_conversation_participant`, `set_updated_at`, `touch_private_conversation`) — matching the canonical baseline's expected count exactly.
+- **Triggers**: both expected `auth.users` triggers present (`auth_users_create_profile`, `on_auth_user_created`), plus 2 expected public-schema triggers (`trg_touch_private_conversation` on `private_messages`, `users_set_updated_at` on `users`).
+- **Foreign keys**: 32 present across the schema — a real, non-zero, structurally-consistent count.
+- **Aggregate row-count sanity** (counts only, zero row content read or printed): `users`=23, `profiles`=6, `cycle_entries`=43, `pregnancy_profile`=1, `chat_messages`=0, `prayer_log`=0, `community_posts`=0, `private_messages`=0 — real, plausible production magnitudes, no corruption signal (no negative/impossible values, no missing core relations).
+- **`W1-001` objects correctly absent, confirmed explicitly rather than assumed**: `ai_rate_limit_counters` table and `check_and_increment_ai_rate_limit()` function both confirmed `0` (do not exist) — correct, since this backup (`2026-09-07T16:24:18Z`) predates `W1-001`'s production deployment (`2026-09-08T07:02Z`). Not classified as a restore defect, per the charter's own explicit instruction.
+
+### Phase F — Canonical 14-point recovery suite, executed against the real restored project
+
+Located and executed the existing canonical suite (`00_09` §20 Phase E, the same 14-point suite previously run only against a local schema-only baseline) — not invented anew, this time exercised against real, restored, production-derived data using two Admin-API-created synthetic test accounts (`br001-drill-user1@niswah-internal-test.invalid`, `...user2@...`), both deleted at the end of this wave.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Auth signup | ✅ PASS — both synthetic users created via Admin API, `email_confirm: true` |
+| 2 | Public profile/user records created | ✅ PASS — `public.users`/`public.profiles` both auto-populated for both users |
+| 3 | Auth triggers work | ✅ PASS — same evidence as #2 |
+| 4 | RLS denies unauthorized access | ✅ PASS — user2 read of user1's `cycle_entries` row returned 0 rows |
+| 5 | Authorized access works | ✅ PASS — user1 read their own row, 1 row returned |
+| 6 | Cycle/haid persistence | ✅ PASS — write + read-back succeeded |
+| 7 | `fiqh_state` default | ✅ PASS — defaulted to `'TAHARA'` |
+| 8 | `pregnancy_profile` writes | ✅ PASS |
+| 9 | Profile/account writes | ✅ PASS — `profiles.full_name` update persisted, confirmed via response body |
+| 10 | Prayer tracking status values | ⚠️ **PARTIAL — `W0-003` exactly reproduced, confirming restore fidelity, not a new defect.** Writing the app's real status value `'completed'` failed with `23514` (`prayer_log_status_check` violates — constraint only allows `prayed`/`qadha_required`/`lifted`/`missed`); writing `'missed'` (the one overlapping value) succeeded. Identical behavior to the original suite's local-baseline run — the restored real-production-data environment faithfully reproduces the same live application bug, confirming the restore did not alter or lose this constraint. |
+| 11 | Community reads/writes | ✅ PASS — user1 wrote a real post (valid `category`/`title`/`content` shape), user2 read it back (public read model confirmed working) |
+| 12 | `delete_my_account()` | ✅ PASS — called as user1, then independently verified via direct query: `auth.users`, `public.users`, `public.profiles`, `cycle_entries`, `pregnancy_profile`, `prayer_log`, `community_posts` all returned `0` rows for user1 afterward — full cascade confirmed across all 7 tables |
+| 13 | Storage access | **N/A, confirmed** — `BR-007` (Storage not in application use) cited, not re-derived |
+| 14 | Edge Function DB expectations | **Schema-level: PASS.** `chat_messages`, `flagged_conversations`, `pregnancy_profile` (already write-tested in #8) all confirmed present in the restored schema. Not independently re-run behaviorally this wave (no Edge Functions deployed against this isolated project, deliberately — the charter explicitly prohibits triggering real Gemini/external calls) — consistent with the original suite's own treatment of this same item. |
+
+**Result: 12/14 fully PASS, 1 correctly-expected partial (reproducing the already-known, already-registered `W0-003`, confirming restore fidelity rather than revealing a new defect), 1 schema-level PASS matching the original suite's own scope.** This meets the same bar the original local-baseline run met.
+
+### Phase G — Recovery timing
+
+- **Backup RPO**: unchanged, up to ~24 hours, based on the confirmed daily physical backup cadence (7 consecutive `COMPLETED` backups, `2026-09-01`–`2026-09-07`).
+- **Restore infrastructure time**: **cannot be stated precisely — the owner's exact restore-initiation timestamp (when the Dashboard "Restore to new project" action was clicked) is not visible to this session.** The only available evidence is the restored project's `created_at`: `2026-09-08T07:43:45.287838Z`, which is this session's first confirmable evidence of the restored project's existence, not necessarily the true start of the restore action. Stated honestly rather than invented, per the charter's explicit instruction.
+- **Verified recovery RTO**: measured from the restored project's `created_at` (`07:43:45Z`, the best available evidence of platform-side restore completion) to the full 14-point behavioral suite passing and synthetic-artifact cleanup completing (`07:56:41Z`) — **≈13 minutes**. This is explicitly labeled as "platform-availability-to-verified" time, not true end-to-end RTO from the owner's restore click, for the same honesty reason as above.
+
+### Phase H — Privacy / isolation
+
+- Restored project confirmed to receive no production traffic — it is not referenced anywhere in the application's tracked configuration (`grep` across `.dart`/`.env*`/`.yaml`/`.yml`/`.toml`/`.json` for the restored project's ref returned zero matches outside this engagement's own documentation).
+- Production's own `.env` confirmed to still point exclusively at `jkmjobvxfrmuwafczvtw` — no cross-reference in either direction.
+- `GET /v1/projects/rpopudibfpoefejyarhe/billing/addons` confirmed `selected_addons: []` — no custom domain, no additional external integration was enabled on the restored project by this session.
+- All verification used count/existence checks or data this session itself wrote (synthetic emails, synthetic post content) — zero real production row content was read or printed at any point.
+- All restored production-derived data (23 real users' auth/profile/cycle records) remains only inside the temporary, isolated project — never copied elsewhere, never exposed publicly.
+
+### Phase I — Cleanup gate
+
+All synthetic test artifacts (both Admin-API-created accounts and their cascaded rows) were deleted and independently re-verified as `0` remaining, including a full-project scan for any leftover `@niswah-internal-test.invalid` account (`0` found). Original real aggregate counts confirmed restored to their pre-test baseline exactly (`auth.users`=23, `cycle_entries`=43, `community_posts`=0, `prayer_log`=0) — this wave's testing left no residue beyond the two rows it added and then removed itself.
+
+**Project deletion itself was deliberately not performed by this session** — deleting a live cloud project is an irreversible action against a resource that currently holds a full clone of real production user data, and is treated as owner-gated, consistent with every other irreversible/high-blast-radius action throughout this engagement. **Result: `BR001_RESTORE_TARGET_DELETION_OWNER_ACTION_REQUIRED`** — project name `niswah-br001-restore-drill`, ref `rpopudibfpoefejyarhe`.
+
+### Phase J — BR-001 reassessment
+
+All required criteria met, per the charter's own explicit branching logic:
+- Real production backup restored successfully — ✅ (owner-executed, confirmed `ACTIVE_HEALTHY`, real production data volumes present)
+- Schema/data integrity passes — ✅ (Phase E, all checks)
+- Canonical recovery suite passes — ✅ (Phase F, 12/14 full PASS + 1 correctly-expected partial + 1 schema-level PASS)
+- RLS/functions/triggers pass — ✅ (Phase E)
+- Recovery timing documented as far as evidence allows — ✅ (Phase G, with an explicit, honest caveat on infrastructure-time precision)
+
+**`BR-001` = `VERIFIED_CLOSED`.** Per the charter's explicit instruction, the still-pending temporary-project deletion (an immediate owner cleanup action) does not by itself block this closure — the recovery mechanism itself has now been proven, not merely asserted. `RTO` for real production data is no longer `UNTESTED` — it is now measured (with the stated caveat) at ≈13 minutes platform-availability-to-verified.
+
+### Testing
+
+No Flutter/Dart application code changed this wave — entirely live production-derived-data verification against the isolated restored project, with zero writes or changes to production itself (re-confirmed `ACTIVE_HEALTHY`/unmodified at both start and end of this wave). Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner action still required
+
+Delete the temporary restored project (`niswah-br001-restore-drill`, ref `rpopudibfpoefejyarhe`) once no longer needed — it currently holds a full clone of real production user data and should not persist indefinitely as a second live copy. Every other standing owner-gated item is unaffected by this wave: the emergency workflow's 3 CI secrets, `DC-010`, `AU-009`, `PC-006`.
+
+**Overall verdict remains NO-GO** — `BR-001` is now `VERIFIED_CLOSED`, a genuine, hard-won, fully-evidenced closure of the engagement's original BR0-critical finding — but `DC-010`, `AU-009`, `PC-006`, the emergency workflow's CI secrets, and the pending restored-project deletion remain outstanding.
