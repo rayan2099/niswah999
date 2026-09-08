@@ -30,13 +30,15 @@ Steps are numbered in the order that minimizes context-switching and dead time. 
 
 ## Step 3 — Provision a real production backup (start early — this has a wait)
 
+**✅ DONE (2026-09-08) — backups confirmed real and running.** `GET /v1/projects/<ref>/database/backups` now shows **7 consecutive `COMPLETED` daily physical backups** (`2026-09-01` through `2026-09-07`, ~16:24 UTC each day) — a genuine, verified change from the prior "zero backups" state. `W1-001`'s deployment authorization has cleared as a direct result (`SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`). **`BR-001` is `PARTIALLY_REMEDIATED`, not fully closed** — its own native definition requires a real restore drill in addition to backup existence (see the BR-001 Owner Checklist below); that step remains outstanding.
+
 | | |
 |---|---|
 | **Why now, first** | Daily backups can take up to 24 hours to first appear after upgrading. Starting this now means the wait happens in the background while you do Steps 4-6. |
-| **Action** | Supabase Dashboard → your project → upgrade to the **Pro plan** (the minimum tier with automatic daily backups — PITR is not required unless you have a sub-24-hour RPO need, which nothing in this engagement's evidence indicates). |
-| **Expected result** | Plan shows Pro or above. Do not expect a backup yet — come back to this in Step 8. |
-| **Finding closed** | Provisioning half of `BR-001`. |
-| **If it fails** | If billing/payment setup blocks the upgrade, resolve that first — everything downstream (`W1-001` authorization) waits on this. |
+| **Action** | ~~Supabase Dashboard → upgrade to Pro~~ Done. |
+| **Expected result** | Plan shows Pro or above, backups appear. ✅ Confirmed — 7 real completed backups exist. |
+| **Finding closed** | Provisioning half of `BR-001` — done. The restore-drill half remains (see BR-001 Owner Checklist). |
+| **If it fails** | N/A — completed successfully. |
 
 ## Step 4 — Fix GitHub authentication and push
 
@@ -74,17 +76,19 @@ See **Gemini Rotation Handoff** below — the verification half of Step 2.
 
 ## Step 8 — Verify the first real backup exists (come back to Step 3)
 
+**✅ DONE (2026-09-08).** `GET /v1/projects/jkmjobvxfrmuwafczvtw/database/backups` confirmed 7 consecutive `COMPLETED` physical backups, most recent `2026-09-07T16:24:18Z`.
+
 | | |
 |---|---|
 | **Why now** | At least several hours after Step 3 — daily backups need time to run. |
-| **Action** | `supabase backups list --project-ref jkmjobvxfrmuwafczvtw` |
-| **Expected result** | `backups` array is non-empty; at least one entry with a `completed`/success-equivalent status, a real timestamp, and `physical` type. |
-| **Finding closed** | The provisioning-existence half of `BR-001` — see **BR-001 Owner Checklist** below for the exact closure condition and how it differs from full native closure. |
-| **If it fails** | Empty after 24+ hours: check the Dashboard's Database → Backups page directly for an error state: contact Supabase support if the plan shows Pro but no backup has run. |
+| **Action** | ~~`supabase backups list --project-ref jkmjobvxfrmuwafczvtw`~~ Verified via the Management API instead (the CLI itself has been unreliable this engagement for several command types) — same result either way. |
+| **Expected result** | `backups` array is non-empty; at least one entry with a `completed`/success-equivalent status, a real timestamp, and `physical` type. ✅ Confirmed, 7 such entries. |
+| **Finding closed** | The provisioning-existence half of `BR-001` — done. See **BR-001 Owner Checklist** below for the restore-drill half, which remains open. |
+| **If it fails** | N/A — completed successfully. |
 
-## Step 9 — Authorize and execute W1-001 deployment (only after Step 8 succeeds)
+## Step 9 — Authorize and execute W1-001 deployment
 
-See **W1-001 Deployment Handoff** below for the exact, prepared, step-by-step package. **Do not start this before Step 8's backup is confirmed** — that is the one hard dependency in this entire checklist.
+`W1-001`'s authorization gate has cleared: **`SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`**, confirmed 2026-09-08, based on the 7 real completed backups above. See **W1-001 Deployment Handoff** below for the exact, prepared, step-by-step package. This step has not been executed — deployment itself remains your explicit decision to make and trigger.
 
 ## Step 10 — Confirm Sentry deployed-environment event
 
@@ -147,15 +151,17 @@ gh run list --workflow=emergency-release.yml --limit 1
 
 ## BR-001 Owner Checklist
 
-**Two distinct conditions — do not conflate them:**
+**Two distinct conditions — do not conflate them. Confirmed status as of 2026-09-08:**
 
-**W1-001 authorization condition** (lighter bar, already established by the Production Database Change Safety Gate wave, `00_09` §34-§35): a real production backup exists, with a known timestamp, type, and retention window. Verify via:
+**W1-001 authorization condition** (lighter bar) — **✅ MET.** A real production backup exists, with a known timestamp, type, and retention window: 7 consecutive `COMPLETED` physical backups, `2026-09-01` through `2026-09-07`, most recent `2026-09-07T16:24:18Z`, confirmed via `GET /v1/projects/<ref>/database/backups`. **`W1-001` is now `SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`.** No restore drill was required for this specific gate, and none was performed — deployment itself is still your explicit decision (Step 9 above).
+
+**Full native `BR-001` closure** (the audit's own remediation category, `BR_findings.md`) — **⏳ NOT YET MET.** "confirm plan tier, backup schedule, and PITR status; document the finding; **then execute a real controlled restore test to prove the mechanism actually works**." The first half is now done with real evidence (above). **The restore-drill half remains outstanding** — this is a genuinely separate, heavier step: restore one of the confirmed physical backups to a new, isolated Supabase project (a paid resource, requiring its own cost authorization) and run the existing 14-point behavioral verification suite (`00_09` §20 Phase E) against it. **This does not need to happen before `W1-001` is deployed** — it can follow afterward, at your own pace, without blocking the deployment gate above. Once done, `BR-001` moves to `VERIFIED_CLOSED` and `RTO` stops being `UNTESTED`.
+
 ```bash
-supabase backups list --project-ref jkmjobvxfrmuwafczvtw
+# Re-check current backup state at any time:
+curl -s -H "Authorization: Bearer $(cat ~/.supabase/access-token)" \
+  "https://api.supabase.com/v1/projects/jkmjobvxfrmuwafczvtw/database/backups"
 ```
-Check: `backups` non-empty, at least one entry `completed`, timestamp is recent (within the last 24h for a fresh check), `physical_backup_data` shows a real retention. **This alone is sufficient to move `W1-001` to `SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`.** No restore drill is required for this specific gate.
-
-**Full native `BR-001` closure** (the audit's own remediation category, `BR_findings.md`): "confirm plan tier, backup schedule, and PITR status; document the finding; **then execute a real controlled restore test to prove the mechanism actually works**." This is a genuinely separate, heavier step — restore the confirmed backup to a new, isolated Supabase project (a paid resource, requiring its own cost authorization) and run the existing 14-point behavioral verification suite (`00_09` §20 Phase E) against it. **This does not need to happen before `W1-001` is authorized or deployed** — it can follow afterward, at the owner's own pace, without blocking the deployment gate above.
 
 ## W1-001 Deployment Handoff (prepared, not executed — do not run before Step 8 confirms a real backup)
 
@@ -250,7 +256,7 @@ Concise physical-device script — critical journeys only, not exhaustive:
 
 **GO**: every mandatory launch gate is closed with real evidence — `BR-001` fully closed (including the restore drill, not just existence), both credential rotations verified, `W1-001` deployed and its own closure criteria met, `AU-009` executed with a passing result, `PC-006` resolved by counsel with any resulting engineering work complete, `OB-006` confirmed via a real deployed-build event, `DC-010` producing a real signed, distributable iOS build (App Store submission itself can still follow GO, not gate it).
 
-**Current state, as of this wave (2026-09-07)**: **NO-GO** — both standing credential exposures are now resolved and verified (`cli_login_postgres` rotated via the Management API; the Gemini key rotated, redeployed, and confirmed working in production both before and after old-key revocation). **`BR-001` (no real backup exists yet) is now the sole remaining gate holding this at NO-GO rather than CONDITIONAL GO.** Every other remaining item (`DC-010`, `AU-009`, `PC-006`, `OB-006`, the emergency workflow's CI secrets) is independently owner/external/platform/legal-gated and does not by itself hold the verdict at NO-GO — once `BR-001` clears, this moves to at least CONDITIONAL GO.
+**Current state, as of 2026-09-08**: **NO-GO**, but narrowed further. Both standing credential exposures are resolved and verified (`cli_login_postgres` rotated via the Management API; the Gemini key rotated, redeployed, and confirmed working in production both before and after old-key revocation). **`BR-001` now has a real, verified production backup** (7 consecutive `COMPLETED` daily physical backups) — a genuine, hard-won change from every prior wave's "zero backups" state — and `W1-001`'s deployment authorization has cleared as a direct result (`SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`). **What still holds the verdict at NO-GO**: `BR-001`'s own native closure bar requires a real restore drill in addition to backup existence, per its own remediation category — that drill has not been performed, so `BR-001` is `PARTIALLY_REMEDIATED`, not `VERIFIED_CLOSED`, and per the GO criteria above (which require `BR-001` "fully closed, including the restore drill, not just existence") this alone keeps the verdict below GO. Every other remaining item (`DC-010`, `AU-009`, `PC-006`, `OB-006`, the emergency workflow's CI secrets) is independently owner/external/platform/legal-gated. **Practically**: `W1-001` can now be deployed if desired (its own gate has cleared); the restore drill is the one remaining step to fully close `BR-001` itself.
 
 ---
 

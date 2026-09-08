@@ -3654,3 +3654,88 @@ No Flutter/Dart application code changed this wave (confirmed via `git status` �
 6. **ROOT-002 final status**: **`VERIFIED_CLOSED`**.
 7. **Remaining owner actions**: `BR-001`'s real production backup (primary gate); the 3 emergency-workflow CI secrets; `DC-010`'s Apple Team selection; `AU-009`; `PC-006`.
 8. **Updated overall verdict**: **NO-GO** (unchanged) — `BR-001` remains the primary standing gate.
+
+---
+
+## 43. Final BR-001 Production Backup Verification Wave (2026-09-08)
+
+**Metadata-only verification, no production mutation of any kind.** Explicitly forbidden and not attempted: restoring production, modifying production data/schema, deploying `W1-001`, `db dump`/`pg_dump`, migration repair, Edge Function deployment, credential changes, or any unrelated owner action. The owner upgraded the project's Supabase plan tier between the prior wave and this one — a billing action this session cannot perform and did not attempt.
+
+### Phase A — Backup evidence re-verified
+
+`GET /v1/projects/jkmjobvxfrmuwafczvtw/database/backups` (Management API, read-only, the same safe endpoint used throughout this engagement — never a wire-connecting command):
+
+```json
+{
+  "region": "ap-southeast-1",
+  "walg_enabled": true,
+  "pitr_enabled": false,
+  "backups": [
+    {"id": 1606275045, "is_physical_backup": true, "status": "COMPLETED", "inserted_at": "2026-09-07T16:24:18.189Z"},
+    {"id": 1596324520, "is_physical_backup": true, "status": "COMPLETED", "inserted_at": "2026-09-06T16:24:12.881Z"},
+    {"id": 1586417948, "is_physical_backup": true, "status": "COMPLETED", "inserted_at": "2026-09-05T16:24:09.746Z"},
+    {"id": 1576482346, "is_physical_backup": true, "status": "COMPLETED", "inserted_at": "2026-09-04T16:24:27.005Z"},
+    {"id": 1566868919, "is_physical_backup": true, "status": "COMPLETED", "inserted_at": "2026-09-03T16:24:50.057Z"},
+    {"id": 1556873751, "is_physical_backup": true, "status": "COMPLETED", "inserted_at": "2026-09-02T16:24:14.865Z"},
+    {"id": 1546872274, "is_physical_backup": true, "status": "COMPLETED", "inserted_at": "2026-09-01T16:24:06.900Z"}
+  ],
+  "physical_backup_data": {}
+}
+```
+
+7 backups, every one `status: COMPLETED`, every one `is_physical_backup: true` — real, genuine production backups, not merely scheduled/pending entries. Dates span exactly 7 consecutive calendar days (`2026-09-01` through `2026-09-07`), one per day, clustered tightly around `16:24 UTC` each day — a real, consistent, platform-managed daily cadence, not a one-off manual snapshot. `GET /v1/projects/jkmjobvxfrmuwafczvtw` re-confirmed `status: ACTIVE_HEALTHY`, `postgres_engine: "17"`, `release_channel: "ga"`. **Not relying on `walg_enabled` alone** (per explicit instruction) — `walg_enabled: true` was already true in the prior, zero-backup state and is not itself evidence of a real backup; the `backups[]` array's actual completed entries are the real evidence here.
+
+**Pro entitlement**: not directly confirmed via any plan-name field (none exposed by any API this session has access to, re-confirmed unchanged from the prior wave's own finding on this exact question) — but the backup depth (exactly 7 days) matches Supabase's own documented Pro-tier retention window precisely, distinct from Free (zero backups — the prior, worse state) and Team/Enterprise (14/30 days respectively). Strong circumstantial evidence, honestly qualified as such rather than asserted as directly confirmed.
+
+### Phase B — BR-001 native criteria re-read from source
+
+`production-readiness-results/backup-recovery/BR_findings.md`'s own "Remediation category" line, read directly, not paraphrased from a prior wave's summary: *"Immediate live verification (Supabase dashboard → Project Settings → Database → Backups) — confirm plan tier, backup schedule, and PITR status; document the finding; **then execute a real controlled restore test to prove the mechanism actually works**."*
+
+This is explicitly **two sequential requirements**, not an either/or, and not a single combined bar satisfied by backup existence alone. Determined directly from the source text's own word "then" — not inferred stricter or looser than what the native finding actually says, per the charter's own explicit instruction not to do either.
+
+### Phase C — Recovery characteristics, evidence-only
+
+- **Available backup history**: 7 consecutive daily physical backups, `2026-09-01` through `2026-09-07`.
+- **Effective RPO**: up to ~24 hours (worst case — a change made shortly after a given day's `~16:24 UTC` backup would be lost if the database were restored from that backup and no later one existed).
+- **RTO**: **`UNTESTED`** — no restore drill has ever been performed against a real, production-data-bearing backup anywhere in this engagement (the only restore testing done, `00_09` §20/§34/§37, used the canonical-baseline schema-only reconstruction — a structurally different exercise: it proves the *schema* can be rebuilt from repository artifacts, not that *this specific physical backup* can actually be restored with real data intact). No number invented.
+- **Database recovery**: confirmed — the primary Postgres database is what these physical backups cover.
+- **Supabase Storage file-object recovery**: not separately proven by this backup mechanism (physical Postgres backups do not inherently cover Storage's object files) — but not a live gap either, since `BR-007` (`VERIFIED_CLOSED`, established in the Backup/Recovery wave, cited here not re-derived) already confirmed Niswah stores zero files in Supabase Storage at all. Not claimed as "covered" — correctly stated as "not applicable, per separately-established evidence."
+
+### Phase D — BR-001 reassessment
+
+Per the charter's own explicit branching logic: the native finding requires the restore-test step explicitly, not only backup existence — therefore **`BR-001` = `PARTIALLY_REMEDIATED`**, with the exact missing evidence named precisely: a real controlled restore test against this actual physical backup (or a subsequent one), proving data — not just schema — can be recovered. Genuinely new, hard-won progress (a real production backup existing at all, for the first time in this engagement) is not overclaimed as full closure.
+
+### Phase E — W1-001 gate
+
+Reassessed against the already-established, standing two-tier distinction (Production Backup Provisioning wave, `00_09` §35; Final Pre-Owner-Action Consolidation wave, `docs/final-owner-launch-checklist.md`'s BR-001 Owner Checklist) — `W1-001`'s own authorization bar is deliberately lighter than full native `BR-001` closure: "a real backup exists, with a known timestamp, type, and retention window... no restore drill is required for this specific gate."
+
+**`SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`.** Exact backup evidence supporting this: 7 consecutive `COMPLETED` physical backups, most recent `2026-09-07T16:24:18Z` (well within 24 hours of this verification), platform-managed (Supabase's own physical/WAL-G mechanism, not an ad hoc or manual process), project confirmed `ACTIVE_HEALTHY`. **Not deployed this wave, correctly** — this classification only clears the specific precondition that previously held every prior wave's decision at `NOT_SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`; actual deployment remains a distinct, deliberate, future owner action using the already-prepared handoff package.
+
+### Testing
+
+No Flutter/Dart application code changed this wave — entirely live, read-only Management API verification. Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner actions required
+
+(1) If full native `BR-001` closure is desired before further reliance on the backup: authorize and execute a real restore-to-new-project drill against one of these physical backups (a paid resource creation requiring separate owner cost authorization, per the Production Backup Provisioning wave's own established procedure), then re-run the existing 14-point behavioral verification suite (`00_09` §20 Phase E) against the restored project. (2) `W1-001`'s own deployment, now that its authorization gate has cleared — using the prepared handoff package. (3) Every other standing owner-gated item remains outstanding, untouched by this wave: the emergency workflow's 3 CI secrets, `DC-010`'s Apple Team selection, `AU-009`, `PC-006`.
+
+**Overall verdict remains NO-GO** — `BR-001`'s own native, two-part closure bar is only half-satisfied by this wave's genuine, verified evidence; a real production backup now demonstrably exists for the first time in this engagement, but that is not the same as a proven restore capability, and this wave did not conflate the two. `W1-001`'s deployment authorization has cleared as a direct, evidenced consequence — but deployment itself was correctly not attempted, per this wave's own explicit stop condition.
+
+---
+
+## Consolidated Report — Final BR-001 Production Backup Verification
+
+1. **Backup count**: 7.
+2. **Backup type**: physical (`is_physical_backup: true` on every entry), platform-managed.
+3. **Latest completed backup**: `2026-09-07T16:24:18.189Z`.
+4. **Oldest available backup**: `2026-09-01T16:24:06.900Z`.
+5. **Backup cadence**: daily, one per calendar day, consistently ~`16:24 UTC`.
+6. **Effective RPO**: up to ~24 hours.
+7. **RTO**: `UNTESTED` — no restore drill performed against a real, production-data-bearing backup.
+8. **Database coverage**: confirmed — primary Postgres, physical backups.
+9. **Storage-object coverage**: not applicable — `BR-007` already established zero Supabase Storage usage (cited, not re-derived).
+10. **BR-001 native closure criterion**: two sequential requirements per `BR_findings.md`'s own text — confirm backup existence/schedule/PITR status, **then** execute a real controlled restore test.
+11. **BR-001 final status**: **`PARTIALLY_REMEDIATED`** — first half satisfied with real evidence; restore-drill half still outstanding.
+12. **W1-001 gate**: **`SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`**.
+13. **Exact remaining prerequisite**: for full native `BR-001` closure — a real restore-to-new-project drill against an actual physical backup, owner-cost-authorized. `W1-001` itself has no remaining backup-related prerequisite; its own deployment is a separate, future owner action.
+14. **Updated overall verdict**: **NO-GO** (unchanged) — `BR-001`'s restore-drill gap remains the primary standing item, alongside `DC-010`, `AU-009`, `PC-006`, and the emergency workflow's CI secrets.
