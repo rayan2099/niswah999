@@ -3739,3 +3739,106 @@ No Flutter/Dart application code changed this wave — entirely live, read-only 
 12. **W1-001 gate**: **`SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`**.
 13. **Exact remaining prerequisite**: for full native `BR-001` closure — a real restore-to-new-project drill against an actual physical backup, owner-cost-authorized. `W1-001` itself has no remaining backup-related prerequisite; its own deployment is a separate, future owner action.
 14. **Updated overall verdict**: **NO-GO** (unchanged) — `BR-001`'s restore-drill gap remains the primary standing item, alongside `DC-010`, `AU-009`, `PC-006`, and the emergency workflow's CI secrets.
+
+---
+
+## 44. W1-001 Production Deployment Wave (2026-09-08)
+
+Explicitly authorized: deployment of `W1-001` to production, and only `W1-001`. Hard rules honored throughout: no `BR-001` restore drill, no unrelated migrations, no blind `supabase db push`, no historical migration-ledger mutation, no unrelated schema/Edge Function deployment, no credential or backup-configuration changes, no Apple signing, no `AU-009`, no `PC-006` decisions.
+
+### Phase A — Pre-deployment safety gate (7 checks)
+
+1. **Project health**: `GET /v1/projects/jkmjobvxfrmuwafczvtw` → `status: ACTIVE_HEALTHY`, `postgres_engine: "17"`, `release_channel: "ga"` — unchanged from every prior wave this session.
+2. **Backup currency**: `GET /v1/projects/jkmjobvxfrmuwafczvtw/database/backups` re-confirmed identical to §43's evidence — 7 `COMPLETED` physical backups, most recent `2026-09-07T16:24:18.189Z`, well within 24 hours of this deployment.
+3. **Migration file integrity**: `shasum -a 256 supabase/migrations/20260906090000_ai_rate_limit.sql` → `4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639`, unchanged from every prior wave's checksum of this file — confirming no drift between what was reviewed/approved across the engagement and what was about to be applied.
+4. **Schema-contract validation**: `scripts/validate_migrations.sh` re-run fresh — 28/28 checks passed.
+5. **Statement-safety review**: the file re-read in full — contains only `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`, and `REVOKE`/`GRANT` statements — no `DROP`, no `DELETE`, no destructive statement of any kind, and no dependency on any archived/historical migration.
+6. **Pre-change production state, directly confirmed rather than assumed**: the 4 target Edge Functions were downloaded from production (`GET /v1/projects/jkmjobvxfrmuwafczvtw/functions/<slug>/body`) and inspected — all 4 confirmed still running the **old in-memory limiter** (`const buckets = new Map(...)`), not the new RPC-based code. This proved production had not been silently altered by any earlier wave, and confirmed the correct deployment order: database migration first, then functions (functions must not be deployed calling an RPC that doesn't exist yet).
+7. **No conflicting objects**: a pre-check `SELECT` for `ai_rate_limit_counters` and `check_and_increment_ai_rate_limit` in `information_schema`/`pg_proc` returned empty — confirming a clean, first-time application, not a re-apply over an existing partial state.
+
+All 7 checks passed. Proceeded to Phase B.
+
+### Phase B — Apply W1-001 SQL only
+
+Applied via the Supabase Management API's direct SQL-query endpoint, `POST /v1/projects/jkmjobvxfrmuwafczvtw/database/query`, body `{"query": "<full contents of 20260906090000_ai_rate_limit.sql>"}` — the single authorized file only, never `supabase db push`, never touching any other migration or the production migration ledger. Request started `2026-09-08T07:02:36Z`, completed `2026-09-08T07:02:38Z` (~2 seconds), `HTTP 201`.
+
+### Phase C — Database verification
+
+Each check run as a separate API call (the query endpoint only returns the last statement's result when multiple are batched — established this wave):
+
+- `ai_rate_limit_counters` table exists, correct columns (`user_id`, `function_name`, `window_start`, `request_count`, `updated_at`), correct primary key (`user_id, function_name, window_start`).
+- Both indexes present.
+- `check_and_increment_ai_rate_limit` function exists; `pg_proc.prosecdef = true` (confirmed `SECURITY DEFINER`); function source confirmed explicit `SET search_path = public`.
+- `pg_tables.rowsecurity = true` for `ai_rate_limit_counters` (RLS enabled); `pg_policies` returned zero rows (no policies — correct, by design, since only the `SECURITY DEFINER` function and `service_role` should ever touch this table directly).
+- Table grants (`information_schema.role_table_grants`): only `postgres` and `service_role` hold privileges; `anon`/`authenticated` correctly absent.
+- Function grants (`information_schema.role_routine_grants`): `anon` and `authenticated` both present via `EXECUTE` — re-confirming the already-known, already-accepted `W1-002` quirk (default-privilege grant to `anon`, not inherited via `PUBLIC`) exactly as reproduced in local testing in prior waves; functionally inert because the function's own `auth.uid() IS NULL` check still rejects anonymous callers.
+- Functional proof: a simulated authenticated RPC call (using a real synthetic user's JWT, `auth.uid()` correctly resolved) wrote the exact expected row (`request_count = 1`, correct `window_start`). A direct `SELECT` on the table as `authenticated` was correctly denied (`permission denied for table ai_rate_limit_counters`) — proving the RLS/grant combination, not just the function, enforces the intended access boundary.
+
+### Phase D — Deploy updated Edge Functions
+
+`supabase functions deploy` run for all 4 functions — completed cleanly and quickly this time (~15 seconds total, full success output for each), unlike the local hangs seen in the Gemini-rotation wave (which had nonetheless succeeded server-side there too). Versions: `dr-niswah-chat` v9→v10, `fiqh-advisor-chat` v3→v4, `dream-interpreter-chat` v3→v4, `ai-assistant-chat` v3→v4. Confirmed via a fresh download-and-diff of each function's deployed body against the local source: all 4 now call `check_and_increment_ai_rate_limit` via the Supabase client, with the old in-memory `Map`-based limiter fully removed.
+
+### Phase E — Functional smoke test
+
+Using one synthetic Admin-API-created test account (`email_confirm: true`, service_role key used inline only, deleted at the end of this wave):
+
+- `ai-assistant-chat`: real Gemini reply, substantive, on-topic, `200`.
+- `dream-interpreter-chat`: real Gemini reply, substantive, on-topic, `200`.
+- `dr-niswah-chat`: real Gemini reply, `200`; red-flag phrasing correctly triggered `urgent: true` in the response.
+- `fiqh-advisor-chat`: remained in its already-approved, already-documented safe degraded state (grounding limitation tracked separately, unaffected by this wave) — not weakened or changed by this deployment.
+- Malformed request body → `400` on all 4. Missing/invalid auth → `401` on all 4.
+- Zero credential-pattern leakage in any response body across every call made this wave.
+
+### Phase F — Rate-limiter verification
+
+- **Quota enforcement** (direct RPC calls, `maxRequests=3`): calls 1–3 → `allowed: true`, `request_count` 1, 2, 3; calls 4–5 → `allowed: false`, each with a real, correctly-computed `retry_after_seconds`.
+- **Concurrency / atomicity**: 10 simultaneous RPC calls fired against a quota of 5. Result: exactly 5 `allowed: true` (count values 1–5, each appearing exactly once) and exactly 5 `allowed: false` (count values 6–10, each appearing exactly once) — zero duplicates, zero gaps, proving the atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` design holds under real concurrent load in production, not merely in local/dev testing.
+- **Identity isolation**: two independent synthetic users issuing calls to the same function within the same window produced two fully independent counters (`request_count = 1` each) — confirming `auth.uid()`-derived identity cannot cross-contaminate between users.
+- **Red-flag exemption**: re-confirmed via the Phase E end-to-end HTTP call to `dr-niswah-chat` — the exemption path is not merely a code-review claim but was exercised live.
+
+### Phase G — Production failure-mode check (fail-closed)
+
+A real, controlled, immediately-reversible test: `REVOKE EXECUTE ON FUNCTION check_and_increment_ai_rate_limit FROM authenticated;` applied directly. A real HTTP call to `dr-niswah-chat` (authenticated, well-formed) immediately afterward returned `503` with `"This feature is temporarily unavailable"` — no internal error detail, no stack trace, no Gemini call reached (confirmed no corresponding request in the function's own logic path). `GRANT EXECUTE ON FUNCTION check_and_increment_ai_rate_limit TO authenticated;` immediately restored the grant; a follow-up grants query confirmed the restored state exactly matched the Phase C baseline; one more real HTTP call confirmed normal `200` operation fully resumed. This elevates the fail-closed property from "verified by design/code review" to **`PRODUCTION RUNTIME VERIFIED`** — a genuine, safe, reversible test against the live system, not an inference.
+
+### Phase H — Cleanup
+
+All synthetic test artifacts created during this wave — the Admin-API test account(s), their `chat_threads` rows (cascade-deleted with the account), and every `ai_rate_limit_counters` row created during quota/concurrency/isolation testing (no FK cascade to `auth.users`, by design, so deleted manually) — were removed. Final check: `SELECT count(*) FROM ai_rate_limit_counters;` → `0`. Zero test data remains in production.
+
+### Phase I — W1-001 status
+
+**`W1-001` = `VERIFIED_CLOSED`.** Every required production check passed, with real, direct evidence at every layer — migration applied and independently re-verified (not just "ran without error"), Edge Functions redeployed and confirmed via source diff (not just "deploy command succeeded"), smoke tests exercised real Gemini calls end-to-end, rate-limiting proven atomic under real concurrent load, identity isolation proven with two real accounts, and fail-closed behavior proven via a real, reversible production fault injection rather than left as a design-time assumption. `AB-002`, `SEC-005`, `AB-008` — each tracked across every prior wave as "code-complete, locally verified, blocked only on `W1-001`'s own production deployment" — move to `VERIFIED_CLOSED` alongside it on this same evidence.
+
+`BR-001` is explicitly, deliberately **unchanged** — remains `PARTIALLY_REMEDIATED`. This wave's success does not close it; the restore-drill gap identified in §43 is untouched by anything done here.
+
+### Testing
+
+No Flutter/Dart application code changed this wave — entirely live production database/Edge Function deployment and verification. Last-known baseline (`dart analyze lib/`: 27 pre-existing/0 new; `flutter test`: 372/380, same 8 pre-existing golden-image diffs) is unaffected and remains current; correctly not re-run, since nothing that could change either result was touched.
+
+### Owner actions still required
+
+Unchanged by this wave except for the removal of `W1-001` itself from the list: the `BR-001` restore-to-new-project drill (owner-cost-authorized), the emergency workflow's 3 CI secrets, `DC-010`'s Apple Team selection, `AU-009`, `PC-006`.
+
+**Overall verdict remains NO-GO** — a major, long-tracked finding (`W1-001`, plus `AB-002`/`SEC-005`/`AB-008` alongside it) closed with real, exhaustive, direct production evidence at every layer — but `BR-001`'s restore-drill gap remains the primary standing item, alongside `DC-010`, `AU-009`, `PC-006`, and the emergency workflow's CI secrets.
+
+---
+
+## Consolidated Report — W1-001 Production Deployment
+
+1. **Pre-deployment backup evidence**: 7 `COMPLETED` physical backups re-confirmed, most recent `2026-09-07T16:24:18.189Z`.
+2. **Migration checksum verification**: `4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639`, unchanged from every prior review across the engagement.
+3. **SQL application result**: applied via Management API direct SQL endpoint, `HTTP 201`, `2026-09-08T07:02:36Z`–`07:02:38Z`.
+4. **Production DB object verification**: table + both indexes + function all present; `SECURITY DEFINER` confirmed; `search_path=public` confirmed; RLS enabled with 0 policies; table grants restricted to `postgres`/`service_role`; function grants include the known, benign `W1-002` `anon` quirk; functional RPC test wrote the correct row; direct table access correctly denied.
+5. **Edge Function versions before/after**: `dr-niswah-chat` v9→v10; `fiqh-advisor-chat`, `dream-interpreter-chat`, `ai-assistant-chat` v3→v4 each; all confirmed via download-diff to run the new RPC-based code.
+6. **Normal smoke-test results**: all 3 fully-functional AI functions returned real, substantive Gemini replies; `fiqh-advisor-chat` unchanged in its already-approved degraded state; correct `400`/`401` on malformed/unauthenticated requests; zero credential leakage.
+7. **Rate-limit enforcement result**: quota of 3 → calls 1–3 allowed, calls 4–5 rejected with real `retry_after_seconds`.
+8. **Concurrency result**: 10 simultaneous calls against quota 5 → exactly 5 allowed / 5 rejected, no duplicates, no gaps — atomicity proven under real concurrent load.
+9. **Identity-isolation result**: two independent synthetic users produced two fully independent counters.
+10. **Dr Niswah exemption result**: re-confirmed live — red-flag phrasing correctly returned `urgent: true`, unaffected by rate limiting.
+11. **Fail-closed result**: real `REVOKE`/`GRANT` cycle — `503` with no internal detail while revoked, full restoration and re-verified `200` afterward. `PRODUCTION RUNTIME VERIFIED`, not merely design-inferred.
+12. **Cleanup result**: all synthetic accounts, threads, and counter rows deleted; `ai_rate_limit_counters` count = 0.
+13. **W1-001 final status**: **`VERIFIED_CLOSED`**. `AB-002`, `SEC-005`, `AB-008` also **`VERIFIED_CLOSED`** on the same evidence.
+14. **BR-001 status**: unchanged, **`PARTIALLY_REMEDIATED`** — restore-drill gap untouched by this wave, per explicit instruction.
+15. **Remaining launch blockers**: `BR-001` restore drill (owner-cost-authorized), emergency workflow's 3 CI secrets, `DC-010` (Apple Team selection), `AU-009`, `PC-006`.
+16. **Updated overall verdict**: **NO-GO** (unchanged) — narrowed: `W1-001` and its 3 dependent findings closed; the remaining blockers are unrelated to this wave's scope.
+17. **Final commit SHA**: recorded in Phase J below.
+18. **Local == remote verification**: recorded in Phase J below.

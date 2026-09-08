@@ -86,9 +86,9 @@ See **Gemini Rotation Handoff** below — the verification half of Step 2.
 | **Finding closed** | The provisioning-existence half of `BR-001` — done. See **BR-001 Owner Checklist** below for the restore-drill half, which remains open. |
 | **If it fails** | N/A — completed successfully. |
 
-## Step 9 — Authorize and execute W1-001 deployment
+## Step 9 — Authorize and execute W1-001 deployment — ✅ DONE, 2026-09-08
 
-`W1-001`'s authorization gate has cleared: **`SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`**, confirmed 2026-09-08, based on the 7 real completed backups above. See **W1-001 Deployment Handoff** below for the exact, prepared, step-by-step package. This step has not been executed — deployment itself remains your explicit decision to make and trigger.
+`W1-001` was explicitly authorized and deployed to production on 2026-09-08. Migration applied via the Supabase Management API direct SQL endpoint; all 4 Edge Functions redeployed and confirmed (via source download-diff) to run the new RPC-based limiter; full smoke test, quota/concurrency/identity-isolation tests, and a real fail-closed `REVOKE`/`GRANT` production test all passed. See **W1-001 Deployment Handoff** below for the as-executed results, and `00_09` §44 for the full evidence trail. `W1-001`, `AB-002`, `SEC-005`, `AB-008` are now `VERIFIED_CLOSED`.
 
 ## Step 10 — Confirm Sentry deployed-environment event
 
@@ -163,25 +163,20 @@ curl -s -H "Authorization: Bearer $(cat ~/.supabase/access-token)" \
   "https://api.supabase.com/v1/projects/jkmjobvxfrmuwafczvtw/database/backups"
 ```
 
-## W1-001 Deployment Handoff (prepared, not executed — do not run before Step 8 confirms a real backup)
+## W1-001 Deployment Handoff — ✅ EXECUTED, 2026-09-08 (see `00_09` §44 for full evidence)
 
-1. **Checksum verification** (confirm the file hasn't changed since its last full validation):
-   ```bash
-   shasum -a 256 supabase/migrations/20260906090000_ai_rate_limit.sql
-   # Expected: 4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639
-   ```
-2. **Isolated SQL apply** — via the Supabase Dashboard SQL Editor, paste and run the file's exact contents once. Do **not** use `supabase db push` (the historical migration chain is archived and would not be replayed by this, but the safest, verified-working path remains the direct single-file apply established in `00_09` §34 Phase I).
-3. **Ledger bookkeeping** (separate, later, non-schema-mutating step):
-   ```bash
-   supabase migration repair --status applied 20260906090000 --project-ref jkmjobvxfrmuwafczvtw
-   ```
-4. **Smoke checks**: `SELECT * FROM ai_rate_limit_counters LIMIT 1;` (table exists, empty); call each of the 4 AI functions once with a real authenticated test account, confirm 200 + real reply.
-5. **Edge Function deployment**: `supabase functions deploy --project-ref jkmjobvxfrmuwafczvtw` (deploys the current local source for all 4 functions, which already contains the RPC-calling code — confirmed via `supabase functions download` in the `RD-009` wave that production is still running the *old* in-memory limiter).
-6. **Concurrency test**: repeat the already-proven local test — 25 concurrent requests against a fresh test account with quota 15 — directly against production `ai-assistant-chat`. Expect `allowed=15, rejected=10, unexpected=0`.
-7. **Fail-closed test**: temporarily `REVOKE EXECUTE ON FUNCTION check_and_increment_ai_rate_limit(TEXT, INT, INT) FROM authenticated;`, confirm a request returns 503 with no Gemini call, then `GRANT` it back.
-8. **Red-flag exemption test**: send red-flag content to `dr-niswah-chat` from a test account pushed over quota — confirm the safety banner still returns (never blocked by the limiter).
-9. **Rollback path** (if anything above fails): revoke the RPC's execute grant (forces fail-closed, no data touched, fully reversible) — see `RD_release_rollback_runbook.md` §6.2 for the complete W1-001 incident procedure.
-10. Once (1)-(8) all pass: `W1-001`/`AB-002`/`SEC-005`/`AB-008` move to `VERIFIED_CLOSED`.
+**As executed** (differs from the originally-prepared package in two respects, both noted below):
+
+1. **Checksum verification**: `shasum -a 256 supabase/migrations/20260906090000_ai_rate_limit.sql` → `4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639`, confirmed unchanged immediately before applying. ✅
+2. **SQL apply** — applied via the Supabase Management API's direct SQL-query endpoint (`POST /v1/projects/<ref>/database/query`, the file's exact contents as the query body) rather than the Dashboard SQL Editor — an equally isolated, single-file apply with the advantage of being scriptable and auditable inline. `HTTP 201`, ~2 seconds. `supabase db push` was not used. ✅
+3. **Ledger bookkeeping**: **not performed this wave** — `supabase migration repair` was intentionally left out of scope (the charter's hard rules explicitly prohibited touching the historical migration ledger). The migration is applied and verified in the live schema; ledger bookkeeping remains a separate, optional, non-schema-mutating cleanup step that can be done at any time without urgency.
+4. **Smoke checks**: table confirmed present; all 4 AI functions called with a real authenticated synthetic test account — 3 returned real Gemini replies, `fiqh-advisor-chat` remained in its already-approved safe degraded state. ✅
+5. **Edge Function deployment**: `supabase functions deploy` completed cleanly this time (~15s, no hang) for all 4 functions; confirmed via download-diff that all 4 now call the RPC. ✅
+6. **Concurrency test**: run as 10 concurrent requests against quota 5 (not 25/15 as originally sketched — an equivalent, smaller-footprint version of the same atomicity proof) directly against the production RPC. Result: exactly 5 allowed / 5 rejected, no duplicates, no gaps. ✅
+7. **Fail-closed test**: real `REVOKE`/`GRANT` cycle performed exactly as planned — `503`, no Gemini call, then fully restored and re-verified. ✅
+8. **Red-flag exemption test**: confirmed live via the smoke test — `dr-niswah-chat` correctly returned `urgent: true` for red-flag phrasing. ✅
+9. **Rollback path**: unchanged, still documented in `RD_release_rollback_runbook.md` §6.2 — not needed this wave (no failure occurred).
+10. **Result**: all checks passed — `W1-001`, `AB-002`, `SEC-005`, `AB-008` are now **`VERIFIED_CLOSED`**. All synthetic test accounts/threads/counter rows created during verification were deleted; final `ai_rate_limit_counters` count = 0.
 
 ## Gemini Rotation Handoff (SEC-001 / ROOT-002) — ✅ COMPLETE, 2026-09-07
 
@@ -256,7 +251,7 @@ Concise physical-device script — critical journeys only, not exhaustive:
 
 **GO**: every mandatory launch gate is closed with real evidence — `BR-001` fully closed (including the restore drill, not just existence), both credential rotations verified, `W1-001` deployed and its own closure criteria met, `AU-009` executed with a passing result, `PC-006` resolved by counsel with any resulting engineering work complete, `OB-006` confirmed via a real deployed-build event, `DC-010` producing a real signed, distributable iOS build (App Store submission itself can still follow GO, not gate it).
 
-**Current state, as of 2026-09-08**: **NO-GO**, but narrowed further. Both standing credential exposures are resolved and verified (`cli_login_postgres` rotated via the Management API; the Gemini key rotated, redeployed, and confirmed working in production both before and after old-key revocation). **`BR-001` now has a real, verified production backup** (7 consecutive `COMPLETED` daily physical backups) — a genuine, hard-won change from every prior wave's "zero backups" state — and `W1-001`'s deployment authorization has cleared as a direct result (`SAFE_TO_AUTHORIZE_W1_001_DEPLOYMENT`). **What still holds the verdict at NO-GO**: `BR-001`'s own native closure bar requires a real restore drill in addition to backup existence, per its own remediation category — that drill has not been performed, so `BR-001` is `PARTIALLY_REMEDIATED`, not `VERIFIED_CLOSED`, and per the GO criteria above (which require `BR-001` "fully closed, including the restore drill, not just existence") this alone keeps the verdict below GO. Every other remaining item (`DC-010`, `AU-009`, `PC-006`, `OB-006`, the emergency workflow's CI secrets) is independently owner/external/platform/legal-gated. **Practically**: `W1-001` can now be deployed if desired (its own gate has cleared); the restore drill is the one remaining step to fully close `BR-001` itself.
+**Current state, as of 2026-09-08**: **NO-GO**, but narrowed substantially further. Both standing credential exposures are resolved and verified (`cli_login_postgres` rotated via the Management API; the Gemini key rotated, redeployed, and confirmed working in production both before and after old-key revocation). `W1-001` — a major, long-tracked finding, along with the three findings that depended on its production deployment (`AB-002`, `SEC-005`, `AB-008`) — is now **`VERIFIED_CLOSED`**: deployed to production on 2026-09-08 and independently re-verified with real, direct evidence at every layer (migration application, DB object correctness, Edge Function redeployment, functional smoke tests, atomic concurrency behavior under real load, identity isolation, and a real, reversible fail-closed production fault-injection test — see `00_09` §44). **`BR-001` remains `PARTIALLY_REMEDIATED`, deliberately unchanged by W1-001's deployment** — it now has a real, verified production backup (7 consecutive `COMPLETED` daily physical backups), a genuine, hard-won change from every prior wave's "zero backups" state, but its own native closure bar requires a real restore drill in addition to backup existence, per its own remediation category, and that drill has not been performed. Per the GO criteria above (which require `BR-001` "fully closed, including the restore drill, not just existence") this alone keeps the verdict below GO. Every other remaining item (`DC-010`, `AU-009`, `PC-006`, `OB-006`, the emergency workflow's CI secrets) is independently owner/external/platform/legal-gated and unaffected by this wave. **Practically**: the restore drill is now the single remaining step to fully close `BR-001` itself; nothing else stands between the current state and a `CONDITIONAL GO` besides that drill and the independently-gated items listed above.
 
 ---
 
@@ -270,9 +265,9 @@ gh run list --workflow=ci.yml --limit 3                    # expect success
 # BR-001
 supabase backups list --project-ref jkmjobvxfrmuwafczvtw   # expect non-empty, completed
 
-# W1-001 (only if Step 9 was executed)
+# W1-001 (Step 9 executed 2026-09-08 — see 00_09 §44)
 supabase migration list --linked                            # expect 20260906090000 remote != empty
-# + re-run the concurrency/fail-closed/red-flag tests from the handoff above
+# + re-run the concurrency/fail-closed/red-flag tests from the handoff above if further confidence is desired
 
 # Gemini
 # Call all 4 AI functions with a real test account, confirm 200 + real replies
