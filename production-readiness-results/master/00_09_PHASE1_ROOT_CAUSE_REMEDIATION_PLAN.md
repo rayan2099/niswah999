@@ -4145,3 +4145,77 @@ Unaffected by this wave: `DC-010` (Apple Developer Team selection, iOS real sign
 15. **Updated overall verdict**: **NO-GO** (unchanged) — narrowed further with `RD-006`'s real closure.
 16. **Final commit SHA**: recorded in this wave's own git history (documentation commit, pushed after the workflow-file commit).
 17. **Local == remote verification**: confirmed at each push this wave.
+
+---
+
+## 49. DC-010 iOS Production Signing Wave (2026-09-08)
+
+Explicitly authorized: complete DC-010's real iOS production signing verification, or determine and report exactly why it cannot proceed — no production DB changes, no Android signing changes, no App Store publication, no AU-009/PC-006/OB-006 work, no fabricated signed-iOS evidence.
+
+### Correction — BR-001 restored-project cleanup
+
+Processed first, per the charter's own explicit instruction. The owner deleted the temporary restored project (`niswah-br001-restore-drill`, ref `rpopudibfpoefejyarhe`) directly. Confirmed via a read-only Management API check: `GET /v1/projects/rpopudibfpoefejyarhe` → `{"message":"Resource has been removed"}`; `GET /v1/projects` (org-wide list) confirms it is absent — only `jkmjobvxfrmuwafczvtw` (production) and one unrelated project (`mustvakozkaqbrragasy`, not investigated further, outside this wave's scope) remain. Corrected in `00_04_MASTER_FINDING_REGISTER.md` (both the `BR-001` row and its wave-narrative section), `BR_recovery_runbook.md` (both references), and `docs/final-owner-launch-checklist.md` (the BR-001 Owner Checklist and Release decision model sections) — removed from every standing owner-action/blocker list. Historical per-wave narrative sentences describing the item as still-outstanding at the time they were written were deliberately left unedited (accurate snapshots of that point in time, matching this engagement's established convention of not rewriting history).
+
+### Phase A — Native DC-010 closure bar
+
+`DC_findings.md`'s DC-010 entry: the defect is `CODE_SIGN_STYLE = Automatic` with **no `DEVELOPMENT_TEAM` key found anywhere** in `project.pbxproj`, and a generic placeholder `CODE_SIGN_IDENTITY[sdk=iphoneos*] = "iPhone Developer"` — meaning a release IPA can currently only be produced on a specific developer's machine with their personal/team Apple ID configured, invisible from the repo alone.
+
+`DC_remediation_plan.md` R1.5 ("Configure real iOS release signing (closes DC-010)"): *"Set an explicit `DEVELOPMENT_TEAM`... decoupling release builds from whichever developer's Xcode happens to be running."* **Validation**: *"Archive/export an IPA and confirm the signing identity matches the intended distribution certificate, not an ad hoc developer identity."*
+
+**Conclusion**: DC-010's native bar requires, at minimum — (1) a real `DEVELOPMENT_TEAM` configured, (2) a real Xcode Archive, (3) an exported IPA, (4) confirmation the signing identity is a genuine Apple **Distribution** certificate, not ad hoc/development. This is a materially higher, non-simulatable bar than `RD-006`'s (§48) — an unsigned/no-codesign build cannot satisfy it, unlike RD-006's own retest.
+
+### Phase B — Current Apple signing state, re-checked directly
+
+- `security find-identity -v -p codesigning` → `0 valid identities found`.
+- `~/Library/MobileDevice/Provisioning Profiles/` → does not exist.
+- `grep DEVELOPMENT_TEAM ios/Runner.xcodeproj/project.pbxproj` → zero matches.
+- `grep CODE_SIGN_STYLE|CODE_SIGN_IDENTITY ios/Runner.xcodeproj/project.pbxproj` → `CODE_SIGN_STYLE = Automatic` across all 3 configurations (unchanged, correctly configured for a future Team-selection step), placeholder `CODE_SIGN_IDENTITY[sdk=iphoneos*] = "iPhone Developer"` unchanged.
+- `grep PRODUCT_BUNDLE_IDENTIFIER` → `com.niswah.niswah` for the main Runner target across Debug/Profile/Release, `com.niswah.niswah.RunnerTests` for the test target — correct, unchanged.
+- `xcodebuild -showBuildSettings -workspace Runner.xcworkspace -scheme Runner -configuration Release`: `CODE_SIGN_IDENTITY = iPhone Developer` (placeholder, unresolved), `EXPANDED_CODE_SIGN_IDENTITY` = empty, `EXPANDED_CODE_SIGN_IDENTITY_NAME` = empty, `EXPANDED_PROVISIONING_PROFILE` = empty, `PROVISIONING_PROFILE_REQUIRED = YES` (but none available), `PRODUCT_BUNDLE_IDENTIFIER = com.niswah.niswah`.
+- **New, more precise finding this wave**: `defaults read com.apple.dt.Xcode IDEProvisioningTeams` → *"The domain/default pair of (com.apple.dt.Xcode, IDEProvisioningTeams) does not exist."* This confirms **no Apple ID of any kind is signed into Xcode on this machine** — not merely "a Team hasn't been selected yet," but "there is no Apple account present from which to select one." A more precise, stronger confirmation than any prior wave's phrasing.
+
+### Phase C — Owner action gate
+
+Every signal checked in Phase B is empty/absent. Per the charter's own explicit instruction, stopping here.
+
+**Result: `DC010_APPLE_SIGNING_OWNER_ACTION_REQUIRED`.**
+
+Minimum exact owner action, unchanged from every prior wave's own conclusion (re-confirmed, not altered, by this wave's more precise investigation):
+
+1. Open Xcode → Settings → Accounts → sign in with an Apple ID enrolled in the Apple Developer Program.
+2. Select the `Runner` target → Signing & Capabilities → select that Team for all 3 build configurations. `CODE_SIGN_STYLE = Automatic` is already correctly configured — no separate manual certificate/profile creation step is needed; Xcode will generate both itself once a Team is selected.
+
+No Apple ID password, private key, certificate export, provisioning-profile content, or App Store credential was requested at any point, in this wave or any prior one.
+
+### Phases D-I — Not reached
+
+Per the charter's own explicit instruction ("If owner action is required, STOP at Phase C and return only the minimum owner action necessary"), Phases D (recheck signing) through I (reassessment) were not attempted. No signed build, archive, or IPA was produced or fabricated. `DC-010` was not reclassified beyond its existing, accurate `OWNER_BLOCKED` status.
+
+### Testing
+
+No Flutter/Dart application code or iOS project configuration changed this wave — entirely read-only local signing-state investigation (Bash/`security`/`xcodebuild`/`defaults`, all safe, no credentials printed) plus documentation corrections. Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner actions still required
+
+`DC-010` (the 2-step Apple Team selection above), `AU-009` (accessibility pass), `PC-006` (legal/product determination), `OB-006` (deployed-build Sentry event). The `BR-001` restored-project cleanup is now complete and removed from this list.
+
+**Overall verdict remains NO-GO** — `DC-010` remains genuinely `OWNER_BLOCKED`, precisely re-confirmed rather than newly discovered; `AU-009`, `PC-006`, `OB-006` remain outstanding, each independently owner/external/platform/legal-gated.
+
+## Consolidated Report — DC-010 iOS Production Signing
+
+1. **DC-010 native closure criterion**: a real `DEVELOPMENT_TEAM`, an Xcode Archive, an exported IPA, and confirmation of a genuine Distribution certificate — not satisfiable by an unsigned build.
+2. **DEVELOPMENT_TEAM status**: absent — not present in `project.pbxproj`, not resolved by `xcodebuild -showBuildSettings`.
+3. **Signing identity status**: `0 valid identities found`; Xcode has no Apple ID signed in at all.
+4. **Provisioning status**: no provisioning-profiles directory exists; `EXPANDED_PROVISIONING_PROFILE` resolves empty.
+5. **Bundle ID**: `com.niswah.niswah`, confirmed unchanged.
+6. **Signed Release build result**: not attempted — no local signing capability exists to produce one; would fail immediately per the app's own configuration-time signing guard (`DC-005`/`SEC-003` discipline, unchanged).
+7. **Archive result**: not attempted — same reason.
+8. **IPA/export result**: not attempted — same reason.
+9. **Independent codesign verification**: not applicable — no signed artifact exists to verify.
+10. **Version/build verification**: not applicable to this wave's stop point (already independently proven for the unsigned build in `RD-006`'s wave — `CFBundleVersion`/`CFBundleShortVersionString` correctly derived — but that does not satisfy DC-010's own, higher, signed-artifact bar).
+11. **DC-010 final status**: **`OWNER_BLOCKED`** — unchanged, re-confirmed with more precise evidence (no Apple account present at all, not merely no Team selected).
+12. **BR-001 restore cleanup correction**: confirmed complete — the owner deleted the restored project directly; removed from every standing blocker/owner-action list.
+13. **Remaining launch blockers**: `DC-010` (2-step owner action above), `AU-009`, `PC-006`, `OB-006`.
+14. **Updated overall verdict**: **NO-GO** (unchanged).
+15. **Final commit SHA**: recorded in this wave's own git history (documentation-only commit).
+16. **Local == remote verification**: confirmed at this wave's push.
