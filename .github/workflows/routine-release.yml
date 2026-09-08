@@ -1,0 +1,238 @@
+name: Routine Production Release Build
+
+# RD-006 (Release/Deployment). Manually triggered only — builds signed
+# Android and no-codesign iOS release artifacts from the current default
+# branch, with a build number computed deterministically by CI rather than
+# hand-edited in pubspec.yaml before every release. Never publishes to the
+# Play Store or App Store; that remains a separate, human-approved action.
+#
+# Distinct from emergency-release.yml: that workflow exists for an urgent,
+# arbitrary-commit rebuild during an incident and takes an operator-chosen
+# build number. This workflow is the ordinary, repeatable release path and
+# computes its own build number automatically so no human has to remember
+# to bump one before every store submission — the exact gap RD-006 flags.
+#
+# Build-number convention, chosen to make collision structurally
+# impossible rather than merely unlikely: routine releases use
+# 100 + <this workflow's GitHub-native run number> (a real, monotonically
+# increasing, per-workflow counter GitHub itself maintains — never reset,
+# never reused, requires no committed counter file and no local machine
+# state). Values 1-99 are reserved for emergency-release.yml's small,
+# operator-chosen numbers; this workflow never generates a value in that
+# range, so the two mechanisms can never collide by construction.
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_env:
+        description: "APP_ENV dart-define value for this build."
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+        default: production
+
+env:
+  FLUTTER_VERSION: "3.47.0"
+
+jobs:
+  analyze-and-test:
+    name: Analyze, test, and compute the routine build number
+    runs-on: ubuntu-latest
+    outputs:
+      build_number: ${{ steps.buildnum.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Compute routine build number (RD-006)
+        id: buildnum
+        run: |
+          N=$((100 + ${{ github.run_number }}))
+          echo "build_number=$N" >> "$GITHUB_OUTPUT"
+          echo "Computed routine build number: $N (this workflow's run #${{ github.run_number }})"
+
+      # .env is a required Flutter asset (pubspec.yaml, flutter_dotenv) --
+      # flutter test fails at asset-bundling without it. Same non-secret
+      # placeholder used in ci.yml/emergency-release.yml.
+      - name: Write placeholder .env for analyze/test
+        run: |
+          cat > .env << 'EOF'
+          SUPABASE_URL=https://placeholder.supabase.co
+          SUPABASE_ANON_KEY=placeholder
+          APP_ENV=development
+          SENTRY_DSN=
+          EOF
+
+      # Same baseline-aware analyze + golden-exclusion approach as
+      # ci.yml/emergency-release.yml: this repo's 27 pre-existing info-level
+      # dart analyze issues are an accepted baseline, and parity/golden
+      # tests are platform-dependent (macOS local dev vs. Ubuntu runner).
+      - name: Analyze and test (never ship a release build blind)
+        run: |
+          dart analyze lib/ > /tmp/analyze_output.txt 2>&1 || true
+          cat /tmp/analyze_output.txt
+          ISSUE_COUNT=$(grep -oE "^[0-9]+" /tmp/analyze_output.txt | tail -1)
+          ISSUE_COUNT=${ISSUE_COUNT:-0}
+          ERROR_COUNT=$(grep -cE "^\s*error -" /tmp/analyze_output.txt || true)
+          echo "Total issues: $ISSUE_COUNT (baseline: 27) — errors: $ERROR_COUNT"
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "::error::dart analyze found $ERROR_COUNT error-level issue(s) — always fatal, regardless of baseline."
+            exit 1
+          fi
+          if [ "$ISSUE_COUNT" -gt 27 ]; then
+            echo "::error::dart analyze found $ISSUE_COUNT issues, exceeding the established baseline of 27 — investigate before releasing."
+            exit 1
+          fi
+          flutter test $(find test -name '*_test.dart' -not -name 'parity_*.dart')
+
+  build-android:
+    name: Build signed Android release APK
+    runs-on: ubuntu-latest
+    needs: analyze-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Reuses the same three secrets as emergency-release.yml — there is
+      # only one real production .env and one real release keystore, and
+      # both workflows sign with that same identity. No new secret was
+      # created for this workflow (RD-006's charter: do not alter secrets
+      # unless strictly necessary — reusing an existing, correct secret is
+      # not an alteration). EMERGENCY_BUILD_ENV_FILE's name predates this
+      # workflow but its content (the real production .env) is not
+      # emergency-specific, so sharing it is intentional, not a naming bug.
+      - name: Write .env from CI secret
+        env:
+          ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+        run: |
+          if [ -z "$ENV_FILE_CONTENTS" ]; then
+            echo "::error::EMERGENCY_BUILD_ENV_FILE secret is not configured. This workflow cannot produce a real release artifact without it."
+            exit 1
+          fi
+          printf '%s' "$ENV_FILE_CONTENTS" > .env
+
+      - name: Write signing keystore + key.properties from CI secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          KEY_PROPERTIES_CONTENTS: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEY_PROPERTIES_CONTENTS" ]; then
+            echo "::error::ANDROID_RELEASE_KEYSTORE_BASE64 / ANDROID_KEY_PROPERTIES secrets are not configured."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/niswah-release.jks
+          printf '%s' "$KEY_PROPERTIES_CONTENTS" > android/key.properties
+
+      - name: Build signed release APK
+        run: |
+          flutter build apk --release \
+            --dart-define=APP_ENV=${{ inputs.app_env }} \
+            --build-number=${{ needs.analyze-and-test.outputs.build_number }}
+
+      - name: Verify signing certificate is the real release cert, not debug
+        run: |
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          "$BUILD_TOOLS_DIR/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee signing-verification.txt
+          if ! grep -q "CN=Niswah" signing-verification.txt; then
+            echo "::error::Built artifact is NOT signed with the real Niswah release certificate. Refusing to publish as an artifact."
+            exit 1
+          fi
+
+      - name: Compute checksum and generate manifest
+        run: |
+          chmod +x scripts/generate_release_manifest.sh
+          ./scripts/generate_release_manifest.sh build/app/outputs/flutter-apk/app-release.apk ${{ inputs.app_env }} ${{ needs.analyze-and-test.outputs.build_number }}
+
+      - name: Upload signed Android artifact (retained per GitHub Actions default retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: routine-release-android-${{ github.sha }}-build${{ needs.analyze-and-test.outputs.build_number }}
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            release-manifest_*.json
+          retention-days: 90
+
+  build-ios:
+    name: Build iOS release artifact (no-codesign — DC-010 owner-blocked)
+    runs-on: macos-latest
+    needs: analyze-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Write .env from CI secret
+        env:
+          ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+        run: |
+          if [ -z "$ENV_FILE_CONTENTS" ]; then
+            echo "::error::EMERGENCY_BUILD_ENV_FILE secret is not configured."
+            exit 1
+          fi
+          printf '%s' "$ENV_FILE_CONTENTS" > .env
+
+      # Real code signing needs the owner's Apple Developer Team ID
+      # (DEVELOPMENT_TEAM — see DC-010, a separate owner action this
+      # workflow does not perform). --no-codesign still produces a real
+      # release-configured .app with the correct CFBundleVersion baked in
+      # via --build-number, which is all RD-006's own retest bar requires
+      # ("confirm ... a strictly higher versionCode/CFBundleVersion") — it
+      # does not require a signed, store-submittable iOS artifact.
+      - name: Build iOS release artifact (no-codesign)
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=APP_ENV=${{ inputs.app_env }} \
+            --build-number=${{ needs.analyze-and-test.outputs.build_number }}
+
+      - name: Confirm CFBundleVersion baked into the built .app
+        run: |
+          BUNDLE_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" build/ios/iphoneos/Runner.app/Info.plist)
+          echo "CFBundleVersion in built .app: $BUNDLE_VERSION"
+          if [ "$BUNDLE_VERSION" != "${{ needs.analyze-and-test.outputs.build_number }}" ]; then
+            echo "::error::CFBundleVersion ($BUNDLE_VERSION) does not match the computed routine build number (${{ needs.analyze-and-test.outputs.build_number }})."
+            exit 1
+          fi
+
+      - name: Compute checksum and generate manifest
+        run: |
+          chmod +x scripts/generate_release_manifest.sh
+          ./scripts/generate_release_manifest.sh build/ios/iphoneos/Runner.app ${{ inputs.app_env }} ${{ needs.analyze-and-test.outputs.build_number }}
+
+      - name: Upload iOS artifact (retained per GitHub Actions default retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: routine-release-ios-${{ github.sha }}-build${{ needs.analyze-and-test.outputs.build_number }}
+          path: |
+            build/ios/iphoneos/Runner.app
+            release-manifest_*.json
+          retention-days: 90
+
+      # Deliberately absent, by design: no Play Store / App Store
+      # publication step of any kind, on either platform job above.
