@@ -4219,3 +4219,71 @@ No Flutter/Dart application code or iOS project configuration changed this wave 
 14. **Updated overall verdict**: **NO-GO** (unchanged).
 15. **Final commit SHA**: recorded in this wave's own git history (documentation-only commit).
 16. **Local == remote verification**: confirmed at this wave's push.
+
+---
+
+## 50. OB-006 Sentry Deployed/Staging Verification Wave (2026-09-08)
+
+Explicitly authorized: determine whether OB-006's outstanding staging-event evidence can be independently confirmed via Sentry's remote/dashboard/API, or stop with the exact minimal owner action if not — no production DB changes, no Apple signing changes, no AU-009/PC-006 work, no Sentry-to-agent automation, no weakened scrubbing, no unnecessary production errors.
+
+### Phase A — Native OB-006 criteria, read directly from source
+
+`OB_remediation_plan.md` R2-1's retest column, quoted verbatim: *"For each migrated repository, force the equivalent of the original DI-002 failure mode (e.g. a bad Supabase call) in a test/staging environment and confirm the new structured log appears in **the chosen tool** with correct fields."*
+
+**The operative phrase is "appears in the chosen tool."** This means server-side visibility within Sentry itself — confirmable via its dashboard or API — not merely a local SDK call returning a non-empty event id (which only proves the client-side send attempt didn't immediately error, not that Sentry's servers actually received and stored it). This directly confirms the charter's own framing of the outstanding gap is the correct, native reading — not a stricter bar invented on top of the original finding.
+
+### Phase B — Existing Sentry configuration, reconfirmed unchanged
+
+Direct inspection of `lib/main.dart` (no edits made — nothing found to fix):
+
+- `SentryFlutter.init((options) { options.dsn = AppEnvironment.sentryDsn; options.environment = AppEnvironment.appEnvironment; options.beforeSend = (event, hint) => _scrubBeforeSend(event); }, appRunner: () => _runApp())` — DSN and environment metadata correctly sourced from the app's own environment config, not hardcoded.
+- `_scrubBeforeSend` → `scrubSecretsForSentry`: regex-redacts `Bearer <token>` and JWT-shaped (`eyJ...`) strings from every exception's `value` field before any event leaves the device — unit-tested (referenced, not re-run this wave since untouched).
+- `AppErrorReporter.onReport` (set in `_runApp()`) forwards to `Sentry.captureException`, attaching only `context`/`feature`/`retryAttempt`/`recordId` as tags/contexts — `recordId` is explicitly documented as "an opaque id only (never record content) by `AppErrorReporter`'s own contract." No health, chat, cycle, pregnancy, or auth content is ever passed into any Sentry field.
+- `FlutterError.onError`, `PlatformDispatcher.instance.onError`, and `runZonedGuarded`'s handler all call `AppErrorReporter.report(...)`, the single funnel to the line above — confirms no duplicate-reporting path and no path that bypasses the scrub.
+
+**No real defect found — nothing changed**, per the charter's own explicit instruction not to alter a working integration without cause.
+
+### Phase C — Remote evidence access, investigated directly
+
+- `which sentry-cli` → not found. No Sentry CLI installed in this environment.
+- `env | grep -i sentry` → empty. No Sentry auth token or related environment variable present.
+- Filesystem search (`find ~ -iname "*.sentryclirc*"`, repo-wide search for `.sentryclirc`/`sentry.properties`) → nothing found.
+- `GET /repos/rayan2099/niswah999/actions/secrets` (GitHub API, names only) → `total_count: 3` — `EMERGENCY_BUILD_ENV_FILE`, `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_KEY_PROPERTIES` only. No Sentry-related secret configured anywhere in CI either.
+- The only Sentry credential present anywhere this session can reach is the write-only DSN, already correctly wired into `.env`/the app itself (`ingest...sentry.io` host visible in a prior wave's own documentation, itself non-sensitive by Sentry's own design — a DSN's purpose is to be shipped client-side). A DSN can only **send** events; it cannot **query** them back — a fundamentally different credential class (a read-scoped Sentry API auth token) that does not exist anywhere in this session's reach.
+
+**Conclusion: no remote Sentry query access is available.** Neither the existing event id (`10b520e6ed994f709d6af61461c8ea93`) nor the tag `feature:sentry_staging_verification` could be looked up.
+
+### Phase D — Owner action gate
+
+**Result: `OB006_SENTRY_OWNER_CONFIRMATION_REQUIRED`**, per the charter's own explicit instruction. Stopped here — no Sentry password, API token, or account credential was requested at any point.
+
+**Minimum owner action**: open the Sentry dashboard and search for event id `10b520e6ed994f709d6af61461c8ea93` (or the tag `feature:sentry_staging_verification`). Confirm whether it is visible, with `environment: staging`. That single confirmation is sufficient to close `OB-006` in a future session — no further code, build, or deployment work would be required, per Phase A's own native bar.
+
+### Phase E — Closure
+
+Native criteria (Phase A) not fully satisfied — the "appears in the chosen tool" requirement remains unconfirmed, since no remote access exists to confirm it from this session. **`OB-006` remains `PARTIALLY_REMEDIATED`**, exactly as it entered this wave — not weakened, not overclaimed, now with a direct, exhaustive confirmation (rather than an assumption) that no remote access path exists in this environment.
+
+### Testing
+
+No Flutter/Dart application code changed this wave — entirely read-only code re-verification (`lib/main.dart`, no edits) and environment/credential investigation, plus documentation. Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner actions still required
+
+The Sentry dashboard confirmation above (the sole remaining item for `OB-006`), `DC-010` (Apple Team selection), `AU-009` (accessibility pass), `PC-006` (legal/product determination).
+
+**Overall verdict remains NO-GO** — `OB-006` remains genuinely short of its own native bar; `DC-010`, `AU-009`, `PC-006` remain outstanding, each independently owner/external/legal-gated, unrelated to this wave's scope.
+
+## Consolidated Report — OB-006 Sentry Deployed/Staging Verification
+
+1. **OB-006 native closure criterion**: a test/staging-environment event confirmed to "appear in the chosen tool" (Sentry) — server-side visibility, not merely a local SDK-reported success.
+2. **Sentry integration status**: reconfirmed correct and unchanged — DSN/environment metadata, `beforeSend` scrubbing, `AppErrorReporter` → `Sentry.captureException` wiring, all three crash-capture hooks (`FlutterError`, `PlatformDispatcher`, `runZonedGuarded`) funneling through the same path. No defect found, nothing modified.
+3. **Remote Sentry access status**: confirmed absent — no `sentry-cli`, no auth token/env var, no config file, no related GitHub Actions secret.
+4. **Staging event remote confirmation result**: not obtainable this session — no credential exists to query Sentry's API/dashboard.
+5. **Environment/tag/release result**: not independently re-confirmed this wave (no access) — the existing client-side evidence (event id `10b520e6ed994f709d6af61461c8ea93`, `environment=staging`, `feature:sentry_staging_verification` tag) stands exactly as previously documented, neither strengthened nor weakened.
+6. **Redaction verification result**: re-confirmed via code inspection — `scrubSecretsForSentry`/`_scrubBeforeSend` unchanged and correctly wired; `AppErrorReporter`'s opaque-id-only contract re-confirmed for every call site inspected.
+7. **OB-006 final status**: **`PARTIALLY_REMEDIATED`** — unchanged.
+8. **Owner action required**: open the Sentry dashboard, search for event id `10b520e6ed994f709d6af61461c8ea93` or tag `feature:sentry_staging_verification`, confirm visibility and `environment: staging`.
+9. **Remaining launch blockers**: `OB-006` (owner dashboard confirmation), `DC-010` (Apple Team selection), `AU-009`, `PC-006`.
+10. **Updated overall verdict**: **NO-GO** (unchanged).
+11. **Final commit SHA**: recorded in this wave's own git history (documentation-only commit).
+12. **Local == remote verification**: confirmed at this wave's push.
