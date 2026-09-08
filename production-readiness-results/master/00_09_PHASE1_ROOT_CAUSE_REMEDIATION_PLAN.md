@@ -4049,3 +4049,99 @@ Every other standing owner-gated item is unaffected by this wave: the `BR-001` r
 14. **Updated overall verdict**: **NO-GO** (unchanged) — narrowed further with `RD-009`'s real closure.
 15. **Final commit SHA**: the script-fix commit (`448f0d0b29b6a8aad1cbb2f06168e78117b7b246`) is what the verified artifact was built from; this documentation update is committed and pushed separately (see this wave's git history) — reported exactly to the user in this wave's own return.
 16. **Local == remote verification**: confirmed at each push this wave — see git history.
+
+---
+
+## 48. RD-006 Routine Release Wave (2026-09-08)
+
+Explicitly authorized: close RD-006's own ordinary/routine-release build-number gap, without broadening scope — no store publication, no production DB/secret changes beyond what's strictly necessary, no signing weakened, `W1-001` untouched, Apple Team selection only if RD-006 genuinely required it, `AU-009`/`PC-006`/`OB-006` untouched.
+
+### Phase A — Native RD-006 criteria, read directly from source
+
+`RD_findings.md`'s own RD-006 entry, **Expected behavior**: *"A documented or automated process (CI step, script, or at minimum a written release checklist) that increments the `+N` build number for every store submission, since Flutter maps this directly to Android `versionCode` and iOS `CFBundleVersion`."* This is explicit and unambiguous on scope: **both platforms** (Android `versionCode` **and** iOS `CFBundleVersion` are both named directly), and **every store submission** — not scoped to the emergency path alone.
+
+`RD_remediation_plan.md` R1.3 ("Establish a build-number increment process (closes RD-006)") gives the exact retest: *"simulate two successive builds and confirm the second has a strictly higher `versionCode`/`CFBundleVersion` than the first."* The word "simulate" and the absence of any reference to store submission, signing certificates, or Apple enrollment in this retest confirms the native bar does **not** require a real, store-submittable, Apple-signed iOS artifact — only a verifiably correct, incrementing version number baked into a real build.
+
+**Conclusion**: `RD-006` applies to both Android and iOS, to every future store submission generically (not just emergency releases), and its closure bar is satisfiable without resolving `DC-010` (Apple signing).
+
+### Phase B — Current release path inventory
+
+- `pubspec.yaml`: `version: 1.0.0+2` — static, manually edited only.
+- Android `versionCode`/`versionName` (`android/app/build.gradle.kts`): `versionCode = flutter.versionCode`, `versionName = flutter.versionName` — Flutter's own tooling, sourced from `pubspec.yaml` unless overridden via `--build-number`/`--build-name`.
+- iOS `CFBundleShortVersionString`/`CFBundleVersion` (`ios/Runner/Info.plist`): `$(FLUTTER_BUILD_NAME)`/`$(FLUTTER_BUILD_NUMBER)` — the same underlying Flutter build variables, same override behavior. **Confirms Android and iOS were already structurally unified through one mechanism** — no platform-specific reconciliation needed, only a process to decide what value to feed in.
+- `ci.yml`: `build-android` builds a **debug** artifact only (no release signing, no version significance); `build-ios` runs `flutter build ios --release --no-codesign` as a compile-correctness check only, **never overrides the build number** — always uses pubspec's static value.
+- `emergency-release.yml`: overrides the build number via an explicit, human-supplied `workflow_dispatch` input — proven working (`RD-009`), but explicitly a break-glass mechanism, not a routine process, and its own input description relies on the operator's own diligence rather than automated validation.
+- No script or documented checklist anywhere increments the build number automatically for an ordinary release.
+
+**Could two sequential ordinary releases accidentally reuse the same build number?** Yes, trivially — nothing in the ordinary path increments or validates it; a human forgetting to hand-edit `pubspec.yaml` before a second `flutter build appbundle --release` would produce an identical, store-rejected `versionCode`.
+
+### Phase C — Minimal routine release design
+
+**Build-number strategy**: `100 + github.run_number`, computed inside the new workflow itself. `github.run_number` is a real, GitHub-native, monotonically increasing, per-workflow counter (never reset, never reused, requires no committed counter file, no local machine state, fully reproducible from CI alone) — exactly the "GitHub-native monotonic value" the charter itself suggested. The `100` offset is a deliberate, permanent reserved-range convention: values 1-99 remain the emergency workflow's small, operator-chosen numbers; the routine workflow never generates a value in that range, so the two mechanisms cannot collide by construction, not by luck or convention alone. No committed counter file, no external state store, no unnecessary complexity — satisfying the charter's explicit "do not invent an unnecessarily complex release-management system."
+
+**Build name** (semantic version, `1.0.0`) deliberately left untouched — the workflow never overrides `--build-name`, so it always reflects `pubspec.yaml`'s own value, preserving intentional, human-driven semantic versioning (per Phase E's own requirement) while only the build *number* is automated.
+
+### Phase D — Routine release workflow
+
+New `.github/workflows/routine-release.yml`, `workflow_dispatch`-triggered only (explicit control, never runs automatically), 3 jobs:
+
+1. **`analyze-and-test`**: checkout, `flutter pub get`, computes and exposes `build_number` as a job output, writes a placeholder `.env` for testing, runs the same baseline-aware `dart analyze`/golden-excluded `flutter test` gate as `ci.yml`/`emergency-release.yml`.
+2. **`build-android`** (needs `analyze-and-test`): reconstructs `.env`/keystore/`key.properties` from the **same three existing secrets** `emergency-release.yml` already uses (`EMERGENCY_BUILD_ENV_FILE`, `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_KEY_PROPERTIES`) — no new secret created, satisfying the charter's "do not alter secrets unless strictly necessary"; there is only one real production `.env` and one real release keystore, and both workflows correctly sign with the same identity. Builds a real signed release APK with the computed build number, verifies the real `CN=Niswah` certificate, generates a manifest + checksum via the already-fixed `scripts/generate_release_manifest.sh`, uploads with 90-day retention.
+3. **`build-ios`** (needs `analyze-and-test`, `macos-latest`): reconstructs `.env`, builds `flutter build ios --release --no-codesign` with the computed build number (real Apple signing deliberately not attempted — `DC-010` remains a separate, untouched owner action), **independently verifies the `CFBundleVersion` actually baked into the built `.app`** via `PlistBuddy` before proceeding (a real check, not an assumption that the flag "worked"), generates a manifest + checksum for the `.app` (the same `scripts/generate_release_manifest.sh` code path already used and proven for `.app`/`.ipa` artifacts), uploads with 90-day retention.
+
+No Play Store/App Store publication step exists in any job, by design — matching `emergency-release.yml`'s own established precedent.
+
+### Phase E — Collision / version testing, real not simulated
+
+Two real sequential `workflow_dispatch` runs on live GitHub Actions:
+
+- **Run 1** (`34218712700`, this workflow's `run_number=1`) → computed `build_number=101`. All steps in all 3 jobs `success`. Artifacts: `routine-release-android-...-build101` (33,688,740 bytes), `routine-release-ios-...-build101` (11,890,501 bytes), both retained 90 days (`expires_at: 2026-12-07T11:03:58Z`), `expired: false`.
+- **Run 2** (`34220261565`, `run_number=2`) → computed `build_number=102`. All steps in all 3 jobs `success`. Artifacts: `routine-release-android-...-build102` (33,688,727 bytes), `routine-release-ios-...-build102` (11,890,506 bytes), both retained 90 days (`expires_at: 2026-12-07T11:21:32Z`), `expired: false`.
+
+**`102 > 101`**, confirmed directly from both artifacts' own names/manifests, not inferred. **`101 > 5`** — `5` being the highest value from any prior mechanism this engagement has used (pubspec `2`, a local drill `3`, a failed emergency attempt `4`, the verified emergency release `5`) — confirmed by construction (the `100` offset guarantees this for any `run_number ≥ 1`) and directly observed.
+
+**Independent re-verification of run 2's artifacts** (downloaded fresh, not trusted from the workflow's own log):
+- Android: `shasum -a 256` recomputed independently; `apksigner verify --print-certs` confirmed `CN=Niswah, OU=Mobile, O=Niswah, L=Unknown, ST=Unknown, C=US`, SHA-256 `6d888f0166f7897098fbdd3229ca7c441ec80428741ac0592e5504ab51726ecd` — **identical to every prior confirmed instance across the entire engagement**, proving the same real production key was used, never weakened or substituted. `aapt dump badging`: `package: name='com.niswah.niswah' versionCode='102' versionName='1.0.0'`.
+- iOS: `PlistBuddy -c "Print :CFBundleVersion"` → `102` (matching Android exactly); `CFBundleShortVersionString` → `1.0.0`; `CFBundleIdentifier` → `com.niswah.niswah`. `codesign -dvvv` → `"code object is not signed at all"` — honestly, correctly unsigned; `DC-010` genuinely not touched, not weakened, not fabricated as signed.
+
+Local downloaded copies deleted after verification.
+
+### Phase F — Remote CI verification
+
+Both runs pushed normally (`git push origin HEAD:main`, no force-push), triggered via the same authenticated Management-style GitHub REST API pattern established throughout this engagement (`POST .../workflows/routine-release.yml/dispatches`). Both completed `success` with every real step passing, evidenced above. No store publication occurred in either run — re-confirmed by re-reading the committed workflow file, which contains no such step in any job.
+
+### Phase G — RD-006 reassessment
+
+Native criteria (Phase A) fully satisfied: an automated CI process now increments the build number for every future routine release, for both Android and iOS, requiring no human memory step, proven twice on real infrastructure with independently-verified evidence at every layer. **`RD-006` = `VERIFIED_CLOSED`.**
+
+**`DC-010` reassessed, not misclassified**: RD-006's own native bar never required real Apple signing — confirmed directly from its retest text ("simulate," no mention of store submission or signing). This wave built a genuine, correctly-labeled unsigned iOS artifact and did not attempt, simulate, or fabricate Apple Team selection/signing. `DC-010` remains **independently open**, entirely unaffected by this wave, exactly as before.
+
+### Testing
+
+No Flutter/Dart application code changed this wave — one new CI workflow file plus documentation. Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner actions still required
+
+Unaffected by this wave: `DC-010` (Apple Developer Team selection, iOS real signing), `AU-009` (accessibility pass), `PC-006` (legal/product determination), `OB-006` (deployed-build Sentry event), the standing `BR-001` restored-project deletion (`niswah-br001-restore-drill`/`rpopudibfpoefejyarhe`).
+
+**Overall verdict remains NO-GO** — `RD-006`'s closure removes another long-tracked, real finding with genuine, twice-proven, independently-verified evidence, leaving `DC-010`, `AU-009`, `PC-006`, `OB-006`, and the pending `BR-001` restored-project deletion as the only remaining items, each independently owner/external/platform/legal-gated.
+
+## Consolidated Report — RD-006 Routine Release
+
+1. **RD-006 native closure criterion**: a documented/automated process incrementing the build number for every store submission, covering both Android `versionCode` and iOS `CFBundleVersion`; retestable via two successive builds with a strictly higher value — does not require real Apple signing.
+2. **Previous routine release behavior**: `pubspec.yaml`'s static `1.0.0+2` was the sole source for both platforms; nothing in ordinary CI overrode it; two ordinary releases would have trivially collided.
+3. **Implemented build-number strategy**: `100 + github.run_number` inside a new manually-triggered `routine-release.yml` — monotonic, collision-proof by construction against the emergency workflow's reserved 1-99 range, requires no committed state or local machine dependency.
+4. **Android mapping**: `versionCode` set via `flutter build apk --build-number=<N>`; independently confirmed via `aapt dump badging`.
+5. **iOS mapping**: `CFBundleVersion` set via `flutter build ios --build-number=<N>`, independently confirmed both by an in-workflow `PlistBuddy` check and this session's own post-hoc `PlistBuddy` read of the downloaded `.app` — identical value to Android's, correctly unified.
+6. **Two sequential build-number results**: run 1 → `101`; run 2 → `102`. `102 > 101 > 5` (the highest prior known value from any mechanism), confirmed directly, not simulated.
+7. **Collision-prevention result**: proven by construction (reserved numeric ranges) and directly observed across two real runs with zero overlap with any prior value.
+8. **Remote routine-release workflow result**: both runs `completed`/`success`, all steps in all 3 jobs passed.
+9. **Signed Android artifact result**: real signed APK, real `CN=Niswah` certificate (identical digest to every prior instance), correct package ID, correct incrementing `versionCode`.
+10. **iOS artifact result**: real, correctly-unsigned release `.app`, correct `CFBundleVersion`/`CFBundleShortVersionString`/`CFBundleIdentifier`; `DC-010` untouched.
+11. **Checksum/retention result**: both artifacts' checksums generated and independently re-verified; both retained 90 days, `expired: false`.
+12. **RD-006 final status**: **`VERIFIED_CLOSED`**.
+13. **DC-010 status**: independently, correctly still **open** — not required by RD-006's native bar, not touched this wave.
+14. **Remaining launch blockers**: `DC-010`, `AU-009`, `PC-006`, `OB-006`, the pending `BR-001` restored-project deletion.
+15. **Updated overall verdict**: **NO-GO** (unchanged) — narrowed further with `RD-006`'s real closure.
+16. **Final commit SHA**: recorded in this wave's own git history (documentation commit, pushed after the workflow-file commit).
+17. **Local == remote verification**: confirmed at each push this wave.
