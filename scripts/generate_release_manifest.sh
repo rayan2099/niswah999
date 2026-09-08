@@ -63,12 +63,36 @@ fi
 CERT_CN=""
 CERT_SHA256=""
 if [ "$ARTIFACT_TYPE" = "apk" ]; then
-  APKSIGNER="$(find "$HOME/Library/Android/sdk/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1)"
-  JBR_HOME="$(find /Applications -maxdepth 4 -iname jbr -type d 2>/dev/null | head -1)"
-  if [ -n "$APKSIGNER" ] && [ -n "$JBR_HOME" ]; then
-    VERIFY_OUT="$(JAVA_HOME="$JBR_HOME/Contents/Home" "$APKSIGNER" verify --print-certs "$ARTIFACT_PATH" 2>/dev/null || true)"
-    CERT_CN="$(echo "$VERIFY_OUT" | grep 'certificate DN' | head -1 | sed -E 's/.*DN: (.*)/\1/')"
-    CERT_SHA256="$(echo "$VERIFY_OUT" | grep 'SHA-256 digest' | head -1 | awk '{print $NF}')"
+  # apksigner location: prefer $ANDROID_HOME (set on both CI and most local
+  # setups) and fall back to the default macOS local-dev SDK path. Every
+  # `find` here is guarded with `|| true` so a missing search root (e.g.
+  # /Applications not existing on the Linux CI runner) can't trip `set -e`
+  # and kill the script silently before it writes anything — the exact bug
+  # this guard fixes, found via a real GitHub Actions run (RD-009).
+  APKSIGNER=""
+  for SDK_ROOT in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Library/Android/sdk"; do
+    if [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/build-tools" ]; then
+      APKSIGNER="$(find "$SDK_ROOT/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1 || true)"
+      [ -n "$APKSIGNER" ] && break
+    fi
+  done
+
+  # A JetBrains Runtime (JBR) override is only needed on macOS local dev,
+  # where apksigner's own shebang may not resolve a usable JAVA_HOME. On
+  # Linux CI, JAVA_HOME is already set globally by actions/setup-java —
+  # use it as-is rather than searching a directory that doesn't exist there.
+  APKSIGNER_JAVA_HOME="${JAVA_HOME:-}"
+  if [ "$(uname -s)" = "Darwin" ] && [ -d "/Applications" ]; then
+    JBR_HOME="$(find /Applications -maxdepth 4 -iname jbr -type d 2>/dev/null | head -1 || true)"
+    [ -n "$JBR_HOME" ] && APKSIGNER_JAVA_HOME="$JBR_HOME/Contents/Home"
+  fi
+
+  if [ -n "$APKSIGNER" ] && [ -n "$APKSIGNER_JAVA_HOME" ]; then
+    VERIFY_OUT="$(JAVA_HOME="$APKSIGNER_JAVA_HOME" "$APKSIGNER" verify --print-certs "$ARTIFACT_PATH" 2>/dev/null || true)"
+    # `grep` with no match exits non-zero; under pipefail that would kill the
+    # script on an unexpected/empty apksigner output — fall back to "" instead.
+    CERT_CN="$(echo "$VERIFY_OUT" | grep 'certificate DN' | head -1 | sed -E 's/.*DN: (.*)/\1/' || true)"
+    CERT_SHA256="$(echo "$VERIFY_OUT" | grep 'SHA-256 digest' | head -1 | awk '{print $NF}' || true)"
   fi
 elif [ "$ARTIFACT_TYPE" = "app" ] || [ "$ARTIFACT_TYPE" = "ipa" ]; then
   # codesign -dvvv reports "not signed at all" for a --no-codesign build,
