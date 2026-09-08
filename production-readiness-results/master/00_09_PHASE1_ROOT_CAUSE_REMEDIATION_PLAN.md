@@ -3964,3 +3964,88 @@ No Flutter/Dart application code changed this wave — entirely live production-
 Delete the temporary restored project (`niswah-br001-restore-drill`, ref `rpopudibfpoefejyarhe`) once no longer needed — it currently holds a full clone of real production user data and should not persist indefinitely as a second live copy. Every other standing owner-gated item is unaffected by this wave: the emergency workflow's 3 CI secrets, `DC-010`, `AU-009`, `PC-006`.
 
 **Overall verdict remains NO-GO** — `BR-001` is now `VERIFIED_CLOSED`, a genuine, hard-won, fully-evidenced closure of the engagement's original BR0-critical finding — but `DC-010`, `AU-009`, `PC-006`, the emergency workflow's CI secrets, and the pending restored-project deletion remain outstanding.
+
+---
+
+## 47. RD-009 Emergency Release Verification Wave (2026-09-08)
+
+Explicitly authorized: complete RD-009's real emergency artifact-production verification without weakening release signing, using GitHub Actions secrets the owner would configure directly (never pasted into chat).
+
+### Phase A — Secret requirements (`.github/workflows/emergency-release.yml`)
+
+| Secret | Consumed as | Written to | Notes |
+|---|---|---|---|
+| `EMERGENCY_BUILD_ENV_FILE` | `ENV_FILE_CONTENTS` | `.env` (via `printf '%s'`) | Multiline supported |
+| `ANDROID_RELEASE_KEYSTORE_BASE64` | `KEYSTORE_BASE64` | `android/app/niswah-release.jks` (via `base64 --decode`) | GNU `base64` on `ubuntu-latest` tolerates wrapped or unwrapped input |
+| `ANDROID_KEY_PROPERTIES` | `KEY_PROPERTIES_CONTENTS` | `android/key.properties` (via `printf '%s'`) | Multiline supported |
+
+No redundancy between the three — distinct, necessary content each. Cross-checked `android/app/build.gradle.kts`: `keystorePropertiesFile = rootProject.file("key.properties")` reads exactly where the workflow writes it, and `storeFile=niswah-release.jks` in `key.properties` resolves relative to `android/app/`, matching the workflow's keystore write path — no mismatch.
+
+### Phase B — Local source discovery
+
+All three secret sources confirmed present locally, gitignored, values never printed: `android/app/niswah-release.jks` (2760 bytes, `git check-ignore` confirmed), `android/key.properties` (4 expected keys present by name only), `.env` (4 expected keys present by name only). Result: `RD009_GITHUB_SECRET_CONFIGURATION_READY` — a safe `gh secret set NAME < file` procedure (values piped directly from local gitignored files, never echoed) was handed to the owner rather than executed by this session, consistent with treating injection of production signing/credential material into a new environment as an owner action.
+
+**The owner configured all three secrets.** Verified via the GitHub API (`GET /repos/.../actions/secrets`, names only): all three present, `total_count: 3`, matching exactly.
+
+### Phase C — Trigger
+
+`POST /repos/.../actions/workflows/emergency-release.yml/dispatches` — `ref=main`, `git_ref=<HEAD SHA>`, `build_number=4`, `app_env=staging` (deliberately non-production-tagged; the workflow has no Play Store/App Store publish step at all, by design — confirmed by re-reading the file). `HTTP 204`.
+
+### Phase D — First real run: `34214731608` — FAILED, root cause found and fixed
+
+Step-by-step job results: checkout ✅, `subosito/flutter-action`/`setup-java` ✅, `flutter pub get` ✅, placeholder `.env` ✅, `dart analyze`/`flutter test` ✅, **`.env` from CI secret ✅, keystore+`key.properties` from CI secrets ✅** (both real secret-reconstruction steps working correctly, for the first time on real CI), **signed release build ✅** (`✓ Built build/app/outputs/flutter-apk/app-release.apk (73.3MB)`), **signing verification ✅** (`V2 Signer: certificate DN: CN=Niswah, OU=Mobile, O=Niswah, L=Unknown, ST=Unknown, C=US`), then **"Compute checksum and generate manifest" ❌** — `Process completed with exit code 1`, zero output from the script itself.
+
+**Root cause, found by reading `scripts/generate_release_manifest.sh` directly**: `APKSIGNER="$(find "$HOME/Library/Android/sdk/build-tools" ...)"` and `JBR_HOME="$(find /Applications ...)"` are both macOS-only paths. On `ubuntu-latest`, `/Applications` doesn't exist; `find` against a nonexistent path exits non-zero even with `2>/dev/null` suppressing its message; under `set -euo pipefail`, that non-zero pipeline status assigned to `JBR_HOME=$(...)` kills the script immediately — before any `echo`, matching the observed zero-output failure exactly. This is a genuine, newly-discovered CI-portability defect (the workflow's own header comment already noted it "has never executed against real Actions infrastructure" — this exact code path had never run on Linux before this attempt).
+
+**Fixed**: `APKSIGNER` lookup now tries `$ANDROID_HOME`/`$ANDROID_SDK_ROOT` first (set on CI) before falling back to the macOS local-dev path; the JBR override search only runs on Darwin (`uname -s = Darwin`) and reuses the CI's own ambient `$JAVA_HOME` otherwise; every `find`/`grep` that can legitimately produce no match now ends in `|| true` (a second, independent latent bug was found and fixed the same way during local testing: the `CERT_CN`/`CERT_SHA256` `grep` pipelines would also die under `pipefail` if `apksigner verify` ever produced no matching output line — didn't trigger in the real CI failure, since that death happened earlier at the `JBR_HOME` line, but found via a local synthetic-artifact test and fixed pre-emptively).
+
+**Verified locally before pushing** (avoiding a second blind CI cycle): (1) an isolated test proved the `|| true` guard prevents `set -e` from killing the script on a genuinely nonexistent directory; (2) the full script was run end-to-end against a synthetic 10KB garbage "apk" — completed with exit 0, wrote a syntactically valid manifest, correctly left `certificate_cn`/`certificate_sha256` empty (honest behavior for genuinely unsigned input, not a false claim). Committed (`448f0d0b...`) and pushed to `origin/main`.
+
+### Phase D (continued) — Second real run: `34216345677` — SUCCESS
+
+Re-triggered on the fixed commit, `build_number=5` (strictly greater than the failed attempt's `4`, which was never uploaded since it failed first). **All 14 real steps completed `success`**, including the now-fixed checksum/manifest step and the artifact upload step. Total run time from dispatch to completion: ~14 minutes (`10:36:27Z` → `10:50:39Z`), consistent with the first run's timing up to the point it failed.
+
+### Phase E — Artifact validation (independently re-verified, not trusted from the workflow's own output)
+
+- **Downloaded the artifact directly** (`GET /repos/.../actions/artifacts/10052388181/zip`) and re-computed its own SHA-256: `b1371f6cd275e2c45532ed83c126c0591382ec00fbaa0e50ef19a9f394b90822` — **exact match** to GitHub's own reported upload digest (`SHA256 digest of uploaded artifact zip is b1371f6c...` in the run log).
+- **Independently re-computed the APK's own SHA-256** (not the zip's): `47d66c9f1949876481288ee66fff9c45683655ff62a0aae659b09b80b7716b99` — **exact match** to the value `scripts/generate_release_manifest.sh` wrote into the manifest.
+- **Independently re-ran `apksigner verify --print-certs`** locally against the downloaded APK: `Signer #1 certificate DN: CN=Niswah, OU=Mobile, O=Niswah, L=Unknown, ST=Unknown, C=US`, SHA-256 digest `6d888f0166f7897098fbdd3229ca7c441ec80428741ac0592e5504ab51726ecd` — **identical to both this run's own signing-verification step and the first (failed) run's** — confirms the same real production signing key was used consistently, never weakened or substituted for a debug/ad hoc one.
+- **Independently ran `aapt dump badging`** locally: `package: name='com.niswah.niswah' versionCode='5' versionName='1.0.0'` — correct application ID; `versionCode=5` strictly greater than every prior known value (pubspec's `+2` baseline, an earlier local drill's `3`, and this same wave's own failed-attempt `4`).
+- **Retention** confirmed via the artifact's own API metadata: `created_at: 2026-09-08T10:50:15Z`, `expires_at: 2026-12-07T10:36:28Z` — exactly 90 days apart, matching the workflow's configured `retention-days: 90` exactly; `expired: false`.
+- **No Play Store/App Store publication occurred** — reconfirmed by re-reading the workflow file: no such step exists anywhere in it, by design.
+- Local downloaded copies of the artifact/manifest were deleted after verification (`rm -rf /tmp/rd009_artifact`) — no real signed APK or its manifest left lying around outside GitHub's own retained copy.
+
+### Phase F — Reassessment
+
+**`RD-009` = `VERIFIED_CLOSED`.** A real signed emergency artifact was produced on live GitHub Actions infrastructure, independently verified at every layer (checksum, signature, package ID, version, retention) rather than trusted from the workflow's self-report, with no release signing weakened at any point.
+
+**`RD-006` reassessed separately, per explicit instruction not to auto-close it.** This wave's evidence further proves the `--build-number` override mechanism works end-to-end on real CI (twice, strictly incrementing both times: `4` then `5`) — but `RD-006`'s own native bar, read directly from `RD_findings.md`, is broader: "a documented **or** automated process... that increments the `+N` build number for **every store submission**." The emergency workflow is an explicit break-glass mechanism, not the (still nonexistent) ordinary/routine release pipeline — no process exists yet for a normal release, and the emergency workflow's `build_number` input is still human-supplied, with nothing automatically validating it against a real last-uploaded Play Store value (nothing has ever actually been uploaded there). **`RD-006` remains `PARTIALLY_REMEDIATED`** — genuinely strengthened by this wave's evidence, but not automatically inherited as closed from `RD-009`'s separate, narrower closure.
+
+### Testing
+
+Only `scripts/generate_release_manifest.sh` changed this wave — a CI-portability bug fix, verified locally (both the isolated guard-pattern test and a full synthetic-artifact run) before pushing, then independently proven correct on real CI infrastructure via the second successful run and this session's own re-verification of its output. No other Flutter/Dart application code changed. Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner actions still required
+
+Every other standing owner-gated item is unaffected by this wave: the `BR-001` restored-project deletion (`niswah-br001-restore-drill`/`rpopudibfpoefejyarhe`), `DC-010`, `AU-009`, `PC-006`. `RD-006`'s remaining gap (a documented/automated build-number process for ordinary, non-emergency releases) is a real engineering gap, not owner-gated, but out of this wave's explicit scope.
+
+**Overall verdict remains NO-GO** — `RD-009`'s closure removes another major, long-tracked finding with real, exhaustive, independently-verified evidence, but `RD-006`, `DC-010`, `AU-009`, `PC-006`, and the pending `BR-001` restored-project deletion remain outstanding.
+
+## Consolidated Report — RD-009 Emergency Release Verification
+
+1. **Secret-name verification**: all 3 confirmed present via the GitHub API (`EMERGENCY_BUILD_ENV_FILE`, `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_KEY_PROPERTIES`), values never requested or seen.
+2. **Workflow run ID**: `34216345677` (successful run; first attempt `34214731608` failed and led to a real bug fix, documented above).
+3. **Workflow result**: `completed` / `success` — all 14 real steps passed.
+4. **Signed artifact result**: real signed release APK produced, `73.3MB`, artifact `emergency-release-448f0d0b29b6a8aad1cbb2f06168e78117b7b246-build5` (33,688,746 bytes zipped), Artifact ID `10052388181`.
+5. **Signing verification**: real `CN=Niswah, OU=Mobile, O=Niswah` certificate, SHA-256 `6d888f0166f7897098fbdd3229ca7c441ec80428741ac0592e5504ab51726ecd`, independently re-confirmed locally against the downloaded artifact.
+6. **Package/application ID**: `com.niswah.niswah`, independently confirmed via `aapt dump badging`.
+7. **versionCode**: `5`, independently confirmed via `aapt dump badging`; strictly greater than every prior known value.
+8. **SHA-256 checksum result**: APK checksum `47d66c9f1949876481288ee66fff9c45683655ff62a0aae659b09b80b7716b99`, independently recomputed and matched to the manifest; artifact-zip checksum `b1371f6cd275e2c45532ed83c126c0591382ec00fbaa0e50ef19a9f394b90822`, independently recomputed and matched to GitHub's own reported digest.
+9. **Artifact upload result**: succeeded, confirmed via both the run log and a direct API fetch/download.
+10. **Artifact retention result**: 90 days, confirmed via API metadata (`created_at`/`expires_at` exactly 90 days apart), matching the workflow's configured policy; `expired: false`.
+11. **RD-009 final status**: **`VERIFIED_CLOSED`**.
+12. **RD-006 final status**: **`PARTIALLY_REMEDIATED`** — not auto-closed; its broader "every store submission" bar remains unmet.
+13. **Remaining launch blockers**: `RD-006` (ordinary-release build-number process), `DC-010`, `AU-009`, `PC-006`, the emergency workflow's now-resolved secrets no longer block anything, the pending `BR-001` restored-project deletion.
+14. **Updated overall verdict**: **NO-GO** (unchanged) — narrowed further with `RD-009`'s real closure.
+15. **Final commit SHA**: the script-fix commit (`448f0d0b29b6a8aad1cbb2f06168e78117b7b246`) is what the verified artifact was built from; this documentation update is committed and pushed separately (see this wave's git history) — reported exactly to the user in this wave's own return.
+16. **Local == remote verification**: confirmed at each push this wave — see git history.
