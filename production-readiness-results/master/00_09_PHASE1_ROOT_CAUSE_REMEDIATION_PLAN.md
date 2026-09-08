@@ -3842,3 +3842,42 @@ Unchanged by this wave except for the removal of `W1-001` itself from the list: 
 16. **Updated overall verdict**: **NO-GO** (unchanged) — narrowed: `W1-001` and its 3 dependent findings closed; the remaining blockers are unrelated to this wave's scope.
 17. **Final commit SHA**: recorded in Phase J below.
 18. **Local == remote verification**: recorded in Phase J below.
+
+---
+
+## 45. BR-001 Restore Drill — Phase A Mechanism Determination (2026-09-08)
+
+Explicitly authorized: a controlled restore drill using a separate, isolated target only — not production. Hard rules honored: no restore over production, no production data/schema/credential/backup-config modification, no `pg_dump`/`supabase db dump`, no force/reset against production, no migration-ledger changes, no unrelated deployments.
+
+### Phase A — Determine supported restore path
+
+Investigated directly against the Supabase Management API's own OpenAPI spec (`GET https://api.supabase.com/api/v1-json`, 338KB, live-fetched this wave) rather than assumed from prior documentation's generic phrasing ("restore to a new project, a paid resource"):
+
+- **`POST /v1/projects/{ref}/database/backups/restore`** — request schema (`V1RestoreBackupBody`) takes only `{id: integer}` (the backup ID). **No target-project field exists.** This endpoint restores the named backup **in place, onto `{ref}` itself** — calling it with `ref = jkmjobvxfrmuwafczvtw` would restore over production, explicitly forbidden.
+- **`POST /v1/projects/{ref}/database/backups/restore-pitr`** — same in-place-only shape.
+- **`POST /v1/projects/{ref}/restore`** — investigated and found **unrelated to backup restoration entirely**: a live `GET` call returned `{"message":"This project is not in a paused state."}`, confirming this endpoint un-pauses a paused free-tier project, not a backup-restore mechanism.
+- **`POST /v1/projects`** (create project) — request schema (`V1CreateProjectBody`) has no field referencing an existing backup, snapshot, or source project. It only creates an empty project.
+- **Conclusion: no Management-API-drivable "restore this specific backup into a new/isolated project" endpoint exists anywhere in the current API surface.**
+
+**Org entitlements** (`GET /v1/organizations/aoimfdtlagrbqwrkvkgl/entitlements`) show `"backup.restore_to_new_project": {"hasAccess": true}` — the org's Pro plan **is** licensed for this feature — but it is a **Supabase Dashboard/Studio-only** UI action (Database → Backups → select backup → "Restore to new project"). No corresponding Management API endpoint exists for it; this session's stored CLI/API token cannot drive it, regardless of entitlement.
+
+**The one genuinely API-drivable isolated-environment mechanism**: Database Branching (`POST /v1/projects/{ref}/branches`, `CreateBranchBody` schema confirmed to support `with_data: true` — clones production data into an isolated branch database). Org entitlements confirm `branching_persistent: true`, `branching_limit: 50` — branching itself is available. However, `GET /v1/projects/{ref}/billing/addons` confirms branch compute requires a **billed compute-instance addon** (`ci_micro`: $0.01344/hour, usage-billed) — a real, if small, recurring cost requiring an owner billing decision, consistent with every other billing-adjacent action gated to the owner throughout this engagement (Pro-tier backup upgrade, PITR, Apple Developer enrollment).
+
+**Neither real path is executable under this wave's existing authorization**: Path A requires interactive human Dashboard access this session does not have; Path B requires provisioning a billed resource this session has never been authorized to purchase.
+
+### Result
+
+**`BR001_RESTORE_RESOURCE_OWNER_ACTION_REQUIRED`** — stopping per the charter's own explicit instruction. No restore target was created, no billed resource was provisioned, no production object was touched. `BR-001` remains exactly `PARTIALLY_REMEDIATED`, unchanged — this wave narrowed the *ambiguity* of what remains (from a generic "a paid resource" description to two precisely identified, real paths with exact owner actions named) without performing the drill itself.
+
+### Testing
+
+No Flutter/Dart application code changed. No production database/Edge Function change made. Entirely read-only Management API investigation (OpenAPI spec fetch, entitlements, billing-addon catalog, backups list re-check, branches list re-check — all `GET`). Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner action required (exact, per Phase A's own return format)
+
+1. **Exact resource required**: either (A) no new resource — a human-driven Supabase Dashboard action (Database → Backups → select the latest `COMPLETED` backup, e.g. `2026-09-07T16:24:18.189Z` → "Restore to new project"), or (B) a temporary Database Branch (`with_data: true`) backed by a billed compute-instance addon (smallest tier: `ci_micro`, $0.01344/hour).
+2. **Expected scope**: an isolated Postgres environment containing a clone of production data as of the restore/branch-creation time, reachable only via its own connection string — never connected to production traffic, never exposed publicly.
+3. **Whether temporary**: yes, in both cases — the Dashboard-restored project should be destroyed after the 14-point behavioral suite runs; the branch (if path B) should be deleted (`DELETE /v1/projects/{ref}/branches/{name}`) immediately after verification, stopping the billed compute.
+4. **Exact owner action**: for path A — perform the Dashboard restore-to-new-project action directly (cannot be delegated to this session); for path B — explicitly authorize provisioning a temporary billed micro compute branch (e.g., "I authorize creating a temporary micro compute branch for the BR-001 restore drill, to be destroyed immediately after verification"), after which this session can execute Phases B-J of the original charter against that branch via the API.
+
+**Overall verdict remains NO-GO**, unchanged. `BR-001` remains `PARTIALLY_REMEDIATED` — its remaining gap is now precisely scoped rather than generically described, but not closed. No other finding touched by this wave.
