@@ -16,6 +16,7 @@ import {
   decodeLegacyNote,
   decodeSymptomSeverities,
   formatContextBlock,
+  mergeNotesSources,
   type UserAiContext,
 } from './ai_user_context.ts';
 
@@ -44,6 +45,39 @@ Deno.test('decodeLegacyNote — finds a notes: entry', () => {
 Deno.test('decodeLegacyNote — returns null when absent', () => {
   assertEquals(decodeLegacyNote(['mood:4', 'Cramps:2']), null);
   assertEquals(decodeLegacyNote(null), null);
+});
+
+Deno.test('mergeNotesSources — AICTX-13: combines cycle and wellbeing notes, newest first', () => {
+  const cycleNotes = [
+    { date: '2026-09-05', text: 'cramps started', source: 'cycle_entries' as const },
+  ];
+  const wellbeingNotes = [
+    { date: '2026-09-08', text: 'felt anxious, prayed anyway', source: 'wellbeing_logs' as const },
+  ];
+  const merged = mergeNotesSources(cycleNotes, wellbeingNotes, 5);
+  assertEquals(merged, [
+    { date: '2026-09-08', text: 'felt anxious, prayed anyway', source: 'wellbeing_logs' },
+    { date: '2026-09-05', text: 'cramps started', source: 'cycle_entries' },
+  ]);
+});
+
+Deno.test('mergeNotesSources — respects the limit across both sources combined', () => {
+  const cycleNotes = [
+    { date: '2026-09-01', text: 'a', source: 'cycle_entries' as const },
+    { date: '2026-09-02', text: 'b', source: 'cycle_entries' as const },
+  ];
+  const wellbeingNotes = [
+    { date: '2026-09-03', text: 'c', source: 'wellbeing_logs' as const },
+  ];
+  const merged = mergeNotesSources(cycleNotes, wellbeingNotes, 2);
+  assertEquals(merged.length, 2);
+  assertEquals(merged[0].date, '2026-09-03');
+  assertEquals(merged[1].date, '2026-09-02');
+});
+
+Deno.test('mergeNotesSources — handles empty wellbeing notes (cycle-only, matches old behavior)', () => {
+  const cycleNotes = [{ date: '2026-09-01', text: 'a', source: 'cycle_entries' as const }];
+  assertEquals(mergeNotesSources(cycleNotes, [], 5), cycleNotes);
 });
 
 function baseContext(overrides: Partial<UserAiContext> = {}): UserAiContext {

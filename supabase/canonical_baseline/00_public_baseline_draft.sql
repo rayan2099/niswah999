@@ -627,6 +627,14 @@ CREATE TABLE "public"."users" (
 ALTER TABLE "public"."users" OWNER TO "postgres";
 
 
+-- AICTX-13 (2026-09-09): the "notes" column below is a deliberate
+-- amendment to this file, not part of the literal 2026-09-04 capture —
+-- production itself lacked it until the wellbeing_logs_notes migration
+-- (supabase/migrations/20260909100000_wellbeing_logs_notes.sql) was
+-- applied. Added here too so a brand-new fresh rebuild starts with the
+-- column already present in the initial CREATE TABLE, matching intended
+-- product design rather than reproducing a known, now-fixed production
+-- gap. See that migration's own header comment for the full history.
 CREATE TABLE "public"."wellbeing_logs" (
     "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -636,6 +644,7 @@ CREATE TABLE "public"."wellbeing_logs" (
     "sleep" integer NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "notes" "text",
     CONSTRAINT "wellbeing_logs_energy_check" CHECK ((("energy" >= 1) AND ("energy" <= 5))),
     CONSTRAINT "wellbeing_logs_mood_check" CHECK ((("mood" >= 1) AND ("mood" <= 5))),
     CONSTRAINT "wellbeing_logs_sleep_check" CHECK ((("sleep" >= 1) AND ("sleep" <= 5)))

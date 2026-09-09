@@ -122,21 +122,20 @@ interface CycleEntryRow {
   notes: string | null;
 }
 
-// NOTE (found live during this wave's Phase L synthetic verification, not
-// assumed): the production `wellbeing_logs` table has NO `notes` column —
-// confirmed via a direct schema query (`column wellbeing_logs.notes does
-// not exist`, error 42703) — even though the Dart entity/repository
-// (WellbeingLog, WellbeingRepository.upsertToday) both read/write a
-// `notes` field, meaning every real wellbeing check-in write that
-// includes a note currently fails against production. This is a real,
-// separately-scoped, pre-existing defect this wave discovered but does
-// not fix (out of AICTX scope — see AICTX-13 in the findings doc). This
-// module therefore does not select `notes` from wellbeing_logs at all.
+// AICTX-13, resolved 2026-09-09: production `wellbeing_logs` was missing
+// its `notes` column (a migration for it was authored 2026-08-27 but
+// never applied — see supabase/migrations/20260909100000_wellbeing_logs_notes.sql
+// for the full history), discovered live during this wave's Phase L
+// synthetic verification, at the time worked around by not selecting
+// `notes` from this table at all. Now that the column exists in
+// production (and in the canonical baseline), this module selects and
+// surfaces it like any other real field.
 interface WellbeingLogRow {
   log_date: string;
   mood: number;
   energy: number;
   sleep: number;
+  notes: string | null;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -189,6 +188,23 @@ export function decodeLegacyNote(raw: string[] | null): string | null {
   return null;
 }
 
+type DatedNote = { date: string; text: string; source: 'cycle_entries' | 'wellbeing_logs' };
+
+// AICTX-13: merges notes from both real sources (cycle_entries, now
+// wellbeing_logs too — see WellbeingLogRow's comment) into one
+// date-descending, limit-bounded list. Extracted as its own pure function
+// so this merge behavior is directly unit-testable, not just exercised
+// indirectly through buildUserAiContext's DB calls.
+export function mergeNotesSources(
+  cycleNotes: DatedNote[],
+  wellbeingNotes: DatedNote[],
+  limit: number,
+): DatedNote[] {
+  return [...cycleNotes, ...wellbeingNotes]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, limit);
+}
+
 /**
  * Fetches and assembles the full canonical context for the authenticated
  * user (identity taken from `userClient`'s own JWT via RLS — never from a
@@ -232,8 +248,7 @@ export async function buildUserAiContext(
       .limit(200),
     userClient
       .from('wellbeing_logs')
-      // No `notes` column in production — see WellbeingLogRow's comment.
-      .select('log_date, mood, energy, sleep')
+      .select('log_date, mood, energy, sleep, notes')
       .order('log_date', { ascending: false })
       .limit(wellbeingLimit),
   ]);
@@ -287,13 +302,15 @@ export async function buildUserAiContext(
       source: 'cycle_entries' as const,
     }));
 
-  // wellbeing_logs has no notes column in production today (see
-  // WellbeingLogRow's comment) — cycle_entries is the only real notes
-  // source right now, so combinedNotes is just cycleNotes, kept as its
-  // own step so re-adding a second source later is a one-line change.
-  const combinedNotes = [...cycleNotes]
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, notesLimit);
+  const wellbeingNotes = wellbeingLogs
+    .filter((log) => log.notes && log.notes.trim())
+    .map((log) => ({
+      date: log.log_date,
+      text: log.notes!.trim(),
+      source: 'wellbeing_logs' as const,
+    }));
+
+  const combinedNotes = mergeNotesSources(cycleNotes, wellbeingNotes, notesLimit);
 
   return {
     contextVersion: '1',
@@ -322,7 +339,7 @@ export async function buildUserAiContext(
         mood: log.mood,
         energy: log.energy,
         sleep: log.sleep,
-        notes: null, // no notes column exists on wellbeing_logs in production
+        notes: log.notes && log.notes.trim() ? log.notes.trim() : null,
       })),
       source: 'wellbeing_logs_table',
     },

@@ -33,6 +33,15 @@ WITH required_tables(name) AS (
     ('secret_vault'),             -- live-only, undocumented-in-migrations (schema.sql calls it secret_vault_entries)
     ('chat_history')              -- live-only, undocumented-in-migrations
 ),
+required_columns(table_name, column_name) AS (
+  VALUES
+    -- AICTX-13: this exact column was authored (2026-08-27), never applied
+    -- to production, and silently broke every wellbeing check-in until
+    -- 2026-09-09 with zero schema-contract coverage catching it. Listed
+    -- explicitly so a future fresh rebuild (or a future column drift of
+    -- the same kind) fails this contract loudly instead of silently.
+    ('wellbeing_logs', 'notes')
+),
 required_functions(name) AS (
   VALUES
     ('create_user_profile'),      -- populates public.users on signup
@@ -55,6 +64,11 @@ SELECT 'TABLE' AS object_type, rt.name, CASE WHEN t.table_name IS NULL THEN 'FAI
 FROM required_tables rt
 LEFT JOIN information_schema.tables t
   ON t.table_schema = 'public' AND t.table_name = rt.name
+UNION ALL
+SELECT 'COLUMN', rc.table_name || '.' || rc.column_name, CASE WHEN c.column_name IS NULL THEN 'FAIL - MISSING' ELSE 'OK' END
+FROM required_columns rc
+LEFT JOIN information_schema.columns c
+  ON c.table_schema = 'public' AND c.table_name = rc.table_name AND c.column_name = rc.column_name
 UNION ALL
 SELECT 'FUNCTION', rf.name, CASE WHEN p.proname IS NULL THEN 'FAIL - MISSING' ELSE 'OK' END
 FROM required_functions rf
