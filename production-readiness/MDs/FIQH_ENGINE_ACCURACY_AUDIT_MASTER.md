@@ -494,6 +494,240 @@ Verify:
 - AI context updates
 - no mixed-rule residue remains
 
+
+
+## Madhhab Discovery, Defaulting & Geographic Source Policy
+
+### Principle
+
+Niswah must **never silently determine a user's madhhab as a fact** based only on geography.
+
+Country, city, and phone-country prefix may be used only to generate a **suggested local default** when the user explicitly selects:
+
+`I don't know my madhhab`
+
+The resulting madhhab remains a user-confirmed preference, not an inferred religious identity.
+
+### Onboarding Flow
+
+Preferred flow:
+
+1. Ask:
+   `Which madhhab do you follow?`
+
+2. Options:
+   - Hanafi
+   - Maliki
+   - Shafi'i
+   - Hanbali
+   - I don't know my madhhab
+
+3. If the user selects a madhhab:
+   - use it directly
+   - persist it as the user's explicit choice
+
+4. If the user selects:
+   `I don't know my madhhab`
+
+   then the app may build a **madhhab suggestion** from:
+   - country selected from phone prefix
+   - country selected in profile
+   - city / locality selected by the user
+   - explicitly configured jurisdiction mapping
+
+5. Present the result as:
+   - `Suggested madhhab`
+   - `commonly followed in your location`
+   - never as `your madhhab is ...`
+
+6. Require user confirmation before the suggested madhhab becomes authoritative application state.
+
+7. Always allow the user to:
+   - choose another madhhab
+   - change it later
+   - continue without committing if the product supports an unresolved state
+
+### Geographic Inference Rules
+
+The mapping must be:
+
+- reviewed
+- version-controlled
+- explainable
+- jurisdiction-aware
+- scholar-approved before production use
+
+Do not hard-code assumptions such as:
+
+`country X = madhhab Y`
+
+without an approved mapping source.
+
+Some countries contain:
+- multiple madhahib
+- regional differences
+- family/community differences
+- contemporary official fatwa practice that may not map one-to-one to one classical madhhab
+
+Therefore the engine must support:
+
+- one likely madhhab
+- multiple plausible madhahib
+- low-confidence result
+- unresolved result
+
+Example conceptual output:
+
+```json
+{
+  "country": "SA",
+  "city": "Riyadh",
+  "suggested_madhhab": "hanbali",
+  "confidence": "regional_default",
+  "source_ids": ["JURISDICTION-SOURCE-001"],
+  "requires_user_confirmation": true
+}
+```
+
+### Phone Prefix Use
+
+Phone-country prefix is a convenience signal only.
+
+It must not be treated as proof of:
+- residence
+- nationality
+- religious practice
+- madhhab
+
+If phone prefix and selected city/country disagree:
+
+- prefer the user's explicitly selected residence/location
+- mark the context as conflicting if necessary
+- never silently choose based on phone prefix alone
+
+### City / Residence Use
+
+User-selected city or country is stronger than phone prefix for local-source selection.
+
+However it still only supports:
+- local-source prioritization
+- madhhab suggestion
+
+It does not establish the user's actual madhhab.
+
+### Source Localization Policy
+
+The fiqh source system should use two layers:
+
+#### Layer 1 — Madhhab Authority
+
+Canonical or recognized authoritative sources for the selected madhhab.
+
+Each rule must still be validated against the madhhab itself.
+
+#### Layer 2 — Jurisdiction / Local Authority
+
+Where appropriate, prioritize formally recognized and trustworthy sources relevant to the user's country, such as:
+
+- official national fatwa institutions
+- ministries / religious affairs authorities
+- formally recognized scholarly councils
+- official scholarly bodies
+- official published fatwa databases
+
+Country-specific sources may help determine:
+- local practice
+- jurisdictional guidance
+- official contemporary interpretation
+- terminology
+- escalation/referral source
+
+But a country source must not silently replace the underlying madhhab rule unless the product explicitly models that jurisdictional authority.
+
+### Source Trust Requirements
+
+Production fiqh sources must be:
+
+- identifiable
+- formally attributable
+- authoritative or institutionally recognized
+- stable enough to cite
+- reviewable
+- versionable
+- non-anonymous
+
+Do not use as primary authority:
+
+- anonymous websites
+- blogs
+- social media
+- copied fatwa aggregators
+- forum posts
+- AI-generated summaries
+- unattributed translations
+
+### Source Selection Contract
+
+Every fiqh answer should be traceable to:
+
+- user's selected madhhab
+- whether madhhab was explicit or suggested
+- jurisdiction/country
+- rule ID
+- madhhab source ID
+- local/jurisdiction source ID where applicable
+- source status
+- reviewer status
+- rule version
+
+### AI Behavior
+
+If madhhab is explicitly chosen:
+- AI must use that madhhab.
+
+If madhhab is only suggested but not yet confirmed:
+- AI must not present a madhhab-specific ruling as certain.
+- AI should say the result depends on madhhab or ask for confirmation.
+
+If the user says:
+`I don't know my madhhab`
+
+the AI may explain:
+- the likely local madhhab(s)
+- why the app is suggesting them
+- that the user can choose another madhhab
+- that local practice may vary
+
+The AI must not say:
+`You are Hanafi/Maliki/Shafi'i/Hanbali`
+
+based solely on location.
+
+### Required Tests
+
+Add tests for:
+
+1. explicit madhhab overrides all geography
+2. `I don't know` triggers suggestion workflow
+3. phone prefix alone never silently commits madhhab
+4. city/country mapping can suggest one madhhab
+5. multi-madhhab jurisdiction returns multiple plausible options where configured
+6. low-confidence mapping remains unresolved
+7. conflicting phone prefix and city does not silently select
+8. user confirmation persists the selected madhhab
+9. changing madhhab recomputes derived fiqh state
+10. local-source priority changes with country where appropriate
+11. madhhab source remains authoritative despite local-source selection
+12. AI does not present unconfirmed madhhab as fact
+
+### Finding Severity
+
+- `FIQH-0`: app silently assigns or applies a madhhab-specific worship ruling based only on geography without user confirmation
+- `FIQH-1`: geographic madhhab mapping is unsupported, unsourced, or materially inaccurate
+- `FIQH-2`: local-source prioritization or explanation defect
+- `FIQH-3`: documentation / maintainability issue
+
+
 ## Golden Fiqh Test Dataset
 
 Build a version-controlled corpus.

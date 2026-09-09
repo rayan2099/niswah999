@@ -52,6 +52,13 @@ class AiAdvisorService {
   Future<FiqhAnswer> askFiqh({
     required String question,
     required Madhhab madhhab,
+    /// AICTX remediation: the app's own already-computed deterministic
+    /// classification (e.g. "haid"), or null if unavailable. Sent
+    /// unconditionally when present so the advisor can reference the
+    /// app's existing state instead of asking the user to re-describe it
+    /// — the server treats this strictly as `client_computed`, never as
+    /// independently verified. See ClientFiqhStateProvider.
+    String? clientFiqhState,
   }) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
@@ -61,7 +68,11 @@ class AiAdvisorService {
     try {
       final response = await client.functions.invoke(
         'fiqh-advisor-chat',
-        body: {'question': question, 'madhhab': madhhab.name},
+        body: {
+          'question': question,
+          'madhhab': madhhab.name,
+          if (clientFiqhState != null) 'clientFiqhState': clientFiqhState,
+        },
       );
 
       final data = response.data;

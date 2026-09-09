@@ -6,9 +6,18 @@
 // trusted-citation filter (previously applied client-side in
 // ai_advisor_service.dart) are now both owned here — the client only ever
 // sends the question and the user's selected madhhab.
+//
+// AICTX remediation (2026-09-09): previously received only the madhhab
+// label — zero deterministic-engine output (AICTX-3). Now also receives
+// cycle/pregnancy facts and, when supplied by the client, the deterministic
+// fiqh classification (clearly labeled client_computed — see
+// _shared/ai_user_context.ts's header comment for why this is not
+// reimplemented/re-verified server-side). The system prompt is updated to
+// explain it, not to change what it's allowed to conclude from it.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { callGemini } from '../_shared/gemini_client.ts';
+import { buildUserAiContext, formatContextBlock } from '../_shared/ai_user_context.ts';
 import {
   AI_ENDPOINT_RATE_LIMIT,
   checkRateLimit,
@@ -40,7 +49,9 @@ Never infer a ruling from cycle arithmetic alone. Clearly distinguish factual tr
 Include inline citations for every material ruling. If reliable sources conflict, are absent, or the case involves irregular habit transitions, pregnancy, miscarriage, nifas, retrospective prayer/fasting obligations, or danger to health, say that the case needs a qualified scholar and do not give a definitive ruling.
 Do not diagnose medical conditions. Urgent or dangerous symptoms must be escalated to licensed medical care.
 Do not claim certainty beyond the cited evidence.
-Write in plain prose only. Never use markdown syntax: no #, ##, ###, **, *, or numbered/bulleted list characters. The app displays raw text, not rendered markdown.`;
+Write in plain prose only. Never use markdown syntax: no #, ##, ###, **, *, or numbered/bulleted list characters. The app displays raw text, not rendered markdown.
+
+A [CONTEXT] block may follow with facts already known by the app (recent bleeding history, pregnancy status, and — only when the client app supplied one — a deterministic_fiqh_classification already computed by the app's own rule engine, explicitly labeled with its source). Use this only to avoid asking the user to re-describe what the app already knows and to notice when her question concerns pregnancy/nifas/an irregular pattern even if she didn't say so explicitly — every escalation rule above still applies exactly as written when that's the case. If deterministic_fiqh_classification is present, you may reference it as the app's own existing classification, but do not present it as your own conclusion, do not contradict it, and never treat the informational bleeding-history scan in the context (which is explicitly not a ruling) as equivalent to a classification.`;
 }
 
 function isTrustedCitation(url: string): boolean {
@@ -95,7 +106,7 @@ Deno.serve(async (req) => {
       return limiterUnavailableResponse(corsHeaders);
     }
 
-    const { question, madhhab } = await req.json();
+    const { question, madhhab, clientFiqhState } = await req.json();
     if (typeof question !== 'string' || !question.trim()) {
       return new Response(JSON.stringify({ error: 'question is required.' }), {
         status: 400,
@@ -115,13 +126,19 @@ Deno.serve(async (req) => {
       });
     }
 
+    const userContext = await buildUserAiContext(userClient, {
+      clientMadhhab: madhhab,
+      clientFiqhState: typeof clientFiqhState === 'string' ? clientFiqhState : null,
+    });
+    const systemInstruction = `${buildSystemInstruction(madhhab)}\n\n${formatContextBlock(userContext, 'fiqh_advisor')}`;
+
     let text: string;
     let citations: Array<{ url: string; title: string; startIndex: number; endIndex: number }>;
     try {
       const result = await callGemini({
         models: GEMINI_MODELS,
         prompt: question,
-        systemInstruction: buildSystemInstruction(madhhab),
+        systemInstruction,
         useGoogleSearch: true,
         timeoutMs: 35_000,
       });

@@ -6,6 +6,18 @@ Produced by the Final Pre-Owner-Action Readiness Consolidation wave, 2026-09-07.
 
 ---
 
+## 🔴 URGENT — read this first (discovered 2026-09-09)
+
+**All 4 AI features are currently returning `503` to every real user in production.** Discovered as a side effect of live testing during the AI User-State Context Layer wave, not something this session caused: the `W1-001` rate-limiter's database objects (`ai_rate_limit_counters` table, `check_and_increment_ai_rate_limit()` function) are **completely absent from production**, confirmed via three independent read-only checks. This is *not* a full database rollback — a synthetic row created seconds earlier in the same investigation was present and current, and all other tables/data are intact — only these specific `W1-001` objects are gone, for a reason this session could not determine without further owner input.
+
+**This session did not attempt to fix it.** Re-applying a production migration is exactly the kind of action every prior `W1-001`-related change in this engagement has required your explicit authorization for, and this is no exception even though it's now urgent. `W1-001`, `AB-002`, `SEC-005`, `AB-008` have been corrected in `00_04_MASTER_FINDING_REGISTER.md` from `VERIFIED_CLOSED` to reflect this regression.
+
+**What would fix it**: the same migration file already used before, `supabase/migrations/20260906090000_ai_rate_limit.sql` (checksum `4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639`, unchanged), re-applied the same way it was applied successfully on 2026-09-08 (see `00_09` §44). If you'd like this session to re-apply it, say so explicitly and it can proceed the same way it did then — with full verification before and after.
+
+---
+
+---
+
 ## How to use this document
 
 Steps are numbered in the order that minimizes context-switching and dead time. Two steps (3 and 8) have an unavoidable wait — start them early and do other steps while waiting, then come back. Each step names the finding it closes and exactly what to check if it fails.
@@ -257,11 +269,13 @@ Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md
 
 **The real gap is AI user-state context**: none of the app's 4 AI features (Dr Niswah, the General Assistant, the Fiqh Advisor, the Dream Interpreter) has a shared, structured awareness of the user's actual current state. The General Assistant receives **zero** context of any kind — not even a database query. Dr Niswah only knows pregnancy status. The Fiqh Advisor only knows the selected madhhab. A real, existing wellbeing-tracking feature (mood/energy/sleep) and existing user notes are never read by any AI at all, even though both are already retrievable elsewhere in the app for other purposes. Zero `AICTX-0` findings — no cross-user data leakage, and every AI feature's prompt-level design already correctly declines to override the deterministic fiqh engine or assert certainty with missing facts. But 7 open `AICTX-1`/`AICTX-2` findings document a genuine, systemic product gap.
 
-**Two things only you can authorize/provide**:
-1. **A remediation wave to build the AI User-State Context Layer** — a real, multi-file engineering project (touching all 4 Edge Functions and their client call sites) that would close 5 of the 7 open findings at once, since the underlying data already exists and is already correctly privacy-isolated; only the assembly and wiring is missing. Not attempted this pass without your explicit go-ahead, consistent with how every other production-facing change in this engagement has been handled.
+**✅ Update, 2026-09-09 — the AI User-State Context Layer has been built and deployed.** One shared module (`supabase/functions/_shared/ai_user_context.ts`) now feeds all 4 AI features pregnancy, cycle, wellbeing, symptoms, and notes context (scoped per feature — never the whole database to every AI), replacing the near-total absence described above. Real TypeScript type-checking and real, executed unit tests (29/29) passed. **However, live end-to-end verification against real Gemini calls could not be completed** — see the 🔴 URGENT banner at the top of this document: an unrelated production incident (the `W1-001` rate limiter's database objects are missing) currently makes every AI call fail before reaching this new code. Once that's resolved, this session (or a follow-up one) should re-run a real live verification pass before these `AICTX` findings can be formally closed. Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_findings.md`'s "AI User-State Context Layer Remediation Wave" section.
+
+**Two things still need you**:
+1. **Resolve the urgent `W1-001` regression above** — this now blocks verifying the very AI features this handoff is about.
 2. **Qualified Islamic scholar/domain review** — genuinely outside this engagement's engineering capability. Every fiqh boundary value, the golden test dataset, and all user-facing religious wording remain `NOT_REVIEWED`. This is explicitly not something an engineering pass can substitute for or claim on your behalf.
 
-**Verdict for this audit: `FIQH CONDITIONAL GO`.** Registered as mandatory before the Final Pre-Launch User Journey audit — that audit's fiqh-sensitive and AI-chat journeys should not be treated as fully validated until at least the AI context layer gap is addressed.
+**Verdict for this audit: `FIQH CONDITIONAL GO`.** Registered as mandatory before the Final Pre-Launch User Journey audit — that audit's fiqh-sensitive and AI-chat journeys should not be treated as fully validated until both the `W1-001` incident is resolved and a real live verification pass confirms the new context layer works end-to-end.
 
 ## Fiqh Grounding Degradation — Classification
 
@@ -287,7 +301,9 @@ Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md
 
 **What still holds the verdict at NO-GO**: every remaining item (`DC-010`, `AU-009`, `PC-006`) is independently owner/external/platform/legal-gated, unrelated to backup/recovery/credential/rate-limiting/rollback/release/observability safety. **Practically**: with `BR-001`, `RD-009`, `RD-006`, and now `OB-006` all closed and the restore-project cleanup complete, this engagement has no remaining BR0/RD1/OB1-critical technical finding open anywhere and no lingering cleanup items — everything left is `DC-010`/`AU-009`/`PC-006`, each independently gated on your action, external platform access, or counsel, not on further engineering or verification work.
 
-**A new specialized audit was added and run (2026-09-09): Fiqh Engine Accuracy & AI User-State Context.** Verdict `FIQH CONDITIONAL GO` — the fiqh calculation engine itself is sound and deterministic with zero `FIQH-0` findings, but a real, systemic gap was found and documented: none of the app's 4 AI features has adequate awareness of the user's actual tracked state (one, the General Assistant, has none at all). Zero `AICTX-0` findings (no cross-user leakage, no AI overriding deterministic state), but 7 open `AICTX-1`/`AICTX-2` findings remain. This audit is registered as mandatory before the Final Pre-Launch User Journey audit and does not by itself change the technical NO-GO (already held by `DC-010`/`AU-009`/`PC-006`), but adds a real, tracked precondition to that next step. See **Fiqh Engine & AI Context Handoff** above.
+**A new specialized audit was added and run (2026-09-09): Fiqh Engine Accuracy & AI User-State Context.** Verdict `FIQH CONDITIONAL GO` — the fiqh calculation engine itself is sound and deterministic with zero `FIQH-0` findings. The AI context gap this audit found has since been engineered and deployed (one shared context layer now feeds all 4 AI features), but could not be live-verified end-to-end this session. See **Fiqh Engine & AI Context Handoff** above.
+
+**🔴 More significantly, as of 2026-09-09: `W1-001`, `AB-002`, `SEC-005`, and `AB-008` — previously `VERIFIED_CLOSED` on 2026-09-08 — are now corrected to reflect a real production regression.** The rate-limiter database objects those findings' closure depended on are confirmed absent from production, and all 4 AI features are currently returning `503` to every real user. See the 🔴 URGENT banner at the top of this document. This is a live incident, not a documentation update — it takes priority over every other item in this checklist.
 
 ---
 

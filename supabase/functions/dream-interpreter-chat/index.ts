@@ -6,9 +6,17 @@
 // the already-assembled conversation transcript (Gemini's /interactions
 // endpoint has no history field of its own, so the client still resends the
 // whole transcript each turn — unchanged behavior, just relocated).
+//
+// AICTX remediation (2026-09-09): previously received zero context
+// (AICTX-4, lowest materiality of the four AI features given its
+// non-medical/non-fiqh domain, but still a real, disclosed gap). Now
+// receives a light 'dream_interpreter' scope — major pregnancy/menstrual
+// state and recent wellbeing/notes — explicitly not to be reinterpreted as
+// medical or fiqh rulings (see the added system-prompt guidance below).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { callGemini } from '../_shared/gemini_client.ts';
+import { buildUserAiContext, formatContextBlock } from '../_shared/ai_user_context.ts';
 import {
   AI_ENDPOINT_RATE_LIMIT,
   checkRateLimit,
@@ -49,7 +57,10 @@ Follow these rules for every interpretation session:
 - Keep the final interpretation short and focused: a few short paragraphs covering the core symbolism and the closing reminder, not an exhaustive breakdown of every element.
 
 5. **Language:**
-- Always reply in the same language the user's most recent message is written in (e.g. Arabic in, Arabic out; English in, English out). Never switch languages on your own.`;
+- Always reply in the same language the user's most recent message is written in (e.g. Arabic in, Arabic out; English in, English out). Never switch languages on your own.
+
+6. **App context:**
+- A [CONTEXT] block may follow with the user's major current state (pregnancy/menstrual status, recent wellbeing, recent notes). Use it only to avoid an interpretation that plainly contradicts her current recorded state (e.g. do not interpret dream symbolism as foretelling a pregnancy she is not currently tracking, without her raising it herself). Do not treat it as dream content, do not repeat its raw field names to her, and never use it to produce a medical or fiqh ruling — that remains outside this feature's role regardless of what the context shows.`;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -105,10 +116,13 @@ Deno.serve(async (req) => {
       );
     }
 
+    const userContext = await buildUserAiContext(userClient);
+    const systemInstruction = `${SYSTEM_PROMPT}\n\n${formatContextBlock(userContext, 'dream_interpreter')}`;
+
     const result = await callGemini({
       models: GEMINI_MODELS,
       prompt,
-      systemInstruction: SYSTEM_PROMPT,
+      systemInstruction,
       timeoutMs: 20_000,
     });
 

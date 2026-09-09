@@ -4435,3 +4435,78 @@ Full suite re-run: same 8 pre-existing golden-image parity diffs (unaffected by 
 31. **Overall production-readiness impact**: adds two new, real, tracked, non-`0`-severity finding categories; does not by itself change the existing overall `NO-GO` (already held by `DC-010`/`AU-009`/`PC-006`), but is registered as mandatory-before-Final-Journey per the charter's own Phase 0 instruction.
 32. **Final commit SHA**: recorded in this wave's own git history.
 33. **Local == remote verification**: recorded in this wave's own git history.
+
+---
+
+## 53. AI User-State Context Layer Remediation Wave (2026-09-09)
+
+Explicitly authorized: AICTX-only remediation — no fiqh rules/thresholds/interpretations touched, no scholar review, no other domain's owner-gated items. Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_findings.md` (architecture, authority map, verification detail, finding-by-finding reassessment) — this section summarizes and records the phase-by-phase account plus this session's own commit/push checkpoint.
+
+### Phases A-D — Authority map, canonical model, assembly architecture, relevance scopes
+
+Built directly into `supabase/functions/_shared/ai_user_context.ts`: `buildUserAiContext()` fetches `pregnancy_profile`/`cycle_entries`/`wellbeing_logs` via the caller's own RLS-scoped `userClient` (identity from `auth.uid()` only — never a service-role client, never a client-supplied `user_id`, matching Phase C's non-negotiable contract exactly); `formatContextBlock()` renders one of 4 scoped `[CONTEXT]` blocks (`dr_niswah`/`general_assistant`/`fiqh_advisor`/`dream_interpreter`), each including only what that AI's own relevance scope calls for, per the charter's "minimum relevant context necessary" rule. Deterministic fiqh classification is deliberately NOT reimplemented server-side — accepted as an optional, explicitly-provenanced `clientFiqhState` field per Phase C's own instruction for state that "genuinely exists only in current client/runtime state." Full authority map (field → source → persisted/raw-vs-derived → freshness → authority) in the findings doc.
+
+**A real error was made and self-corrected mid-wave**: the first draft duplicated pregnancy-week math (with wrong `tracking_basis` values) instead of reusing the existing, tested `pregnancy_status.ts`. Caught before deployment, fixed by relocating that file to `_shared/` (`git mv`, source + its existing test file) and importing it. Re-verified its 16 pre-existing tests still pass post-move.
+
+### Phases E-K — Notes, wellbeing, freshness, cross-AI consistency, deterministic authority, missing/conflicting context, privacy
+
+All verified at the architecture level (no caching anywhere means freshness/consistency are structural guarantees, not 14 separately-implemented invalidation rules); notes explicitly labeled "user-authored, not verified facts" in every rendered block; no context payload ever reaches `console.error`/`AppErrorReporter` (confirmed by direct grep of every logging call site touched); every system prompt updated to instruct explain-don't-override behavior. Full phase-by-phase detail in the findings doc.
+
+### Verification — real, and honestly bounded where it wasn't
+
+No Deno binary was available in this environment. Substituted: real `tsc --strict` type-checking (TypeScript 5.6 installed locally, Deno-API shims written, zero errors across all 8 touched/new `.ts` files); real `esbuild` bundling (confirms correct import resolution after the `pregnancy_status.ts` move); real, *executed* unit tests — the new 13-case `ai_user_context.test.ts` and the pre-existing 16-case `pregnancy_status.test.ts` were both bundled to plain JS and actually run under Node.js with a minimal `Deno.test`/`assertEquals` shim — **29/29 passed for real**, not merely written and assumed. `dart analyze lib/` (25 issues, below the 27 baseline) and `flutter test` (same 8 pre-existing golden-image diffs, zero new failures) both re-run clean. All 4 Edge Functions deployed to production via `supabase functions deploy`, versions confirmed incremented via the Management API — twice, once with a real bug found and fixed in between (see below).
+
+### Phase L — Live synthetic verification: blocked by an unrelated, urgent production incident
+
+A synthetic account was created with known state (a `cycle_entries` row with a note/symptoms, a `wellbeing_logs` row, a `pregnancy_profile` row). A real call to `ai-assistant-chat` returned `HTTP 503`. Investigation (read-only, three independent confirmation methods — `pg_proc` lookup, `information_schema.tables`, `to_regprocedure`/`to_regclass`, all agreeing) found `W1-001`'s rate-limiter database objects (`ai_rate_limit_counters` table, `check_and_increment_ai_rate_limit()` function) **completely absent from production**. Confirmed this is not a full rollback — `auth.users`/`cycle_entries` counts and a synthetic row created seconds earlier in the same investigation were present and current. **Practical impact: all 4 AI features currently return 503 to every real user.** `W1-001`/`AB-002`/`SEC-005`/`AB-008` corrected from `VERIFIED_CLOSED` to `PARTIALLY_REMEDIATED`/regressed in `00_04`. Not fixed by this session — root cause undetermined, and re-applying a production migration requires the same explicit owner authorization every prior `W1-001` change in this engagement has required. All synthetic test artifacts deleted immediately upon discovering the blocker.
+
+**A second, smaller real defect was found and fixed within this wave's own code before the second deployment**: `wellbeing_logs` has no `notes` column in production (confirmed via direct schema query and a live REST call, `PGRST204`) — the Dart `WellbeingRepository` always writes one anyway, meaning every real wellbeing check-in with a note currently fails (tracked as `AICTX-13`, a real, live, currently-active defect, not fixed this wave — outside AICTX scope). This wave's own module was corrected to not select/rely on that column before its final deployment.
+
+### Phase M — Finding reassessment, individually, not mass-closed
+
+`AICTX-5` (root cause) substantially addressed. `AICTX-1`/`2`/`4`/`6`/`7` have correct context wired, type-checked, unit-tested, and deployed, but **not closed** — genuine end-to-end live-Gemini verification could not be obtained this session due to the rate-limiter incident, and closure is not claimed without it. `AICTX-3` improved (madhhab + client-computed classification when available) but also not closed pending the same live verification. Three new findings registered: `AICTX-10` (disclosed: classification is client-computed, not server-verified — deliberate, not accidental), `AICTX-11` (documentation: pregnancy model can't distinguish "not pregnant" from "no data" — pre-existing, now explicit), `AICTX-12` (`clientFiqhState` wiring currently reaches only the Fiqh Advisor client call site).
+
+### Testing
+
+`dart analyze lib/`: 25 issues, below the 27 baseline, zero errors. `flutter test`: same 8 pre-existing golden-image diffs, zero new failures. TypeScript: real `tsc --strict` zero errors, real executed unit tests 29/29 passed (13 new + 16 pre-existing).
+
+### Owner actions required — the first is urgent
+
+1. **Urgent**: authorize investigation/remediation of the `W1-001` regression — production is currently serving 503 to every AI feature for every user. Root cause undetermined by this session (no destructive action taken; read-only investigation only).
+2. `AICTX-13`: resolve the `wellbeing_logs.notes` schema mismatch (a real, separate, currently-active defect).
+3. Once (1) is resolved: authorize a follow-up session to re-run Phase L for real, closing `AICTX-1`/`2`/`4`/`6`/`7` with genuine live-Gemini evidence.
+4. Everything else from the prior wave's "Recommended Next Wave" list (source governance, `FIQH-3`/`FIQH-5` mechanical fixes, `FIQH-4`/`FIQH-6` product design) remains unstarted.
+
+**Overall production-readiness verdict remains NO-GO**, and is materially worse in one specific respect discovered by this wave: a live, active, user-facing incident (all 4 AI features down) requires immediate attention, ahead of and independent of this wave's own AICTX remediation.
+
+## Consolidated Report — AI User-State Context Layer Remediation
+
+1. **AI context architecture before**: 4 independent Edge Functions, 3 of 4 with zero/near-zero context, no shared assembly code.
+2. **AI context architecture after**: 1 canonical module (`_shared/ai_user_context.ts`) used by all 4 functions, RLS-scoped, provenance-labeled, scope-filtered per AI.
+3. **Authoritative data-source map**: see table in `FIQH_AICTX_findings.md` — server-authoritative for pregnancy/cycle/wellbeing/symptoms/notes; client-supplied-and-labeled for madhhab and deterministic fiqh classification (both genuinely client-only today).
+4. **Canonical context model**: `UserAiContext` TypeScript interface — pregnancy, menstrualCycle, fiqh, wellbeing, symptoms, notes, safetyFlags, dataFreshness, each field self-labeled with its own source.
+5. **Dr Niswah coverage**: pregnancy + cycle (informational) + wellbeing + symptoms + safety flags + notes (was: pregnancy only).
+6. **General Assistant coverage**: pregnancy + cycle + fiqh (madhhab) + wellbeing + notes (was: none).
+7. **Fiqh Advisor coverage**: fiqh (madhhab + client-computed classification when available) + cycle + pregnancy (was: madhhab label only).
+8. **Dream Interpreter coverage**: pregnancy + cycle (light) + wellbeing + notes (was: none).
+9. **Pregnancy context result**: now available to all 4 AI features (was 1 of 4).
+10. **Menstrual context result**: now available to all 4 (informational scan; was 0 of 4).
+11. **Fiqh context result**: madhhab now available to 3 of 4; deterministic classification available when client supplies it (was 0 of 4 for classification, 1 of 4 for madhhab).
+12. **Wellbeing context result**: now available to 3 of 4 (was 0 of 4).
+13. **Notes context result**: now available to 3 of 4, cycle-entries source only — `wellbeing_logs` notes unavailable due to `AICTX-13`'s discovered schema mismatch (was 0 of 4).
+14. **Symptoms context result**: now available to `dr_niswah` scope (was 0 of 4).
+15. **Context freshness tests**: architectural guarantee (no caching) — not empirically re-tested against 14 live scenarios this session due to the rate-limiter blocker.
+16. **Cross-AI consistency tests**: architectural guarantee for server-sourced fields (same function, same tables) — not empirically re-tested live this session.
+17. **Deterministic-authority tests**: prompt-level instructions updated on all 4 features, confirmed structurally (no DB write derived from AI output anywhere) — not independently live-tested this session.
+18. **Missing/conflicting-context behavior**: `not_provided` + explicit `uncertainty` string is the designed, implemented behavior — confirmed via unit tests, not live-tested this session.
+19. **Privacy/isolation result**: confirmed structurally — RLS-scoped queries only, zero context payloads in any logging call site (direct grep-verified).
+20. **Live synthetic verification result**: **BLOCKED** — an unrelated production incident (`W1-001` regression) prevented any real Gemini call from succeeding this session.
+21. **Synthetic cleanup result**: complete — the one synthetic account and its cascaded rows were deleted immediately upon discovering the blocker; re-verified zero remaining via direct query.
+22. **AICTX findings closed**: 0 (none claimed closed without live verification).
+23. **AICTX findings remaining**: `AICTX-1`, `2`, `3`, `4`, `5` (substantially addressed, not formally closed), `6`, `7`, `10`, `11`, `12` all open in some form; `AICTX-8`/`9` remain PASS, unaffected.
+24. **Newly discovered findings**: `AICTX-10`, `AICTX-11`, `AICTX-12` (AICTX-scoped); `AICTX-13` (wellbeing_logs schema defect, out of AICTX scope); and the urgent `W1-001` regression (corrected in `00_04`, not a new AICTX/FIQH finding — a regression of a previously-closed, different-domain finding).
+25. **Remaining engineering actions**: restore `W1-001` (urgent), fix `AICTX-13`, re-run Phase L live once unblocked, extend `clientFiqhState` wiring (`AICTX-12`), then the previously-listed `FIQH-*` mechanical/product-design items.
+26. **Overall Fiqh audit impact**: `FIQH CONDITIONAL GO` verdict from the prior wave is unchanged in classification but its AICTX components remain unclosed pending live verification.
+27. **Updated production-readiness verdict**: **NO-GO** — materially worse in one respect (the newly-discovered live incident), otherwise unchanged.
+28. **Final commit SHA**: recorded in this wave's own git history.
+29. **Local == remote verification**: recorded in this wave's own git history.

@@ -10,6 +10,7 @@ import '../../../../core/preferences/notification_log_controller.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../notifications/domain/entities/notification_preference.dart';
 import '../../../ai_advisor/ai_advisor_service.dart';
+import '../../../ai_advisor/client_fiqh_state_provider.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/chat_thread.dart';
 import '../../domain/repositories/chat_repository.dart';
@@ -325,9 +326,15 @@ class ChatViewModel extends ChangeNotifier {
       content: content,
     );
 
+    // AICTX remediation: best-effort, never blocking — a failure here
+    // (no history, a network error) just means the field is omitted.
+    final clientFiqhState = await ClientFiqhStateProvider().currentClassification(
+      MadhhabController.instance.selected,
+    );
     final result = await AiAdvisorService.instance.askFiqh(
       question: content,
       madhhab: MadhhabController.instance.selected,
+      clientFiqhState: clientFiqhState,
     );
 
     final metadata = {
@@ -365,7 +372,11 @@ class ChatViewModel extends ChangeNotifier {
 
     final response = await client.functions.invoke(
       'ai-assistant-chat',
-      body: {'content': content},
+      // AICTX remediation: the general assistant previously received no
+      // context at all. madhhab is cheap and always known client-side
+      // (MadhhabController), so it's sent unconditionally now — the
+      // Edge Function treats it as optional either way.
+      body: {'content': content, 'madhhab': MadhhabController.instance.selected.name},
     );
     final data = response.data;
     if (data is! Map || response.status != 200) {

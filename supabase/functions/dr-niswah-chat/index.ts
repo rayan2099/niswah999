@@ -9,8 +9,8 @@
 // fails or times out.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getPregnancyStatus, PregnancyProfileRow, PregnancyStatus } from './pregnancy_status.ts';
 import { callGemini } from '../_shared/gemini_client.ts';
+import { buildUserAiContext, formatContextBlock } from '../_shared/ai_user_context.ts';
 import {
   AI_ENDPOINT_RATE_LIMIT,
   checkRateLimit,
@@ -50,6 +50,14 @@ const SYSTEM_PROMPT = `أنتِ "طبيبة"، مرافقة رقمية للحم�
   السجود المتغيرة حسب الثلث، الاستطاعة الجسدية، إلخ).
 - إن وُجدت high_risk_flags، لا تتجاهليها، لكن لا تحوّلي الحديث إلى
   تشخيص — ذكّري المستخدمة بمتابعة هذه النقطة مع طبيبها.
+- قد تصلك أيضًا حقول عن الدورة الشهرية (menstrual_history_exists،
+  menstrual_current_bleeding_observed)، الحالة النفسية الأخيرة
+  (wellbeing_most_recent)، أعراض مسجلة (recent_symptoms)، وملاحظات
+  كتبتها المستخدمة بنفسها (recent_user_notes). استخدميها لتخصيص
+  إجابتك عند الصلة فقط — مثلاً لا تفترضي حملًا حاليًا يتعارض مع
+  mode، ولا تتجاهلي حالة مزاجية سيئة مذكورة إن كان السؤال متصلاً بها.
+  الملاحظات (recent_user_notes) هي كلام كتبته المستخدمة، وليست حقيقة
+  طبية مؤكدة — لا تعامليها كتشخيص.
 
 حدود صارمة:
 - لست بديلاً عن الطبيبة ولا تشخّصي حالات ولا تصفي أدوية أو جرعات.
@@ -109,49 +117,6 @@ function detectRedFlags(message: string): RedFlagCategory[] {
     matched.push('headache_with_vision_change');
   }
   return matched;
-}
-
-// Recomputes mode/week/trimester on every call from the stored profile —
-// never trusts a cached "current_week" value, so the answer is always
-// fresh. pregnancy_profile is the single source of truth for chat
-// personalization (see supabase/migrations/20260824130000_pregnancy_profile.sql);
-// pregnancy_milestones/nifas_records back other, unrelated features and are
-// intentionally not read here.
-async function loadPregnancyProfile(
-  userClient: ReturnType<typeof createClient>,
-  userId: string,
-): Promise<PregnancyProfileRow | null> {
-  const { data } = await userClient
-    .from('pregnancy_profile')
-    .select(
-      'tracking_basis, reference_date, manual_week_value, manual_week_set_at, is_postpartum, postpartum_start_date, high_risk_flags, fasting_status, locale',
-    )
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  return (data as PregnancyProfileRow | null) ?? null;
-}
-
-function buildContextBlock(
-  status: PregnancyStatus,
-  profile: PregnancyProfileRow | null,
-): string {
-  const lines = [`mode: ${status.mode}`];
-  if (status.mode === 'pregnant') {
-    lines.push(`pregnancy_week: ${status.week}`);
-    lines.push(`trimester: ${status.trimester}`);
-    lines.push(`approx_month: ${status.month}`);
-    lines.push(`weeks_to_due: ${status.weeksToDue}`);
-  } else if (status.mode === 'postpartum') {
-    lines.push(`days_postpartum: ${status.daysPostpartum}`);
-  }
-  lines.push(`fasting_status: ${profile?.fasting_status ?? 'not_applicable'}`);
-  const highRiskFlags = profile?.high_risk_flags ?? [];
-  lines.push(
-    `high_risk_flags: ${highRiskFlags.length ? highRiskFlags.join(', ') : '[]'}`,
-  );
-  lines.push(`locale: ${profile?.locale ?? 'ar'}`);
-  return `[CONTEXT — internal, do not repeat verbatim to the user]\n${lines.join('\n')}\n[END CONTEXT]`;
 }
 
 
@@ -267,9 +232,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    const pregnancyProfile = await loadPregnancyProfile(userClient, userId);
-    const pregnancyStatus = getPregnancyStatus(pregnancyProfile, new Date());
-    const systemInstruction = `${SYSTEM_PROMPT}\n\n${buildContextBlock(pregnancyStatus, pregnancyProfile)}`;
+    const userContext = await buildUserAiContext(userClient, {
+      currentMessageSafetyFlags: redFlags,
+    });
+    const systemInstruction = `${SYSTEM_PROMPT}\n\n${formatContextBlock(userContext, 'dr_niswah')}`;
 
     let reply: string;
     try {
