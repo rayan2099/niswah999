@@ -4583,5 +4583,5 @@ This section; `00_04_MASTER_FINDING_REGISTER.md` (`W1-001`/`AB-002`/`SEC-005`/`A
 13. **AB-002/SEC-005/AB-008 statuses**: all `VERIFIED_CLOSED` (re-remediated 2026-09-09; incident history preserved).
 14. **AICTX live-verification unblock status**: unblocked — Phase L's blocker (Wave 53) is resolved; live AICTX verification was explicitly out of scope for this wave and was not performed here.
 15. **Updated overall verdict**: production AI functionality restored; `W1-001` family and the rate-limiting blocker are closed again. Broader production-readiness verdict remains gated on the still-open `AICTX-13` defect and unclosed `AICTX-1/2/3/4/6/7` (Wave 53), unaffected by this recovery wave.
-16. **Final commit SHA**: recorded below after this wave's commit.
-17. **Local == remote verification**: recorded below after this wave's push.
+16. **Final commit SHA**: `5482e341ca6acf5244f4f131e44042167abc84f5` (`fix: recover W1-001 rate limiter after production regression`).
+17. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolve to `5482e341ca6acf5244f4f131e44042167abc84f5` after `git push origin HEAD:main` and `git fetch origin`.
