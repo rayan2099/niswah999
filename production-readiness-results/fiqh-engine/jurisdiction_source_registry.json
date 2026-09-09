@@ -1,0 +1,99 @@
+{
+  "_meta": {
+    "purpose": "Draft two-layer source model, Layer 2 (local/jurisdiction authority) per the charter. Records formal, officially-recognized national fatwa institutions only -- never blogs, anonymous fatwa sites, aggregators, forums, or AI summaries, per the charter's explicit exclusion list.",
+    "warning": "AI-drafted from general knowledge, NOT independently verified this session against each institution's current official status, scope, or publications. NOT_REVIEWED until a qualified reviewer confirms. This file supplements, and must never silently override, the madhhab rule (Layer 1) -- see 'can_override_madhhab_rule' on every entry, currently false everywhere in this draft pending explicit review of any case where local guidance and madhhab classification could genuinely diverge.",
+    "generated": "2026-09-09",
+    "generated_by": "Claude Code, Source Governance wave"
+  },
+  "jurisdictions": [
+    {
+      "jurisdiction_id": "JUR-EG-001",
+      "country": "Egypt",
+      "institution": "Dar al-Ifta al-Misriyyah",
+      "authority_type": "official national fatwa institution",
+      "supported_madhahib": ["shafii", "hanafi", "maliki", "hanbali"],
+      "gives_local_practice_guidance": true,
+      "can_override_madhhab_rule": false,
+      "can_supplement_madhhab_rule": true,
+      "source_id": "SRC-INST-001",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "jurisdiction_id": "JUR-SA-001",
+      "country": "Saudi Arabia",
+      "institution": "The Permanent Committee for Islamic Research and Ifta (al-Lajnah al-Da'imah)",
+      "authority_type": "official national fatwa institution",
+      "supported_madhahib": ["hanbali"],
+      "gives_local_practice_guidance": true,
+      "can_override_madhhab_rule": false,
+      "can_supplement_madhhab_rule": true,
+      "source_id": "SRC-INST-002",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "jurisdiction_id": "JUR-QA-001",
+      "country": "Qatar",
+      "institution": "Ministry of Awqaf and Islamic Affairs (islamweb.net)",
+      "authority_type": "government-affiliated fatwa/knowledge portal",
+      "supported_madhahib": ["hanafi", "maliki", "shafii", "hanbali"],
+      "gives_local_practice_guidance": true,
+      "can_override_madhhab_rule": false,
+      "can_supplement_madhhab_rule": true,
+      "source_id": "SRC-INST-003",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "jurisdiction_id": "JUR-MY-001",
+      "country": "Malaysia",
+      "institution": "Department of Islamic Development Malaysia (JAKIM)",
+      "authority_type": "official national Islamic affairs body",
+      "supported_madhahib": ["shafii"],
+      "gives_local_practice_guidance": true,
+      "can_override_madhhab_rule": false,
+      "can_supplement_madhhab_rule": true,
+      "source_id": null,
+      "note": "Named from general knowledge; no source_id assigned because this session did not compile a reference-work entry for it — flagged for reviewer completion, not silently invented.",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "jurisdiction_id": "JUR-TR-001",
+      "country": "Turkey",
+      "institution": "Diyanet İşleri Başkanlığı (Presidency of Religious Affairs)",
+      "authority_type": "official national religious affairs body",
+      "supported_madhahib": ["hanafi"],
+      "gives_local_practice_guidance": true,
+      "can_override_madhhab_rule": false,
+      "can_supplement_madhhab_rule": true,
+      "source_id": null,
+      "note": "Named from general knowledge, no source_id assigned this pass — see JUR-MY-001's note.",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "jurisdiction_id": "JUR-MA-001",
+      "country": "Morocco",
+      "institution": "Ministry of Habous and Islamic Affairs / High Council of Ulema",
+      "authority_type": "official national religious affairs body",
+      "supported_madhahib": ["maliki"],
+      "gives_local_practice_guidance": true,
+      "can_override_madhhab_rule": false,
+      "can_supplement_madhhab_rule": true,
+      "source_id": null,
+      "note": "Named from general knowledge, no source_id assigned this pass — see JUR-MY-001's note.",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "jurisdiction_id": "JUR-AE-001",
+      "country": "United Arab Emirates",
+      "institution": "General Authority of Islamic Affairs and Endowments (Awqaf)",
+      "authority_type": "official national religious affairs body",
+      "supported_madhahib": ["hanafi", "maliki", "shafii", "hanbali"],
+      "gives_local_practice_guidance": true,
+      "can_override_madhhab_rule": false,
+      "can_supplement_madhhab_rule": true,
+      "source_id": null,
+      "note": "Named from general knowledge, no source_id assigned this pass — see JUR-MY-001's note.",
+      "reviewer_status": "NOT_REVIEWED"
+    }
+  ],
+  "scope_note": "This is a deliberately small, seed list, not a comprehensive world-country registry -- populating every country the app might have users in requires either sustained scholarly review or an explicit product decision about which countries/regions to prioritize first. Expanding this list is listed as a follow-up in the wave's own findings, not something this pass attempted to complete."
+}

@@ -1,0 +1,205 @@
+{
+  "_meta": {
+    "purpose": "Draft source registry for Niswah's implemented fiqh rules and the madhhab reference works/institutions that could ground them. Built during the Source Governance, Madhhab Authority, Jurisdiction Sources, and Fiqh Advisor Grounding wave (2026-09-09).",
+    "warning": "THIS IS AN ENGINEERING-PRODUCED DRAFT, NOT A SCHOLARLY VERIFICATION. It was compiled by an AI assistant (Claude, via Claude Code) from general Islamic-studies knowledge, not from direct inspection of a primary text or confirmation by a qualified Islamic scholar. Reference-work titles/authors named below are genuine, well-known works standardly associated with each madhhab (the kind of attribution found in any comparative-fiqh textbook) -- but NO specific chapter/page/section number is asserted for any of them, because that could not be verified against a specific edition this session and a wrong page citation would misrepresent a real book. Every rule below is 'source_confidence: AI_RECALLED_UNVERIFIED' and 'reviewer_status: NOT_REVIEWED' until a qualified Islamic scholar with direct access to these texts confirms or corrects the mapping.",
+    "do_not": "Do not present any entry in this file as a citable, page-accurate religious source. Do not mark reviewer_status as APPROVED without a named qualified reviewer. Do not deploy this registry as the sole grounding basis for a live ruling without scholar sign-off.",
+    "generated": "2026-09-09",
+    "generated_by": "Claude Code, Source Governance wave"
+  },
+  "madhhab_reference_works": {
+    "hanafi": [
+      {
+        "source_id": "SRC-HANAFI-001",
+        "madhhab": "hanafi",
+        "title": "Al-Hidayah fi Sharh Bidayat al-Mubtadi",
+        "author": "Burhan al-Din al-Marghinani (d. 593 AH / 1197 CE)",
+        "type": "canonical madhhab commentary",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS — Kitab al-Taharah (Book of Purity) is the standard section for hayd/haid rulings in this genre of text; exact chapter/page not verified this pass",
+        "rule_topics_relevant": ["FR-001", "FR-002", "FR-003"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      },
+      {
+        "source_id": "SRC-HANAFI-002",
+        "madhhab": "hanafi",
+        "title": "Radd al-Muhtar ala al-Durr al-Mukhtar (Hashiyat Ibn Abidin)",
+        "author": "Ibn Abidin (Muhammad Amin ibn Abidin, d. 1252 AH / 1836 CE)",
+        "type": "canonical late-Hanafi commentary, widely treated as an authoritative modern reference within the school",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002", "FR-003"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      },
+      {
+        "source_id": "SRC-HANAFI-003",
+        "madhhab": "hanafi",
+        "title": "Al-Fatawa al-Hindiyyah (al-Fatawa al-Alamgiriyyah)",
+        "author": "Compiled by a board of Hanafi scholars under Mughal patronage (17th century CE)",
+        "type": "canonical Hanafi fatwa compilation",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      }
+    ],
+    "maliki": [
+      {
+        "source_id": "SRC-MALIKI-001",
+        "madhhab": "maliki",
+        "title": "Al-Mudawwana al-Kubra",
+        "author": "Sahnun ibn Sa'id al-Tanukhi (transmitting Imam Malik's students, d. 240 AH / 854 CE)",
+        "type": "foundational Maliki compilation",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002", "FR-004"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      },
+      {
+        "source_id": "SRC-MALIKI-002",
+        "madhhab": "maliki",
+        "title": "Mukhtasar Khalil (Mukhtasar al-Allamah Khalil)",
+        "author": "Khalil ibn Ishaq al-Jundi (d. 776 AH / 1374 CE)",
+        "type": "canonical, widely-taught Maliki summary text with extensive later commentary tradition",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002", "FR-004"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      },
+      {
+        "source_id": "SRC-MALIKI-003",
+        "madhhab": "maliki",
+        "title": "Al-Risala (Risalat Ibn Abi Zayd al-Qayrawani)",
+        "author": "Ibn Abi Zayd al-Qayrawani (d. 386 AH / 996 CE)",
+        "type": "widely-used introductory Maliki primer",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      }
+    ],
+    "shafii": [
+      {
+        "source_id": "SRC-SHAFII-001",
+        "madhhab": "shafii",
+        "title": "Al-Umm",
+        "author": "Imam Muhammad ibn Idris al-Shafi'i (d. 204 AH / 820 CE)",
+        "type": "foundational Shafi'i text, the school's eponymous founder's own compiled work",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      },
+      {
+        "source_id": "SRC-SHAFII-002",
+        "madhhab": "shafii",
+        "title": "Minhaj al-Talibin",
+        "author": "Yahya ibn Sharaf al-Nawawi (d. 676 AH / 1277 CE)",
+        "type": "canonical, extremely widely-relied-upon later Shafi'i reference with a large commentary tradition",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002", "FR-003"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      },
+      {
+        "source_id": "SRC-SHAFII-003",
+        "madhhab": "shafii",
+        "title": "Al-Majmu Sharh al-Muhadhdhab",
+        "author": "Yahya ibn Sharaf al-Nawawi (d. 676 AH / 1277 CE), completed after his death by later scholars",
+        "type": "extensive canonical Shafi'i commentary, frequently cited on menstruation/purity rulings specifically",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002", "FR-003"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      }
+    ],
+    "hanbali": [
+      {
+        "source_id": "SRC-HANBALI-001",
+        "madhhab": "hanbali",
+        "title": "Al-Mughni",
+        "author": "Ibn Qudamah al-Maqdisi (d. 620 AH / 1223 CE)",
+        "type": "canonical, comparative-fiqh-oriented Hanbali reference, widely cited across madhahib for its comparative structure",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002", "FR-003"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      },
+      {
+        "source_id": "SRC-HANBALI-002",
+        "madhhab": "hanbali",
+        "title": "Kashaf al-Qina an Matn al-Iqna",
+        "author": "Mansur ibn Yunus al-Buhuti (d. 1051 AH / 1641 CE)",
+        "type": "canonical later Hanbali reference commentary",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      },
+      {
+        "source_id": "SRC-HANBALI-003",
+        "madhhab": "hanbali",
+        "title": "Zad al-Mustaqni fi Ikhtisar al-Muqni",
+        "author": "Musa al-Hajjawi (d. 968 AH / 1560 CE)",
+        "type": "widely-taught concise Hanbali primer, standard curriculum text in many contemporary Hanbali-tradition institutions (notably Saudi Arabia)",
+        "original_language": "Arabic",
+        "reference_section": "NOT_LOCATED_THIS_PASS",
+        "rule_topics_relevant": ["FR-001", "FR-002"],
+        "source_confidence": "AI_RECALLED_UNVERIFIED",
+        "reviewer_status": "NOT_REVIEWED"
+      }
+    ]
+  },
+  "contemporary_institutional_sources": [
+    {
+      "source_id": "SRC-INST-001",
+      "institution": "Dar al-Ifta al-Misriyyah (Egyptian Fatwa House)",
+      "country": "Egypt",
+      "authority_type": "official national fatwa institution",
+      "supported_madhahib": ["shafii", "hanafi", "maliki", "hanbali"],
+      "note": "General Sunni institutional authority; publishes across madhahib, not restricted to one",
+      "source_confidence": "AI_RECALLED_UNVERIFIED — institution's existence/general remit is well-known; current publications not independently checked this session",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "source_id": "SRC-INST-002",
+      "institution": "The Permanent Committee for Islamic Research and Ifta (al-Lajnah al-Da'imah)",
+      "country": "Saudi Arabia",
+      "authority_type": "official national fatwa institution",
+      "supported_madhahib": ["hanbali"],
+      "note": "Operates within the Hanbali-tradition institutional context predominant in Saudi Arabia",
+      "source_confidence": "AI_RECALLED_UNVERIFIED",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "source_id": "SRC-INST-003",
+      "institution": "islamweb.net (operated under Qatar's Ministry of Awqaf and Islamic Affairs)",
+      "country": "Qatar",
+      "authority_type": "government-affiliated fatwa/knowledge portal",
+      "supported_madhahib": ["hanafi", "maliki", "shafii", "hanbali"],
+      "note": "Already used as a trusted citation domain in supabase/functions/fiqh-advisor-chat/index.ts (TRUSTED_CITATION_DOMAINS). Publishes general Sunni content across madhahib.",
+      "source_confidence": "AI_RECALLED_UNVERIFIED",
+      "reviewer_status": "NOT_REVIEWED"
+    },
+    {
+      "source_id": "SRC-INST-004",
+      "institution": "Dorar Saniyyah (dorar.net)",
+      "country": "Saudi Arabia (independent scholarly network, not a government body)",
+      "authority_type": "scholarly knowledge network, Hanbali/Salafi-tradition-oriented",
+      "supported_madhahib": ["hanbali"],
+      "note": "Already used as a trusted citation domain in supabase/functions/fiqh-advisor-chat/index.ts (TRUSTED_CITATION_DOMAINS). Its own orientation leans Hanbali/Salafi — flagged here because the app's current 2-domain trusted list (islamweb.net + dorar.net) is not evenly balanced across all 4 supported madhahib, a fact worth a qualified reviewer's attention (see fiqh_rule_source_matrix.md's Phase G notes).",
+      "source_confidence": "AI_RECALLED_UNVERIFIED",
+      "reviewer_status": "NOT_REVIEWED"
+    }
+  ]
+}

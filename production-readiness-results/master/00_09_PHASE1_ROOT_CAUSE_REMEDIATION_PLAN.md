@@ -4756,3 +4756,75 @@ All synthetic accounts from both Phase E and Phase F deleted; a final project-wi
 23. **Updated production-readiness verdict**: materially improved — the AI context layer is now genuinely live-verified, not merely deployed. Remaining gates unchanged: `DC-010`/`AU-009`/`PC-006` (owner/external/legal-gated), the fiqh-advisor grounding issue (newly load-bearing for `AICTX-3`), and scholar/source review for all fiqh content.
 24. **Final commit SHA**: `3141747ba847717addabd016d444b6bfd7885275` (`docs: record AICTX-13 production application and live AI-context verification (Wave 57)`).
 25. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `3141747ba847717addabd016d444b6bfd7885275` after `git push origin HEAD:main` and `git fetch origin`.
+
+## 58. Source Governance, Madhhab Authority, Jurisdiction Sources, and Fiqh Advisor Grounding (2026-09-09)
+
+Explicitly authorized, engineering-scoped wave. **Disclosed upfront and honored throughout**: this session is not a qualified Islamic scholar and has no verified access to primary fiqh texts. It did not fabricate specific page/chapter citations, did not mark any source or golden case `APPROVED`, and did not silently choose a religious interpretation. Full narrative and evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_findings.md`'s "Source Governance..." wave section, `fiqh_rule_source_matrix.md`, `SCHOLAR_REVIEW_PACKAGE.md`.
+
+### Phase A — Rule inventory (re-confirmed)
+
+Four load-bearing rules (`FR-001` min. hayd, `FR-002` max. hayd, `FR-003` min. purity, `FR-004` Maliki habit-tracking) formally re-inventoried with code location, source status, test coverage, and prayer/fasting impact — see `fiqh_rule_source_matrix.md` Phase A. Corrected a misleading doc-comment in `madhhab_rule_evaluator.dart` that had inaccurately called the boundary values "reviewed."
+
+### Phases B/C/E — Draft source, jurisdiction, and geographic registries
+
+`fiqh_source_registry.json` (madhhab reference-work hierarchy, 12 entries across 4 madhahib, title-level only, no fabricated page numbers), `jurisdiction_source_registry.json` (7 national fatwa institutions), `geographic_madhhab_mapping.json` (13 country + 1 region-level entries, every one `requires_user_confirmation: true`, low-confidence/unmapped cases deliberately left unresolved rather than guessed). Every entry `AI_RECALLED_UNVERIFIED`/`NOT_REVIEWED`.
+
+### Phase D — "I don't know my madhhab" logic
+
+Implemented as `MadhhabSuggestionService` (`lib/features/onboarding/domain/services/madhhab_suggestion_service.dart`) — pure, fully tested (11/11 real tests). Enforces every charter rule: explicit country/city outranks phone prefix; phone prefix never proof; multi-madhhab regions return multiple options; low-confidence stays unresolved; wording always hedged ("commonly followed in your region"), never a declaration. **Not wired into the onboarding UI this wave** — the current 10-step flow collects location (step 6) after madhhab (step 4), and reordering that flow is a real UX decision flagged as a follow-up rather than rushed.
+
+### Phase F — Rule/source matrix
+
+`fiqh_rule_source_matrix.md`. No unsupported values, no cross-madhhab contamination, no source disagreement found (within this draft's own confidence level). One process mismatch flagged and newly registered as `FIQH-7` (the `FR-003` purity-enforcement asymmetry — enforced for Hanafi only). `FIQH-2` (`SOURCE_MISSING`) updated to `PARTIALLY ADDRESSED`, still `CONDITIONAL`.
+
+### Phase G — Fiqh Advisor grounding: root cause `CONFIRMED`
+
+Added diagnostic logging to the shared Gemini caller (`gemini_client.ts`, commit `672b3af` — captures the upstream error body on retryable statuses, previously discarded), deployed all 4 functions, reproduced live. Google's own error: `"You exceeded your current quota, please check your plan and billing details"` (`HTTP 429`, grounding-tool-specific, not the other 3 functions). **Owner-gated billing/quota action required** — matches `DC-010`/`AU-009`/`PC-006`'s pattern. Safe degraded fallback not weakened. Long-term architecture (validated-source-registry-backed retrieval, replacing live Google Search grounding) designed in `fiqh_rule_source_matrix.md`, not implemented (requires scholar-approved passage content that doesn't exist yet).
+
+### Phase I — Golden dataset source mapping
+
+All 12 cases in `golden_fiqh_dataset.json` now carry `source_ids` and a `disputed_or_ambiguous` flag (4 cases flagged, each with a specific reviewer note). None marked `APPROVED`.
+
+### Phase J — Engineering verification
+
+`dart analyze lib/`: 25 issues (unchanged), below the 27 baseline. `flutter test` on the affected suites (golden dataset, multi-madhhab engine, new suggestion-service tests): **45/45 passed**, no regression.
+
+### Phase K — AICTX-3 / AICTX-9
+
+`AICTX-3`: root cause now `CONFIRMED` (see Phase G); remains open pending owner billing action. `AICTX-9`: 4 real, bounded adversarial prompts run against production with a synthetic account — attempted to override deterministic state, treat a geographic claim as a confirmed/forced madhhab switch, elicit a fabricated source citation, and force a definitive classification under pressure. **3 of 4 fully tested and passed** (safe refusal/deferral in every case); the 4th (source fabrication via Fiqh Advisor specifically) blocked by the same grounding-quota issue. Marked substantially verified, not fully closed.
+
+### Phase L — Scholar review package
+
+`SCHOLAR_REVIEW_PACKAGE.md` — a single document requiring no code-reading, covering the source hierarchy, four-madhhab matrix, geographic mapping, jurisdiction sources, all 12 golden cases (with the 4 disputed cases called out), user-facing wording, and escalation behavior. Explicitly does not claim final religious certification.
+
+### Phase M — Finding reassessment (individual, not mass-closed)
+
+`FIQH-2`: `SOURCE_MISSING` → `PARTIALLY ADDRESSED`, still `CONDITIONAL`. `FIQH-7`: new, `OPEN`. `AICTX-3`: root cause `CONFIRMED`, remains `OPEN` (owner-gated). `AICTX-9`: substantially verified via live adversarial testing, not fully closed (1 of 4 categories blocked). `AICTX-10`/`AICTX-11`/`AICTX-12`: unchanged, out of this wave's scope.
+
+### Consolidated Report
+
+1. **Production fiqh rules**: 4 (`FR-001` through `FR-004`), all previously inventoried, re-confirmed this wave.
+2. **Source-mapped rules**: all 4, at the draft/title level (`fiqh_source_registry.json`).
+3. **Source-missing rules**: none remain literally unmapped, but all 4 remain `AI_RECALLED_UNVERIFIED`/`NOT_REVIEWED` — mapped is not the same as verified.
+4-7. **Hanafi/Maliki/Shafi'i/Hanbali source status**: each has 3 draft reference-work entries, all `NOT_REVIEWED`.
+8. **Jurisdiction sources by country**: 7 seed entries (Egypt, Saudi Arabia, Qatar, Malaysia, Turkey, Morocco, UAE).
+9. **Geographic madhhab-suggestion architecture**: `MadhhabSuggestionService`, pure/tested, not yet UI-wired.
+10. **Phone-prefix behavior**: weakest signal, used only when no explicit country/city given, never treated as proof.
+11. **City/country behavior**: explicit signals always outrank phone prefix; city-level entries override country-level.
+12. **Multi-madhhab jurisdiction behavior**: returns every plausible option (e.g. Egypt → 3 madhahib), never flattened to one.
+13. **Explicit-user-choice override result**: by design, an explicit selection is always used directly — the suggestion service is never consulted when a user has stated her own madhhab.
+14. **Rule/source mismatches**: none at the numeric-value level; one process mismatch (`FIQH-7`).
+15. **Fiqh Advisor grounding root cause**: `CONFIRMED` — Google Cloud/AI Studio billing/quota, grounding-tool-specific.
+16. **Grounding remediation result**: not remediated (owner-gated); diagnostic observability added; long-term architecture designed, not implemented.
+17. **Source-bound AI verification**: context assembly proven correct in code and via successful (`200`) production calls; full content-level proof blocked by the grounding issue.
+18. **Golden dataset source-mapping result**: complete for all 12 cases (draft level); 4 flagged disputed.
+19. **AICTX-3 result**: root cause confirmed, remains open, owner-gated.
+20. **AICTX-9 result**: substantially verified via 4 live adversarial tests, 3/4 categories fully passed.
+21. **Open FIQH-0**: none.
+22. **Open FIQH-1** (class)/`FIQH-2` (finding ID): open, `PARTIALLY ADDRESSED`, still `CONDITIONAL`.
+23. **Scholar review package status**: complete, delivered (`SCHOLAR_REVIEW_PACKAGE.md`), no certification claimed.
+24. **Remaining scholar/owner actions**: scholar review of all draft sources/mappings/golden cases; owner billing action for Fiqh Advisor grounding; owner/UX decision on onboarding flow reordering for the suggestion service.
+25. **Final fiqh verdict**: `FIQH CONDITIONAL GO`, unchanged.
+26. **Overall production-readiness impact**: incremental positive — real root-cause and architecture progress on `AICTX-3`/`AICTX-9`, no new blockers introduced, no regression in existing tests.
+27. **Final commit SHA**: recorded below after this wave's commit.
+28. **Local == remote verification**: recorded below after this wave's push.

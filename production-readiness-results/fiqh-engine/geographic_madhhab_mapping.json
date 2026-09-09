@@ -1,0 +1,167 @@
+{
+  "_meta": {
+    "purpose": "Version-controlled country/region -> likely-madhhab(s) mapping, feeding the 'I don't know my madhhab' onboarding suggestion (never a declaration). Per the charter: explicit country/city outranks phone-prefix; phone prefix is never proof of residence or madhhab; multi-madhhab countries return multiple options; low-confidence stays unresolved; user confirmation is always required before a suggestion becomes authoritative.",
+    "warning": "AI-drafted from general, well-established historical/demographic knowledge about regional madhhab distribution (the kind found in any comparative-Islam textbook or encyclopedia entry) -- NOT independently verified by a qualified reviewer this session, and NOT based on any live census/survey data source. Every entry is 'confidence: DRAFT_UNVERIFIED' and 'reviewer_status: NOT_REVIEWED'. requires_user_confirmation is true on every single entry without exception -- this mapping must never be used to silently assign or declare a user's madhhab.",
+    "generated": "2026-09-09",
+    "generated_by": "Claude Code, Source Governance wave",
+    "wording_contract": "Any UI surfacing a suggestion from this file MUST use hedged wording equivalent to 'This madhhab is commonly followed in your region' -- NEVER 'You are Hanafi/Maliki/Shafi'i/Hanbali' -- enforced in code, see lib/features/onboarding/domain/services/madhhab_suggestion_service.dart."
+  },
+  "mappings": [
+    {
+      "mapping_id": "GEO-001",
+      "country": "Egypt",
+      "region": null,
+      "likely_madhahib": ["shafii", "hanafi", "maliki"],
+      "confidence": "medium",
+      "note": "Historically Shafi'i-majority with a significant Hanafi presence from Ottoman-era administrative influence; genuinely mixed in practice.",
+      "evidence_source_ids": ["SRC-INST-001"],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-002",
+      "country": "Saudi Arabia",
+      "region": null,
+      "likely_madhahib": ["hanbali"],
+      "confidence": "medium",
+      "note": "Hanbali is the institutionally predominant madhhab; the country's population also includes many residents/citizens of other madhahib in practice, so this is a majority signal, not a certainty.",
+      "evidence_source_ids": ["SRC-INST-002"],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-003",
+      "country": "Turkey",
+      "region": null,
+      "likely_madhahib": ["hanafi"],
+      "confidence": "medium",
+      "note": "Hanafi is the historically and institutionally predominant madhhab (Ottoman legal tradition).",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-004",
+      "country": "Pakistan",
+      "region": null,
+      "likely_madhahib": ["hanafi"],
+      "confidence": "medium",
+      "note": "Hanafi is the majority madhhab across South Asia generally.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-005",
+      "country": "India",
+      "region": null,
+      "likely_madhahib": ["hanafi"],
+      "confidence": "low",
+      "note": "Hanafi-majority among Indian Muslims generally, but India's Muslim population is large and internally diverse (includes Shafi'i-majority regions such as coastal Kerala) -- kept low-confidence deliberately rather than a single flat answer.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-005b",
+      "country": "India",
+      "region": "Kerala",
+      "likely_madhahib": ["shafii"],
+      "confidence": "medium",
+      "note": "Kerala's Muslim population (historically tied to Indian Ocean maritime trade with Yemen/Hadhramaut) is predominantly Shafi'i, distinct from the Hanafi majority elsewhere in India -- included specifically to demonstrate the mapping's region-override capability, not merely country-level flattening.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-006",
+      "country": "Morocco",
+      "region": null,
+      "likely_madhahib": ["maliki"],
+      "confidence": "medium",
+      "note": "Maliki is the historically and institutionally predominant madhhab across the Maghreb.",
+      "evidence_source_ids": ["SRC-INST-001"],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-007",
+      "country": "Tunisia",
+      "region": null,
+      "likely_madhahib": ["maliki"],
+      "confidence": "medium",
+      "note": "Same Maghreb pattern as Morocco.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-008",
+      "country": "Algeria",
+      "region": null,
+      "likely_madhahib": ["maliki"],
+      "confidence": "medium",
+      "note": "Same Maghreb pattern as Morocco.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-009",
+      "country": "Indonesia",
+      "region": null,
+      "likely_madhahib": ["shafii"],
+      "confidence": "medium",
+      "note": "Shafi'i is the historically and institutionally predominant madhhab across maritime Southeast Asia.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-010",
+      "country": "Malaysia",
+      "region": null,
+      "likely_madhahib": ["shafii"],
+      "confidence": "medium",
+      "note": "Same Southeast Asia pattern as Indonesia; also the officially adopted madhhab for state administration of Islamic affairs.",
+      "evidence_source_ids": ["JUR-MY-001"],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-011",
+      "country": "United Arab Emirates",
+      "region": null,
+      "likely_madhahib": ["hanafi", "maliki", "shafii", "hanbali"],
+      "confidence": "low",
+      "note": "Highly diverse resident population (large expatriate communities from South Asia, other Gulf states, the Levant, and elsewhere) with no single clearly predominant madhhab among residents in general — intentionally left multi-option/low-confidence rather than flattened to one.",
+      "evidence_source_ids": ["JUR-AE-001"],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-012",
+      "country": "Nigeria",
+      "region": null,
+      "likely_madhahib": ["maliki"],
+      "confidence": "low",
+      "note": "Maliki is historically predominant in Muslim-majority Northern Nigeria, but Nigeria's Muslim population is large and regionally diverse -- kept low-confidence.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-013",
+      "country": "Yemen",
+      "region": null,
+      "likely_madhahib": ["shafii", "hanafi"],
+      "confidence": "low",
+      "note": "Shafi'i-majority in much of the south/coast with a historically significant Zaydi-Hanafi-adjacent presence in the north -- kept as a plausible-multiple entry rather than a single flat answer given genuine internal diversity this session cannot responsibly resolve further.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
+    }
+  ],
+  "unresolved_policy": "Any country not listed here, or any case this mapping marks 'low' confidence, must resolve to UNRESOLVED in the suggestion service -- the user sees the full 4-option-plus-unknown picker with no pre-selected/highlighted suggestion, never a guessed default.",
+  "scope_note": "This is a deliberately small, seed list (13 country-level entries, 1 region-level override), not a comprehensive world mapping. Expanding coverage responsibly requires either sustained scholarly review or an explicit, resourced product decision -- listed as a follow-up, not attempted to be completed this pass."
+}

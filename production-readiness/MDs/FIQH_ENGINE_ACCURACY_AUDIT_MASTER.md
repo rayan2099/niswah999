@@ -1,5 +1,15 @@
 # FIQH_ENGINE_ACCURACY_AUDIT_MASTER.md
 
+## Execution status (updated 2026-09-09)
+
+Three waves have executed against this charter so far — full evidence lives in `production-readiness-results/fiqh-engine/`, not in this file (this file is the charter/methodology, kept stable; results are tracked separately per this engagement's standing convention):
+
+1. **Fiqh Engine Accuracy & AI User-State Context Audit** (2026-09-09) — the original discovery/findings pass. See `FIQH_AICTX_discovery.md`, `FIQH_AICTX_findings.md`.
+2. **AI User-State Context Layer Remediation Wave** (2026-09-09) — built and deployed the shared context module now feeding all 4 AI features; later live-verified end-to-end with real Gemini traffic in a follow-on wave. See `FIQH_AICTX_findings.md`.
+3. **Source Governance, Madhhab Authority, Jurisdiction Sources, and Fiqh Advisor Grounding wave** (2026-09-09) — produced a draft (`NOT_REVIEWED`) source hierarchy, jurisdiction registry, and geographic madhhab-suggestion mapping; confirmed the Fiqh Advisor grounding root cause (Google Cloud/AI Studio billing/quota, owner-gated); ran live adversarial authority-boundary testing. See `fiqh_source_registry.json`, `jurisdiction_source_registry.json`, `geographic_madhhab_mapping.json`, `fiqh_rule_source_matrix.md`, `SCHOLAR_REVIEW_PACKAGE.md`, and `FIQH_AICTX_findings.md`'s own dated wave sections.
+
+**Current verdict: `FIQH CONDITIONAL GO`, unchanged.** No implemented rule has been marked religiously `APPROVED` by any wave — every source attribution remains a draft awaiting qualified scholar review (see `SCHOLAR_REVIEW_PACKAGE.md`). This charter's own Phase 12 Scholar Review Gate has not been passed and no wave has claimed otherwise.
+
 ## Purpose
 
 This audit validates the Niswah fiqh engine as a **rule-driven, source-grounded, madhhab-aware decision system**. Its goal is to prevent arbitrary rulings, unsupported values, hidden assumptions, cross-madhhab rule mixing, and calculation errors.

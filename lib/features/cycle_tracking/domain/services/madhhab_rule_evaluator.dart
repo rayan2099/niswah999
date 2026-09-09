@@ -20,8 +20,16 @@ class MadhhabRuleResult {
   final bool? isWithinPersonalHabit;
 }
 
-/// Applies the reviewed duration boundaries to factual bleeding data.
+/// Applies each madhhab's duration boundaries to factual bleeding data.
 /// Selecting another Madhhab never changes the underlying logs.
+///
+/// Source status (Source Governance wave, 2026-09-09): these boundary
+/// values are engineering-derived from general Islamic-studies knowledge,
+/// not yet independently verified against a primary source by a qualified
+/// reviewer — see production-readiness-results/fiqh-engine/fiqh_source_registry.json
+/// (rule IDs FR-001/FR-002/FR-003) for the current, honestly-labeled
+/// source status of each value below. Do not describe these as
+/// "reviewed" until that registry says so.
 class MadhhabRuleEvaluator {
   const MadhhabRuleEvaluator();
 

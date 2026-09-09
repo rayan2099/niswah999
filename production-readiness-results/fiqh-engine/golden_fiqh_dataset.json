@@ -3,144 +3,329 @@
     "purpose": "Version-controlled golden fiqh test dataset per FIQH_ENGINE_ACCURACY_AUDIT_MASTER.md Phase 9.",
     "warning": "expected_classification / expected_calculations in every case are ENGINEERING-DERIVED — traced directly from the current production code (MadhhabRuleEvaluator, lib/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart). They are NOT a claim of religious correctness. Every case's review_status is NOT_REVIEWED until a qualified scholar/domain reviewer confirms it. See FIQH_AICTX_findings.md's Scholar Review Gate section.",
     "engine_version": "unversioned in production code as of this audit (2026-09-09) — no explicit rule-version identifier exists yet; see FIQH-2/FIQH-3 findings for related gaps",
-    "source_code_reference": "lib/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart"
+    "source_code_reference": "lib/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart",
+    "source_mapping_added": "2026-09-09, Source Governance wave -- source_ids reference production-readiness-results/fiqh-engine/fiqh_source_registry.json. Mapping is at the madhhab-reference-work level (title), not passage-level -- see that registry's own _meta.warning. disputed_or_ambiguous flags cases warranting closer reviewer attention, not defects."
   },
   "cases": [
     {
       "case_id": "FIQH-CASE-001",
       "category": "simple_normal_case",
       "madhhab": "hanafi",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_hours": 120, "purityBefore_days": 20 },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_hours": 120,
+        "purityBefore_days": 20
+      },
       "expected_classification": "haid",
-      "expected_calculations": { "minimumHaid_hours": 72, "maximumHaid_hours": 240, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 72,
+        "maximumHaid_hours": 240,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "Within Hanafi's 3-10 day haid range, prior purity exceeds the 15-day minimum.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANAFI-001",
+        "SRC-HANAFI-002",
+        "SRC-HANAFI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": false
     },
     {
       "case_id": "FIQH-CASE-002",
       "category": "exact_minimum_boundary",
       "madhhab": "hanafi",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_hours": 72, "purityBefore_days": 20 },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_hours": 72,
+        "purityBefore_days": 20
+      },
       "expected_classification": "haid",
-      "expected_calculations": { "minimumHaid_hours": 72, "maximumHaid_hours": 240, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 72,
+        "maximumHaid_hours": 240,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "Exactly at Hanafi's 72-hour (3-day) minimum — classified as haid, not below it.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANAFI-001",
+        "SRC-HANAFI-002",
+        "SRC-HANAFI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": false
     },
     {
       "case_id": "FIQH-CASE-003",
       "category": "one_unit_below_minimum",
       "madhhab": "hanafi",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_hours_minutes": "71h59m", "purityBefore_days": 20 },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_hours_minutes": "71h59m",
+        "purityBefore_days": 20
+      },
       "expected_classification": "needsAdvisory",
-      "expected_calculations": { "minimumHaid_hours": 72, "maximumHaid_hours": 240, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 72,
+        "maximumHaid_hours": 240,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "One minute short of Hanafi's minimum — does not qualify as haid; requires further guidance rather than a default classification.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANAFI-001",
+        "SRC-HANAFI-002",
+        "SRC-HANAFI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": false
     },
     {
       "case_id": "FIQH-CASE-004",
       "category": "exact_maximum_boundary",
       "madhhab": "shafii",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_days": 15, "purityBefore_days": 20 },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_days": 15,
+        "purityBefore_days": 20
+      },
       "expected_classification": "haid",
-      "expected_calculations": { "minimumHaid_hours": 24, "maximumHaid_days": 15, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 24,
+        "maximumHaid_days": 15,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "Exactly at Shafi'i's 15-day maximum — still classified as haid.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-SHAFII-001",
+        "SRC-SHAFII-002",
+        "SRC-SHAFII-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": false
     },
     {
       "case_id": "FIQH-CASE-005",
       "category": "one_unit_above_maximum",
       "madhhab": "shafii",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_days_minutes": "15d1m", "purityBefore_days": 20 },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_days_minutes": "15d1m",
+        "purityBefore_days": 20
+      },
       "expected_classification": "needsAdvisory",
-      "expected_calculations": { "minimumHaid_hours": 24, "maximumHaid_days": 15, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 24,
+        "maximumHaid_days": 15,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "One minute past Shafi'i's 15-day maximum — exceeds the boundary; the engine does not classify this as a distinct istihada state (see FIQH-6), only as needsAdvisory.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-SHAFII-001",
+        "SRC-SHAFII-002",
+        "SRC-SHAFII-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": true,
+      "disputed_note": "The engine collapses 'beyond maximum duration' into the same needsAdvisory state used for 'below minimum' and other ambiguous cases (see FIQH-6) -- whether this specific case should instead route to a distinct istihadah-aware state is a genuine open question for reviewer judgment, not merely a boundary-arithmetic check."
     },
     {
       "case_id": "FIQH-CASE-006",
       "category": "insufficient_history",
       "madhhab": "hanbali",
-      "inputs": { "hasSufficientHistory": false, "isBleeding": true, "bleedingDuration_days": 5, "purityBefore_days": null },
+      "inputs": {
+        "hasSufficientHistory": false,
+        "isBleeding": true,
+        "bleedingDuration_days": 5,
+        "purityBefore_days": null
+      },
       "expected_classification": "insufficientHistory",
-      "expected_calculations": { "minimumHaid_hours": 24, "maximumHaid_days": 15, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 24,
+        "maximumHaid_days": 15,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "Not enough logged history to establish a baseline — the engine does not attempt a classification.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANBALI-001",
+        "SRC-HANBALI-002",
+        "SRC-HANBALI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": false
     },
     {
       "case_id": "FIQH-CASE-007",
       "category": "changed_habit_maliki",
       "madhhab": "maliki",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_days": 7, "purityBefore_days": 20, "personalHabit_days": 6 },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_days": 7,
+        "purityBefore_days": 20,
+        "personalHabit_days": 6
+      },
       "expected_classification": "haid",
-      "expected_calculations": { "minimumHaid_hours": 24, "maximumHaid_days": 15, "minimumPurity_days": 15, "isWithinPersonalHabit": false },
+      "expected_calculations": {
+        "minimumHaid_hours": 24,
+        "maximumHaid_days": 15,
+        "minimumPurity_days": 15,
+        "isWithinPersonalHabit": false
+      },
       "expected_user_explanation": "Within Maliki's general 1-15 day range and thus classified haid by this engine's current logic; the engine separately reports the bleeding exceeded her previously-established 6-day personal habit (isWithinPersonalHabit=false) as informational context, not as a factor changing the classification itself.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-MALIKI-001",
+        "SRC-MALIKI-002",
+        "SRC-MALIKI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": true,
+      "disputed_note": "Whether exceeding a previously-established personal habit should be purely informational (current behavior) or should itself affect classification is a genuine fiqh question specific to the Maliki 'adah framework, not resolved by this session."
     },
     {
       "case_id": "FIQH-CASE-008",
       "category": "purity_boundary_hanafi",
       "madhhab": "hanafi",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_days": 5, "purityBefore_days_hours_minutes": "14d23h59m" },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_days": 5,
+        "purityBefore_days_hours_minutes": "14d23h59m"
+      },
       "expected_classification": "needsAdvisory",
-      "expected_calculations": { "minimumHaid_hours": 72, "maximumHaid_hours": 240, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 72,
+        "maximumHaid_hours": 240,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "Hanafi-specific rule: prior purity is one minute short of the 15-day minimum required before a new haid can be confirmed, even though the bleeding duration itself is otherwise valid.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANAFI-001",
+        "SRC-HANAFI-002",
+        "SRC-HANAFI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": false
     },
     {
       "case_id": "FIQH-CASE-009",
       "category": "not_bleeding_tuhr",
       "madhhab": "hanbali",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": false, "bleedingDuration_hours": 0, "purityBefore_days": null },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": false,
+        "bleedingDuration_hours": 0,
+        "purityBefore_days": null
+      },
       "expected_classification": "tahara",
-      "expected_calculations": { "minimumHaid_hours": 24, "maximumHaid_days": 15, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 24,
+        "maximumHaid_days": 15,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "No current bleeding recorded — classified as a state of purity (tuhr).",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANBALI-001",
+        "SRC-HANBALI-002",
+        "SRC-HANBALI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": false
     },
     {
       "case_id": "FIQH-CASE-010",
       "category": "madhhab_difference_same_facts",
       "madhhab": "ALL_FOUR — see per_madhhab_results",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_hours": 30, "purityBefore_days": 20 },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_hours": 30,
+        "purityBefore_days": 20
+      },
       "per_madhhab_results": {
-        "hanafi": { "classification": "needsAdvisory", "reason": "30h < Hanafi's 72h minimum" },
-        "maliki": { "classification": "haid", "reason": "30h > Maliki's 24h minimum, well under 15-day maximum" },
-        "shafii": { "classification": "haid", "reason": "30h > Shafi'i's 24h minimum, well under 15-day maximum" },
-        "hanbali": { "classification": "haid", "reason": "30h > Hanbali's 24h minimum, well under 15-day maximum" }
+        "hanafi": {
+          "classification": "needsAdvisory",
+          "reason": "30h < Hanafi's 72h minimum"
+        },
+        "maliki": {
+          "classification": "haid",
+          "reason": "30h > Maliki's 24h minimum, well under 15-day maximum"
+        },
+        "shafii": {
+          "classification": "haid",
+          "reason": "30h > Shafi'i's 24h minimum, well under 15-day maximum"
+        },
+        "hanbali": {
+          "classification": "haid",
+          "reason": "30h > Hanbali's 24h minimum, well under 15-day maximum"
+        }
       },
       "expected_user_explanation": "The identical raw bleeding episode (30 hours, same start date) produces a different classification depending solely on the user's selected madhhab — demonstrating the engine's madhhab-sensitivity is real and reachable, and that raw facts never change, only the applied rule does.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANAFI-001",
+        "SRC-HANAFI-002",
+        "SRC-HANAFI-003",
+        "SRC-HANBALI-001",
+        "SRC-HANBALI-002",
+        "SRC-HANBALI-003",
+        "SRC-MALIKI-001",
+        "SRC-MALIKI-002",
+        "SRC-MALIKI-003",
+        "SRC-SHAFII-001",
+        "SRC-SHAFII-002",
+        "SRC-SHAFII-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": true,
+      "disputed_note": "Included specifically because it demonstrates real cross-madhhab disagreement on IDENTICAL facts -- not a defect, but exactly the kind of case a reviewer should examine most closely to confirm each madhhab's own position is correctly applied."
     },
     {
       "case_id": "FIQH-CASE-011",
       "category": "postpartum_nifas",
       "madhhab": "hanafi",
-      "inputs": { "note": "Nifas is NOT handled by MadhhabRuleEvaluator/FiqhCycleState at all — it is computed by a structurally separate engine (PregnancyStatusEngine, feeding FiqhReportInsights.nifas). This case documents that separation rather than exercising MadhhabRuleEvaluator." },
+      "inputs": {
+        "note": "Nifas is NOT handled by MadhhabRuleEvaluator/FiqhCycleState at all — it is computed by a structurally separate engine (PregnancyStatusEngine, feeding FiqhReportInsights.nifas). This case documents that separation rather than exercising MadhhabRuleEvaluator."
+      },
       "expected_classification": "N/A_different_engine",
       "expected_calculations": {},
       "expected_user_explanation": "Postpartum/nifas status is derived from pregnancy_profile's is_postpartum/postpartum_start_date fields via a separate state machine, prioritized ahead of cycle-state logic in the Fiqh Report. This case is recorded to make the architectural boundary explicit for reviewers, not to exercise a specific numeric threshold.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANAFI-001",
+        "SRC-HANAFI-002",
+        "SRC-HANAFI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": true,
+      "disputed_note": "Documents an architectural boundary (nifas handled by a separate engine) rather than a numeric threshold -- flagged as needing reviewer confirmation that this separation itself is fiqh-appropriate, not just that the code is internally consistent."
     },
     {
       "case_id": "FIQH-CASE-012",
       "category": "deliberately_ambiguous",
       "madhhab": "hanafi",
-      "inputs": { "hasSufficientHistory": true, "isBleeding": true, "bleedingDuration_hours": 71, "purityBefore_days_hours_minutes": "14d20h" },
+      "inputs": {
+        "hasSufficientHistory": true,
+        "isBleeding": true,
+        "bleedingDuration_hours": 71,
+        "purityBefore_days_hours_minutes": "14d20h"
+      },
       "expected_classification": "needsAdvisory",
-      "expected_calculations": { "minimumHaid_hours": 72, "maximumHaid_hours": 240, "minimumPurity_days": 15 },
+      "expected_calculations": {
+        "minimumHaid_hours": 72,
+        "maximumHaid_hours": 240,
+        "minimumPurity_days": 15
+      },
       "expected_user_explanation": "Deliberately constructed to fail on two independent grounds at once (bleeding duration below minimum AND prior purity below minimum) — engine still correctly resolves to a single needsAdvisory state rather than a contradictory or undefined result; it does not report which of the two grounds triggered it, only that advisory guidance is needed.",
-      "source_ids": [],
-      "review_status": "NOT_REVIEWED"
+      "source_ids": [
+        "SRC-HANAFI-001",
+        "SRC-HANAFI-002",
+        "SRC-HANAFI-003"
+      ],
+      "review_status": "NOT_REVIEWED",
+      "disputed_or_ambiguous": false
     }
   ]
 }
