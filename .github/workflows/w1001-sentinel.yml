@@ -1,0 +1,63 @@
+name: W1-001 Sentinel
+
+# Automated, read-only detection for the W1-001 production incident
+# (2026-09-08/09): the AI rate-limiter's database objects
+# (ai_rate_limit_counters table, check_and_increment_ai_rate_limit()
+# function) were found completely absent from production after an
+# infrastructure-level Postgres compute restart + WAL-archive recovery
+# event, causing all 4 AI Edge Functions to return 503 to every real
+# user. Root cause classified PROBABLE_WITH_EVIDENCE — see
+# production-readiness-results/master/00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md
+# §54. Recurrence risk is infrastructure-level (this project has PITR
+# disabled) and cannot be prevented from repository code, so this
+# workflow's job is detection, not repair — it never mutates production.
+#
+# Runs scripts/w1001_sentinel_check.sh, which uses only the project's
+# public anon/publishable API key (the same key already shipped inside
+# the compiled app — safe for exposure by Supabase's own design, since
+# RLS/grants are the real security boundary, not this key's secrecy) to
+# distinguish "object missing" from "object exists but access is
+# correctly denied" via PostgREST's own error codes. No Management API
+# token, database password, or other privileged credential is used.
+#
+# A failed run here means: re-run
+# scripts/check_ai_rate_limit_objects.sh locally (or re-read this
+# workflow's log) to confirm, then follow the W1-001 recovery runbook in
+# production-readiness-results/master/00_04_MASTER_FINDING_REGISTER.md.
+
+on:
+  schedule:
+    - cron: "0 * * * *" # approximately hourly
+  workflow_dispatch:
+    inputs:
+      override_table_name:
+        description: "Override table name (testing only — leave blank for the real check)"
+        required: false
+        default: ""
+      override_function_name:
+        description: "Override function name (testing only — leave blank for the real check)"
+        required: false
+        default: ""
+
+jobs:
+  check:
+    name: Check W1-001 objects present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A scheduled run (or a workflow_dispatch with the override inputs
+      # left blank) passes empty strings here; the script's own
+      # ${VAR:-default} expansion treats an empty/null value the same as
+      # unset, so it falls back to the real object names in both cases —
+      # only an explicit non-blank override (used for testing the FAIL
+      # path) changes what gets checked.
+      - name: Run sentinel check (read-only, no production mutation)
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          W1001_TABLE_NAME: ${{ inputs.override_table_name }}
+          W1001_FUNCTION_NAME: ${{ inputs.override_function_name }}
+        run: |
+          chmod +x scripts/w1001_sentinel_check.sh
+          ./scripts/w1001_sentinel_check.sh
