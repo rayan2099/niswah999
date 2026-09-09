@@ -90,9 +90,9 @@ See **Gemini Rotation Handoff** below — the verification half of Step 2.
 
 `W1-001` was explicitly authorized and deployed to production on 2026-09-08. Migration applied via the Supabase Management API direct SQL endpoint; all 4 Edge Functions redeployed and confirmed (via source download-diff) to run the new RPC-based limiter; full smoke test, quota/concurrency/identity-isolation tests, and a real fail-closed `REVOKE`/`GRANT` production test all passed. See **W1-001 Deployment Handoff** below for the as-executed results, and `00_09` §44 for the full evidence trail. `W1-001`, `AB-002`, `SEC-005`, `AB-008` are now `VERIFIED_CLOSED`.
 
-## Step 10 — Confirm Sentry deployed-environment event
+## Step 10 — Confirm Sentry deployed-environment event — ✅ DONE, 2026-09-09
 
-See **OB-006 Handoff** below.
+See **OB-006 Handoff** below. `OB-006` = `VERIFIED_CLOSED`.
 
 ## Step 11 — AU-009 physical-device accessibility pass
 
@@ -196,17 +196,15 @@ curl -s -H "Authorization: Bearer $(cat ~/.supabase/access-token)" \
 
 **Closure evidence, achieved**: both rounds passed; the old key is revoked; client artifact remains clean (re-confirmed via source-level scan — zero `AIza…` matches, zero direct Gemini call paths). `SEC-001`/`ROOT-002` → **`VERIFIED_CLOSED`**. No secret value appeared in any report at any point.
 
-## OB-006 Handoff — re-investigated 2026-09-08 (OB-006 Sentry Deployed/Staging Verification wave), still `PARTIALLY_REMEDIATED`
+## OB-006 Handoff — ✅ COMPLETE, 2026-09-09 (OB-006 Owner Confirmation wave)
 
-**Native closure bar, re-read directly from `OB_remediation_plan.md` R2-1's own retest text**: a test/staging-environment event confirmed to "appear in **the chosen tool**" — meaning visible server-side in Sentry itself, not just a local SDK call returning a non-empty event id.
+**Native closure bar** (`OB_remediation_plan.md` R2-1's own retest text): a test/staging-environment event confirmed to "appear in **the chosen tool**" — meaning visible server-side in Sentry itself, not just a local SDK call returning a non-empty event id.
 
-**Current evidence**: a real, SDK-accepted Sentry event id was produced from a `development`-environment test (`00_09` §18), and a second, stronger one from a dedicated staging-tagged verification run: event id `10b520e6ed994f709d6af61461c8ea93`, `environment=staging`, tagged `feature:sentry_staging_verification`, flushed successfully through the same real DSN and redaction logic the app itself uses. **This session re-checked for a way to confirm that event server-side and found none available**: no `sentry-cli` installed, no Sentry auth token anywhere in this environment, no related GitHub Actions secret. The DSN alone (write-only, used only to *send* events) cannot query Sentry's API — a fundamentally different, read-scoped credential this session does not have.
+**You completed this directly**: opened the Sentry dashboard and confirmed the staging verification event genuinely exists server-side. Observed evidence: Sentry issue `FLUTTER-2`, an intentional Niswah reliability/staging verification event, event ID beginning `10b520e6...` (matching `10b520e6ed994f709d6af61461c8ea93`, the id this engagement's own prior wave generated), `environment: staging`, event count `1` — visibly present in Sentry, not merely accepted locally by the SDK.
 
-**One remaining action, entirely yours — should take under a minute**: open the Sentry dashboard and search for event id `10b520e6ed994f709d6af61461c8ea93`, or the tag `feature:sentry_staging_verification`. If it's visible with `environment: staging`, tell this session (or note it directly in `00_04`) and `OB-006` closes on that evidence alone — no further code, build, or device-install work needed.
+**`OB-006` = `VERIFIED_CLOSED`.** No Sentry integration code was touched to reach this closure — the existing, already-correct integration (re-verified unchanged across two prior waves) is what produced the event you just confirmed.
 
-**If that search finds nothing**: install a real signed release build (Android `.apk`/`.aab` from the routine-release workflow, or the iOS build once `DC-010` is resolved) on a **real physical device** (not an emulator — every session-side emulator attempt hit genuine platform storage/logging limitations, not application defects, per `00_09` §19 Item 8's full account), trigger any real error path, and confirm the event arrives in the Sentry dashboard with `environment: production`.
-
-**Do not conflate with `RR-002`** — `RR-002` (systematic error-reporting coverage) is already `VERIFIED_CLOSED`; `OB-006` is specifically about confirming *server-side delivery*, a narrower, still-open bar.
+**Do not conflate with `RR-002`** — `RR-002` (systematic error-reporting coverage) was already `VERIFIED_CLOSED` independently; `OB-006` was specifically about confirming *server-side delivery*, now also closed on its own terms.
 
 ## DC-010 Handoff — `OWNER_BLOCKED`, re-confirmed 2026-09-08 (DC-010 iOS Production Signing wave)
 
@@ -267,9 +265,9 @@ Concise physical-device script — critical journeys only, not exhaustive:
 
 **`DC-010` investigated (2026-09-08, DC-010 iOS Production Signing wave)**: its native closure bar (read directly from `DC_findings.md`/`DC_remediation_plan.md` R1.5) is genuinely higher than `RD-006`'s — it requires a real `DEVELOPMENT_TEAM`, an Xcode Archive, an exported IPA, and confirmation of a real **Distribution** certificate (not ad hoc/development), so it cannot be satisfied by an unsigned build the way `RD-006` could. Checked directly: `security find-identity -v -p codesigning` → `0 valid identities found`; no provisioning profiles directory; no `DEVELOPMENT_TEAM` anywhere in `project.pbxproj`; `xcodebuild -showBuildSettings` resolves `EXPANDED_CODE_SIGN_IDENTITY`/`EXPANDED_PROVISIONING_PROFILE` both empty; **Xcode has no Apple ID of any kind signed in on this machine** (`IDEProvisioningTeams` preference key doesn't exist at all). This session cannot supply an Apple Developer Team, certificate, or provisioning profile — see **DC-010 Handoff** below for the exact 4-step owner action. `DC-010` remains `OWNER_BLOCKED` — genuinely, not from lack of trying.
 
-**`OB-006` re-investigated (2026-09-08, OB-006 Sentry Deployed/Staging Verification wave)**: its native bar was confirmed to require server-side confirmation in Sentry itself, not just a local SDK success — and no remote Sentry access (CLI, API token, or credential of any kind) exists anywhere in this session's environment to provide that confirmation directly. `OB-006` remains `PARTIALLY_REMEDIATED`, unchanged; see the **OB-006 Handoff** above for the exact, under-a-minute owner action that would close it.
+**`OB-006` is now also `VERIFIED_CLOSED`** (2026-09-09, OB-006 Owner Confirmation wave): you opened the Sentry dashboard directly and confirmed the staging verification event genuinely exists server-side — Sentry issue `FLUTTER-2`, event ID beginning `10b520e6...`, `environment: staging`, event count `1`, visibly present in Sentry itself, not merely accepted locally by the SDK. This is exactly `OB-006`'s own native closure bar ("appears in the chosen tool"), now directly satisfied. See the **OB-006 Handoff** above and `00_09` §51 for full evidence.
 
-**What still holds the verdict at NO-GO**: every remaining item (`DC-010`, `AU-009`, `PC-006`, `OB-006`) is independently owner/external/platform/legal-gated, unrelated to backup/recovery/credential/rate-limiting/rollback/release safety. **Practically**: with `BR-001`, `RD-009`, and `RD-006` all closed and the restore-project cleanup complete, this engagement has no remaining BR0/RD1-critical technical finding open anywhere and no lingering cleanup items — everything left is `DC-010`/`AU-009`/`PC-006`/`OB-006`, each independently gated on your action, external platform access, or counsel, not on further engineering or verification work.
+**What still holds the verdict at NO-GO**: every remaining item (`DC-010`, `AU-009`, `PC-006`) is independently owner/external/platform/legal-gated, unrelated to backup/recovery/credential/rate-limiting/rollback/release/observability safety. **Practically**: with `BR-001`, `RD-009`, `RD-006`, and now `OB-006` all closed and the restore-project cleanup complete, this engagement has no remaining BR0/RD1/OB1-critical technical finding open anywhere and no lingering cleanup items — everything left is `DC-010`/`AU-009`/`PC-006`, each independently gated on your action, external platform access, or counsel, not on further engineering or verification work.
 
 ---
 

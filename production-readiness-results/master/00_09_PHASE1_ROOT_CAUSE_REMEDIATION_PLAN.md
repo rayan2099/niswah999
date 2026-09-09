@@ -4287,3 +4287,38 @@ The Sentry dashboard confirmation above (the sole remaining item for `OB-006`), 
 10. **Updated overall verdict**: **NO-GO** (unchanged).
 11. **Final commit SHA**: recorded in this wave's own git history (documentation-only commit).
 12. **Local == remote verification**: confirmed at this wave's push.
+
+---
+
+## 51. OB-006 Owner Confirmation Wave (2026-09-09)
+
+The owner completed the exact minimum action requested at the close of §50: opened the Sentry dashboard directly (remote access this session never had) and confirmed the staging verification event genuinely exists server-side.
+
+**Observed, owner-reported evidence**: Sentry issue `FLUTTER-2`; an intentional Niswah reliability/staging verification event; event ID beginning `10b520e6...` (matching the id this engagement's Reliability Evidence Closure wave, `00_09` earlier sections, generated and cited); `environment: staging`; event count `1`; visibly present in Sentry itself, not merely acknowledged locally by the SDK.
+
+**This satisfies `OB-006`'s native closure criterion exactly**, as re-read directly from `OB_remediation_plan.md` R2-1 in §50: the event "appears in **the chosen tool**" — server-side visibility in Sentry, now directly confirmed by the one party capable of confirming it. No Sentry integration code was touched to reach this closure — the existing, already-correct integration (re-verified unchanged in both the Reliability Evidence Closure wave and §50 immediately prior) is what produced the event the owner just verified.
+
+**`OB-006` = `VERIFIED_CLOSED`.**
+
+### Housekeeping — table-formatting repair
+
+While updating the master finding register this wave, a real editing defect from prior waves was discovered: several rows in `00_04_MASTER_FINDING_REGISTER.md`'s finding tables (`DC-010`, `RD-006`, `RD-009`, and this wave's own initial `OB-006` edit) had been accidentally split across multiple physical lines by embedded paragraph breaks (blank lines) introduced during earlier `Edit` tool calls in this session — markdown tables require each row to be exactly one physical line, so this silently broke table rendering for those four rows without affecting their actual text content. Found via a full-document sweep (checking every line starting with `| ` for a proper trailing `|`), fixed by merging each affected row's content back into a single line (content and meaning unchanged, only line breaks removed), and re-swept to confirm zero remaining broken rows document-wide. Not a content or evidence issue — a pure Markdown-formatting repair.
+
+### Testing
+
+No Flutter/Dart application code changed this wave — a documentation-only closure based on the owner's direct dashboard confirmation, plus the table-formatting repair above. Last-known baseline (372/380, same 8 pre-existing golden-image diffs) unaffected and remains current.
+
+### Owner actions still required
+
+`DC-010` (Apple Team selection), `AU-009` (accessibility pass), `PC-006` (legal/product determination) — all untouched by this wave, per explicit instruction.
+
+**Overall verdict remains NO-GO** — `OB-006`'s closure removes another long-tracked finding on real, owner-witnessed server-side evidence; `DC-010`, `AU-009`, `PC-006` remain outstanding, each independently owner/external/legal-gated.
+
+## Consolidated Report — OB-006 Owner Confirmation
+
+1. **OB-006 final status**: **`VERIFIED_CLOSED`**.
+2. **Exact closure evidence recorded**: Sentry issue `FLUTTER-2`; event ID beginning `10b520e6...`; `environment: staging`; event count `1`; confirmed present server-side by the owner directly in the Sentry dashboard.
+3. **Remaining launch blockers**: `DC-010` (Apple Team selection), `AU-009` (accessibility pass), `PC-006` (legal/product determination).
+4. **Updated overall verdict**: **NO-GO** (unchanged) — narrowed further; every remaining item is independently owner/external/legal-gated.
+5. **Final commit SHA**: recorded in this wave's own git history (documentation-only commit).
+6. **Local == remote verification**: confirmed at this wave's push.
