@@ -70,12 +70,25 @@ export async function callGemini(options: GeminiCallOptions): Promise<GeminiCall
       });
 
       if (!response.ok) {
+        // The upstream error body (status/reason/message) is captured and
+        // logged even on a retryable status, not just a terminal one — a
+        // 429 can mean several different things (per-minute rate limit,
+        // per-day quota, or a distinct billing/entitlement requirement for
+        // a specific tool like Google Search grounding) and the generic
+        // "(429)" message alone can't distinguish them. Never logs the
+        // request body/prompt/system instruction — only the response
+        // error object Google itself returns.
+        const errorBody = await response.json().catch(() => null);
         if ([429, 500, 503].includes(response.status)) {
+          console.error('callGemini: retryable upstream error', {
+            model,
+            status: response.status,
+            error: errorBody?.error ?? null,
+          });
           lastError = new Error(`Gemini request failed (${response.status}).`);
           continue;
         }
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error?.message ?? `Gemini request failed (${response.status}).`);
+        throw new Error(errorBody?.error?.message ?? `Gemini request failed (${response.status}).`);
       }
 
       const decoded = await response.json();
