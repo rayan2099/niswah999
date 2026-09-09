@@ -4638,3 +4638,45 @@ This section; `00_04_MASTER_FINDING_REGISTER.md` (`W1-001` row — automation ad
 9. **Owner action required**: none for this wave (no new privileged secret was needed). Still open from Wave 54, unchanged: recommended, not actioned, owner discussion with Supabase support about compute-tier restart/WAL-archival behavior and whether to enable PITR.
 10. **Final commit SHA**: `c80bfe3a3c6f38cdb6e8e1ae48b9a6d1d4431a27` (`docs: record W1-001 automated sentinel wave (Wave 55)`; sentinel script/workflow themselves landed in `99898a4a147f8c3e223e087620c2953f85973bc0`).
 11. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `c80bfe3a3c6f38cdb6e8e1ae48b9a6d1d4431a27` after `git push origin HEAD:main` and `git fetch origin`.
+
+## 56. FOCUSED REMEDIATION WAVE — AICTX-13 Wellbeing Notes Data Contract (2026-09-09)
+
+Explicitly authorized, narrow-scope wave: establish the canonical data contract for `wellbeing_logs.notes`, find why production and application code diverged, and design/test a fix — no other AICTX finding, no fiqh/source work, no Apple/accessibility/legal/AU-009/PC-006 work, no final acceptance run. Full detail (contract, root cause, fix design, complete test evidence) lives in `production-readiness-results/fiqh-engine/FIQH_AICTX_findings.md`'s "AICTX-13 Wellbeing Notes Data Contract wave" section — this entry is a pointer plus the phase/consolidated-report structure this document's own convention expects.
+
+### Phase A — Canonical data contract
+
+Established from repository truth, not assumption: `notes` is a deliberately-designed, optional, nullable free-text field, actively written by shipped UI (the dashboard check-in's notes text field), with its own originally-authored migration (`migrations_archive/20260827120000_wellbeing_logs_notes.sql`) that was simply never applied to production. Correct fix: (A) add `notes` to production — not (B) strip it from the app, which would discard a real, already-shipped feature.
+
+### Phase B — Root cause: `PROBABLE_WITH_EVIDENCE`
+
+The base-table migration (two days earlier) was demonstrably applied to production out-of-band (matches both the canonical baseline and the 2026-09-04 live schema capture exactly); the very next migration, adding `notes`, was not (absent from both of those same-vintage captures, and from a direct 2026-09-09 re-check). Same already-documented out-of-band, untracked-migration-application pattern `migrations_archive/README.md` describes for five other objects — not a new mechanism, and explicitly unrelated to the separate `W1-001` WAL-recovery incident (this gap predates it by at least 4 days).
+
+### Phase C — Fix design
+
+Guarded, idempotent migration (`supabase/migrations/20260909100000_wellbeing_logs_notes.sql`) — nullable `TEXT`, no default, no existing-row rewrite, RLS untouched. Canonical baseline updated directly so a fresh rebuild has the column from the start. `scripts/verify_schema_contract.sql` extended with a `required_columns` check for this exact column — the regression test this class of drift needed. `ai_user_context.ts` re-enabled selecting/merging `wellbeing_logs.notes` (previously hardcoded `null`), with the merge logic extracted into a new, directly-tested `mergeNotesSources()`.
+
+### Phase D — Pre-production validation (real, executed, non-production-mutating)
+
+Backup evidence (8 completed physical backups, most recent `2026-09-08T16:24:55.842Z`); diff-scope confirmed (exactly 5 files, all `wellbeing_logs.notes`-scoped); a full fresh-rebuild replay (`scripts/validate_migrations.sh`, passing with the new `COLUMN | wellbeing_logs.notes | OK` row); a full CRUD battery against a fresh local stack with two synthetic users (insert with/without notes, edit, clear, delete — all correct); RLS user-isolation proven for read/update/delete (all correctly denied cross-user, zero rows affected, zero data changed); genuine end-to-end AI-context retrieval proven by executing the real, unmodified `buildUserAiContext`/`formatContextBlock` functions (via a minimal fetch-backed shim standing in only for the unavailable `supabase-js`/Deno runtime) against the local stack — a note with text appears in the rendered `[CONTEXT]` block, a cleared note disappears from it while mood/energy/sleep remain, a deleted row disappears entirely, and a second user's context stays completely empty of the first user's data; 16/16 + 16/16 TypeScript unit tests (bundled via `esbuild`, executed under Node.js, same disclosed Deno-runtime substitute as the prior AICTX wave) and 18/18 pre-existing Dart wellbeing tests all passed; no note/context text found in any `console.error` or `AppErrorReporter.report()` call site across all 4 Edge Functions and the dashboard check-in flow.
+
+**Production schema mutation required — not applied this wave.** Migration and updated Edge Function code committed to the repository (real, tested, reversible, non-production-mutating); the actual `ALTER TABLE` and Edge Function redeployment are held pending explicit owner authorization, per this wave's own instruction (`AICTX13_PRODUCTION_SCHEMA_AUTHORIZATION_REQUIRED`).
+
+### Consolidated Report
+
+1. **Canonical wellbeing data contract**: `notes` is an intended, optional, nullable free-text field — deliberately designed, actively used by shipped UI, never fully reaching production.
+2. **Root cause**: `PROBABLE_WITH_EVIDENCE` — the notes-adding migration was authored but never applied to production, unlike its sibling base-table migration, consistent with this era's already-documented out-of-band schema-application pattern.
+3. **Intended `notes` behavior**: optional per-check-in free text, clearable (an edit with no text overwrites a prior note with `NULL`), never fabricated when absent.
+4. **Production schema state**: `wellbeing_logs` still lacks `notes` as of this wave's own live re-check (2026-09-09) — unchanged, not yet mutated.
+5. **Fix design**: guarded `ALTER TABLE ... ADD COLUMN IF NOT EXISTS notes TEXT`, canonical baseline updated to match, schema-contract regression check added.
+6. **Migration/checksum**: `supabase/migrations/20260909100000_wellbeing_logs_notes.sql`, SHA-256 `c90bdba720211f7f62e6b78fceff19903e69ec53e76adeb19304b66038d92fc7`.
+7. **Pre-production tests**: fresh-rebuild replay passed; full CRUD/RLS/deletion battery passed against a real local stack; genuine end-to-end AI-context retrieval passed (note-present, note-cleared, row-deleted, cross-user-isolation all proven); 16/16 + 16/16 TS unit tests + 18/18 Dart tests passed; zero log/Sentry leakage confirmed by direct code inspection.
+8. **Production authorization requirement**: **`AICTX13_PRODUCTION_SCHEMA_AUTHORIZATION_REQUIRED`** — an explicit owner authorization is required before this migration is applied to production or the updated Edge Functions are redeployed.
+9. **Live CRUD result**: not executed against production this wave (by design — held pending authorization); fully executed and passing against a local fresh stack (see Phase D).
+10. **AI-context retrieval result**: not executed against production this wave; fully executed and passing against a local fresh stack, using the real unmodified module.
+11. **Edit/delete freshness result**: proven locally — a cleared note disappears from the AI context block while other fields remain; a deleted row disappears entirely.
+12. **Privacy/isolation result**: proven locally at both the DB (RLS) and AI-context-assembly layers — a second user's context and direct queries are completely empty of the first user's data.
+13. **Cleanup result**: both local synthetic test users deleted; local Supabase stack fully torn down (containers and volumes removed) — no state persists.
+14. **AICTX-13 final status**: not `VERIFIED_CLOSED` yet — remains open, now labeled `FIX DESIGNED + LOCALLY VERIFIED — PENDING PRODUCTION AUTHORIZATION` pending the owner decision above.
+15. **Remaining AICTX findings**: unchanged from Wave 53 — `AICTX-1/2/3/4/6/7` open pending live Gemini re-verification (now unblocked by `W1-001`'s recovery, not yet re-run); `AICTX-10/11/12` open as previously scoped; `AICTX-8/9` remain PASS.
+16. **Final commit SHA**: recorded below after this wave's commit.
+17. **Local == remote verification**: recorded below after this wave's push.
