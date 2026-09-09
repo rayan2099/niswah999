@@ -4510,3 +4510,78 @@ A synthetic account was created with known state (a `cycle_entries` row with a n
 27. **Updated production-readiness verdict**: **NO-GO** — materially worse in one respect (the newly-discovered live incident), otherwise unchanged.
 28. **Final commit SHA**: recorded in this wave's own git history.
 29. **Local == remote verification**: recorded in this wave's own git history.
+
+## 54. URGENT PRODUCTION RECOVERY — W1-001 (2026-09-09)
+
+Explicitly authorized, narrow-scope wave: re-apply the exact previously-verified `W1-001` migration to recover the AI rate limiter after the regression discovered in Wave 53 (all 4 AI Edge Functions returning `503` to every real user). Scope was deliberately restricted to this single recovery — no unrelated migrations, no `db push`, no migration-ledger changes, no `AICTX-13` or fiqh/source remediation, no Final Prelaunch Journey work.
+
+### Phase A — Fast safety check (5/5 passed)
+
+Production project confirmed (`jkmjobvxfrmuwafczvtw`). 8 completed physical backups confirmed present, most recent `2026-09-08T16:24:55.842Z`. Migration file re-read in full (`supabase/migrations/20260906090000_ai_rate_limit.sql`, 155 lines, unchanged since original deployment) and its SHA-256 re-computed and confirmed to exactly match the authorized checksum (`4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639`). Absence of both objects reconfirmed immediately before mutation via `to_regprocedure`/`to_regclass` (both NULL).
+
+### Phase B — Reapplication
+
+Applied via the Management API's direct SQL-query endpoint only (never `supabase db push`, never touching the migration ledger), `2026-09-09T07:05:22Z`–`07:05:24Z`, `HTTP 201`. No other file touched.
+
+### Phase C — DB object verification (all independently re-confirmed via direct SQL)
+
+Table `ai_rate_limit_counters` present with correct columns (`user_id uuid`, `function_name text`, `window_start timestamptz`, `request_count integer default 0`, `updated_at timestamptz default now()`) and both indexes (`ai_rate_limit_counters_pkey`, `idx_ai_rate_limit_counters_window_start`). RLS enabled, zero policies. Table grants restricted to `postgres`/`service_role` only (no `authenticated`/`anon`). Function `check_and_increment_ai_rate_limit(text, integer, integer)` present, `SECURITY DEFINER` with explicit `search_path=public`; function grants include `anon`/`authenticated` via the schema-wide default-privilege grant — this is the already-known, already-accepted `W1-002` quirk (functionally safe: the function's own `auth.uid() IS NULL` check blocks unauthenticated callers), unchanged from the original deployment, not a new issue.
+
+### Phase D — Live functional recovery (no Edge Function redeploy needed)
+
+All 4 AI Edge Functions tested live via a fresh synthetic account, without redeploying any of them: `ai-assistant-chat` → `200`; `dream-interpreter-chat` → `200`; `dr-niswah-chat` normal message → `200`/`urgent:false`; `dr-niswah-chat` red-flag message → `200`/`urgent:true` (limiter-bypass exemption still correct); `fiqh-advisor-chat` → `200` with the already-known/approved degraded grounding-fallback state. Malformed request → `400`. Unauthenticated request → `401`. Zero credential leakage in any response. This confirms the previously-deployed Edge Function code was already correct — only the database layer needed restoring.
+
+### Phase E — Bounded rate-limiter recheck (zero Gemini cost, direct RPC calls)
+
+Quota enforcement: 3 requests allowed, 4th/5th correctly rejected with real, decreasing `retry_after_seconds`. Identity isolation: a second synthetic user received an independent counter starting at 1. Full synthetic cleanup performed and verified: both test accounts deleted, all counter rows deleted, `ai_rate_limit_counters` count = 0, zero leftover test accounts.
+
+### Phase F — Root-cause investigation (read-only)
+
+Log search via the Management API's `analytics/endpoints/logs.all` endpoint. `ilike` queries against `postgres_logs` consistently returned a generic backend error regardless of time-window narrowing; switched to BigQuery-native `regexp_contains()`, which worked reliably.
+
+- Searched the full incident window (`2026-09-08T00:00:00Z`–`2026-09-09T08:00:00Z`) for any statement mentioning the rate-limit objects: the only matches were this engagement's own already-known prior actions (the original `CREATE TABLE`/`CREATE FUNCTION` at `2026-09-08T07:02:38.308Z`, and the fail-closed `REVOKE`/`GRANT` test at `07:09:05Z`/`07:09:29Z`). Nothing after that.
+- Broadened the search to **any** `DROP` statement (not restricted to these object names) in the narrower window `07:00:00Z`–`08:00:00Z` on 2026-09-08/09: **zero results**. No SQL `DROP` of any kind was logged in that window.
+- Searched instead for recovery/shutdown/checkpoint activity and found a direct, conclusive sequence in `postgres_logs`:
+  - `07:34:47Z`–`07:34:48Z`: routine checkpoint while the database was live and healthy, recorded at LSN `6/97002440` — this is **after** both the migration (`07:02:38Z`) and the fail-closed test (`07:09Z`), confirming the objects were still present in the running instance at this point.
+  - `07:41:32Z`: `"received fast shutdown request"` — the Postgres compute restarted.
+  - `07:41:41Z`: `"database system was interrupted; last known up at 2026-09-07 16:21:15 UTC"`.
+  - `07:41:42Z`: `"starting backup recovery with redo LSN 6/8D000028, checkpoint LSN 6/8D000080, on timeline ID 2"`, immediately followed by `"starting point-in-time recovery to WAL location (LSN) \"6/8E000460\""`.
+  - `07:41:43Z`–`07:41:44Z`: `"redo done at 6/8E000460"`, `"recovery stopping after WAL location (LSN) \"6/8E000460\""`, `"archive recovery complete"`, database ready to accept connections at `07:41:44.478Z`.
+  - A new physical backup completed at `07:44:57.039Z`, 3 minutes after recovery finished.
+  - LSNs compared numerically: recovery stopped at `0x68e000460`, well below the pre-shutdown live LSN `0x697002440` — i.e. the restart did **not** replay to the latest state; it replayed WAL only up to an earlier point in time and stopped there.
+
+**Root-cause classification: `PROBABLE_WITH_EVIDENCE`.** The *mechanism* is directly evidenced from Postgres's own recovery log: a compute restart followed by WAL-archive-based recovery that stopped at an LSN earlier than the migration's own objects (independently confirmed: the objects were absent immediately after this recovery, and present immediately before the `07:41:32Z` shutdown) — an infrastructure-level restart-and-partial-WAL-replay event silently reverted several minutes of production writes without ever issuing a logged `DROP`, which is exactly why the `DROP`-focused search above found nothing. What is **not** established: the external trigger for the `07:41:32Z` restart itself (planned host maintenance, an infra auto-restart, or another platform-level event). An attempt to check the organization-level audit log (`GET /v1/organizations/{id}/audit`) returned `404 — Cannot GET`; that endpoint is not available via the public Management API, and no other accessible source attributes the restart's trigger. Per the charter's own instruction, this is reported honestly as `PROBABLE_WITH_EVIDENCE`, not overclaimed as `CONFIRMED` and not understated as `UNKNOWN`.
+
+**Recurrence risk: structural, not eliminated.** This project has `pitr_enabled: false`. The mechanism observed (restart + partial-WAL-archive recovery) is platform/infrastructure behavior outside this repository's control, and in principle could affect any recent, not-yet-archived write after a future restart — not specifically or only this migration's objects.
+
+### Phase G — Prevention (detection only, no self-healing DB mutation)
+
+Added `scripts/check_ai_rate_limit_objects.sh` — a non-mutating, read-only production health check (single `SELECT` via the Management API) verifying `ai_rate_limit_counters` and `check_and_increment_ai_rate_limit(text,integer,integer)` both exist; exits non-zero with a clear alert message if either is missing. Tested live against production twice: once with an incorrect function signature guess (caught its own false-negative, fixed), then confirmed correct (exit 0, both objects present). Deliberately **not** wired into CI/cron by this session — doing so would require provisioning a new secret/credential, which is explicitly out of this wave's authorized scope; the script is designed for an owner to run manually or wire into their own monitoring with their own credentials. No automatic repair mechanism was built, per explicit instruction.
+
+### Phase H — Status reassessment
+
+Since Phases D/E both fully passed (production service and rate-limiter behavior independently re-verified working), `W1-001`, `AB-002`, `SEC-005`, and `AB-008` are corrected back to `VERIFIED_CLOSED` in `00_04_MASTER_FINDING_REGISTER.md` — the 2026-09-09 regression-and-recovery narrative is preserved in place as incident history, not deleted, per this engagement's standing discipline of never erasing the fact that a production regression occurred.
+
+### Phase I — Documentation
+
+This section; `00_04_MASTER_FINDING_REGISTER.md` (`W1-001`/`AB-002`/`SEC-005`/`AB-008` rows updated); `docs/final-owner-launch-checklist.md` (🔴 URGENT banner updated to reflect resolution). No secrets or sensitive user data recorded anywhere in this documentation.
+
+### Consolidated Report
+
+1. **Backup precheck**: 8 completed physical backups confirmed, most recent `2026-09-08T16:24:55.842Z`.
+2. **Checksum result**: exact match confirmed (`4b346d3f71bfa87509139f81efd802877145032bbe16420b645ce195c99c2639`).
+3. **SQL reapplication result**: `HTTP 201`, `2026-09-09T07:05:22Z`–`07:05:24Z`, isolated to the one authorized file.
+4. **DB object verification**: table, function, indexes, RLS, table/function grants, `SECURITY DEFINER`/`search_path` all independently re-confirmed correct.
+5. **Edge Function versions**: unchanged — no redeploy was necessary or performed.
+6. **Service recovery**: all 4 AI Edge Functions re-verified live (200s, correct urgent-flag behavior, correct 400/401 handling, zero credential leakage).
+7. **Rate-limit result**: quota enforcement and identity isolation both re-confirmed via direct RPC calls.
+8. **Synthetic cleanup**: both test accounts and all counter rows deleted and confirmed gone.
+9. **Root-cause finding**: `PROBABLE_WITH_EVIDENCE` — compute restart (`07:41:32Z`) + WAL-archive point-in-time recovery stopping at an LSN earlier than the migration's objects, directly evidenced in `postgres_logs`; the restart's own external trigger is not attributable via any endpoint this session could reach.
+10. **Recurrence risk**: structural — infra-level behavior outside repo control; `pitr_enabled: false` on this project.
+11. **Prevention/monitoring added**: `scripts/check_ai_rate_limit_objects.sh` (non-mutating, read-only, tested live, exit-code-based alerting), not wired into automatic execution.
+12. **W1-001 final status**: `VERIFIED_CLOSED` (re-remediated 2026-09-09; incident history preserved).
+13. **AB-002/SEC-005/AB-008 statuses**: all `VERIFIED_CLOSED` (re-remediated 2026-09-09; incident history preserved).
+14. **AICTX live-verification unblock status**: unblocked — Phase L's blocker (Wave 53) is resolved; live AICTX verification was explicitly out of scope for this wave and was not performed here.
+15. **Updated overall verdict**: production AI functionality restored; `W1-001` family and the rate-limiting blocker are closed again. Broader production-readiness verdict remains gated on the still-open `AICTX-13` defect and unclosed `AICTX-1/2/3/4/6/7` (Wave 53), unaffected by this recovery wave.
+16. **Final commit SHA**: recorded below after this wave's commit.
+17. **Local == remote verification**: recorded below after this wave's push.
