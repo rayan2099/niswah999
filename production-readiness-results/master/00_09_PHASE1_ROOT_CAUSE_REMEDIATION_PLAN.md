@@ -4680,3 +4680,79 @@ Backup evidence (8 completed physical backups, most recent `2026-09-08T16:24:55.
 15. **Remaining AICTX findings**: unchanged from Wave 53 — `AICTX-1/2/3/4/6/7` open pending live Gemini re-verification (now unblocked by `W1-001`'s recovery, not yet re-run); `AICTX-10/11/12` open as previously scoped; `AICTX-8/9` remain PASS.
 16. **Final commit SHA**: `d3a61101164b3dfdf008fba9e4fe023bdc907de3` (`docs: record AICTX-13 fix design/verification wave (Wave 56), pending authorization`; the fix itself landed in `57d685cf425d89f607f3609d314816fb26d59fe2`).
 17. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `d3a61101164b3dfdf008fba9e4fe023bdc907de3` after `git push origin HEAD:main` and `git fetch origin`.
+
+## 57. AICTX-13 Production Application & Live AI-Context Verification (2026-09-09)
+
+Explicitly authorized: apply the Wave 56 migration to production, redeploy the 4 AI Edge Functions, and complete the live AICTX-13 CRUD + AI-context verification that Wave 56 could not perform without production access. No unrelated migrations, no broad `db push`, no ledger changes, no other table/RLS/credential/backup/W1-001/fiqh-rule changes, no scholar/source/Apple/AU-009/PC-006 work.
+
+### Phase A — Pre-mutation safety check (5/5 passed)
+
+Project ref confirmed; latest completed physical backup confirmed (`2026-09-08T16:24:55.842Z`); migration checksum re-verified exact match; `wellbeing_logs` re-confirmed lacking `notes` immediately before mutation; migration content re-read, confirmed exactly one guarded `ALTER TABLE ... ADD COLUMN IF NOT EXISTS notes TEXT` statement.
+
+### Phase B — Applied
+
+Direct Management API SQL endpoint, isolated to this one file: `2026-09-09T08:34:53Z`–`08:34:54Z`, `HTTP 201`.
+
+### Phase C — Object verification
+
+`notes` column: `text`, nullable, no default — exact match. 31 pre-existing rows intact, all `notes = NULL`. RLS unchanged (same 4 policies). Indexes unchanged (3). Constraints unchanged (6). No unrelated drift.
+
+### Phase D — Edge Function redeploy
+
+`dr-niswah-chat` 12→13, `fiqh-advisor-chat` 6→7, `dream-interpreter-chat` 6→7, `ai-assistant-chat` 6→7 — each individually deployed, each incremented by exactly 1. Confirmed via the full function list that the project has exactly these 4 functions.
+
+### Phase E — Live AICTX-13 CRUD verification
+
+Two synthetic accounts, full battery against production: check-in without note (`201`), with note (`201`), edit (`200`), clear (`200`, `null` correctly overwrites). Cross-user RLS isolation: read/update/delete all correctly denied (0 rows affected/returned each time), A's data directly re-confirmed unchanged after B's attempts. Zero note-text matches in `postgres_logs`/`edge_logs`. Both accounts and all rows deleted, confirmed gone.
+
+### Phase F — Live AI User-State Context verification (bounded real Gemini traffic)
+
+One richer synthetic account seeded with pregnancy (week 20), a bleeding cycle entry with a symptom and its own note, and a wellbeing entry with its own distinct note. Dr Niswah's real reply cited pregnancy week/trimester, both the wellbeing note's and cycle note's substance, the logged symptom, and recommended medical follow-up for the bleeding — one coherent reply drawing on every seeded fact. A red-flag message correctly triggered `urgent: true` combined with pregnancy-week-aware guidance. The General Assistant's real reply correctly cited pregnancy state and **both notes sources merged in one reply** — direct production proof of `mergeNotesSources`. The Fiqh Advisor's context assembly executed without error (`200` ×2) but full content-level proof is blocked by a separate, pre-existing, already-documented grounding-degradation issue (unrelated to this change, confirmed via code read that context assembly runs before that fallback). The Dream Interpreter's context assembly executed without error (`200` ×2); its own system prompt deliberately instructs restrained, non-repeating context use, so the absence of an explicit quote is by design.
+
+### Phase G — Freshness
+
+Mood/energy edit (2/2→4/4) → immediately reflected in a real reply. Both notes cleared → reply's loose "wrote a note" phrasing was directly investigated by executing the real, unmodified `buildUserAiContext` against production at that exact moment — `notes.recent` was genuinely empty, proving no stale/leaked content, only imprecise model paraphrasing of a still-present symptom entry. Pregnancy week changed (20→30) → direct context re-inspection confirmed the update instantly; after two transient, unrelated Gemini-API failures (the function's own existing graceful fallback, not a crash), a third real call correctly reported "week 30... ten weeks remaining."
+
+### Phase H — Cross-AI consistency
+
+Dr Niswah and the General Assistant, called moments apart at the post-change state, both independently reported "week 30" — live, correlated agreement, not merely architectural inference.
+
+### Phase I — Authority / privacy
+
+Confirmed via code: no function accepts a `userId` request-body field (identity is JWT-only); no function persists any AI-inferred fact as app truth (only `dr-niswah-chat` writes post-Gemini, and only to `flagged_conversations`/`chat_messages`, never to state tables). Cross-user isolation and no-log-leakage re-confirmed live in Phase E.
+
+### Phase J — Finding reassessment (individual)
+
+`AICTX-1`, `AICTX-2`, `AICTX-4`, `AICTX-5`, `AICTX-6`, `AICTX-7`, `AICTX-13` → `VERIFIED_CLOSED` with live evidence. `AICTX-3` → substantially verified, not fully closed (blocked by the separate fiqh-advisor grounding issue). `AICTX-8` → re-confirmed `VERIFIED_CLOSED`. `AICTX-9`/`AICTX-10`/`AICTX-11`/`AICTX-12` → unchanged, out of this wave's scope.
+
+### Cleanup
+
+All synthetic accounts from both Phase E and Phase F deleted; a final project-wide sweep (`select count(*) from auth.users where email like '%niswah-internal-test.invalid%'`) confirmed zero remaining.
+
+### Consolidated Report
+
+1. **Backup precheck**: 8 completed physical backups, most recent `2026-09-08T16:24:55.842Z`.
+2. **Migration checksum**: exact match, `c90bdba720211f7f62e6b78fceff19903e69ec53e76adeb19304b66038d92fc7`.
+3. **Production SQL application result**: `HTTP 201`, `2026-09-09T08:34:53Z`–`08:34:54Z`.
+4. **`wellbeing_logs.notes` live schema result**: `text`, nullable, no default; 31 pre-existing rows unaffected; RLS/indexes/constraints unchanged.
+5. **Edge Function versions before/after**: `dr-niswah-chat` 12→13, `fiqh-advisor-chat` 6→7, `dream-interpreter-chat` 6→7, `ai-assistant-chat` 6→7.
+6. **Live wellbeing CRUD result**: insert with/without note, edit, clear — all correct against production.
+7. **AI-context retrieval result**: proven live for Dr Niswah and the General Assistant with real Gemini replies; structurally proven (no error) but not content-proven for the Fiqh Advisor (blocked by a separate grounding issue) and the Dream Interpreter (by-design restrained use).
+8. **Note add/edit/delete freshness**: proven — edit reflected immediately; clear reflected immediately (directly verified via re-executing the real context-assembly code against live data at that moment).
+9. **Pregnancy-context result**: proven, including a live freshness change (week 20→30, reflected immediately, confirmed via both direct code execution and a real Gemini reply).
+10. **Menstrual-context result**: proven (`isCurrentlyBleeding`, `daysIntoCurrentEpisode`, symptom data all correctly reflected in a real reply).
+11. **Fiqh-context result**: context assembly proven to execute correctly; content-level model usage not directly observable this wave due to a separate grounding issue.
+12. **Wellbeing-context result**: proven, including freshness (mood/energy change immediately reflected).
+13. **Symptoms-context result**: proven (a logged cramps symptom correctly surfaced in a real reply).
+14. **Cross-AI consistency result**: proven live — two AI features agreed on the same pregnancy week at the same moment.
+15. **Context freshness result**: proven across wellbeing, notes, and pregnancy state changes — no caching anywhere.
+16. **Privacy/isolation result**: proven live (RLS denies cross-user read/update/delete) and structurally (no `userId` injection surface, no AI-derived state writes, zero log leakage).
+17. **Synthetic cleanup result**: complete — zero leftover synthetic accounts of any kind project-wide.
+18. **AICTX-13 final status**: `VERIFIED_CLOSED`.
+19. **AICTX findings closed**: `AICTX-1`, `AICTX-2`, `AICTX-4`, `AICTX-5`, `AICTX-6`, `AICTX-7`, `AICTX-13` (this wave); `AICTX-8` re-confirmed.
+20. **AICTX findings remaining**: `AICTX-3` (substantially verified, blocked on a separate grounding issue), `AICTX-9` (prompt-level PASS, adversarial testing still pending), `AICTX-10`/`AICTX-11`/`AICTX-12` (unchanged, out of scope).
+21. **Newly discovered findings**: none — the fiqh-advisor grounding fallback is a pre-existing, already-documented state, not a new defect.
+22. **Updated FIQH audit impact**: the AI User-State Context Layer's core deliverable is now live-verified in production for 3 of 4 AI features with real Gemini evidence, not just type-checks/unit tests; the 4th (Fiqh Advisor) is architecturally verified but content-blocked by an unrelated issue.
+23. **Updated production-readiness verdict**: materially improved — the AI context layer is now genuinely live-verified, not merely deployed. Remaining gates unchanged: `DC-010`/`AU-009`/`PC-006` (owner/external/legal-gated), the fiqh-advisor grounding issue (newly load-bearing for `AICTX-3`), and scholar/source review for all fiqh content.
+24. **Final commit SHA**: recorded below after this wave's commit.
+25. **Local == remote verification**: recorded below after this wave's push.
