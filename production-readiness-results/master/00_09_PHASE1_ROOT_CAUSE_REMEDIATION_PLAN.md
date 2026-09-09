@@ -4826,5 +4826,5 @@ All 12 cases in `golden_fiqh_dataset.json` now carry `source_ids` and a `dispute
 24. **Remaining scholar/owner actions**: scholar review of all draft sources/mappings/golden cases; owner billing action for Fiqh Advisor grounding; owner/UX decision on onboarding flow reordering for the suggestion service.
 25. **Final fiqh verdict**: `FIQH CONDITIONAL GO`, unchanged.
 26. **Overall production-readiness impact**: incremental positive — real root-cause and architecture progress on `AICTX-3`/`AICTX-9`, no new blockers introduced, no regression in existing tests.
-27. **Final commit SHA**: recorded below after this wave's commit.
-28. **Local == remote verification**: recorded below after this wave's push.
+27. **Final commit SHA**: `8b80194e44d45f53b8baa8cfa7add3eaf629f69c` (`feat: source governance draft, madhhab suggestion service, fiqh advisor grounding root cause`; the grounding-diagnostic fix itself landed separately in `672b3afca623dafe5a9aa23f1d561765a8e84b14`).
+28. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `8b80194e44d45f53b8baa8cfa7add3eaf629f69c` after `git push origin HEAD:main` and `git fetch origin`.
