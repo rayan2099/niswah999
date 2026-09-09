@@ -4636,5 +4636,5 @@ This section; `00_04_MASTER_FINDING_REGISTER.md` (`W1-001` row — automation ad
 7. **Production mutation risk**: none — confirmed via unchanged row count (`0`) across all three test runs and the check's own request design (table check is a denied `SELECT`; function check errors before any write, confirmed live).
 8. **Remaining recurrence risk**: unchanged from Wave 54 — structural/infrastructure-level (PITR disabled on this project), outside repository control; this wave adds detection, not prevention.
 9. **Owner action required**: none for this wave (no new privileged secret was needed). Still open from Wave 54, unchanged: recommended, not actioned, owner discussion with Supabase support about compute-tier restart/WAL-archival behavior and whether to enable PITR.
-10. **Final commit SHA**: recorded below after this wave's commit.
-11. **Local == remote verification**: recorded below after this wave's push.
+10. **Final commit SHA**: `c80bfe3a3c6f38cdb6e8e1ae48b9a6d1d4431a27` (`docs: record W1-001 automated sentinel wave (Wave 55)`; sentinel script/workflow themselves landed in `99898a4a147f8c3e223e087620c2953f85973bc0`).
+11. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `c80bfe3a3c6f38cdb6e8e1ae48b9a6d1d4431a27` after `git push origin HEAD:main` and `git fetch origin`.
