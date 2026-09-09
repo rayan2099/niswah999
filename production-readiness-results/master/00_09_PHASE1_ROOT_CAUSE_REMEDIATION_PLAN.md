@@ -4585,3 +4585,56 @@ This section; `00_04_MASTER_FINDING_REGISTER.md` (`W1-001`/`AB-002`/`SEC-005`/`A
 15. **Updated overall verdict**: production AI functionality restored; `W1-001` family and the rate-limiting blocker are closed again. Broader production-readiness verdict remains gated on the still-open `AICTX-13` defect and unclosed `AICTX-1/2/3/4/6/7` (Wave 53), unaffected by this recovery wave.
 16. **Final commit SHA**: `5482e341ca6acf5244f4f131e44042167abc84f5` (`fix: recover W1-001 rate limiter after production regression`).
 17. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolve to `5482e341ca6acf5244f4f131e44042167abc84f5` after `git push origin HEAD:main` and `git fetch origin`.
+
+## 55. FOCUSED RESILIENCE WAVE — Production W1-001 Schema Sentinel / Automated Detection (2026-09-09)
+
+Explicitly authorized, narrow-scope wave: wire the existing read-only detection script to run automatically, since Wave 54 closed with it built but not scheduled. No production schema mutation, no PITR change, no backup-configuration change, no W1-001 redeploy, no AICTX/fiqh/Apple/accessibility/legal work — all explicitly out of scope and untouched.
+
+### Phase A — Detection path inventory
+
+Inspected `.github/workflows/` (`ci.yml` — push/PR only, no schedule; `emergency-release.yml`, `routine-release.yml` — manual release builds, unrelated). No scheduled workflow existed anywhere in the repo. No existing monitoring platform, Slack/Discord webhook, or Sentry-to-alert integration was found (`grep -rln "webhook\|slack\|discord" .github/workflows/` — empty). Chose the smallest available mechanism: a new, single-purpose scheduled GitHub Actions workflow calling a shell script — no new monitoring platform introduced.
+
+### Phase B — Auth requirements
+
+The existing `scripts/check_ai_rate_limit_objects.sh` requires a Supabase Management API personal access token — full account-wide privilege, unsuitable for storage in CI (and explicitly not the previously-flagged `cli_login_postgres` credential, which was never considered). Rather than requesting a new privileged secret from the owner, a lower-privilege path was found and verified live against production before being relied on: PostgREST (the project's public REST API) returns **distinct, reliable error codes** for "object missing" vs. "object exists but access is correctly denied" —
+
+- Table missing → `HTTP 404`, `code: PGRST205`; table exists → `HTTP 401`, `code: 42501` (anon has no grant, as designed — the denial itself proves existence).
+- Function missing → `HTTP 404`, `code: PGRST202`; function exists → `HTTP 403`, `code: 28000` ("Not authenticated" — the function's own first check, confirmed by live testing to reject before any table read/write, i.e. non-mutating).
+
+This means the check needs **only the project's public anon/publishable API key** — the same key already shipped inside the compiled app, designed by Supabase to be safe for public exposure (RLS/grants are the real boundary, not this key's secrecy) — not a database password, not a Management API token, not any new privileged credential. No owner secret action was required, so the `W1001_SENTINEL_OWNER_SECRET_ACTION_REQUIRED` stop condition was not triggered. `SUPABASE_URL` and `SUPABASE_ANON_KEY` were stored as plain (non-secret) GitHub Actions **repository variables** — appropriate since neither value is sensitive.
+
+### Phase C — Automated schedule
+
+`.github/workflows/w1001-sentinel.yml`: `schedule: cron "0 * * * *"` (hourly) plus `workflow_dispatch` with optional `override_table_name`/`override_function_name` inputs (used only for testing against deliberately-wrong names, never real production objects). Runs `scripts/w1001_sentinel_check.sh` (new), which exits `0` only if both objects are confirmed present, `1` if either is confirmed missing, `2` if the check is inconclusive (treated as failure, never silently treated as healthy). Never issues a mutating statement. Produces a clear, specific failure reason in the log (which object, which error code). The anon key is passed only via env var, masked in Actions log output via `::add-mask::`, never echoed.
+
+### Phase D — Alert surface
+
+Minimum bar met: a missing object fails the GitHub Actions run, visible in the repo's Actions tab, and covered by GitHub's own default failure-notification behavior (no additional integration required). No existing Slack/Discord/Sentry-alert path was found to reuse, and per explicit instruction no Sentry-to-agent auto-fix or other new alerting platform was built.
+
+### Phase E — Test (real, executed evidence — not production-destructive)
+
+Three real GitHub Actions runs were triggered via `gh workflow run`/`workflow_dispatch` and polled to completion:
+
+1. **Healthy state** (real object names): run `34325624483` → `success` (7s). Confirmed both objects reported `PRESENT` in the log.
+2. **Missing-table simulation** (`W1001_TABLE_NAME` overridden to a nonexistent name): run `34325687685` → `failure`, exit code `1`. Log correctly reported `TABLE ai_rate_limit_counters_DOES_NOT_EXIST: MISSING (HTTP 404, PGRST205 ...)` and the real function still `PRESENT`.
+3. **Missing-function simulation** (`W1001_FUNCTION_NAME` overridden): run `34325738966` → `failure`, exit code `1`. Log correctly reported `FUNCTION check_and_increment_ai_rate_limit_DOES_NOT_EXIST: MISSING (HTTP 404, PGRST202 ...)` and the real table still `PRESENT`.
+4. **No production mutation**: `select count(*) from public.ai_rate_limit_counters` re-checked via the Management API before and after all three runs — `0` both times, unchanged. The real objects were independently re-confirmed still present afterward via `scripts/check_ai_rate_limit_objects.sh`.
+5. **No secret leakage**: all three runs' full logs (`gh run view --log`) searched for a fragment of the anon key — zero matches in any of the three.
+
+### Phase F — Documentation
+
+This section; `00_04_MASTER_FINDING_REGISTER.md` (`W1-001` row — automation addendum appended, `VERIFIED_CLOSED` status and existing incident history left untouched, nothing altered or deleted); `docs/final-owner-launch-checklist.md` (🟢 RESOLVED banner updated to note detection is now automated). No secrets or sensitive user data recorded anywhere in this documentation — the anon key referenced above is public by design and not treated as a secret in this record either.
+
+### Consolidated Report
+
+1. **Automated detection architecture**: hourly-scheduled GitHub Actions workflow (`w1001-sentinel.yml`) running a new PostgREST-based script (`w1001_sentinel_check.sh`) that distinguishes missing vs. present via distinct PostgREST error codes.
+2. **Credential requirement**: none privileged — only the project's already-public anon/publishable API key, stored as a plain (non-secret) repo variable. No owner secret action was required.
+3. **Schedule/cadence**: `cron "0 * * * *"` (hourly) plus on-demand `workflow_dispatch`.
+4. **Healthy-path test result**: real run `34325624483` → `success`.
+5. **Simulated-failure test result**: real runs `34325687685` (missing table) and `34325738966` (missing function) → both `failure`, correct diagnosis in each log.
+6. **Alerting result**: failed GitHub Actions run is the alert surface (Actions tab + GitHub's default failure notifications); no new alerting platform built.
+7. **Production mutation risk**: none — confirmed via unchanged row count (`0`) across all three test runs and the check's own request design (table check is a denied `SELECT`; function check errors before any write, confirmed live).
+8. **Remaining recurrence risk**: unchanged from Wave 54 — structural/infrastructure-level (PITR disabled on this project), outside repository control; this wave adds detection, not prevention.
+9. **Owner action required**: none for this wave (no new privileged secret was needed). Still open from Wave 54, unchanged: recommended, not actioned, owner discussion with Supabase support about compute-tier restart/WAL-archival behavior and whether to enable PITR.
+10. **Final commit SHA**: recorded below after this wave's commit.
+11. **Local == remote verification**: recorded below after this wave's push.
