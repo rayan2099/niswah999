@@ -102,6 +102,10 @@ See **AU-009 Handoff** below. Best done using the real signed builds produced in
 
 See **PC-006 Handoff** below. No technical dependency on anything above — can happen in parallel with any other step, including by someone other than whoever executes the technical steps.
 
+## Step 13 — Fiqh Engine & AI Context remediation (new, 2026-09-09) — before Final Journey audit
+
+See **Fiqh Engine & AI Context Handoff** below. A new, specialized, mandatory audit (`FIQH_ENGINE_ACCURACY_AUDIT_MASTER.md`) found the fiqh calculation engine itself sound (deterministic, no cross-madhhab mixing, real boundary tests) but found that none of the app's 4 AI features receive adequate awareness of the user's actual tracked state (pregnancy, cycle, fiqh classification, wellbeing, notes) — one AI feature (the General Assistant) receives none at all. Verdict: `FIQH CONDITIONAL GO`. Registered as mandatory before the Final Pre-Launch User Journey audit.
+
 ---
 
 # Handoff packages
@@ -245,6 +249,20 @@ Concise physical-device script — critical journeys only, not exhaustive:
 
 **What would need to change only if the determination differs from current behavior**: if counsel determines a specific retention period is legally required, that would need a new, explicit deletion-scheduling mechanism (does not exist today — correctly not invented without a real requirement to build against). If counsel determines additional data categories must be exportable/deletable, the already-redesigned per-section export architecture can be extended without a full redesign. **No engineering work is being reopened speculatively** — only exactly what counsel's determination requires, once known.
 
+## Fiqh Engine & AI Context Handoff (new, 2026-09-09)
+
+Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md`, `FIQH_AICTX_findings.md`, `golden_fiqh_dataset.json`. Charter: `production-readiness/MDs/FIQH_ENGINE_ACCURACY_AUDIT_MASTER.md`.
+
+**The fiqh calculation engine itself is sound**: deterministic, no cross-madhhab mixing, real pre-existing and newly-added boundary-test coverage (22 total boundary-relevant test assertions, all passing against real code). Zero `FIQH-0` findings — no evidence of a materially incorrect worship ruling reachable by a real user. One safe fix was made this pass: a dead, unreachable, duplicate fiqh calculator containing an unsourced approximation was found and removed.
+
+**The real gap is AI user-state context**: none of the app's 4 AI features (Dr Niswah, the General Assistant, the Fiqh Advisor, the Dream Interpreter) has a shared, structured awareness of the user's actual current state. The General Assistant receives **zero** context of any kind — not even a database query. Dr Niswah only knows pregnancy status. The Fiqh Advisor only knows the selected madhhab. A real, existing wellbeing-tracking feature (mood/energy/sleep) and existing user notes are never read by any AI at all, even though both are already retrievable elsewhere in the app for other purposes. Zero `AICTX-0` findings — no cross-user data leakage, and every AI feature's prompt-level design already correctly declines to override the deterministic fiqh engine or assert certainty with missing facts. But 7 open `AICTX-1`/`AICTX-2` findings document a genuine, systemic product gap.
+
+**Two things only you can authorize/provide**:
+1. **A remediation wave to build the AI User-State Context Layer** — a real, multi-file engineering project (touching all 4 Edge Functions and their client call sites) that would close 5 of the 7 open findings at once, since the underlying data already exists and is already correctly privacy-isolated; only the assembly and wiring is missing. Not attempted this pass without your explicit go-ahead, consistent with how every other production-facing change in this engagement has been handled.
+2. **Qualified Islamic scholar/domain review** — genuinely outside this engagement's engineering capability. Every fiqh boundary value, the golden test dataset, and all user-facing religious wording remain `NOT_REVIEWED`. This is explicitly not something an engineering pass can substitute for or claim on your behalf.
+
+**Verdict for this audit: `FIQH CONDITIONAL GO`.** Registered as mandatory before the Final Pre-Launch User Journey audit — that audit's fiqh-sensitive and AI-chat journeys should not be treated as fully validated until at least the AI context layer gap is addressed.
+
 ## Fiqh Grounding Degradation — Classification
 
 **Current behavior, confirmed and unchanged across every wave that checked it**: when Google's Search-grounding quota/billing condition triggers, the app fails safely — no silent ungrounded religious answer is ever produced; the degraded state is visible and handled, not hidden.
@@ -268,6 +286,8 @@ Concise physical-device script — critical journeys only, not exhaustive:
 **`OB-006` is now also `VERIFIED_CLOSED`** (2026-09-09, OB-006 Owner Confirmation wave): you opened the Sentry dashboard directly and confirmed the staging verification event genuinely exists server-side — Sentry issue `FLUTTER-2`, event ID beginning `10b520e6...`, `environment: staging`, event count `1`, visibly present in Sentry itself, not merely accepted locally by the SDK. This is exactly `OB-006`'s own native closure bar ("appears in the chosen tool"), now directly satisfied. See the **OB-006 Handoff** above and `00_09` §51 for full evidence.
 
 **What still holds the verdict at NO-GO**: every remaining item (`DC-010`, `AU-009`, `PC-006`) is independently owner/external/platform/legal-gated, unrelated to backup/recovery/credential/rate-limiting/rollback/release/observability safety. **Practically**: with `BR-001`, `RD-009`, `RD-006`, and now `OB-006` all closed and the restore-project cleanup complete, this engagement has no remaining BR0/RD1/OB1-critical technical finding open anywhere and no lingering cleanup items — everything left is `DC-010`/`AU-009`/`PC-006`, each independently gated on your action, external platform access, or counsel, not on further engineering or verification work.
+
+**A new specialized audit was added and run (2026-09-09): Fiqh Engine Accuracy & AI User-State Context.** Verdict `FIQH CONDITIONAL GO` — the fiqh calculation engine itself is sound and deterministic with zero `FIQH-0` findings, but a real, systemic gap was found and documented: none of the app's 4 AI features has adequate awareness of the user's actual tracked state (one, the General Assistant, has none at all). Zero `AICTX-0` findings (no cross-user leakage, no AI overriding deterministic state), but 7 open `AICTX-1`/`AICTX-2` findings remain. This audit is registered as mandatory before the Final Pre-Launch User Journey audit and does not by itself change the technical NO-GO (already held by `DC-010`/`AU-009`/`PC-006`), but adds a real, tracked precondition to that next step. See **Fiqh Engine & AI Context Handoff** above.
 
 ---
 

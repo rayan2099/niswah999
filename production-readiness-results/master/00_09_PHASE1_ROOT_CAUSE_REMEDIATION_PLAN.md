@@ -4322,3 +4322,116 @@ No Flutter/Dart application code changed this wave — a documentation-only clos
 4. **Updated overall verdict**: **NO-GO** (unchanged) — narrowed further; every remaining item is independently owner/external/legal-gated.
 5. **Final commit SHA**: recorded in this wave's own git history (documentation-only commit).
 6. **Local == remote verification**: confirmed at this wave's push.
+
+---
+
+## 52. Fiqh Engine Accuracy & AI User-State Context Audit (2026-09-09)
+
+Explicitly authorized: a new, specialized, mandatory production-readiness phase — the Fiqh Engine Accuracy & AI User-State Context Audit, per `production-readiness/MDs/FIQH_ENGINE_ACCURACY_AUDIT_MASTER.md`, registered as mandatory before `FINAL_PRELAUNCH_USER_JOURNEY_AUDIT`. Full evidence lives in `production-readiness-results/fiqh-engine/` (`FIQH_AICTX_discovery.md`, `FIQH_AICTX_findings.md`, `golden_fiqh_dataset.json`) — this section summarizes and cross-references rather than duplicating.
+
+### Phase 0 — Registration
+
+Added as Wave 4.5 in `00_03_AUDIT_EXECUTION_PLAN.md` (gating Wave 5, the Final Journey audit) and as a new mandatory row in `00_02_AUDIT_APPLICABILITY_MATRIX.md`. Explicitly not classified as passed before real execution.
+
+### Phase 1 — Discovery
+
+Full inventory in `FIQH_AICTX_discovery.md`. Production fiqh path: `MadhhabRuleEvaluator` (pure, deterministic rule application) composed by `CycleStatusEngine` (episode-boundary detection + dashboard snapshot) and independently, again, by `FiqhReportInsightsEngine` (Fiqh Report PDF) — the latter duplication is `FIQH-5`. A second, dead fiqh calculator (`FiqhCalculationEngine`) was found and confirmed unreachable in production via exhaustive `grep`. Four AI features inventoried in full (`dr-niswah-chat`, `ai-assistant-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`) — every Edge Function read in its entirety, every client call site traced to confirm exactly what's sent.
+
+### Phase 2 — Rule/Source Inventory
+
+Four-madhhab matrix built directly from `madhhab_rule_evaluator.dart` (Hanafi 72h-240h + 15-day purity; Shafi'i/Hanbali 24h-15 days; Maliki 24h-15 days + personal-habit tracking). **Every single production constant is `SOURCE_MISSING`** — zero `source_id`, authority/work, or citation anywhere in the codebase (confirmed via targeted `grep` for source-adjacent keywords near every constant — zero matches). No silent cross-madhhab mixing found — each madhhab's values are selected via explicit branching. Cross-checked the dead engine's numbers too: Hanafi/Shafi'i/Hanbali agree numerically once unit-converted; Maliki does not (the dead engine's Maliki logic was a self-admitted arbitrary approximation, not real habit tracking).
+
+### Phase 3 — Calculation Validation
+
+Real, pre-existing boundary-test coverage confirmed by direct read of `test/services/multi_madhhab_engine_test.dart`: exact-minimum, one-below, exact-maximum, one-above for all four madhahib, plus Hanafi's 15-day purity boundary and a dedicated Maliki personal-habit test. A new 12-case golden dataset was built (`golden_fiqh_dataset.json`) and **independently verified against the real production engine via a new automated test** (`test/services/golden_fiqh_dataset_test.dart`) — run for real: 11 test groups, all passing, confirming the dataset's expected values are genuinely traceable to current code behavior, not invented. FACT/CALCULATED-CLASSIFICATION/PREDICTION/RELIGIOUS-IMPLICATION separation confirmed structurally sound in the fiqh advisor's own system prompt ("clearly distinguish factual tracking data from a religious ruling").
+
+### Phase 4 — State Machine Validation
+
+Production `FiqhCycleState` (`insufficientHistory`/`tahara`/`haid`/`needsAdvisory`) mapped against the charter's fuller suggested set. Direct matches for `TUHR`/`HAYD`/`UNKNOWN`. No distinct `ISTIHADA` state exists — collapses into `needsAdvisory` (fails safe, loses precision — `FIQH-6`). `NIFAS`/pregnancy-related state is handled by a structurally separate engine (`PregnancyStatusEngine`), prioritized ahead of cycle-state logic in report generation — a deliberate architectural choice, not obviously wrong, but means "the fiqh state machine" is really two composed machines. Confirmed by direct code read: no transition depends on AI interpretation anywhere — the evaluator is a pure function of deterministic inputs.
+
+### Phase 5 — AI User-State Context Audit (mandatory)
+
+The core finding of this entire audit. Read all 4 Edge Functions in full:
+
+- **`ai-assistant-chat`** (General Assistant): zero context of any kind — not even a DB query beyond `auth.getUser()`. Direct match to the charter's own worked example of what must not happen.
+- **`dr-niswah-chat`** (Dr Niswah): only `pregnancy_profile` fields. Zero cycle/fiqh/madhhab/wellbeing/notes awareness.
+- **`fiqh-advisor-chat`** (Fiqh Advisor): only a `madhhab` label (confirmed read live at call time, not cached). Zero deterministic-engine output. Genuinely strong, deliberate prompt-level safety design partially compensates: explicit refusal to "infer a ruling from cycle arithmetic alone," explicit escalation to a qualified scholar for pregnancy/nifas/irregular-habit/retrospective-obligation cases.
+- **`dream-interpreter-chat`**: zero context. Lowest materiality of the four given its domain.
+
+**No shared context-assembly layer exists anywhere** — confirmed by exhaustive search for any structured user-state object, `context_version` field, or shared builder module in either `lib/` or `supabase/functions/`. This is the root-cause finding (`AICTX-5`) behind six of the seven open `AICTX` items.
+
+### Phase 6 — Notes/Wellbeing Context
+
+`wellbeing_logs` (mood/energy/sleep, real table, real dedicated feature with its own repository/insights engine) confirmed to exist and confirmed, via `grep -rn "wellbeing" supabase/functions/`, to be read by **zero** AI features. User notes (`cycle_entries.notes`) confirmed to exist, confirmed already retrieved for a non-AI consumer (`CycleSymptomDecoder.recentNotes()`, feeding the Fiqh Report PDF), confirmed read by **zero** AI features. Both are concrete, direct violations of the charter's explicit required-domain list.
+
+### Phase 7 — AI Authority Boundaries
+
+Read all four system prompts in full. **Genuinely strong design, a real positive finding (`AICTX-9`)**: none of the four claims authority to override the deterministic fiqh engine, choose a madhhab, fabricate a source, or assert certainty with missing facts. The fiqh advisor's scholar-escalation design is the standout example. Explicitly caveated: this is static prompt-review evidence (Master Evidence Hierarchy tier 3), not live adversarial-testing evidence (tier 1) — no live Gemini calls were made this pass.
+
+### Phase 8 — Madhhab Switching
+
+`MadhhabController` confirmed wired into the dashboard's reactive `Listenable.merge([...])` — a madhhab change triggers immediate recomputation, not a stale cache. `fiqh-advisor-chat`'s client caller confirmed to read the live selected madhhab at send time. Raw `cycle_entries` rows carry no madhhab field, so the "raw observations never change when madhhab changes" invariant holds structurally. **Not verified this pass**: a live, all-12-directional-switch UI test — recorded as an open item, not claimed as tested.
+
+### Phase 9 — Golden Fiqh Dataset
+
+12 cases in `golden_fiqh_dataset.json`, covering the charter's required categories (normal, exact-min/max boundaries, one-unit-below/above, insufficient history, changed habit, purity boundary, tahara, madhhab-difference on identical facts, nifas architectural-boundary documentation, deliberately ambiguous). Every `review_status: NOT_REVIEWED`. Independently verified against real code via a new automated test, all passing.
+
+### Phase 10 — Findings
+
+Full register in `FIQH_AICTX_findings.md`. **6 `FIQH` findings** (`FIQH-1` remediated this wave; `FIQH-2` through `FIQH-6` open, all `FIQH-1`/`FIQH-2` severity, zero `FIQH-0`). **9 `AICTX` findings** (7 open, all `AICTX-1`/`AICTX-2` severity, zero `AICTX-0`; 2 genuine PASS findings — `AICTX-8` user isolation, `AICTX-9` prompt-level authority boundaries — recorded honestly rather than only reporting negatives).
+
+### Phase 11 — Remediation
+
+Deliberately scoped to the one safe, mechanical fix per the charter's own "do not remediate everything blindly in one pass" instruction: **`FIQH-1` remediated** — removed the dead, unreachable `FiqhCalculationEngine` (`lib/core/services/fiqh_calculation_engine.dart`) and its dedicated test (`test/calculation_engine_test.dart`), after confirming via exhaustive `grep` that nothing else referenced it. All other findings left `OPEN`, explicitly prioritized for a future, separately-authorized wave (the AI User-State Context Layer buildout first, since it closes five findings at once and the underlying data already exists and is already correctly isolated — only assembly/wiring is missing).
+
+### Phase 12 — Scholar Review Gate
+
+Explicitly tracked, not glossed over: source hierarchy, the madhhab rule matrix, Maliki's habit-tracking design, the collapsed `needsAdvisory` state, all 12 golden-dataset cases, and all user-facing religious wording are `NOT_REVIEWED` by a qualified scholar. This audit claims only what real code evidence supports (determinism, no cross-madhhab mixing, no AI-driven state transitions, real boundary-test coverage, prompt-level authority-boundary design) and explicitly does not and cannot claim religious correctness.
+
+### Testing
+
+Full suite re-run: same 8 pre-existing golden-image parity diffs (unaffected by this wave's changes — none are UI/rendering code), zero new failures. `dart analyze lib/`: 24 issues, below the 27-issue baseline (dead code removed), zero new errors. 11 new golden-dataset test assertions added and passing, independently confirming the golden dataset's fidelity to production code.
+
+### Owner/scholar actions required
+
+(1) Authorize the AI User-State Context Layer remediation wave (the primary open item). (2) Engage a qualified Islamic scholar/domain reviewer for the Scholar Review Gate items listed above — genuinely outside this engagement's engineering capability. (3) Decide on `FIQH-4`'s prayer/fiqh-state linkage design (a product decision, not purely technical). (4) Every other standing owner-gated item from prior waves (`DC-010`, `AU-009`, `PC-006`) remains outstanding and untouched by this wave.
+
+**Fiqh audit verdict: `FIQH CONDITIONAL GO`** — zero `FIQH-0`/`AICTX-0`, core engine sound and deterministic, but real open `FIQH-1`/`AICTX-1` findings remain, most materially the absent AI context layer and absent source governance; full closure requires both a future remediation wave and qualified scholar review. **Explicitly not yet satisfied as the Phase-0-mandated precondition for `FINAL_PRELAUNCH_USER_JOURNEY_AUDIT`.**
+
+**Overall production-readiness verdict remains NO-GO** — unchanged in kind (still gated on `DC-010`/`AU-009`/`PC-006`), now additionally carrying two new, real, non-blocking-but-tracked finding categories that should be addressed before the fiqh-sensitive and AI-chat journeys within the Final Pre-Launch User Journey audit are considered meaningfully validated.
+
+## Consolidated Report — Fiqh Engine Accuracy & AI User-State Context Audit
+
+1. **Total fiqh rules discovered**: 4 (haid minimum, haid maximum, minimum purity, Maliki personal-habit tracking) across the production evaluator, each applied per-madhhab.
+2. **Rules by madhhab**: Hanafi (72h min / 240h max / 15-day purity), Maliki (24h min / 15-day max / habit-tracking), Shafi'i (24h min / 15-day max), Hanbali (24h min / 15-day max, same branch as Shafi'i).
+3. **Source-mapped rule count**: 0.
+4. **Source-missing rule count**: all of them (4 rules × 4 madhhab applications).
+5. **Calculations audited**: the full `MadhhabRuleEvaluator.evaluate()` decision tree (minimum/maximum haid, Hanafi purity gate, state selection).
+6. **Calculation defects found**: 0 in the production path (the dead engine's Maliki approximation is not production-reachable, so not counted as a live calculation defect).
+7. **Boundary tests executed**: 11 pre-existing (multi-madhhab engine test) + 11 new (golden dataset test) = 22 total boundary-relevant test assertions, all passing.
+8. **State-transition tests executed**: covered via the same boundary tests (each asserts a specific `FiqhCycleState` transition) plus `cycle_status_engine_test.dart` (pre-existing, not re-audited line-by-line this pass but confirmed present).
+9. **Madhhab contamination result**: none found — explicit branching confirmed, no blending.
+10. **Madhhab-switching result**: reactive recomputation confirmed structurally (dashboard + fiqh advisor call site); full 12-directional live UI test not performed this pass.
+11. **AI features discovered**: 4 (`dr-niswah-chat`, `ai-assistant-chat`, `fiqh-advisor-chat`, `dream-interpreter-chat`).
+12. **User-context coverage by AI**: Dr Niswah — pregnancy only; General Assistant — none; Fiqh Advisor — madhhab label only; Dream Interpreter — none.
+13. **Pregnancy-context result**: available to 1 of 4 AI features (Dr Niswah).
+14. **Menstrual-context result**: available to 0 of 4 AI features.
+15. **Fiqh-context result**: available to 0 of 4 AI features (madhhab label only, to 1 of 4).
+16. **Wellbeing/psychological-context result**: available to 0 of 4 AI features (data exists, unused).
+17. **Notes-context result**: available to 0 of 4 AI features (data exists, unused).
+18. **Context freshness result**: what little context exists (pregnancy for Dr Niswah, madhhab for Fiqh Advisor) is confirmed recomputed fresh on every call, not cached/stale.
+19. **Cross-AI consistency result**: no shared context layer exists; no structural guarantee of consistency; no live contradiction actually captured this pass (would require live Gemini testing not performed).
+20. **Context isolation/privacy result**: **PASS** — every Edge Function scopes queries through an RLS-enforced, JWT-derived client; no cross-user leakage found.
+21. **Deterministic-state authority result**: **PASS** at the prompt-design level for all 4 AI features — none claims override authority; not independently verified via live testing.
+22. **Golden dataset count**: 12 cases.
+23. **Scholar-reviewed case count**: 0.
+24. **Open FIQH-0**: 0.
+25. **Open FIQH-1**: 1 (`FIQH-2`, source-governance gap).
+26. **Open AICTX-0**: 0.
+27. **Open AICTX-1**: 6 (`AICTX-1`, `AICTX-2`, `AICTX-3`, `AICTX-5`, `AICTX-6`, `AICTX-7`).
+28. **Remaining engineering actions**: build the AI User-State Context Layer; wire wellbeing/notes/cycle-state into the relevant AI features; resolve the dead `fiqh_state` DB column; extract the duplicated episode-boundary logic; design a distinct `ISTIHADA` state; design prayer/fiqh-state linkage.
+29. **Remaining scholar/owner actions**: qualified review of source hierarchy, the rule matrix, the golden dataset, and all user-facing religious wording; product decision on prayer/fiqh linkage; authorization for the context-layer remediation wave.
+30. **Final verdict**: **`FIQH CONDITIONAL GO`**.
+31. **Overall production-readiness impact**: adds two new, real, tracked, non-`0`-severity finding categories; does not by itself change the existing overall `NO-GO` (already held by `DC-010`/`AU-009`/`PC-006`), but is registered as mandatory-before-Final-Journey per the charter's own Phase 0 instruction.
+32. **Final commit SHA**: recorded in this wave's own git history.
+33. **Local == remote verification**: recorded in this wave's own git history.

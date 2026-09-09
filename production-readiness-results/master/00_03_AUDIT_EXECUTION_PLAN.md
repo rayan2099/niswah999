@@ -40,8 +40,15 @@ Findings use each domain's native prefix (SEC, FQ, CQ, DI, AB, PF, RR, OB, PC, A
 - Accessibility & UX → `AU-xxx`
 - Analytics & Business Events → `AE-xxx` (must independently confirm or refute provisional N/A lean)
 
+### Wave 4.5 — Fiqh Engine Accuracy & AI User-State Context (added 2026-09-09, MANDATORY, gates Wave 5)
+- Fiqh Engine Accuracy & AI User-State Context Audit → `FIQH-xxx` (engine/rule/calculation/state-machine) / `AICTX-xxx` (AI context assembly/freshness/isolation/consistency)
+- Charter: `production-readiness/MDs/FIQH_ENGINE_ACCURACY_AUDIT_MASTER.md`
+- **Explicitly mandatory before Wave 5 (Final Pre-Launch User Journey)** — the fiqh-sensitive and AI-chat journeys `PJ-xxx` must validate cannot be meaningfully assessed until this audit's engine-correctness and AI-context findings are known; a `FIQH-0`/`AICTX-0` finding here would directly invalidate any `PJ-xxx` pass on the same journeys.
+- Results location: `production-readiness-results/fiqh-engine/`
+- Not classified PASSED before real execution (per explicit charter instruction) — status tracked live in `00_04_MASTER_FINDING_REGISTER.md`.
+
 ### Wave 5 — Final Cross-System Validation
-- Final Pre-Launch User Journey → `PJ-xxx` (only after Waves 1–4 evidence is sufficiently complete; reconciles UI → Supabase API → DB → Edge Function/AI provider → Notification → Observability for each critical journey)
+- Final Pre-Launch User Journey → `PJ-xxx` (only after Waves 1–4.5 evidence is sufficiently complete; reconciles UI → Supabase API → DB → Edge Function/AI provider → Notification → Observability for each critical journey, including fiqh-sensitive and AI-context-dependent journeys per Wave 4.5's findings)
 
 ### Wave 6 — Launch Operations
 - Post-Launch Monitoring plan (authored against master §§16.6/38/49/50 due to missing dedicated template — see `00_02_AUDIT_APPLICABILITY_MATRIX.md`) → `PL-xxx`
