@@ -878,12 +878,13 @@ class _AuthSheetState extends State<_AuthSheet> {
           ),
         ),
         child: _loading
-            ? const SizedBox(
+            ? SizedBox(
                 width: 22,
                 height: 22,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.4,
                   color: Colors.white,
+                  semanticsLabel: _tr('Loading', 'جارٍ التحميل'),
                 ),
               )
             : Text(
@@ -973,10 +974,13 @@ class _AuthSheetState extends State<_AuthSheet> {
       child: TextButton(
         onPressed: _loading ? null : _resendEmailConfirmation,
         child: _loading
-            ? const SizedBox(
+            ? SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  semanticsLabel: _tr('Loading', 'جارٍ التحميل'),
+                ),
               )
             : Text(_tr('Resend email', 'إعادة إرسال البريد')),
       ),
@@ -1144,12 +1148,13 @@ class _AuthSheetState extends State<_AuthSheet> {
           ),
         ),
         child: _loading
-            ? const SizedBox(
+            ? SizedBox(
                 width: 22,
                 height: 22,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.4,
                   color: Colors.white,
+                  semanticsLabel: _tr('Loading', 'جارٍ التحميل'),
                 ),
               )
             : Text(

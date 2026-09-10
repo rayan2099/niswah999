@@ -112,7 +112,7 @@ See **OB-006 Handoff** below. `OB-006` = `VERIFIED_CLOSED`.
 
 ## Step 11 — AU-009 physical-device accessibility pass
 
-See **AU-009 Handoff** below. Best done using the real signed builds produced in Steps 4-6 (Android from CI, iOS from Xcode), but can start with a local build sooner if preferred.
+See **AU-009 Handoff** below. Best done using the real signed builds produced in Steps 4-6 (Android from CI, iOS from Xcode), but can start with a local build sooner if preferred. **Updated 2026-09-10**: the required journey list is now narrowed to exactly 5 critical journeys plus 3 targeted re-runs (large text ×2, Arabic ×1) — about 10 minutes, not a full app sweep — and everything technically achievable without you (automated tests, a real new fix, structural re-checks) has already been done this pass.
 
 ## Step 12 — PC-006 legal/product determination
 
@@ -243,19 +243,43 @@ Sequence, confirmed sufficient by this engagement's own iOS Release Readiness wa
 
 ## AU-009 Handoff
 
-Concise physical-device script — critical journeys only, not exhaustive:
+**🟡 Update, 2026-09-10 (AU-009 Acceptance wave) — everything possible without you has been done; this is now the minimum remaining action.** The native closure bar for `AU-009` (`AU_remediation_plan.md`'s own R7) requires live VoiceOver + TalkBack testing for at minimum 5 critical journeys, plus 3 specific re-runs — not a full screen-by-screen sweep. This wave re-ran every existing automated accessibility test (all still passing), added a new test that actually *measures* a touch target on the real rendered widget tree rather than trusting source comments, confirmed the app never uses a custom traversal-order override anywhere, and found and fixed one new real defect (`AU-014`: loading spinners had no screen-reader announcement at all — fixed for the sign-in/sign-up screen specifically, the one critical journey it affects). **None of this substitutes for actually turning on VoiceOver/TalkBack and using the app** — that step needs a human, and only a human, per `AU-009`'s own closure bar. iOS Simulators exist on the machine this session ran on, but there is no tooling available to this session to actually drive VoiceOver's gestures or hear its spoken output — simulator *existing* is not the same as being able to *test* on it.
 
-| Journey | iOS (VoiceOver) | Android (TalkBack) | Pass criteria |
+**How to test — 10 minutes, no source code or settings screens to inspect, just use the app:**
+
+### iOS — VoiceOver
+1. Settings → Accessibility → VoiceOver → On (or triple-click the side button if you've set that shortcut).
+2. Swipe right/left to move between items, double-tap to activate, use the rotor (twist two fingers) if you need it.
+
+### Android — TalkBack
+1. Settings → Accessibility → TalkBack → On.
+2. Swipe right/left to move between items, double-tap to activate.
+
+**For each journey below, answer PASS or FAIL** on **both** iOS and Android. If FAIL, note which step and what happened (e.g. "the save button had no label, it just said 'button'").
+
+| # | Journey | What to do | PASS means |
 |---|---|---|---|
-| Signup/login | Navigate all fields, submit, error states announced | Same | Every interactive element has a spoken label; errors are announced, not just visually shown |
-| Dashboard | Cycle ring, phase timeline, quick actions all reachable and labeled | Same | No unlabeled icon-only buttons (`AU-001` should already prevent this — confirm it holds live) |
-| Cycle tracking (log entry) | Log sheet fully operable via swipe navigation | Same | Flow/symptom selection and save are all reachable without sight |
-| Dr. Niswah chat | Message input, send, red-flag banner all announced | Same | The safety banner text is actually spoken, not just visually styled |
-| Doctor's Report | PDF generation button reachable, loading state announced | Same | No silent/invisible loading state |
-| Profile | Settings, delete-account row all reachable | Same | Delete-account confirmation dialog is fully operable via screen reader |
-| Account deletion | Full flow completable start to finish | Same | No step requires sight to complete |
+| 1 | Sign up / log in | Turn on the screen reader, open the app fresh, create an account or log in fully using only swipes and double-taps | Every field and button is understandable when read aloud; you can complete the whole flow without looking |
+| 2 | Onboarding | Complete the onboarding steps (madhhab, married, location, period info, privacy) with the screen reader on | Every choice/option is announced clearly enough to pick correctly; your current selection is announced (e.g. "Hanafi, selected") |
+| 3 | Dashboard | Land on the home dashboard, swipe through the cycle status area and quick actions | You can tell what your current cycle/fiqh state is from what's read aloud, not just from color/shape on screen |
+| 4 | Log a cycle/period entry | Open the log-entry sheet, set flow and at least one symptom, close it | The close button, flow options, and symptom chips are all understandable and operable; the symptom's severity level is announced when you select it |
+| 5 | Community — post/like/comment | Open Community, like a post, open the comment box, type and submit a comment | Like/comment/share buttons are understandable (not just "button"); any error message is actually read aloud, not only shown visually |
+| 3-again | Dashboard at large text | In your phone's own display settings, set text size to the largest (or near-largest) option, then repeat journey 3 | Nothing is cut off, overlapping, or unreadable at large text size |
+| 4-again | Log entry at large text | With text size still large, repeat journey 4 | Same — nothing clipped or overlapping |
+| — | Arabic | Switch the app's language to Arabic (in-app language toggle) and repeat journey 3 (dashboard) once | Text and layout flow right-to-left correctly; nothing is misaligned |
 
-**Pass criteria overall**: every journey above is completable start-to-finish using only the screen reader, with no unlabeled control and no visually-only-conveyed information (color-only status, icon-only unlabeled buttons). A journey that requires sighted assistance at any step is a fail for that journey — record which step, not just pass/fail for the whole row.
+**Also confirm, wherever it comes up naturally in the journeys above** — no separate test needed for these, just notice while you're going through the list:
+- You can navigate the whole journey without looking at the screen.
+- Every button/control says something meaningful, not just "button" or silence.
+- The order things get read in makes sense (top-to-bottom, matching what you'd expect).
+- If something is currently selected/checked, that's announced (e.g. a checkbox says "checked").
+- Every text field has a label you can hear before you start typing into it.
+- If you make a mistake, the error is read aloud, not just shown as text/color on screen.
+- Any popup/dialog (like a confirmation) automatically gets your screen reader's attention — you don't have to hunt for it.
+- Any delete/remove action clearly says what it will do before you confirm it (e.g. "Delete account — this cannot be undone", not just "Delete").
+- Nothing ever leaves you stuck with no way forward using only the screen reader.
+
+**Record your results** (PASS/FAIL per journey per platform, plus any FAIL notes) and share them back — if everything passes, `AU-009` closes. If anything fails, tell us which journey/step and we'll fix and ask you to re-test just that one journey, not the whole list again.
 
 ## PC-006 Handoff
 

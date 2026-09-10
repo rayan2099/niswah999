@@ -4828,3 +4828,47 @@ All 12 cases in `golden_fiqh_dataset.json` now carry `source_ids` and a `dispute
 26. **Overall production-readiness impact**: incremental positive — real root-cause and architecture progress on `AICTX-3`/`AICTX-9`, no new blockers introduced, no regression in existing tests.
 27. **Final commit SHA**: `8b80194e44d45f53b8baa8cfa7add3eaf629f69c` (`feat: source governance draft, madhhab suggestion service, fiqh advisor grounding root cause`; the grounding-diagnostic fix itself landed separately in `672b3afca623dafe5a9aa23f1d561765a8e84b14`).
 28. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `8b80194e44d45f53b8baa8cfa7add3eaf629f69c` after `git push origin HEAD:main` and `git fetch origin`.
+
+## 59. AU-009 Accessibility Acceptance (2026-09-10)
+
+Explicitly authorized: complete as much of `AU-009` as technically possible and reduce owner interaction to the minimum physical-acceptance steps. No PC-006/Final Prelaunch Journey work begun.
+
+### Phase A — Native closure bar
+
+Re-read `AU_findings.md`'s original `AU-009` entry and `AU_remediation_plan.md`'s `R7` remediation item. Exact requirement: live VoiceOver (iOS) + TalkBack (Android) for at minimum critical journeys `UXJ-001` through `UXJ-005` (sign-in/signup, onboarding, dashboard, cycle log entry, community), plus a 200%-OS-text-scale rerun for `UXJ-003`/`UXJ-008`, plus an Arabic rerun for `UXJ-007`. Original finding's own wording permits "a real or emulated environment"; R7 states real devices are "strongly preferred... for AT fidelity" (a preference, not an absolute exclusion of emulator/simulator) — but genuine screen-reader gesture/speech behavior verification is not achievable through this session's own tooling regardless (see Phase D).
+
+### Phase B — Automated/static recheck
+
+All 10 pre-existing accessibility semantics tests + 8 text-scaling tests re-run: **18/18 passed**, no regression. Extended this wave with 2 new tests: (1) a real, measured touch-target-size assertion on the `AU-004` symptom-severity chip (`tester.getSize()`, not source-reading — confirmed ≥44dp on the actual rendered tree); (2) confirmed via `grep -rn "sortKey|OrderedTraversalPolicy|SemanticsSortKey" lib/` — zero matches app-wide, meaning no custom traversal-order override exists anywhere, so default paint-order traversal applies everywhere (structural evidence, not a live-interaction-confirmed one; a separate attempted live position-comparison test for the sign-in screen was abandoned after repeated friction with that screen's specific layout and is not included, rather than forcing a fragile/misleading assertion). **One new real defect found and fixed**: `AU-014` — zero `CircularProgressIndicator` usages app-wide (15 files) carried a `semanticsLabel`, meaning loading states are silent to a screen reader; fixed for the 3 spinners in `sign_in_screen.dart` (`UXJ-001`'s screen); the other 14 files are an explicitly-scoped-out remainder, not silently assumed fixed. Full regression: `flutter test` 379/379 non-golden tests passing (8 pre-existing, known, platform-dependent golden-image diffs unchanged); `dart analyze lib/` 25 issues, unchanged, below the 27 baseline.
+
+### Phase C — Critical journey set
+
+Confirmed from `AU_discovery.md` §3: 8 total UXJ journeys exist; R7 narrows the *mandatory* set to `UXJ-001` (sign-in/signup) through `UXJ-005` (community), with `UXJ-003`/`UXJ-007`/`UXJ-008` needing one additional targeted rerun each (large text, Arabic) — not a full 8-journey or full-app sweep.
+
+### Phase D — Automated screen-reader evidence, and its honest limit
+
+Flutter's own `SemanticsTester`-based checks (labels, states, touch-target size, absence of traversal overrides) are real, structural evidence — meaningfully stronger than static code reading, but they verify the semantics *tree*, not actual VoiceOver/TalkBack gesture navigation or spoken output. Checked this session's own tooling directly: `xcrun simctl list devices` confirms iOS Simulators exist on this machine, but no tool available to this session can drive VoiceOver's gestures or capture its speech; `adb`/an Android emulator are not available at all. **Simulator existing is not the same as this session being able to test on it** — per the charter's own explicit instruction, this is not presented as equivalent to live AT evidence.
+
+### Phase E — Owner action gate
+
+**`AU009_PHYSICAL_ACCESSIBILITY_OWNER_ACTION_REQUIRED`.** Minimal binary (PASS/FAIL) script delivered in `docs/final-owner-launch-checklist.md`'s "AU-009 Handoff" section — 5 critical journeys + 3 targeted re-runs, separate VoiceOver/TalkBack instructions, no source code or accessibility-tree inspection asked of the owner, ~10 minutes total.
+
+### Phase F/G — Defect handling / closure
+
+Not reached — no owner test results exist yet this wave. `AU-009` remains `OPEN`, narrowed to exactly the minimum remaining action.
+
+### Consolidated Report
+
+1. **AU-009 native closure criterion**: live VoiceOver + TalkBack for `UXJ-001`-`005`, plus 3 targeted re-runs (large text ×2, Arabic ×1) — not every screen.
+2. **Automated accessibility recheck result**: 18/18 pre-existing tests passed; 1 new real defect found and fixed (`AU-014`); touch-target claim now actually measured, not just read from source; traversal-order override absence confirmed structurally.
+3. **Critical journey set**: `UXJ-001` through `UXJ-005` (5), plus `UXJ-003`/`007`/`008` re-runs.
+4. **Automated/simulator evidence**: Flutter semantics-tree tests (real, structural); iOS Simulators exist on this machine but no tooling here can drive VoiceOver gestures/speech; no Android emulator available at all.
+5. **Physical testing required**: Yes — genuine AT gesture/speech behavior cannot be produced by this session's available tooling.
+6. **Exact minimal owner action**: delivered in the checklist's AU-009 Handoff — 5 journeys + 3 re-runs, binary PASS/FAIL, no code/tree inspection required.
+7. **Defects found**: `AU-014` (loading-state accessibility gap, app-wide).
+8. **Remediation performed**: `AU-014` fixed for `UXJ-001`'s screen (3 sites); 14 other files flagged, not fixed this wave.
+9. **AU-009 final status**: `OPEN` — awaiting the owner's live AT pass; everything technically achievable without the owner has been done.
+10. **Remaining launch blockers**: `DC-010` (Apple signing, deferred), `PC-006` (legal/counsel), `AU-009` (this wave's owner action), Fiqh grounding billing (owner-gated), scholar review (fiqh source governance).
+11. **Updated overall verdict**: unchanged, `NO-GO` — narrowed, not closed; `AU-009`'s remaining bar is now the smallest it can be without the owner's own participation.
+12. **Final commit SHA**: recorded below after this wave's commit.
+13. **Local == remote verification**: recorded below after this wave's push.

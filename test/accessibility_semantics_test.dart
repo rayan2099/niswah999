@@ -243,6 +243,55 @@ void main() {
         handle.dispose();
       },
     );
+
+    testWidgets(
+      'symptom-severity chip touch target measures at least 44dp tall '
+      '(AU-004, AU-009 Phase B — previously claimed from code reading only, '
+      'now actually measured against the real rendered widget tree)',
+      (tester) async {
+        final viewModel = CycleTrackingViewModel(
+          repository: CycleTrackingRepositoryImpl(),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () =>
+                      showCycleLogSheet(context, viewModel: viewModel),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+
+        await tester.scrollUntilVisible(
+          find.text('Cramps'),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+
+        final chipInkWell = find.ancestor(
+          of: find.text('Cramps'),
+          matching: find.byType(InkWell),
+        );
+        expect(chipInkWell, findsOneWidget);
+
+        final size = tester.getSize(chipInkWell);
+        expect(
+          size.height,
+          greaterThanOrEqualTo(44.0),
+          reason:
+              'the symptom chip is the actual tappable region a screen-reader '
+              'or low-motor-control user activates — its real rendered height '
+              'must clear the 44dp minimum, not merely the Container\'s '
+              'declared minHeight constraint in source',
+        );
+      },
+    );
   });
 
   group('6. Prayer-tracking screen semantics', () {
