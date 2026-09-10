@@ -4914,5 +4914,5 @@ Re-swept the whole app after remediation: every genuine loading-gated indicator 
 9. **AU-014 final status**: `VERIFIED_CLOSED`.
 10. **AU-009 status**: unchanged, `OPEN` — awaiting the owner's live VoiceOver/TalkBack pass.
 11. **Exact next owner action for AU-009**: unchanged from the prior wave — the 5-critical-journey + 3-rerun script in `docs/final-owner-launch-checklist.md`'s AU-009 Handoff, not altered by this wave.
-12. **Final commit SHA**: recorded below after this wave's commit.
-13. **Local == remote verification**: recorded below after this wave's push.
+12. **Final commit SHA**: `8d3fe50422a4746cae717705070ef12b5ae6ed03` (`fix: close AU-014 -- accessible labels for all remaining loading states`).
+13. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `8d3fe50422a4746cae717705070ef12b5ae6ed03` after `git push origin HEAD:main` and `git fetch origin`.
