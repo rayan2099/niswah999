@@ -4977,5 +4977,5 @@ The owner reports the prescribed VoiceOver (iOS) + TalkBack (Android) acceptance
 23. **Final statuses**: `AUTH-001` = `ROOT_CAUSE_CONFIRMED`/`OWNER_BLOCKED`; `AUTH-002` = `LIVE_VERIFICATION_REQUIRED`.
 24. **Updated remaining launch blockers**: `AUTH-001`, `AUTH-002`, plus the pre-existing `DC-010`/`AU-009`(now closed)/`PC-006`/fiqh-grounding-billing items.
 25. **Updated overall verdict**: `NO-GO`, unchanged — narrowed by `AU-009`'s closure, newly carrying `AUTH-001`/`AUTH-002`.
-26. **Final commit SHA**: recorded below after this wave's commit.
-27. **Local == remote verification**: recorded below after this wave's push.
+26. **Final commit SHA**: `409ef5dee133445eb7c71a2586bda52aa3ced695` (`fix: durable onboarding_completed gating (AUTH-002); root-cause AUTH-001`).
+27. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `409ef5dee133445eb7c71a2586bda52aa3ced695` after `git push origin HEAD:main` and `git fetch origin`.
