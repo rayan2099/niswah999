@@ -4872,3 +4872,47 @@ Not reached — no owner test results exist yet this wave. `AU-009` remains `OPE
 11. **Updated overall verdict**: unchanged, `NO-GO` — narrowed, not closed; `AU-009`'s remaining bar is now the smallest it can be without the owner's own participation.
 12. **Final commit SHA**: `28b4969f639e4177e90172320190dce566b59ed6` (`fix: add loading-state screen-reader labels (AU-014), extend AU-009 recheck`).
 13. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `28b4969f639e4177e90172320190dce566b59ed6` after `git push origin HEAD:main` and `git fetch origin`.
+
+## 60. AU-014 Loading-State Accessibility Remediation (2026-09-10)
+
+Explicitly authorized, narrow-scope wave: close `AU-014` (loading-state accessibility) comprehensively across the remaining files, before the physical `AU-009` acceptance pass. No `AU-009` physical testing begun; no `PC-006`/`DC-010`/fiqh work; no scope broadened beyond loading-state accessibility except one directly-related defect discovered in the same sweep.
+
+### Phase A — Complete spinner inventory
+
+Re-inventoried every `CircularProgressIndicator`, `LinearProgressIndicator`, and custom loader/skeleton widget app-wide. Reconciled against the prior wave's 14-file `CircularProgressIndicator` list: found 2 additional files (`insights_screen.dart`, `cycle_tracking_screen.dart`) whose loading state uses `LinearProgressIndicator` instead, bringing the true remaining-file count to 16 (sign-in already fixed separately). Distinguished, file by file, genuine loading-gated indicators (bound to an `isLoading`/`_loading` boolean) from superficially-similar determinate progress bars that are NOT loading states at all (step-progress bars in `ghusl_guide_screen.dart`/`onboarding_screen.dart`; data/stat-visualization bars with their own adjacent percentage text in `insights_screen.dart`/`cycle_tracking_screen.dart`/`guided_journeys_screen.dart`) — confirmed via direct code read that none of these 5 are gated on any loading flag, so none were touched.
+
+### Phase B — Accessible loading contract
+
+No new shared widget introduced — each `CircularProgressIndicator`/`LinearProgressIndicator` already supports a built-in `semanticsLabel` constructor parameter, so the minimal, lowest-risk fix was adding a contextual, call-site-appropriate label directly to each existing widget, reusing each file's own existing localization helper (`_pm`, `_pr`, `_pt`, `_rl`, `_ai`, `_dr`, `_t`, `_co`, `_in`, `_ct`, or `AppLocaleController.instance.text(...)` directly where no local helper existed). This avoided a larger refactor (a new shared component would have required a new import across 16 files for no reduction in per-call-site variability, since size/color/context already differ at every site).
+
+### Phase C — Arabic/English
+
+Every new label is a genuine bilingual pair via the app's existing `AppLocaleController`, not hard-coded English — e.g. "Loading messages"/"جارٍ تحميل الرسائل", "Sending message"/"جارٍ إرسال الرسالة", "Deleting account"/"جارٍ حذف الحساب", "Preparing your data"/"جارٍ تجهيز بياناتك". `settings_screen.dart` (previously entirely unlocalized) had `AppLocaleController` newly imported specifically for its 2 new accessibility labels only — no other text in that screen was touched, to avoid scope creep beyond loading-state accessibility.
+
+### Phase D — Tests
+
+`test/accessibility_semantics_test.dart` extended with 3 new tests: (1) a controlled harness reproducing the exact remediated pattern, proving a loading label is present in English, correctly switches to Arabic, and disappears the instant loading finishes, with no stale node left behind; (2) confirmation that a bare (unlabeled) `CircularProgressIndicator` placed next to status text contributes zero semantics of its own — the exact `_TypingIndicator`/"Reflecting…" pattern — proving the 2 documented no-label exceptions don't produce a duplicate announcement; (3) the prior wave's touch-target/traversal-structural tests re-confirmed unaffected. All 13 tests in the file pass. Full regression: `flutter test` 381/381 non-golden (8 pre-existing, known, unchanged golden-image diffs); `dart analyze lib/` 25 issues (unchanged baseline); `dart analyze test/` 6 issues (unchanged baseline, pre-existing `hasFlag` deprecation notices).
+
+### Phase E — Audit sweep
+
+Re-swept the whole app after remediation: every genuine loading-gated indicator (22 instances across 16 files) now carries `semanticsLabel=YES`, confirmed programmatically, not by spot-checking. The 2 intentional no-label exceptions are explicitly commented in code explaining why (adjacent status text already announces the state, confirmed by the Phase D test). **One additional, previously-undiscovered real defect found in this sweep**: `community_board_screen.dart`'s loading state used 3 purely-decorative skeleton placeholder cards with zero semantics of any kind — not even a spinner, so a screen reader announced *nothing* while the community board loaded. Fixed with a single wrapping `Semantics` label around the placeholder group (required converting `SliverList.list` to `SliverToBoxAdapter`+`Column` to make the single-label wrapper possible — visually identical, since it is always exactly 3 fixed placeholders, not a lazily-scrolling list).
+
+### Phase F — Finding reassessment
+
+`AU-014` → `VERIFIED_CLOSED` (app-wide, not just the sign-in screen). `AU-009` explicitly left `OPEN`, unchanged — the loading-state fix does not touch any journey/step/wording in the owner's physical test script, so that script was not altered.
+
+### Consolidated Report
+
+1. **Spinner/loading-state count found**: 22 genuine loading-gated instances across 16 files (plus 2 documented no-label exceptions, plus 5 confirmed-non-loading progress bars left untouched).
+2. **Files remediated**: `conversations_screen.dart`, `chat_detail_screen.dart`, `settings_screen.dart`, `profile_screen.dart`, `prayer_tracking_screen.dart`, `resource_library_screen.dart`, `dr_niswah_chat_screen.dart`, `dream_interpreter_screen.dart`, `post_detail_screen.dart`, `community_board_screen.dart`, `community_comment_composer.dart`, `community_composer_sheet.dart`, `data_export_screen.dart`, `notification_settings_screen.dart`, `insights_screen.dart`, `cycle_tracking_screen.dart` (16 files; `sign_in_screen.dart` was already fixed in the prior wave).
+3. **Shared accessibility pattern used**: no new widget — the built-in `semanticsLabel` parameter on `CircularProgressIndicator`/`LinearProgressIndicator`, populated via each file's own existing localization helper.
+4. **English semantics result**: every genuine loading state announces a contextual English label (not identical wording everywhere).
+5. **Arabic semantics result**: every label has a real Arabic counterpart via `AppLocaleController`; verified via a real test that switching locale mid-loading correctly swaps the announced label with no residual English text.
+6. **Tests added**: 3 new (label-present/localized/disappears-on-completion contract test; no-duplicate-announcement test for the 2 documented exceptions; both passing) plus the prior wave's 2 tests re-confirmed.
+7. **Full accessibility regression result**: 13/13 in `accessibility_semantics_test.dart`; 381/381 non-golden app-wide (8 pre-existing golden-image diffs unchanged); `dart analyze` clean at both baselines.
+8. **Remaining untreated loading states**: none — every genuine loading-gated indicator app-wide now has a label or a documented, tested reason not to.
+9. **AU-014 final status**: `VERIFIED_CLOSED`.
+10. **AU-009 status**: unchanged, `OPEN` — awaiting the owner's live VoiceOver/TalkBack pass.
+11. **Exact next owner action for AU-009**: unchanged from the prior wave — the 5-critical-journey + 3-rerun script in `docs/final-owner-launch-checklist.md`'s AU-009 Handoff, not altered by this wave.
+12. **Final commit SHA**: recorded below after this wave's commit.
+13. **Local == remote verification**: recorded below after this wave's push.

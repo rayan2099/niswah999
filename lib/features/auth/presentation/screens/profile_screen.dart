@@ -97,11 +97,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
                 if (_viewModel.isLoading)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: LinearProgressIndicator(
                       minHeight: 2,
                       color: AppColors.brandSecondary,
                       backgroundColor: Colors.transparent,
+                      semanticsLabel: _pr('Loading profile', 'جارٍ تحميل الملف الشخصي'),
                     ),
                   ),
                 if (_viewModel.errorMessage != null)
@@ -396,12 +397,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         child: _isDeletingAccount
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2.4,
-                                  color: Color(0xFF991B1B),
+                                  color: const Color(0xFF991B1B),
+                                  semanticsLabel: _pr('Deleting account', 'جارٍ حذف الحساب'),
                                 ),
                               )
                             : Text(
@@ -1193,12 +1195,13 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
                     ),
                   ),
                   child: _isSaving
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.4,
                             color: Colors.white,
+                            semanticsLabel: _pr('Saving', 'جارٍ الحفظ'),
                           ),
                         )
                       : Text(

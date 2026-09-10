@@ -425,6 +425,10 @@ class _ConversationsPicker extends StatelessWidget {
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             color: accent,
+                            semanticsLabel: _ai(
+                              'Loading conversations',
+                              'جارٍ تحميل المحادثات',
+                            ),
                           ),
                         )
                       : Text(
@@ -1029,12 +1033,13 @@ class _Composer extends StatelessWidget {
               disabledBackgroundColor: const Color(0xFFE8CAC5),
             ),
             icon: busy
-                ? const SizedBox(
+                ? SizedBox(
                     width: 15,
                     height: 15,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       color: Colors.white,
+                      semanticsLabel: _ai('Sending message', 'جارٍ إرسال الرسالة'),
                     ),
                   )
                 : const Icon(Icons.arrow_upward_rounded, size: 20),
@@ -1213,6 +1218,13 @@ class _TypingIndicator extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // AU-014: deliberately no semanticsLabel here. Without one, a bare
+          // CircularProgressIndicator contributes no node to the semantics
+          // tree at all (confirmed: Flutter only creates one when
+          // semanticsLabel/semanticsValue is set) — so a screen reader
+          // skips straight to the adjacent "Niswah is thinking…" Text below,
+          // which already announces the loading state in context. Adding a
+          // label here would only produce a duplicate announcement.
           const SizedBox.square(
             dimension: 13,
             child: CircularProgressIndicator(

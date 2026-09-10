@@ -64,7 +64,11 @@ class _ResourceLibraryScreenState extends State<ResourceLibraryScreen> {
                 const SizedBox(height: 16),
                 Expanded(
                   child: _viewModel.isLoading
-                      ? const Center(child: CircularProgressIndicator())
+                      ? Center(
+                          child: CircularProgressIndicator(
+                            semanticsLabel: _rl('Loading', 'جارٍ التحميل'),
+                          ),
+                        )
                       : _viewModel.errorMessage != null
                       ? Center(
                           child: Padding(

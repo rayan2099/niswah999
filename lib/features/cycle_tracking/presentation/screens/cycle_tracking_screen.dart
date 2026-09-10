@@ -85,11 +85,12 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
                   ),
                 ),
                 if (_viewModel.isLoading)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: LinearProgressIndicator(
                       minHeight: 2,
                       color: AppColors.tahara,
                       backgroundColor: Colors.transparent,
+                      semanticsLabel: _ct('Loading cycle data', 'جارٍ تحميل بيانات الدورة'),
                     ),
                   ),
                 if (_viewModel.errorMessage != null)

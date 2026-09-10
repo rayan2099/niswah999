@@ -97,7 +97,11 @@ class _DataExportScreenState extends State<DataExportScreen> {
       appBar: AppBar(title: Text(_pr('Export My Data', 'تصدير بياناتي'))),
       body: SafeArea(
         child: _loading
-            ? const Center(child: CircularProgressIndicator())
+            ? Center(
+                child: CircularProgressIndicator(
+                  semanticsLabel: _pr('Preparing your data', 'جارٍ تجهيز بياناتك'),
+                ),
+              )
             : _error != null
             ? Center(
                 child: Padding(

@@ -35,7 +35,11 @@ class _PrayerTrackingScreenState extends State<PrayerTrackingScreen> {
         return Scaffold(
           backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           body: _viewModel.isLoading
-              ? const Center(child: CircularProgressIndicator())
+              ? Center(
+                  child: CircularProgressIndicator(
+                    semanticsLabel: _pt('Loading', 'جارٍ التحميل'),
+                  ),
+                )
               : SingleChildScrollView(
                   child: Column(
                     children: [

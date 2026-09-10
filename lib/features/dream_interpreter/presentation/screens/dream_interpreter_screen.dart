@@ -323,11 +323,12 @@ class _ConversationsPicker extends StatelessWidget {
         child: entries.isEmpty
             ? Center(
                 child: isLoading
-                    ? const SizedBox.square(
+                    ? SizedBox.square(
                         dimension: 22,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           color: AppColors.istihadah,
+                          semanticsLabel: _dr('Loading dreams', 'جارٍ تحميل الرؤى'),
                         ),
                       )
                     : Text(
@@ -564,11 +565,12 @@ class _DreamComposer extends StatelessWidget {
                 disabledBackgroundColor: const Color(0xFFE5E2EA),
               ),
               icon: busy
-                  ? const SizedBox.square(
+                  ? SizedBox.square(
                       dimension: 15,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Colors.white,
+                        semanticsLabel: _dr('Sending message', 'جارٍ إرسال الرسالة'),
                       ),
                     )
                   : const Icon(Icons.arrow_upward_rounded, size: 20),
@@ -814,6 +816,11 @@ class _TypingIndicator extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // AU-014: deliberately no semanticsLabel — same reasoning as
+          // dr_niswah_chat_screen.dart's _TypingIndicator. A bare
+          // CircularProgressIndicator contributes no semantics node at all,
+          // so the adjacent "Reflecting…" Text is what a screen reader
+          // announces; adding a label here would only duplicate it.
           const SizedBox.square(
             dimension: 13,
             child: CircularProgressIndicator(

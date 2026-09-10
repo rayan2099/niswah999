@@ -36,7 +36,11 @@ class _NotificationSettingsScreenState
           ),
           body: SafeArea(
             child: _viewModel.isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(
+                    child: CircularProgressIndicator(
+                      semanticsLabel: _ns('Loading', 'جارٍ التحميل'),
+                    ),
+                  )
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: NotificationType.values.map((type) {

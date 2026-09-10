@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/models/madhhab_type.dart';
 import 'package:niswah/core/models/user_profile.dart';
 import 'package:niswah/core/network/supabase_client.dart';
@@ -143,7 +144,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         foregroundColor: const Color(0xFF0F291E),
       ),
       body: _isLoading && _nameController.text.isEmpty
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+              child: CircularProgressIndicator(
+                semanticsLabel: AppLocaleController.instance.text(
+                  'Loading',
+                  'جارٍ التحميل',
+                ),
+              ),
+            )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Form(
@@ -250,8 +258,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         child: _isLoading
-                            ? const CircularProgressIndicator(
+                            ? CircularProgressIndicator(
                                 color: Colors.white,
+                                semanticsLabel: AppLocaleController.instance.text(
+                                  'Saving',
+                                  'جارٍ الحفظ',
+                                ),
                               )
                             : const Text(
                                 'Save Settings',

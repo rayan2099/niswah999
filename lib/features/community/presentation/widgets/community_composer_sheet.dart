@@ -262,6 +262,7 @@ class _CommunityComposerSheetState extends State<_CommunityComposerSheet> {
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: onBlush,
+                                semanticsLabel: _t('Posting', 'جارٍ النشر'),
                               ),
                             )
                           : const Icon(Icons.send_rounded, size: 18),

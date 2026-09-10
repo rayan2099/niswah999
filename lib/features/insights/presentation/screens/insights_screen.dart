@@ -88,11 +88,12 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   ),
                 ),
                 if (_viewModel.isLoading)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: LinearProgressIndicator(
                       minHeight: 2,
                       color: AppColors.brandSecondary,
                       backgroundColor: Colors.transparent,
+                      semanticsLabel: _in('Loading insights', 'جارٍ تحميل الإحصاءات'),
                     ),
                   ),
                 if (_viewModel.errorMessage != null)

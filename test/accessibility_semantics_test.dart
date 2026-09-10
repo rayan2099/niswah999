@@ -357,6 +357,127 @@ void main() {
         handle.dispose();
       },
     );
+
+    // Note: DataExportScreen's own loading frame can't be captured directly
+    // in this test environment — without a real Supabase session,
+    // _load()'s client==null branch runs synchronously with no `await`
+    // reached first, so `_loading` flips to false before the very first
+    // frame ever paints (confirmed by direct code read of
+    // data_export_screen.dart's _load()). The label/localization/
+    // disappearance contract that file's real spinner relies on is instead
+    // verified below against a minimal harness reproducing the exact same
+    // pattern applied to every remediated file this wave (a boolean-gated
+    // CircularProgressIndicator with an AppLocaleController-backed
+    // semanticsLabel).
+    testWidgets(
+      'AU-014 contract: a boolean-gated loading spinner exposes a real '
+      'accessible label in English, switches to Arabic when the app locale '
+      'is Arabic, and the label disappears the instant loading finishes — '
+      'the exact pattern applied to every remediated file in this wave',
+      (tester) async {
+        final handle = tester.ensureSemantics();
+        AppLocaleController.instance.setArabic(false);
+        addTearDown(() => AppLocaleController.instance.setArabic(false));
+
+        bool loading = true;
+        late StateSetter setLocalState;
+
+        Widget buildHarness() => MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                setLocalState = setState;
+                return Center(
+                  child: loading
+                      ? CircularProgressIndicator(
+                          semanticsLabel: AppLocaleController.instance.text(
+                            'Preparing your data',
+                            'جارٍ تجهيز بياناتك',
+                          ),
+                        )
+                      : const Text('Done'),
+                );
+              },
+            ),
+          ),
+        );
+
+        // 1. English, loading -> real accessible label present.
+        await tester.pumpWidget(buildHarness());
+        expect(find.bySemanticsLabel('Preparing your data'), findsOneWidget);
+
+        // 2. Switch to Arabic mid-loading -> label re-renders in Arabic,
+        //    English label is gone (not both present at once).
+        AppLocaleController.instance.setArabic(true);
+        setLocalState(() {});
+        await tester.pump();
+        expect(find.bySemanticsLabel('جارٍ تجهيز بياناتك'), findsOneWidget);
+        expect(find.bySemanticsLabel('Preparing your data'), findsNothing);
+
+        // 3. Loading finishes -> label disappears entirely, no stale node.
+        setLocalState(() => loading = false);
+        await tester.pump();
+        expect(find.bySemanticsLabel('جارٍ تجهيز بياناتك'), findsNothing);
+        expect(find.bySemanticsLabel('Preparing your data'), findsNothing);
+        expect(find.text('Done'), findsOneWidget);
+
+        handle.dispose();
+      },
+    );
+  });
+
+  group('11. Loading-state semantics do not duplicate adjacent status text', () {
+    testWidgets(
+      'AU-014: a bare CircularProgressIndicator (no semanticsLabel) placed '
+      'next to a status Text contributes zero semantics nodes of its own — '
+      'confirming the _TypingIndicator-style pattern used in '
+      'dr_niswah_chat_screen.dart and dream_interpreter_screen.dart does not '
+      'produce a duplicate/redundant announcement',
+      (tester) async {
+        final handle = tester.ensureSemantics();
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox.square(
+                    dimension: 13,
+                    child: CircularProgressIndicator(strokeWidth: 1.8),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Niswah is thinking…'),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          find.bySemanticsLabel('Niswah is thinking…'),
+          findsOneWidget,
+          reason: 'the status text itself must be announced',
+        );
+
+        // The bare spinner's own semantics (if Flutter created any node for
+        // it at all) must carry no label of its own — confirmed directly
+        // against its own render object, not inferred.
+        final spinnerSemantics = tester.getSemantics(
+          find.byType(CircularProgressIndicator),
+        );
+        expect(
+          spinnerSemantics.label,
+          isEmpty,
+          reason: 'the bare spinner (no semanticsLabel set) must not '
+              'announce anything of its own — a screen reader must reach '
+              'only the adjacent status text',
+        );
+
+        handle.dispose();
+      },
+    );
   });
 
   group('10. Bottom navigation controls', () {

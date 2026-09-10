@@ -100,6 +100,10 @@ class _CommunityCommentComposerState extends State<CommunityCommentComposer> {
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: onBlush,
+                        semanticsLabel: AppLocaleController.instance.text(
+                          'Sending comment',
+                          'جارٍ إرسال التعليق',
+                        ),
                       ),
                     )
                   : const Icon(Icons.send_rounded, size: 18),

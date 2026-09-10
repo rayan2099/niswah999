@@ -109,9 +109,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 animation: _viewModel,
                 builder: (context, _) {
                   if (_viewModel.isLoading && _viewModel.messages.isEmpty) {
-                    return const Center(
+                    return Center(
                       child: CircularProgressIndicator(
-                        color: Color(0xFFE91E4D),
+                        color: const Color(0xFFE91E4D),
+                        semanticsLabel: _pm('Loading messages', 'جارٍ تحميل الرسائل'),
                       ),
                     );
                   }
@@ -267,12 +268,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         backgroundColor: const Color(0xFFE91E4D),
                         foregroundColor: Colors.white,
                         child: _viewModel.isSending
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 16,
                                 height: 16,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: Colors.white,
+                                  semanticsLabel: _pm('Sending message', 'جارٍ إرسال الرسالة'),
                                 ),
                               )
                             : const Icon(Icons.send_rounded, size: 18),

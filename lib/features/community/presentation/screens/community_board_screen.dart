@@ -451,14 +451,25 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(24, 4, 24, 132),
                   sliver: _viewModel.isLoading
-                      ? SliverList.list(
-                          children: const [
-                            _SkeletonCard(),
-                            SizedBox(height: 14),
-                            _SkeletonCard(),
-                            SizedBox(height: 14),
-                            _SkeletonCard(),
-                          ],
+                      ? SliverToBoxAdapter(
+                          // AU-014: the skeleton cards below are purely
+                          // decorative placeholders (no text/content) and
+                          // carry no semantics of their own — without this
+                          // wrapper, a screen reader would perceive nothing
+                          // at all while the board is loading.
+                          child: Semantics(
+                            label: _co('Loading posts', 'جارٍ تحميل المنشورات'),
+                            container: true,
+                            child: const Column(
+                              children: [
+                                _SkeletonCard(),
+                                SizedBox(height: 14),
+                                _SkeletonCard(),
+                                SizedBox(height: 14),
+                                _SkeletonCard(),
+                              ],
+                            ),
+                          ),
                         )
                       : _viewModel.errorMessage != null && posts.isEmpty
                       ? SliverToBoxAdapter(
@@ -520,6 +531,7 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
                                 child: Center(
                                   child: CircularProgressIndicator(
                                     color: palette.blush,
+                                    semanticsLabel: _co('Loading more posts', 'جارٍ تحميل المزيد'),
                                   ),
                                 ),
                               );

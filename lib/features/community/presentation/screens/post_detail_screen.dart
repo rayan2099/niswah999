@@ -302,6 +302,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           child: Center(
                             child: CircularProgressIndicator(
                               color: palette.blush,
+                              semanticsLabel: _t('Loading comments', 'جارٍ تحميل التعليقات'),
                             ),
                           ),
                         )

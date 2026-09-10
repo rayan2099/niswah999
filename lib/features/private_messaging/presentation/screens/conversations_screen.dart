@@ -59,8 +59,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         builder: (context, _) {
           if (widget.viewModel.isLoading &&
               widget.viewModel.conversations.isEmpty) {
-            return const Center(
-              child: CircularProgressIndicator(color: Color(0xFFE91E4D)),
+            return Center(
+              child: CircularProgressIndicator(
+                color: const Color(0xFFE91E4D),
+                semanticsLabel: _pm('Loading conversations', 'جارٍ تحميل المحادثات'),
+              ),
             );
           }
           if (widget.viewModel.errorMessage != null &&
