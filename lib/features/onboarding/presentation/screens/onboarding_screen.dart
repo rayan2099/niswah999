@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
@@ -262,6 +263,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         await repository.saveCycleLog(data.toCycleLog(userId: userId));
       }
     }
+
+    // AUTH-002: the durable, server-side completion flag — the ONLY
+    // signal the root router trusts to decide onboarding is done. Written
+    // here, and only here, at the real end of the flow. Best-effort: a
+    // network failure must not trap the user on the Welcome screen (she
+    // already answered every question), but it does mean she could see
+    // onboarding again next launch if this specific write fails — an
+    // honest, narrow, already-logged-out-loud tradeoff, not a silent one.
+    try {
+      await AuthRepositoryImpl().markOnboardingCompleted();
+    } catch (_) {
+      // Swallowed deliberately — see comment above. The local optimistic
+      // update below still lets her proceed to the dashboard this session.
+    }
+    AuthController.instance.setOnboardingCompletedLocally(true);
+
     widget.onFinished();
   }
 

@@ -67,6 +67,23 @@ abstract class AuthRepository {
   Future<void> deleteAccount();
 
   Future<AppUser?> getProfile();
+
+  /// The durable, server-side source of truth for whether the caller has
+  /// completed onboarding — `public.users.onboarding_completed`, defaulted
+  /// to `false` by the same trigger that creates the row on signup (AUTH-002).
+  /// Returns `null` only when there is no session or the row cannot be
+  /// read (caller should treat that the same as "unknown", not "false").
+  /// Deliberately never inferred from in-memory/local-only signals (a
+  /// signup-just-happened flag, SharedPreferences, etc.) — those cannot
+  /// survive an app-process restart, which is exactly what real users
+  /// experience during email confirmation (leave the app to check mail,
+  /// confirm, get relaunched into a fresh process).
+  Future<bool?> fetchOnboardingCompleted();
+
+  /// Marks onboarding complete server-side. Must be called once, at the
+  /// real end of the onboarding flow — never inferred from any other
+  /// event (session creation, profile-row existence, email confirmation).
+  Future<void> markOnboardingCompleted();
 }
 
 class AuthRepositoryException extends Failure {

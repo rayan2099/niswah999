@@ -4916,3 +4916,66 @@ Re-swept the whole app after remediation: every genuine loading-gated indicator 
 11. **Exact next owner action for AU-009**: unchanged from the prior wave — the 5-critical-journey + 3-rerun script in `docs/final-owner-launch-checklist.md`'s AU-009 Handoff, not altered by this wave.
 12. **Final commit SHA**: `8d3fe50422a4746cae717705070ef12b5ae6ed03` (`fix: close AU-014 -- accessible labels for all remaining loading states`).
 13. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `8d3fe50422a4746cae717705070ef12b5ae6ed03` after `git push origin HEAD:main` and `git fetch origin`.
+
+## 61. Critical Authentication / Signup Lifecycle Wave (2026-09-10)
+
+Owner acceptance testing surfaced two pre-launch-blocking defects: (A) the confirmation email showed default Supabase branding and redirected to a stale Vercel URL instead of the app; (B) a genuinely new, confirmed email account was treated as returning and skipped onboarding. Full root-cause tracing, code remediation, and live E3 backend verification executed — see `AUTH-001`/`AUTH-002` rows in `00_04` for complete evidence.
+
+**Mid-wave, the user pointed this session at a new canonical methodology** — `production-readiness/MDs/NISWAH_PRELAUNCH_ADVERSARIAL_VALIDATION_MASTER.md` — and asked that current auth findings be reconciled against its stricter evidence model (E0-E5) before executing only its Wave 1 (Authentication + Identity + Session + Onboarding). That reconciliation and Wave 1 execution is documented in full in its own dedicated file: `production-readiness-results/adversarial-validation/WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md` — including the state-machine model, scenario records, and the honest E3/E4 evidence-level accounting (neither finding is claimed `VERIFIED_CLOSED`; both carry the new program's own canonical statuses). This section records only the code/data-layer remediation itself; that other file is authoritative for the evidence-level reconciliation and Wave 1 report.
+
+### AUTH-001 root cause (E3, live production config read)
+
+`site_url = https://niswah.vercel.app`; `uri_allow_list` contains only Vercel-domain entries. `niswah://login-callback` (the Flutter app's own `emailRedirectTo`, already correctly registered natively on iOS/Android) is absent from the allow-list, so Supabase silently falls back to `site_url` — exactly as the repository's own pre-existing code comment already warned. "niswal.vercel.com" (the owner's report) is a transcription of the real `niswah.vercel.app` (confirmed: `grep -rIn "niswal"` = zero matches anywhere). `niswah.app` has zero DNS records today (live-checked) — ruling out an HTTPS universal-link fix for now. A real signup attempt also surfaced `HTTP 429 over_email_send_rate_limit` — live confirmation that Supabase's default mailer is already rate-limited in production, independent evidence that custom SMTP is a capacity requirement, not only a branding one.
+
+**Prepared, not applied** (current -> proposed -> effect -> rollback, full table in the adversarial-validation report §4): `site_url` -> `niswah://login-callback`; append the same to `uri_allow_list`; rebrand the confirmation email subject/HTML (achievable without SMTP). **Explicit owner authorization required** before any production Auth configuration changes. Custom SMTP remains a separate, `EXTERNAL_PROVIDER_BLOCKED` owner action (credentials never requested or handled by this session).
+
+### AUTH-002 root cause and fix (E1 root cause, E3-elevated verification)
+
+`AuthController._isNewSignUp` was the sole gate for onboarding-vs-dashboard routing — an in-memory-only flag set **only** on the immediate-session signup branch. Since production requires email confirmation (`mailer_autoconfirm: false`, confirmed live), this flag is never set at all for a real signup, in any scenario — not merely lost across a process restart. Fixed by making `public.users.onboarding_completed` (already live in production, already correctly defaulted `false` by the existing signup trigger, but never read/written by any app code before this fix) the sole durable, server-side gate:
+
+- `AuthController` gained a tri-state `onboardingCompleted` (`bool?`), re-fetched on every genuine sign-in transition.
+- `main.dart`'s `_buildHome()` rewritten as an explicit routing contract: unauthenticated -> checking (loading, never a guess) -> onboarding-incomplete -> onboarding-complete. The old `isNewSignUp` flag is retained only as a UX hint for which onboarding step to start at.
+- `AuthRepositoryImpl` gained `fetchOnboardingCompleted()`/`markOnboardingCompleted()`.
+- `OnboardingScreen._completeOnboarding()` now writes the flag server-side as the real, sole completion signal, with an immediate local optimistic update.
+- 8 new automated tests (`test/auth_onboarding_routing_test.dart`) cover all routing states plus 2 explicit regression tests proving the old flag alone can never resurface as the gate.
+- **Elevated to E3**: two real synthetic users against production confirmed the trigger, the fetch/update query shapes, and cross-account RLS isolation (a second user's read/write attempt against the first user's flag was fully denied, verified with zero effect).
+- Reviewed (read-only) all 24 real `public.users` rows: 16 already `onboarding_completed=true` (a historical cohort predating an apparent regression around 2026-08-24), 8 `false` (recent, several matching known internal/owner test emails). **No backfill applied or recommended** — these 8 will correctly see onboarding again next sign-in, an accurate reflection, not a defect.
+- **E4/E5 not executed** — blocked on `AUTH-001`'s unresolved redirect configuration; a real confirmation click today cannot land back in the app.
+
+### Testing
+
+`dart analyze lib/`: 25 issues (unchanged baseline). `dart analyze test/`: 6 issues (unchanged baseline). `flutter test`: 389/397 passing (8 pre-existing, known, unchanged golden-image diffs) — includes the 8 new `auth_onboarding_routing_test.dart` tests, all passing, plus zero regressions in the full existing suite (a real regression was caught and fixed mid-wave: `AuthController`'s new `onboardingCompleted` field defaulted to `null`, which is correct for a real app cold-start but caused every widget test that renders `NiswahApp` directly — none of which call `AuthController.init()` — to hang on the "checking" loading state forever; fixed by giving the field the same test-safe default `_isAuthenticated` already uses).
+
+### AU-009 — closed via owner report (Phase P, unrelated to the auth findings)
+
+The owner reports the prescribed VoiceOver (iOS) + TalkBack (Android) acceptance script — 5 critical journeys plus 3 required re-runs — all PASSED. This satisfies `AU-009`'s own previously-defined native closure bar exactly. **`AU-009` = `VERIFIED_CLOSED`.** Recorded independently of `AUTH-001`/`AUTH-002` — these are separate launch blockers, not mixed together.
+
+### Consolidated Report
+
+1. **AU-009 final status**: `VERIFIED_CLOSED` (owner-reported live VoiceOver/TalkBack acceptance).
+2. **Finding IDs assigned**: `AUTH-001` (email branding/confirmation destination), `AUTH-002` (onboarding bypass) — both newly allocated, no prior AUTH-prefixed findings existed to reuse.
+3. **Root cause of wrong confirmation destination**: `uri_allow_list` missing `niswah://login-callback`, causing Supabase to fall back to `site_url`.
+4. **Current production SITE_URL**: `https://niswah.vercel.app`.
+5. **Relevant allowed redirect configuration**: 4 Vercel-domain entries only, no custom-scheme entry.
+6. **Exact source of "niswal.vercel.com"**: a transcription of the real `site_url`, `https://niswah.vercel.app` — confirmed no literal "niswal" string exists anywhere in the repo or live config.
+7. **Email-branding root cause**: unmodified Supabase default template + no custom SMTP configured (`smtp_host`/`user`/`pass` all null, live-confirmed).
+8. **Email branding changes completed**: none applied yet (prepared, pending the same authorization as the redirect fix).
+9. **Custom SMTP still required**: yes — confirmed further urgent by a live `429` rate-limit hit during this wave's own testing.
+10. **Onboarding-skip exact root cause**: `markSignedUp()` never called on the (mandatory, production) email-confirmation-required signup path.
+11. **Previous new-vs-returning-user heuristic**: `AuthController._isNewSignUp`, in-memory only.
+12. **New authoritative onboarding state**: `public.users.onboarding_completed` (pre-existing column, now actually read/written).
+13. **Routing contract implemented**: yes — 4 explicit states in `main.dart._buildHome()`.
+14. **Partial-onboarding behavior**: unchanged/preserved (existing step-based `OnboardingScreen`); full step-level durable resumability remains a follow-up, not required for this wave's launch-blocking fix.
+15. **App-resume/deep-link behavior**: unchanged structurally (supabase_flutter's own `AppLinks` listener already exchanges the session; `main.dart`'s `onUnknownRoute` already swallows the resulting push) — now correctly re-evaluates onboarding state on every such resume via the auth-state-change listener.
+16. **Tests added**: 8 (`test/auth_onboarding_routing_test.dart`).
+17. **Full regression result**: 389/397 (8 known golden diffs), `dart analyze` clean at both baselines.
+18. **Downstream data-integrity impact**: reviewed — madhhab/marital-status selections during onboarding remain local-only (`SharedPreferences`), a pre-existing, separate gap not introduced by this wave; not fixed here (out of this wave's scope).
+19. **Security test result**: PASS — cross-account RLS isolation for `onboarding_completed` verified live (E3) with a real attack attempt.
+20. **Production changes made**: none (code/tests only; the `onboarding_completed` column and its default-setting trigger already existed in production before this wave).
+21. **Production changes still requiring authorization**: Auth `site_url`/`uri_allow_list`/email-template changes (AUTH-001); custom SMTP setup (owner/external-provider action).
+22. **Minimal owner acceptance action**: see `docs/final-owner-launch-checklist.md`'s new AUTH-001/AUTH-002 section.
+23. **Final statuses**: `AUTH-001` = `ROOT_CAUSE_CONFIRMED`/`OWNER_BLOCKED`; `AUTH-002` = `LIVE_VERIFICATION_REQUIRED`.
+24. **Updated remaining launch blockers**: `AUTH-001`, `AUTH-002`, plus the pre-existing `DC-010`/`AU-009`(now closed)/`PC-006`/fiqh-grounding-billing items.
+25. **Updated overall verdict**: `NO-GO`, unchanged — narrowed by `AU-009`'s closure, newly carrying `AUTH-001`/`AUTH-002`.
+26. **Final commit SHA**: recorded below after this wave's commit.
+27. **Local == remote verification**: recorded below after this wave's push.

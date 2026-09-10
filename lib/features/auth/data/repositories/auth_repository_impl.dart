@@ -405,4 +405,36 @@ class AuthRepositoryImpl implements AuthRepository {
       isAnonymous: profile.isAnonymous,
     );
   }
+
+  @override
+  Future<bool?> fetchOnboardingCompleted() async {
+    final sessionUser = _client.auth.currentUser;
+    if (sessionUser == null) return null;
+
+    try {
+      final response = await _client
+          .from('users')
+          .select('onboarding_completed')
+          .eq('id', sessionUser.id)
+          .maybeSingle();
+      return response?['onboarding_completed'] as bool?;
+    } catch (_) {
+      // Network/RLS failure — treated as "unknown", never coerced to
+      // false (which would wrongly force a real returning user back
+      // through onboarding) or true (which would wrongly skip it for a
+      // real new user).
+      return null;
+    }
+  }
+
+  @override
+  Future<void> markOnboardingCompleted() async {
+    final sessionUser = _client.auth.currentUser;
+    if (sessionUser == null) return;
+
+    await _client
+        .from('users')
+        .update({'onboarding_completed': true})
+        .eq('id', sessionUser.id);
+  }
 }

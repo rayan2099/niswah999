@@ -77,6 +77,12 @@ class _FakeAuthRepository implements AuthRepository {
 
   @override
   Future<AppUser?> getProfile() async => null;
+
+  @override
+  Future<bool?> fetchOnboardingCompleted() async => null;
+
+  @override
+  Future<void> markOnboardingCompleted() async {}
 }
 
 void main() {

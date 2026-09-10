@@ -110,9 +110,13 @@ See **Gemini Rotation Handoff** below — the verification half of Step 2.
 
 See **OB-006 Handoff** below. `OB-006` = `VERIFIED_CLOSED`.
 
-## Step 11 — AU-009 physical-device accessibility pass
+## Step 11 — AU-009 physical-device accessibility pass — ✅ DONE, 2026-09-10
 
-See **AU-009 Handoff** below. Best done using the real signed builds produced in Steps 4-6 (Android from CI, iOS from Xcode), but can start with a local build sooner if preferred. **Updated 2026-09-10**: the required journey list is now narrowed to exactly 5 critical journeys plus 3 targeted re-runs (large text ×2, Arabic ×1) — about 10 minutes, not a full app sweep — and everything technically achievable without you (automated tests, a real new fix, structural re-checks) has already been done this pass.
+You reported the prescribed VoiceOver (iOS) + TalkBack (Android) acceptance script — the 5 critical journeys plus the 3 required re-runs — all **PASSED**. That was this finding's own complete closure bar. `AU-009` is now `VERIFIED_CLOSED`. See **AU-009 Handoff** below for the record.
+
+## Step 11a — AUTH-001 / AUTH-002: signup, email confirmation, and onboarding — new, 2026-09-10, PRE-LAUNCH BLOCKING
+
+See **Authentication / Onboarding Handoff** below. This is now the most urgent remaining item — real new users cannot currently complete signup correctly.
 
 ## Step 12 — PC-006 legal/product determination
 
@@ -241,7 +245,9 @@ Sequence, confirmed sufficient by this engagement's own iOS Release Readiness wa
 
 **Closure evidence required**: a real, distributable `.ipa`, signed with a genuine Apple Distribution certificate (not `--no-codesign`), confirmed via `codesign -dvvv`. App Store submission itself (metadata, screenshots, review) is separately out of scope for `DC-010`'s own closure — this finding is about signing infrastructure, not the submission process. Once you've completed steps 1-2 above, this session can pick up from Phase D (recheck signing) through the rest of the original charter — reply once the Team is selected in Xcode.
 
-## AU-009 Handoff
+## AU-009 Handoff — ✅ VERIFIED_CLOSED, 2026-09-10 (owner-reported live acceptance)
+
+**You reported that every journey below PASSED on both iOS VoiceOver and Android TalkBack.** That is this finding's own complete closure bar — nothing further is needed. The script below is kept as a record of what was tested, and is reusable if you ever want to spot-check accessibility again after a future change.
 
 **🟡 Update, 2026-09-10 (AU-009 Acceptance wave) — everything possible without you has been done; this is now the minimum remaining action.** The native closure bar for `AU-009` (`AU_remediation_plan.md`'s own R7) requires live VoiceOver + TalkBack testing for at minimum 5 critical journeys, plus 3 specific re-runs — not a full screen-by-screen sweep. This wave re-ran every existing automated accessibility test (all still passing), added a new test that actually *measures* a touch target on the real rendered widget tree rather than trusting source comments, confirmed the app never uses a custom traversal-order override anywhere, and found and fixed one new real defect (`AU-014`: loading spinners had no screen-reader announcement at all — fixed for the sign-in/sign-up screen specifically, the one critical journey it affects). **None of this substitutes for actually turning on VoiceOver/TalkBack and using the app** — that step needs a human, and only a human, per `AU-009`'s own closure bar. iOS Simulators exist on the machine this session ran on, but there is no tooling available to this session to actually drive VoiceOver's gestures or hear its spoken output — simulator *existing* is not the same as being able to *test* on it.
 
@@ -282,6 +288,46 @@ Sequence, confirmed sufficient by this engagement's own iOS Release Readiness wa
 - Nothing ever leaves you stuck with no way forward using only the screen reader.
 
 **Record your results** (PASS/FAIL per journey per platform, plus any FAIL notes) and share them back — if everything passes, `AU-009` closes. If anything fails, tell us which journey/step and we'll fix and ask you to re-test just that one journey, not the whole list again.
+
+## Authentication / Onboarding Handoff (new, 2026-09-10) — `AUTH-001` / `AUTH-002`, PRE-LAUNCH BLOCKING
+
+Your acceptance testing found two real, launch-blocking defects when signing up with a genuinely new email: the confirmation email looked like a generic Supabase email and redirected to an old Vercel link instead of the app, and after confirming, the app skipped onboarding entirely as if you were a returning user. Both are now root-caused with hard evidence, and the onboarding-skip is fully fixed in code. The confirmation-redirect fix is ready but needs your authorization (it changes production authentication configuration, which this session will never touch without you saying so explicitly).
+
+### What's already fixed (no action needed)
+
+**The onboarding-skip bug (`AUTH-002`) is fixed.** The app used to decide "new vs. returning user" from a flag that only lived in memory for the current app session — for a real signup that requires email confirmation (which yours does), that flag was never being set at all, so a freshly-confirmed user looked identical to a returning one. The app now checks a real, durable, server-side "have you finished onboarding?" record every time you sign in, instead of guessing. Verified against production with real test accounts, including confirming one account can never see or change another's onboarding status.
+
+### What needs your authorization — the confirmation-email fix (`AUTH-001`)
+
+**Exact cause found**: your Supabase project's authentication settings still point at an old Vercel web-preview address (`https://niswah.vercel.app`) as the destination for confirmation links, instead of the app itself. The app has already correctly asked for `niswah://login-callback` (which opens Niswah directly) for a while now — but that address was never added to Supabase's list of allowed redirect destinations, so Supabase quietly falls back to the old Vercel address instead. This is exactly what you saw.
+
+**Proposed fix** (nothing has been changed yet):
+
+| Setting | Change to |
+|---|---|
+| Site URL | `niswah://login-callback` |
+| Allowed Redirect URLs | add `niswah://login-callback` (your existing Vercel entries stay — those are for the separate web reference site, not related to this) |
+
+**To authorize**: just say so explicitly (e.g. "yes, apply the AUTH-001 Supabase Auth config change") and this session will make exactly those two changes and re-verify with a real test signup — nothing else in your Supabase project will be touched.
+
+**Also recommended, same authorization**: replace the confirmation email's generic "Confirm your email address" wording with real Niswah branding. This can be done at the same time.
+
+**One more thing found along the way, not blocking launch but worth knowing**: your Supabase project is currently using its own free built-in email sender, which has a strict sending limit — a real test signup during this session's own testing already hit that limit (`HTTP 429`, "email rate limit exceeded"). This means some real users' confirmation emails could silently fail to send once you have more than a handful of signups per hour. Fixing this requires setting up your own email-sending service (e.g. Resend, Postmark, SendGrid, or similar) and entering its credentials directly into the Supabase Dashboard's Authentication → SMTP Settings — this session will never see or handle that password, so this step can only be done by you, whenever convenient. It is not required to unblock the redirect fix above, but it should happen before a real public launch.
+
+### Minimal acceptance test, once the Auth config change is authorized and applied
+
+No code, tables, or logs to inspect — just this:
+
+1. Sign up with a real, brand-new email address you can check.
+2. Confirm the email looks like it's from Niswah (not generic).
+3. Tap the confirmation link.
+4. Confirm it opens Niswah itself, not a browser/old website.
+5. Confirm onboarding appears (madhhab, married, location, period questions).
+6. Complete onboarding.
+7. Log out, then log back in with that same account.
+8. Confirm you land on the dashboard, not onboarding again.
+
+Report PASS/FAIL — if anything fails, note which step.
 
 ## PC-006 Handoff
 
@@ -338,7 +384,11 @@ Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md
 
 **`OB-006` is now also `VERIFIED_CLOSED`** (2026-09-09, OB-006 Owner Confirmation wave): you opened the Sentry dashboard directly and confirmed the staging verification event genuinely exists server-side — Sentry issue `FLUTTER-2`, event ID beginning `10b520e6...`, `environment: staging`, event count `1`, visibly present in Sentry itself, not merely accepted locally by the SDK. This is exactly `OB-006`'s own native closure bar ("appears in the chosen tool"), now directly satisfied. See the **OB-006 Handoff** above and `00_09` §51 for full evidence.
 
-**What still holds the verdict at NO-GO**: every remaining item (`DC-010`, `AU-009`, `PC-006`) is independently owner/external/platform/legal-gated, unrelated to backup/recovery/credential/rate-limiting/rollback/release/observability safety. **Practically**: with `BR-001`, `RD-009`, `RD-006`, and now `OB-006` all closed and the restore-project cleanup complete, this engagement has no remaining BR0/RD1/OB1-critical technical finding open anywhere and no lingering cleanup items — everything left is `DC-010`/`AU-009`/`PC-006`, each independently gated on your action, external platform access, or counsel, not on further engineering or verification work.
+**What still holds the verdict at NO-GO**: every remaining item (`DC-010`, `PC-006`, and now `AUTH-001`/`AUTH-002`) is independently owner/external/platform/legal-gated, unrelated to backup/recovery/credential/rate-limiting/rollback/release/observability safety. **Practically**: with `BR-001`, `RD-009`, `RD-006`, `OB-006`, and now `AU-009` all closed and the restore-project cleanup complete, this engagement has no remaining BR0/RD1/OB1/AU1-critical technical finding open anywhere and no lingering cleanup items.
+
+**🔴 Update, 2026-09-10 (Critical Auth/Signup Lifecycle wave) — two new pre-launch-blocking findings, `AUTH-001`/`AUTH-002`, found via your own acceptance testing.** `AUTH-002` (a genuinely new, confirmed user skipped onboarding) is fully fixed in code and verified with real production test accounts. `AUTH-001` (confirmation email showed default branding and redirected to a stale Vercel URL) is root-caused precisely, with the exact fix prepared — but requires your explicit authorization before this session touches production authentication configuration, exactly as every other production change in this engagement has required. See the **Authentication / Onboarding Handoff** section above for the full detail and the minimal owner action.
+
+**🟢 Update, 2026-09-10 — `AU-009` is now `VERIFIED_CLOSED`.** You reported the prescribed VoiceOver/TalkBack acceptance script passed in full. Everything left is `DC-010`/`PC-006`/`AUTH-001`/`AUTH-002`, each independently gated on your action, external platform access, or counsel, not on further engineering or verification work — except `AUTH-001`, which is ready the moment you authorize it.
 
 **A new specialized audit was added and run (2026-09-09): Fiqh Engine Accuracy & AI User-State Context.** Verdict `FIQH CONDITIONAL GO`, unchanged across three follow-on waves — the fiqh calculation engine itself is sound and deterministic with zero `FIQH-0` findings; the AI context layer is now live-verified end-to-end with real Gemini evidence for 3 of 4 AI features; the 4th's grounding blocker is now precisely root-caused (a billing/quota action on your Google Cloud account); a draft (entirely unreviewed) source-governance layer and a reviewer-ready scholar package now exist. See **Fiqh Engine & AI Context Handoff** above.
 

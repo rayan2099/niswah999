@@ -272,27 +272,18 @@ class NiswahApp extends StatelessWidget {
             textDirection: AppLocaleController.instance.textDirection,
             child: child!,
           ),
-          home: kDebugSkipSignup
-              ? OnboardingScreen(
-                  initialStep: 4,
-                  onFinished: () =>
-                      Navigator.of(context).pushReplacementNamed('/'),
-                )
-              : !AuthController.instance.isAuthenticated
-              ? const SignInScreen()
-              : AuthController.instance.isNewSignUp
-              // Step 3 of onboarding is itself a login step — skip straight
-              // past splash/language/login to Madhhab (step 4), since this
-              // user is already authenticated by the time they land here.
-              ? OnboardingScreen(
-                  initialStep: 4,
-                  onFinished: AuthController.instance.clearNewSignUp,
-                )
-              : NiswahHomeShell(initialIndex: initialTabIndex),
+          home: _buildHome(context),
           routes: {
+            // Not currently navigated to anywhere in the app (root
+            // routing in _buildHome already shows OnboardingScreen
+            // whenever needed) — kept for any future direct-navigation
+            // use, with the same completion-persistence contract as the
+            // main path so it can never silently skip it.
             '/onboarding': (routeContext) => OnboardingScreen(
-              onFinished: () =>
-                  Navigator.of(routeContext).pushReplacementNamed('/'),
+              onFinished: () {
+                AuthController.instance.setOnboardingCompletedLocally(true);
+                Navigator.of(routeContext).pushReplacementNamed('/');
+              },
             ),
           },
           // A Supabase auth-callback deep link (e.g. niswah://login-callback
@@ -315,6 +306,64 @@ class NiswahApp extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// AUTH-002's routing contract — the ONLY place this decision is made,
+  /// per finding evidence in
+  /// production-readiness-results/master/00_04_MASTER_FINDING_REGISTER.md:
+  ///
+  /// STATE 1: not authenticated -> SignInScreen.
+  /// STATE 2 (email-confirmation-pending) is handled entirely inside
+  ///   SignInScreen itself (`_awaitingEmailConfirmation`) — it never
+  ///   reaches this router, since no session exists yet.
+  /// STATE "checking" (authenticated, onboarding status not yet known) ->
+  ///   a brief loading indicator, never a guess — this is the state that
+  ///   used to be silently treated as "onboarding complete" by the old
+  ///   `isNewSignUp` heuristic, which is exactly how a freshly-confirmed
+  ///   new user could reach the dashboard without ever completing
+  ///   onboarding (AUTH-002).
+  /// STATE 3/5 (onboarding incomplete, whether brand-new or partially
+  ///   done): OnboardingScreen. `isNewSignUp` is consulted ONLY to decide
+  ///   the initial step (skip the redundant login step for a user who is
+  ///   already authenticated in this same process) — never to decide
+  ///   whether onboarding is shown at all.
+  /// STATE 4 (onboarding complete): NiswahHomeShell.
+  Widget _buildHome(BuildContext context) {
+    if (kDebugSkipSignup) {
+      return OnboardingScreen(
+        initialStep: 4,
+        onFinished: () => Navigator.of(context).pushReplacementNamed('/'),
+      );
+    }
+
+    final auth = AuthController.instance;
+    if (!auth.isAuthenticated) {
+      return const SignInScreen();
+    }
+
+    final onboardingCompleted = auth.onboardingCompleted;
+    if (onboardingCompleted == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (!onboardingCompleted) {
+      return OnboardingScreen(
+        // Step 3 of onboarding is itself a login step — skip straight
+        // past splash/language/login to Madhhab (step 4) only when we
+        // know this user is already authenticated from a signup that
+        // just happened in this same process. Any other case (a
+        // returning-but-not-onboarded user, a confirmation-driven
+        // session from a fresh process) starts at step 1, which is
+        // correct and safe — never skipped based on a guess.
+        initialStep: auth.isNewSignUp ? 4 : 1,
+        onFinished: () {
+          auth.clearNewSignUp();
+          auth.setOnboardingCompletedLocally(true);
+        },
+      );
+    }
+
+    return NiswahHomeShell(initialIndex: initialTabIndex);
   }
 }
 
