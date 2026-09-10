@@ -4870,5 +4870,5 @@ Not reached — no owner test results exist yet this wave. `AU-009` remains `OPE
 9. **AU-009 final status**: `OPEN` — awaiting the owner's live AT pass; everything technically achievable without the owner has been done.
 10. **Remaining launch blockers**: `DC-010` (Apple signing, deferred), `PC-006` (legal/counsel), `AU-009` (this wave's owner action), Fiqh grounding billing (owner-gated), scholar review (fiqh source governance).
 11. **Updated overall verdict**: unchanged, `NO-GO` — narrowed, not closed; `AU-009`'s remaining bar is now the smallest it can be without the owner's own participation.
-12. **Final commit SHA**: recorded below after this wave's commit.
-13. **Local == remote verification**: recorded below after this wave's push.
+12. **Final commit SHA**: `28b4969f639e4177e90172320190dce566b59ed6` (`fix: add loading-state screen-reader labels (AU-014), extend AU-009 recheck`).
+13. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `28b4969f639e4177e90172320190dce566b59ed6` after `git push origin HEAD:main` and `git fetch origin`.
