@@ -554,3 +554,22 @@ Signup confirmation (`emailRedirectTo`), password recovery (`redirectTo`), and �
 - **`AUTH-004`**: **`LIVE_VERIFICATION_REQUIRED`** (was `ROOT_CAUSE_CONFIRMED`). Root-caused with definitive historical evidence, remediated in app code (no schema migration needed), E3-verified live against production including cross-account isolation. Remains at `LIVE_VERIFICATION_REQUIRED` rather than `VERIFIED_CLOSED`/`ADVERSARIAL_VERIFIED` because no E4 (real on-device UI tap through the actual "Anonymous Mode" toggle) has been performed yet — recommended as a fast, cheap addition to the owner's eventual acceptance script once `AUTH-001` unblocks the full journey, not a new blocker on its own since the E3 evidence already directly exercises the exact query shape the UI issues.
 
 **Overall verdict: `NO-GO`, unchanged** — blocked on `AUTH-001` (owner authorization + SMTP). `AUTH-004` is no longer an independent blocker (remediated, E3-verified); it remains listed only because full E4 closure is still pending, tracked honestly rather than closed prematurely.
+
+---
+
+## Wave 1 Governance Update (2026-09-11, pre-closure)
+
+Per explicit owner instruction, before Wave 1 closure:
+
+1. **`AUTH-004` stays `LIVE_VERIFICATION_REQUIRED`** until the owner completes the final E4 Profile Settings persistence check (acceptance-script step 9, `docs/final-owner-launch-checklist.md`). Not reclassified as resolved based on E3 evidence alone.
+2. **`AUTH-005` created**: selected madhhab remains `LOCAL_ONLY_UNSAFE` — tracked as its own finding, not folded into `AUTH-004`, because it affects future deterministic fiqh behavior, the Fiqh Advisor, `UserAiContext`, and cross-device/reinstall correctness. Not implemented this wave (real feature addition, out of `AUTH-004`'s scope) and not classified as resolved.
+3. **`AUTH-006` created**: prayer location remains `LOCAL_ONLY_UNSAFE` — tracked as its own separate finding, same reasoning, not implemented, not classified as resolved.
+4. Neither `AUTH-005` nor `AUTH-006` is treated as resolved merely because implementing them was out of scope for `AUTH-004`.
+
+**Wave 1 remaining gates**:
+- `AUTH-001` — **BLOCKER** (owner-gated: config authorization + SMTP)
+- `AUTH-004` — **LIVE_VERIFICATION_REQUIRED** (owner's final E4 Profile Settings check still pending)
+
+`AUTH-002` remains `ADVERSARIAL_VERIFIED`. `AUTH-003` remains tracked/non-blocking — its no-false-completion invariant still holds (unchanged this pass; no code touched that path).
+
+**Overall verdict: `NO-GO`, unchanged.**

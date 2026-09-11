@@ -5086,3 +5086,13 @@ Full detail: `production-readiness-results/adversarial-validation/WAVE_1_AUTH_ID
 46. **Active Git branch**: `terminal`.
 47. **Final commit SHA**: `60df35dc453aa5956c2c31aa2b39fd8e55834413` (fix: resolve AUTH-004 -- redirect broken profile writes to public.users).
 48. **Local == upstream verification**: recorded in the following addendum commit, after push.
+
+## 64. Wave 1 Governance Update (2026-09-11, pre-closure)
+
+Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "Wave 1 Governance Update" section. Owner-directed correction before Wave 1 closure: `AUTH-004` stays `LIVE_VERIFICATION_REQUIRED` (E3 evidence alone does not close it — the owner's final E4 Profile Settings persistence check, acceptance-script step 9, is required first). Two new findings allocated so the `AUTH-004` fix's adjacent, still-unresolved fields are never mistaken for resolved: `AUTH-005` (selected madhhab, `LOCAL_ONLY_UNSAFE`, `OPEN`) and `AUTH-006` (prayer location, `LOCAL_ONLY_UNSAFE`, `OPEN`) — both added to `00_04_MASTER_FINDING_REGISTER.md`, neither implemented this wave, neither classified as resolved merely because implementation was out of `AUTH-004`'s scope.
+
+**Wave 1 remaining gates**: `AUTH-001` — **BLOCKER**. `AUTH-004` — **LIVE_VERIFICATION_REQUIRED**. `AUTH-002` remains `ADVERSARIAL_VERIFIED`. `AUTH-003` remains tracked/non-blocking (no-false-completion invariant still holds, unchanged this pass).
+
+**Global remaining launch blockers** (outside Wave 1's own auth scope, unchanged from the standing engagement state): `DC-010` (iOS production signing, owner-blocked), `PC-006` (data-export legal/retention determination, counsel-gated).
+
+**Overall verdict: `NO-GO`, unchanged.**
