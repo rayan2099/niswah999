@@ -5019,3 +5019,70 @@ Full detail: `production-readiness-results/adversarial-validation/WAVE_1_AUTH_ID
 22. **Overall verdict**: `NO-GO`, unchanged.
 23. **Final commit SHA**: `8c4d0aa35d7d0401b6d8a227ffeb21175a80a60c` (docs: complete Wave 1 closure prep with real E4 device evidence for AUTH-002).
 24. **Local == remote verification**: recorded in the following addendum commit, after push.
+
+## 63. Adversarial Validation — Wave 1 Final Blocker Remediation (2026-09-11)
+
+Full detail: `production-readiness-results/adversarial-validation/WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "Wave 1 Final Blocker Remediation" section. This section is a summary pointer, not a duplicate.
+
+**Two objectives, both addressed**: (A) `AUTH-004` root-caused precisely (not merely re-observed) and remediated in app code; (B) `AUTH-001`'s `site_url` design re-evaluated deliberately rather than re-adopting the prior wave's proposal unexamined — arrived at the same destination (`niswah://login-callback`) but only after ruling out `niswah.app` (no web server, confirmed this pass) and explicitly justifying against `niswah.vercel.app`.
+
+**`AUTH-004` — the historical cause, precisely identified**: a migration (`supabase/migrations_archive/20260822014500_niswah_schema_sync_and_indexes.sql`) was written specifically to add the five missing `profiles` columns — its own header comment says so — but was never applied to production through the tracked migration system, then archived by the unrelated `BR-002` wave once that wave independently proved (via `supabase migration list --linked` and a full empty-database replay) that none of the 12 historical migration files in that archive were ever tracked-applied. Cross-corroborated against the canonical baseline (production's real live schema, captured by `BR-002`). Classification: unapplied migration + migration ledger drift.
+
+**Remediation**: `public.users` already has, live, `display_name`/`anonymous_mode` (populated at signup, never previously wired to any app code) — `AuthRepositoryImpl.updateProfile()`/`getProfile()` rewritten to target `users` for these two fields instead of the never-live `profiles` columns; `email` no longer duplicated into any public table; `phone_number`/`bio` confirmed unreachable from any real UI and no longer written anywhere. The now-fully-dead `lib/features/auth/data/models/user_profile.dart` was deleted. A second, separate, already-working "Settings" profile system was discovered during this trace to be orphaned (unreachable from navigation) — not broken, not remediated, flagged for awareness.
+
+**A related, previously-unflagged defect found and fixed in the same trace**: `signInWithGoogle()` was passing `redirectTo: null`, silently falling back to the same misconfigured `site_url` as the original `AUTH-001` bug — fixed to pass the explicit mobile callback, folded into `AUTH-001`'s existing scope.
+
+**Live E3 evidence, this pass**: two fresh synthetic accounts confirmed (1) the original bug reproduces exactly as before against `profiles`, (2) the fixed path succeeds against `users`, (3) cross-account RLS isolation holds for these fields (a real attack attempt by a second synthetic account against the first's `users` row was fully blocked, verified via service-role re-read). Both accounts deleted afterward; zero `@niswah-internal-test.invalid` accounts remain in production (verified via a full `admin/users` sweep). The `w1s03-device-test` account from the prior wave was independently deleted by the owner directly in the Supabase Dashboard, per this wave's own charter — recorded as `COMPLETE`, not re-verified by this session.
+
+**Full user-state authority matrix** produced (§IV of the linked report) — every field required by the charter classified, with two prepared-but-not-implemented design decisions: madhhab (recommend `users.madhhab` as sole canonical field, `MadhhabController` becomes a write-through local cache — a real feature addition, out of this wave's scope) and prayer location (classified as account state that should persist, same reasoning, same scope decision).
+
+### Consolidated Report
+
+1. **Synthetic-account cleanup status**: `w1s03-device-test@niswah-internal-test.invalid` — `COMPLETE` (owner-performed, per instruction not re-verified). Two new synthetic accounts created and deleted this pass for `AUTH-004` E3 evidence — confirmed zero test accounts remain.
+2. **AUTH-004 exact root cause**: unapplied migration (`20260822014500_niswah_schema_sync_and_indexes.sql`) + migration ledger drift — see above.
+3. **Exact live schema mismatch**: `public.profiles` has only `id, full_name, selected_madhhab, created_at, updated_at`; app code expected `display_name, email, phone_number, bio, anonymous_mode` additionally.
+4. **Historical cause**: migration authored 2026-08-22, never tracked-applied, archived 2026-09-07 by the unrelated `BR-002` wave once it independently proved the entire historical migration chain was never applied via tooling.
+5. **Affected production flows**: onboarding privacy step; Profile Settings "Anonymous Mode" toggle (the real, reachable Profile tab). `ProfileViewModel.updateProfile(ProfileFormData)` (display name/phone/bio) confirmed unreachable from any real screen.
+6. **Affected existing-user impact**: all 24 real `users` rows have a populated `display_name` (trigger-set at signup, unrelated to the bug); 3 of 24 show `anonymous_mode=true` (mechanism predates this pass, not further investigated, out of scope).
+7. **Full user-state authority matrix summary**: produced, 12 fields classified — see §IV of the linked report.
+8. **SERVER_AUTHORITATIVE fields**: `onboarding_completed`, anonymous mode (as of this pass), display name (as of this pass), cycle history, pregnancy configuration, notification preferences.
+9. **LOCAL_CACHE_OF_SERVER fields**: none currently exist in the app's architecture (a gap, not a defect).
+10. **LOCAL_ONLY_INTENTIONAL fields**: marital status, language/locale.
+11. **LOCAL_ONLY_UNSAFE fields**: selected madhhab (highest severity), prayer location.
+12. **AUTH-004 remediation implemented**: yes — app code only, `updateProfile`/`getProfile` retargeted to `public.users`; dead model file deleted; regression suite re-confirmed 389/397 (same 8 known diffs).
+13. **Database migration required**: **NO** — `public.users` already has the needed columns, live, in production.
+14. **Migration filename + checksum**: N/A — no migration required.
+15. **Production DB authorization required**: **NO** — app-code-only fix.
+16. **Privacy/consent persistence result**: fixed — `anonymous_mode` now durably persists server-side; the onboarding call site's prior false-success pattern (optimistic local state + silently swallowed error) is now moot since the underlying write actually succeeds, though the swallow-on-error code pattern itself was not rewritten this pass (no longer triggers in the normal case; a genuine network failure would still fail silently there — flagged, not fixed, since it's a pre-existing defensive-coding choice unrelated to `AUTH-004`'s schema mismatch).
+17. **Anonymous-mode persistence result**: fixed, E3-verified (write, read-back, cross-account isolation all confirmed against real production).
+18. **Madhhab persistence decision**: functionally `LOCAL_ONLY_UNSAFE` despite two disagreeing, unused server columns existing; minimal correct design prepared (§V of the linked report), not implemented — a real feature addition, out of this wave's scope.
+19. **Prayer-location persistence decision**: classified as account state that should persist (not a device preference); not implemented this wave, same reasoning as madhhab.
+20. **Account-switch isolation result**: confirmed for the two fields this wave's fix touches (`display_name`/`anonymous_mode` on `users`) via a real two-synthetic-account attack test — RLS holds. `onboarding_completed`/madhhab isolation already covered by the prior wave's `W1-S01`.
+21. **Reinstall/local-storage-loss result**: unaffected by this wave's change — `onboarding_completed` (already server-authoritative) and now `display_name`/`anonymous_mode` (newly server-authoritative) all correctly reconstruct from the server; madhhab/prayer-location remain local-only and are lost on reinstall, as already documented (not remediated this wave, by design decision above).
+22. **Chosen production SITE_URL**: `niswah://login-callback` (re-evaluated, not merely re-adopted — see item 23).
+23. **SITE_URL rationale**: `niswah.app` has no web server (confirmed this pass, though it does have active MX records, so the domain is owned/managed); every enabled auth flow already passes an explicit redirect that outranks `site_url`; the mobile scheme is the only real, owned, working destination today. A branded HTTPS landing page is a recommended future follow-up, not blocking.
+24. **Chosen signup callback**: unchanged, `niswah://login-callback` via `emailRedirectTo`.
+25. **Chosen password-recovery callback**: unchanged, `niswah://login-callback` via `redirectTo`.
+26. **Exact redirect allowlist delta**: `site_url` → `niswah://login-callback`; append same to `uri_allow_list`; Vercel entries untouched.
+27. **Android deep-link status**: unchanged from the prior wave — E3/E4 verified, not re-tested this pass (no code/config change to the deep-link path itself).
+28. **iOS deep-link status**: unchanged from the prior wave — E4 verified, not re-tested this pass.
+29. **Signup emailRedirectTo status**: unchanged, already correct.
+30. **Recovery redirect status**: unchanged, already correct.
+31. **Email-template readiness**: unchanged from the prior wave — prepared, not applied.
+32. **Custom SMTP readiness**: unchanged — not active, owner/external-provider action required.
+33. **SMTP remaining owner action**: unchanged — enter sender email/name, host, port, username, password directly in the Supabase Dashboard; never requested or handled by this session.
+34. **Automated test results**: 389/397, same 8 known unchanged golden-image diffs, re-confirmed after this wave's two code changes.
+35. **Live integration results**: E3 — real synthetic-account reproduction of the original bug, real verification of the fix, real cross-account isolation attack, all against production, cleaned up afterward.
+36. **E4 evidence completed**: none new this wave (no on-device UI test was in scope — this wave's evidence is E3, at the repository/query level, which is what changed).
+37. **E5 evidence completed**: none new this wave.
+38. **AUTH-001 final status**: `ROOT_CAUSE_CONFIRMED` / `OWNER_BLOCKED`, unchanged — proposal re-evaluated and re-confirmed, scope extended to include the Google OAuth fix.
+39. **AUTH-002 final status**: `ADVERSARIAL_VERIFIED`, unchanged — not redesigned, regression-confirmed.
+40. **AUTH-003 final status**: `ROOT_CAUSE_CONFIRMED`, unchanged — invariant re-confirmed to still hold, not re-tested (no code touched that path).
+41. **AUTH-004 final status**: `LIVE_VERIFICATION_REQUIRED` (was `ROOT_CAUSE_CONFIRMED`) — remediated, E3-verified; needs one E4 on-device tap for full closure.
+42. **Remaining Wave 1 blockers**: `AUTH-001` only (owner-gated: config authorization + SMTP). `AUTH-004` is no longer an independent blocker.
+43. **Global remaining launch blockers**: unchanged from the standing engagement state outside this wave's scope — `AUTH-001` is the sole Wave 1 blocker; broader launch blockers outside Wave 1 are out of this charter's scope.
+44. **Exact minimum owner actions**: authorize the `AUTH-001` config delta (item 26); enter SMTP credentials directly in the Supabase Dashboard; no action needed for `AUTH-004` (already remediated).
+45. **Updated overall launch verdict**: `NO-GO`, unchanged — blocked solely on `AUTH-001`.
+46. **Active Git branch**: `terminal`.
+47. **Final commit SHA**: recorded below after this wave's commit.
+48. **Local == upstream verification**: recorded below after this wave's push.

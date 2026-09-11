@@ -297,9 +297,12 @@ Your acceptance testing found two real, launch-blocking defects when signing up 
 
 **The onboarding-skip bug (`AUTH-002`) is fixed.** The app used to decide "new vs. returning user" from a flag that only lived in memory for the current app session — for a real signup that requires email confirmation (which yours does), that flag was never being set at all, so a freshly-confirmed user looked identical to a returning one. The app now checks a real, durable, server-side "have you finished onboarding?" record every time you sign in, instead of guessing. Verified against production with real test accounts, including confirming one account can never see or change another's onboarding status, and re-tested on a real rebuilt device install (not just against the backend directly) once this specific fix was included in the build.
 
-**Two related items found and tracked (not fixed this pass, not launch-blocking on their own):**
+**`AUTH-004` is also now fixed.** A real, separate bug was found while checking the above: the "Anonymous Mode" privacy toggle (in Profile Settings, and during onboarding's privacy step) was failing every single time it was used — it looked like it worked (the switch flipped), but nothing was actually being saved, so it silently reverted every time you reopened the app. The cause: your database already had the right place to save this (a column that's been there all along), the app was just trying to save it to the wrong table. That's now fixed and re-verified directly against your live database with a temporary test account (deleted afterward) — including confirming one account can never see or change another's privacy setting. No action needed from you. A real on-device tap-through of the toggle is recommended as one extra step in the acceptance script below, just to see it work end-to-end.
+
+**One related item found and tracked (not fixed this pass, not launch-blocking on its own):**
 - **`AUTH-003`** — if someone closes the app partway through onboarding, it safely starts over from the beginning next time (never skips ahead to the dashboard, never loses her answers) — it just doesn't resume at the exact step she left off on. Accepted as-is; restarting safely is what actually matters.
-- **`AUTH-004`** — a real, separate bug found while checking this: the "save profile" feature (in Profile Settings, and the anonymous-mode toggle during onboarding's privacy step) is currently failing every time it's used, due to a mismatch between what the app tries to save and what your database actually has a place for. This isn't part of the confirmation-email/onboarding-skip fix above — it's a distinct issue, flagged for its own follow-up fix, not attempted in this pass to keep this fix focused.
+
+**Also found and fixed along the way**: signing in with "Continue with Google" had the same underlying redirect problem as the confirmation-email issue below — it would also have landed on the old Vercel address instead of returning to the app. Fixed in the same code change; it needs the same one-time Supabase configuration change below to fully take effect.
 
 ### What needs your authorization — the confirmation-email fix (`AUTH-001`)
 
@@ -330,6 +333,7 @@ No code, tables, or logs to inspect — just this:
 6. Complete onboarding.
 7. Log out, then log back in with that same account.
 8. Confirm you land on the dashboard, not onboarding again.
+9. In Profile Settings, turn on "Anonymous Mode," then close and reopen the app. Confirm it's still on (this is the `AUTH-004` fix — previously it would have silently turned back off).
 
 Report PASS/FAIL — if anything fails, note which step.
 
@@ -397,6 +401,8 @@ Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md
 **A new specialized audit was added and run (2026-09-09): Fiqh Engine Accuracy & AI User-State Context.** Verdict `FIQH CONDITIONAL GO`, unchanged across three follow-on waves — the fiqh calculation engine itself is sound and deterministic with zero `FIQH-0` findings; the AI context layer is now live-verified end-to-end with real Gemini evidence for 3 of 4 AI features; the 4th's grounding blocker is now precisely root-caused (a billing/quota action on your Google Cloud account); a draft (entirely unreviewed) source-governance layer and a reviewer-ready scholar package now exist. See **Fiqh Engine & AI Context Handoff** above.
 
 **🟢 Update, 2026-09-09: `W1-001`, `AB-002`, `SEC-005`, and `AB-008` regressed in production for a window on 2026-09-08/09, and were re-remediated and confirmed `VERIFIED_CLOSED` again the same day.** The rate-limiter database objects those findings' closure depended on had gone missing from production, causing all 4 AI features to return `503` to every real user; the same, unchanged, previously-verified migration was re-applied and every object plus live service and rate-limiter behavior were independently re-verified. See the 🟢 RESOLVED banner at the top of this document and `00_09` §54 for full detail, including the root-cause investigation and the new detection script.
+
+**🟢 Update, 2026-09-11 (Wave 1 Final Blocker Remediation) — `AUTH-004` is now fixed.** The "Anonymous Mode" privacy toggle (Profile Settings + onboarding's privacy step) was silently failing to save every time, in production, since it was built — traced to its exact historical cause (a migration written to add the needed database columns, but never actually applied) and fixed by pointing the app at a column that was already there all along. Re-verified directly against your live database with a temporary test account (deleted afterward), including confirming one account can never see or change another's setting. No action needed from you — see the updated **Authentication / Onboarding Handoff** section above. A related bug in "Continue with Google" sign-in (same redirect problem as `AUTH-001`) was also found and fixed in the same pass. **What still holds the verdict at NO-GO, updated**: `DC-010`, `PC-006`, and `AUTH-001` — `AUTH-004`/`AUTH-002` are both now fully resolved and off this list.
 
 ---
 
