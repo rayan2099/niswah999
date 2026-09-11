@@ -5096,3 +5096,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "Wave 1 Governance Up
 **Global remaining launch blockers** (outside Wave 1's own auth scope, unchanged from the standing engagement state): `DC-010` (iOS production signing, owner-blocked), `PC-006` (data-export legal/retention determination, counsel-gated).
 
 **Overall verdict: `NO-GO`, unchanged.**
+
+**Final commit SHA**: `8cc542ba90c1db30a2fa95688c3ae512f0bb68a3` (docs: governance update -- AUTH-005/AUTH-006, AUTH-004 gate held open). **Local == upstream verification**: recorded in the following addendum commit, after push.
