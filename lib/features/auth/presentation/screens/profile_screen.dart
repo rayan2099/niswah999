@@ -266,17 +266,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             icon: Icons.visibility_off_outlined,
                             title: _pr('Anonymous Mode', 'الوضع المجهول'),
                             value: isAnonymous,
-                            onChanged: (value) async {
-                              try {
-                                await _viewModel.setAnonymousMode(value);
-                              } catch (error) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(error.toString())),
-                                  );
-                                }
-                              }
-                            },
+                            onChanged: _viewModel.isSaving
+                                ? null
+                                : (value) async {
+                                    try {
+                                      await _viewModel.setAnonymousMode(
+                                        value,
+                                      );
+                                    } catch (error) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(error.toString()),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
                           ),
                           _ActionRow(
                             icon: Icons.privacy_tip_outlined,
@@ -1639,7 +1647,7 @@ class _ToggleRow extends StatelessWidget {
   final String title;
   final String? subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
   final bool last;
   @override
   Widget build(BuildContext context) => Container(

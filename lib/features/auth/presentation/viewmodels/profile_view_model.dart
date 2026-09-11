@@ -98,6 +98,16 @@ class ProfileViewModel extends ChangeNotifier {
       throw const AuthFailure('Authentication is not available right now.');
     }
 
+    // Guards against a rapid double-tap firing two overlapping requests
+    // before the first has resolved — previously unguarded, unlike
+    // updateProfile()'s isSaving check (AUTH-004 E4 investigation,
+    // Wave 1 Final Blocker Remediation follow-up, 2026-09-11).
+    if (isSaving) {
+      return;
+    }
+    isSaving = true;
+    notifyListeners();
+
     try {
       final updatedUser = await authRepository.updateProfile(
         displayName: currentUser.displayName ?? '',
@@ -123,6 +133,7 @@ class ProfileViewModel extends ChangeNotifier {
       );
       throw const AuthFailure('Unable to update your profile right now.');
     } finally {
+      isSaving = false;
       notifyListeners();
     }
   }

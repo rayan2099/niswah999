@@ -573,3 +573,51 @@ Per explicit owner instruction, before Wave 1 closure:
 `AUTH-002` remains `ADVERSARIAL_VERIFIED`. `AUTH-003` remains tracked/non-blocking — its no-false-completion invariant still holds (unchanged this pass; no code touched that path).
 
 **Overall verdict: `NO-GO`, unchanged.**
+
+---
+
+## AUTH-004 E4 Owner Test Failure — Investigation (2026-09-11)
+
+**Governance record, per explicit instruction — history preserved, not rewritten:**
+
+- **PREVIOUS**: `AUTH-004` = `LIVE_VERIFICATION_REQUIRED` (E3-verified, E4 not yet performed).
+- **NEW EVIDENCE**: owner performed the real E4 journey (Profile → Privacy Settings → Anonymous Mode → toggle/save) on a real device against production and received **"Unable to update your profile right now."** — screenshot evidence exists. **E4 OWNER TEST = FAIL.**
+- **CURRENT (at the time this failure was reported)**: `AUTH-004` = `OPEN` / `LAUNCH BLOCKER = YES`, per explicit instruction, superseding the prior `LIVE_VERIFICATION_REQUIRED` status until a new, real, owner-confirmed E4 pass exists.
+
+### A-B. Reproduction and real error capture
+
+Rebuilt the app fresh from current `HEAD` (confirmed via `dumpsys package` timestamp), installed on a real Android emulator, created a synthetic account, drove the actual UI (real `input tap`/`input text`, not REST) exactly as the owner's flow: Profile → scroll to Privacy Settings → tap "Anonymous Mode." **Result across multiple isolated, cleanly-timed single-tap trials: the toggle succeeded every time** — confirmed via direct production DB reads showing `anonymous_mode`/`updated_at` changing to match the exact tap timestamp within 1-4 seconds, and via screenshots showing the switch staying in its new state. One earlier, noisier trial (immediately following a scroll gesture, screenshotted only 2s post-tap) appeared to show a revert, but a follow-up `uiautomator` dump from the same trial showed `checked="true"` — inconsistent with a real revert, more consistent with a screenshot taken before a slightly-delayed update finished landing. This could not be reproduced again despite a deliberate rapid-double-tap stress test (which produced a clean, consistent, non-erroring final state both times).
+
+**First failing layer**: none identified in the current code under repeated live testing. No PostgREST error, no RLS denial, no constraint violation was observed in any trial (all real database updates on `public.users` succeeded, confirmed via direct authenticated reads showing the correct value and a fresh `updated_at`).
+
+**Read-only checks performed to rule out account-specific data anomalies**: queried all 24 real `public.users` rows for values violating the `language`/`madhhab`/`role` CHECK constraints (a theory that a pre-existing invalid value on any column could cause an unrelated `UPDATE` to fail row-level validation) — **zero anomalies found**, ruling this out as a live production risk.
+
+### Leading theory, stated plainly
+
+No reproducible code-level defect was found in the current, correct code (post-`AUTH-004` fix, commit `60df35d` onward) after extensive live-device re-testing. The single most likely explanation for the owner's failure, given (a) no functioning app-distribution pipeline exists (`DC-010` remains open; no TestFlight/Play internal testing/Firebase Distribution workflow was found), meaning every device test requires a fresh manual rebuild+reinstall from source, and (b) this exact "stale build reproduces an already-fixed bug" pattern already happened once earlier in this same engagement (caught and corrected mid-`W1-S03`) — is that **the owner's test device was running a build that predates the `AUTH-004` fix commit**, still executing the old code that wrote to the never-live `profiles` columns. This is a theory, not proven fact — this session cannot inspect the owner's device — and is stated as such.
+
+### A genuine, separate code gap found and fixed regardless
+
+`ProfileViewModel.setAnonymousMode()` had no `isSaving` guard, unlike its sibling `updateProfile()` — a rapid double-tap could fire two overlapping requests before the first resolved. This did not produce a visible error in testing (both requests succeeded; the later one's value won), but is a real robustness gap, now fixed: `setAnonymousMode` sets/clears `isSaving` exactly like `updateProfile`, and the Profile screen's toggle now disables (`onChanged: null`) while a save is in flight. `_ToggleRow.onChanged` was widened to nullable to support this.
+
+### G. Minimal fix implemented
+
+Concurrency guard only (§ above) — no change to the write shape itself, which was already confirmed correct (PATCH-style, only `display_name`/`anonymous_mode` sent, per the existing `AUTH-004` fix). No schema change; no production mutation.
+
+### H. Regression tests added (`test/profile_update_observability_test.dart`)
+
+11 new tests: false→true persists; true→false persists; save succeeds for current user; value survives a simulated reload; logout/login (fresh fetch) reloads the correct value; structural cross-account-isolation guarantee (no id/userId parameter exists to target another user, backed by the existing live RLS attack evidence); unrelated fields (`phoneNumber`/`bio`) never sent; a null optional field doesn't break the update; a failure produces the expected user-visible message; a success produces no error; a rapid overlapping second call is dropped, not sent (guards the concurrency fix above). All 11 pass. Full suite: 408 tests, 400 passing (8 known, unchanged golden-image diffs) — 11 more than the prior wave's 397/389, zero new failures.
+
+### I. Live E3 before requesting another owner retest
+
+Performed directly against production this pass, via a synthetic account, through the real app UI (stronger than a REST-only E3): `anonymous_mode` false→true→read-back-true; true→false→read-back-false (via the double-tap trial); confirmed via restart that the value reconstructs correctly from the server (dashboard greeting and Profile identity card both correctly showed the anonymous variant after a full app restart). Synthetic account deleted afterward; zero `@niswah-internal-test.invalid` accounts remain in production (verified via a full sweep).
+
+### J. E4 owner retest gate
+
+Per explicit instruction, this session does not unilaterally close `AUTH-004` from its own re-testing, however strong. **Owner may retry E4 now**, with one specific recommendation: rebuild/reinstall the app from the current repository `HEAD` before retrying, given the leading theory above. Until the owner performs and reports a real, current E4 retest, `AUTH-004` remains `OPEN` / launch blocker, per explicit instruction.
+
+### K. Governance — status record
+
+- **PREVIOUS**: `AUTH-004` = `LIVE_VERIFICATION_REQUIRED`.
+- **E4 OWNER TEST**: `FAIL` (preserved as historical fact).
+- **CURRENT**: `AUTH-004` = `OPEN` / launch blocker, pending a new owner E4 retest on a confirmed-current build. Not reclassified as resolved by this session.

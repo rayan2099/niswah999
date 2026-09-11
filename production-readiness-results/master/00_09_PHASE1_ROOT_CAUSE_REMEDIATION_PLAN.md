@@ -5098,3 +5098,43 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "Wave 1 Governance Up
 **Overall verdict: `NO-GO`, unchanged.**
 
 **Final commit SHA**: `8cc542ba90c1db30a2fa95688c3ae512f0bb68a3` (docs: governance update -- AUTH-005/AUTH-006, AUTH-004 gate held open). **Local == upstream verification**: recorded in the following addendum commit, after push.
+
+## 65. AUTH-004 E4 Owner Test Failure — Investigation (2026-09-11)
+
+Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-004 E4 Owner Test Failure — Investigation" section. This section is a summary pointer, not a duplicate.
+
+**Governance history preserved, not rewritten**: PREVIOUS status `AUTH-004 = LIVE_VERIFICATION_REQUIRED`. The owner performed the real E4 journey and reported `FAIL` ("Unable to update your profile right now.", screenshot evidence). Per explicit instruction, status was immediately corrected to `AUTH-004 = OPEN`, `LAUNCH BLOCKER = YES` — not left at the prior status.
+
+**Investigation**: rebuilt the app fresh from current `HEAD`, created a synthetic account, drove the real Profile → Privacy Settings → Anonymous Mode flow through the actual UI (not REST) across multiple isolated single-tap trials, a restart, and a deliberate double-tap stress test. **Every trial succeeded** — confirmed via direct production DB reads matching each tap's timestamp within seconds, and via screenshots/restart behavior showing the correct persisted state. No PostgREST error, RLS denial, or constraint violation was observed in any trial. A read-only sweep of all 24 real `public.users` rows found zero CHECK-constraint anomalies (ruling out a pre-existing-bad-row theory).
+
+**Leading theory, explicitly not proven**: the owner's test device was likely running a build predating the `AUTH-004` fix commit — no functioning app-distribution pipeline exists (`DC-010` remains open), so every device test requires a fresh manual rebuild, and this exact stale-build pattern already occurred once earlier this same engagement.
+
+**A real, separate gap found and fixed regardless**: `ProfileViewModel.setAnonymousMode()` had no `isSaving` concurrency guard (unlike its sibling `updateProfile()`) — fixed, and the Profile screen's toggle now disables while a save is in flight (`_ToggleRow.onChanged` widened to nullable).
+
+**11 new regression tests added** (`test/profile_update_observability_test.dart`): value transitions both directions, save-succeeds, reload-survival, logout/login reload, structural cross-account-isolation guarantee, unrelated-fields-untouched, null-optional-field-safe, failure-produces-visible-error, success-produces-no-error, concurrent-call-guard. Full suite: 408 tests, 400 passing (8 known, unchanged golden-image diffs) — 11 more than the prior wave's 397/389, zero new failures.
+
+**Synthetic account cleanup**: the E4 test account was deleted immediately after use; a full sweep confirmed zero `@niswah-internal-test.invalid` accounts remain in production.
+
+**Status, per explicit instruction — not closed by this session's own re-testing**: `AUTH-004 = OPEN`, `LAUNCH BLOCKER = YES`. Owner may retry E4 now (recommended: confirm a fresh rebuild first). Only a new owner-reported PASS may close this finding.
+
+### Consolidated Report
+
+1. **Exact runtime root cause**: not conclusively identified as a current code defect — extensive live re-testing (multiple real-device trials) found the current code works correctly every time. Leading, unproven theory: stale build on the owner's test device.
+2. **First failing layer**: none reproduced in the current code under repeated live testing.
+3. **HTTP/PostgREST/database error**: none observed in any of this pass's live trials (all real `PATCH`/`GET` calls against `public.users` succeeded).
+4. **Exact failing payload**: not reproduced this pass; the known-correct payload shape (`{display_name, anonymous_mode}` against `public.users`) was independently re-confirmed correct via direct production testing.
+5. **Exact target table/columns**: `public.users.display_name`/`public.users.anonymous_mode` — re-confirmed correct, unchanged from the prior wave's fix.
+6. **RLS result for the same write shape**: unaffected — same policy, same shape, re-confirmed working via real synthetic-account writes this pass.
+7. **App-code defect found**: yes, one — `ProfileViewModel.setAnonymousMode` lacked a concurrency guard (`isSaving`). Fixed.
+8. **Remediation implemented**: concurrency guard added to `setAnonymousMode` and the Profile screen's toggle; no change to the already-correct write shape.
+9. **Schema change required**: **NO**.
+10. **Tests added**: 11 new regression tests, all passing.
+11. **Full regression result**: 408 tests, 400 passing (8 known, unchanged golden-image diffs).
+12. **Live E3 exact-write result**: PASS — false→true→read-back-true; true→false→read-back-false; restart-survival confirmed via dashboard greeting and Profile identity card both correctly reflecting the anonymous state after a full app restart.
+13. **Synthetic cleanup status**: COMPLETE — account deleted, zero test accounts remain (verified via full sweep).
+14. **AUTH-004 current status**: `OPEN` / `LAUNCH BLOCKER = YES` — not closed by this session, per explicit instruction.
+15. **Whether owner may retry E4 now**: YES, with the recommendation to confirm a fresh rebuild/reinstall first, given the leading (unproven) stale-build theory.
+16. **Remaining Wave 1 blockers**: `AUTH-001` (owner-gated: config authorization + SMTP), `AUTH-004` (open, pending a new owner E4 retest).
+17. **Overall verdict**: `NO-GO`, unchanged.
+18. **Final commit SHA**: recorded below after this wave's commit.
+19. **Local == upstream verification**: recorded below after this wave's push.
