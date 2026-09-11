@@ -5017,5 +5017,5 @@ Full detail: `production-readiness-results/adversarial-validation/WAVE_1_AUTH_ID
 20. **Findings eligible for live verification**: `AUTH-002` — now `E4`-verified on real device (`W1-S03`: real sign-in through the real UI, force-stop, cold deep-link, directly observed reaching `OnboardingScreen`, not the dashboard).
 21. **Remaining Wave 1 blockers**: `AUTH-001` (owner-gated). `AUTH-002` is now E4-verified and no longer a blocker. `AUTH-003` (accepted limitation, not blocking), `AUTH-004` (root-caused, deferred, not blocking Wave 1 closure).
 22. **Overall verdict**: `NO-GO`, unchanged.
-23. **Final commit SHA**: recorded below after this wave's commit.
-24. **Local == remote verification**: recorded below after this wave's push.
+23. **Final commit SHA**: `8c4d0aa35d7d0401b6d8a227ffeb21175a80a60c` (docs: complete Wave 1 closure prep with real E4 device evidence for AUTH-002).
+24. **Local == remote verification**: recorded in the following addendum commit, after push.
