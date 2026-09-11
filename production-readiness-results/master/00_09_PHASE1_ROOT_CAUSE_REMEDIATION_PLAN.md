@@ -4979,3 +4979,43 @@ The owner reports the prescribed VoiceOver (iOS) + TalkBack (Android) acceptance
 25. **Updated overall verdict**: `NO-GO`, unchanged — narrowed by `AU-009`'s closure, newly carrying `AUTH-001`/`AUTH-002`.
 26. **Final commit SHA**: `409ef5dee133445eb7c71a2586bda52aa3ced695` (`fix: durable onboarding_completed gating (AUTH-002); root-cause AUTH-001`).
 27. **Local == remote verification**: confirmed — local `HEAD` and `origin/main` both resolved to `409ef5dee133445eb7c71a2586bda52aa3ced695` after `git push origin HEAD:main` and `git fetch origin`.
+
+## 62. Adversarial Validation — Wave 1 Closure Preparation (2026-09-10)
+
+Full detail: `production-readiness-results/adversarial-validation/WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md` (extended this pass) and `AUTH_email_templates_prepared.md` (new). This section is a summary pointer, not a duplicate — the linked report is authoritative for the scenario records, the state-machine model, and the exact evidence-level accounting.
+
+**Re-confirmed unchanged**: live production Auth config (`site_url`, `uri_allow_list`, SMTP fields) — identical to the prior wave's read. **Prepared, not applied**: the exact `site_url`/`uri_allow_list` delta, bilingual Niswah-branded email templates for the two reachable auth-email flows (signup confirmation, password recovery), and the exact SMTP fields the owner needs to enter. **Verified with real device/emulator evidence** (not merely static registration): `niswah://login-callback` is genuinely delivered by the OS on both iOS and Android, cold-start and already-running, on both platforms, with no crash in any case.
+
+**Two new findings allocated**, continuing the sequence, neither silently folded into an existing one:
+
+- `AUTH-003` — partial onboarding step-level resume is not durable, but the mandatory safety invariant (incomplete onboarding can never silently become complete) is verified held in every traced case. One real, minor, explicitly-accepted-not-fixed asymmetry found: madhhab isn't pre-populated on onboarding restart the way marital status already is.
+- `AUTH-004` — a genuinely new, live production defect found while inventorying onboarding's user-state fields: `AuthRepositoryImpl.updateProfile()` writes to `public.profiles` columns (`anonymous_mode`, `display_name`, `email`, `phone_number`, `bio`) that do not exist on the live table — confirmed via a real synthetic-account reproduction (`HTTP 400`, `PGRST204`). This breaks onboarding's privacy step **and** the Profile Settings screen's entire save feature. Root-caused, not remediated this wave (a design decision — add the columns, or redirect the writes to `public.users` — is out of this wave's auth/onboarding scope).
+
+**A real mid-investigation catch, corrected before being reported as fact**: an on-device Android screenshot briefly appeared to show a known-incomplete account reaching the dashboard. Investigated immediately rather than written up as a regression — the installed APK predated this session's `AUTH-002` fix commit by several hours. A fresh rebuild from current `HEAD` was kicked off, and the claim was not finalized until re-tested against the new build: real sign-in through the real UI landed on `OnboardingScreen`, and a subsequent force-stop + cold deep-link fire also reopened to `OnboardingScreen`, not the dashboard — see the linked report's `W1-S03` for the full evidence (PASS, E4).
+
+### Consolidated Report
+
+1. **Live production Auth config re-confirmation**: unchanged from the prior wave (`site_url`, `uri_allow_list`, no SMTP configured).
+2. **Exact AUTH-001 proposed config delta**: `site_url` → `niswah://login-callback`; append the same to `uri_allow_list`; existing Vercel entries untouched (separate, live web-reference deployment).
+3. **Deep-link readiness, Android**: verified E3/E4 — cold-start and already-running delivery both confirmed via real `adb`/`dumpsys` evidence.
+4. **Deep-link readiness, iOS**: verified E4 — cold-start and already-running delivery both confirmed via real `simctl`/screenshot evidence.
+5. **Branded email templates prepared**: 2 (signup confirmation, password recovery) — full bilingual content in `AUTH_email_templates_prepared.md`; not applied.
+6. **Custom SMTP owner requirements**: sender email/name, host, port, username, password — entered directly into the Supabase Dashboard, never through this session.
+7. **AUTH-003**: newly created (no existing finding covered partial-onboarding resumability specifically).
+8. **Current partial-onboarding behavior**: always safely restarts onboarding from the top on interruption; never silently completes; never reaches the dashboard early.
+9. **Minimum safe partial-onboarding invariant**: verified held — enforced by the same `AUTH-002` server-side gate, confirmed by existing automated regression tests.
+10. **Onboarding-field authority inventory**: complete — see the report's §E table (10 fields classified).
+11. **Local-only-unsafe fields**: selected madhhab (most severe — can silently change fiqh classification shown), prayer location (lower severity), consent/anonymous-mode (separately confirmed outright broken, `AUTH-004`).
+12. **State/data-integrity finding**: newly created (`AUTH-004`) — no existing finding covered the `profiles` schema mismatch.
+13. **Exact E4 matrix**: 4 scenarios — 1 blocked on `AUTH-001` (real signup), 1 backend-only-PASS (full on-device run recommended for the owner's own acceptance pass once `AUTH-001` unblocks a real signup), 1 automated-PASS, 1 PASS on real device (`W1-S03` — real sign-in + force-stop + cold deep-link, directly observed).
+14. **Exact E5 matrix**: 6 scenarios — 5 PASS (one app-side only; server-side single-use enforcement not independently re-tested this pass), 1 PASS (iOS confirmed via `W1-S06`, Android confirmed via `W1-S03`).
+15. **Automated tests added/run this pass**: none new (this pass focused on live/device evidence and documentation); the 8 tests from the prior wave re-confirmed still passing.
+16. **Full regression result**: unchanged from the prior wave — 389/397 (8 known golden diffs), no code changed this pass.
+17. **Production changes made**: none.
+18. **Production changes awaiting authorization**: `AUTH-001`'s `site_url`/`uri_allow_list`/email templates; custom SMTP (owner/external-provider action).
+19. **Minimum owner actions**: authorize the `AUTH-001` config delta; enter SMTP credentials directly in the Supabase Dashboard; run the existing 8-step acceptance script once both are done.
+20. **Findings eligible for live verification**: `AUTH-002` — now `E4`-verified on real device (`W1-S03`: real sign-in through the real UI, force-stop, cold deep-link, directly observed reaching `OnboardingScreen`, not the dashboard).
+21. **Remaining Wave 1 blockers**: `AUTH-001` (owner-gated). `AUTH-002` is now E4-verified and no longer a blocker. `AUTH-003` (accepted limitation, not blocking), `AUTH-004` (root-caused, deferred, not blocking Wave 1 closure).
+22. **Overall verdict**: `NO-GO`, unchanged.
+23. **Final commit SHA**: recorded below after this wave's commit.
+24. **Local == remote verification**: recorded below after this wave's push.

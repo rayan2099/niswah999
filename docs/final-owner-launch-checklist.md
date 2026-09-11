@@ -295,7 +295,11 @@ Your acceptance testing found two real, launch-blocking defects when signing up 
 
 ### What's already fixed (no action needed)
 
-**The onboarding-skip bug (`AUTH-002`) is fixed.** The app used to decide "new vs. returning user" from a flag that only lived in memory for the current app session — for a real signup that requires email confirmation (which yours does), that flag was never being set at all, so a freshly-confirmed user looked identical to a returning one. The app now checks a real, durable, server-side "have you finished onboarding?" record every time you sign in, instead of guessing. Verified against production with real test accounts, including confirming one account can never see or change another's onboarding status.
+**The onboarding-skip bug (`AUTH-002`) is fixed.** The app used to decide "new vs. returning user" from a flag that only lived in memory for the current app session — for a real signup that requires email confirmation (which yours does), that flag was never being set at all, so a freshly-confirmed user looked identical to a returning one. The app now checks a real, durable, server-side "have you finished onboarding?" record every time you sign in, instead of guessing. Verified against production with real test accounts, including confirming one account can never see or change another's onboarding status, and re-tested on a real rebuilt device install (not just against the backend directly) once this specific fix was included in the build.
+
+**Two related items found and tracked (not fixed this pass, not launch-blocking on their own):**
+- **`AUTH-003`** — if someone closes the app partway through onboarding, it safely starts over from the beginning next time (never skips ahead to the dashboard, never loses her answers) — it just doesn't resume at the exact step she left off on. Accepted as-is; restarting safely is what actually matters.
+- **`AUTH-004`** — a real, separate bug found while checking this: the "save profile" feature (in Profile Settings, and the anonymous-mode toggle during onboarding's privacy step) is currently failing every time it's used, due to a mismatch between what the app tries to save and what your database actually has a place for. This isn't part of the confirmation-email/onboarding-skip fix above — it's a distinct issue, flagged for its own follow-up fix, not attempted in this pass to keep this fix focused.
 
 ### What needs your authorization — the confirmation-email fix (`AUTH-001`)
 
