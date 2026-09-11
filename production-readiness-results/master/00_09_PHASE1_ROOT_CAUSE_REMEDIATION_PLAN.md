@@ -5084,5 +5084,5 @@ Full detail: `production-readiness-results/adversarial-validation/WAVE_1_AUTH_ID
 44. **Exact minimum owner actions**: authorize the `AUTH-001` config delta (item 26); enter SMTP credentials directly in the Supabase Dashboard; no action needed for `AUTH-004` (already remediated).
 45. **Updated overall launch verdict**: `NO-GO`, unchanged — blocked solely on `AUTH-001`.
 46. **Active Git branch**: `terminal`.
-47. **Final commit SHA**: recorded below after this wave's commit.
-48. **Local == upstream verification**: recorded below after this wave's push.
+47. **Final commit SHA**: `60df35dc453aa5956c2c31aa2b39fd8e55834413` (fix: resolve AUTH-004 -- redirect broken profile writes to public.users).
+48. **Local == upstream verification**: recorded in the following addendum commit, after push.
