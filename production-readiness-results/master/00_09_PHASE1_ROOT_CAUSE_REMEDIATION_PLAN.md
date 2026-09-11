@@ -5176,5 +5176,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "RR-009 — Reported 
 21. **Whether owner may resume AUTH-004 E4**: recommend one more retry; if the same rendering issue recurs, request the complete unabridged log for exact file/line identification.
 22. **Remaining Wave 1 blockers**: `AUTH-001` (owner-gated), `AUTH-004` (blocked pending `RR-009` resolution or a clean retest).
 23. **Overall verdict**: `NO-GO`, unchanged.
-24. **Final commit SHA**: recorded below after this wave's commit (documentation only — no `lib/`/`test/` changes this pass).
-25. **Local == upstream verification**: recorded below after this wave's push.
+24. **Final commit SHA**: `f6d43e55f97d5cd369bfa576ccd5f645976ffaec` (docs: RR-009 investigation -- AUTH-004 blocked by separate rendering issue).
+25. **Local == upstream verification**: recorded in the following addendum commit, after push.
