@@ -5136,5 +5136,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-004 E4 Owner Te
 15. **Whether owner may retry E4 now**: YES, with the recommendation to confirm a fresh rebuild/reinstall first, given the leading (unproven) stale-build theory.
 16. **Remaining Wave 1 blockers**: `AUTH-001` (owner-gated: config authorization + SMTP), `AUTH-004` (open, pending a new owner E4 retest).
 17. **Overall verdict**: `NO-GO`, unchanged.
-18. **Final commit SHA**: recorded below after this wave's commit.
-19. **Local == upstream verification**: recorded below after this wave's push.
+18. **Final commit SHA**: `7fb0cb4ca585c8a3f314a86ff2e7c3d906010be3` (fix: guard setAnonymousMode against overlapping calls; AUTH-004 reopened).
+19. **Local == upstream verification**: recorded in the following addendum commit, after push.
