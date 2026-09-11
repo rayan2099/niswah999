@@ -621,3 +621,41 @@ Per explicit instruction, this session does not unilaterally close `AUTH-004` fr
 - **PREVIOUS**: `AUTH-004` = `LIVE_VERIFICATION_REQUIRED`.
 - **E4 OWNER TEST**: `FAIL` (preserved as historical fact).
 - **CURRENT**: `AUTH-004` = `OPEN` / launch blocker, pending a new owner E4 retest on a confirmed-current build. Not reclassified as resolved by this session.
+
+---
+
+## RR-009 — Reported Near-Blank Render During AUTH-004 E4 Retest (2026-09-11)
+
+**Governance**: `AUTH-004` = `LIVE_VERIFICATION_BLOCKED` (not PASS, not FAIL) — the owner's freshly-rebuilt E4 retest attempt hit a separate rendering issue before the Anonymous Mode flow could be genuinely re-exercised. New finding `RR-009` allocated (Reliability domain) rather than folding this into `AUTH-004`, since no evidence ties it to the `AUTH-004` code change.
+
+### A-C. Reproduction attempt and chronology
+
+Reproduced the named flow (Profile → Privacy Settings → Anonymous Mode) live, on a real Android emulator, using the current `HEAD` build (includes the `AUTH-004` fix and its concurrency-guard follow-up), with a real synthetic account driven through the real UI.
+
+**First attempt**: the emulator instance itself became severely unstable mid-session — repeated "System UI isn't responding" and "niswah isn't responding" ANR dialogs, overlaying an otherwise-correctly-rendered sign-in screen underneath (confirmed via screenshot: the real UI was visible and correct behind the dialog, not blank). Traced live, directly, to a genuinely runaway macOS process (`/usr/libexec/replayd`, unrelated to this app, consuming 80%+ CPU continuously — likely destabilized by the many `xcrun simctl`/screenshot operations across this session's iOS work) compounding with simultaneous iOS Simulator + Xcode + Gradle load on the host machine. Killing the process, quitting the iOS Simulator, and fully cold-restarting the emulator process (not merely an OS-level reboot, which did not resolve it) were all required before the instability cleared.
+
+**Second attempt**, on the freshly cold-booted, unencumbered emulator: the entire flow completed cleanly — sign-in succeeded, the dashboard rendered fully, the Profile tab rendered fully and scrolled correctly through every section, and the Anonymous Mode toggle switched on and stayed on with zero errors, zero blank frames, zero ANR dialogs.
+
+**Static trace, exhaustive**: `grep` across the entire `lib/` tree found exactly one direct `AnimatedOpacity`/`FadeTransition` usage in the whole app (`onboarding_screen.dart` — structurally unrelated to Profile, never reachable from it). Every `SingleChildScrollView` reachable from `ProfileScreen` was traced — the only one (the "Pregnancy Setup" sheet) is correctly wrapped in a `ConstrainedBox(maxHeight: MediaQuery.sizeOf(context).height * 0.85)`, not unbounded. No combination matching the reported `RenderAnimatedOpacity`/`_RenderSingleChildViewport`/unbounded-height pattern was found anywhere in Profile-reachable code.
+
+### D-G. Fix, tests, verification
+
+**No code fix implemented.** Per this engagement's standing discipline against fabricating remediation for a defect that could not be located or reproduced: no widget tree was found responsible, so no "minimal layout fix" is offered — inventing one would not address anything real and would risk masking the actual cause if it resurfaces. This is stated plainly rather than glossed over.
+
+**Live app rendering verification**: completed successfully (second attempt above) — Profile renders under the real, current build; the Anonymous Mode toggle is reachable and functions correctly. This satisfies the "live app rendering verification" requirement for the flow itself; it does not, and cannot, prove the owner's specific reported exception can never occur, only that it did not occur across two full, careful live trials on the current code.
+
+**Regression test**: not added, for the same reason — a regression test needs a known-failing widget tree to assert against, and none was found. Adding a test that merely asserts "Profile renders" would not meaningfully guard against a bug whose location remains unknown, and risks giving false confidence.
+
+### Leading theory, stated plainly, not proven
+
+The phenomenology the owner described — "almost completely blank screen" — is closely consistent with the ANR-driven near-blank overlay state this session independently reproduced and root-caused today, on a genuinely different but analogous instability (a runaway host process starving the emulator's system server). This is offered as the most probable explanation given the evidence gathered, not as a certainty — this session cannot inspect the owner's device, and the specific, structured Flutter exception text the owner's log reportedly contained (`RenderAnimatedOpacity`, an exact constraint chain, cascading semantics assertions) is more detailed than pure resource-starvation symptoms typically produce, so a genuine, not-yet-located code defect cannot be fully ruled out either.
+
+### H. Relationship to AUTH-004
+
+Not caused by the `AUTH-004` remediation, its concurrency-guard follow-up, or any other change made this engagement — confirmed via `git` history (no layout-affecting change touches `ProfileScreen`'s render tree; the `AUTH-004`/concurrency changes only affect a repository method and a callback's nullability, neither of which participates in layout) and via the exhaustive static trace above finding no matching pattern anywhere in the codebase, old or new.
+
+### I. Governance
+
+`RR-009` recorded as `OPEN` — not reproduced, root cause not proven, explicitly not closed on the strength of an inability to reproduce it. `AUTH-004` recorded as `LIVE_VERIFICATION_BLOCKED` — neither PASS nor FAIL from this blocked attempt, per explicit instruction.
+
+**Recommendation to the owner**: retry the AUTH-004 E4 script once more. If the exact same rendering issue recurs, please supply the complete, unabridged Flutter log text (not an excerpt) so the exact source file and line can be identified precisely — the excerpted text available this pass was sufficient to search broadly but not to pinpoint an exact `file:line`. If it does not recur, please proceed with the Anonymous Mode retest as originally planned.

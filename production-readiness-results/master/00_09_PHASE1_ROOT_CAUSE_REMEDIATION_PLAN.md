@@ -5138,3 +5138,43 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-004 E4 Owner Te
 17. **Overall verdict**: `NO-GO`, unchanged.
 18. **Final commit SHA**: `7fb0cb4ca585c8a3f314a86ff2e7c3d906010be3` (fix: guard setAnonymousMode against overlapping calls; AUTH-004 reopened).
 19. **Local == upstream verification**: recorded in the following addendum commit, after push.
+
+## 66. RR-009 — Reported Near-Blank Render During AUTH-004 E4 Retest (2026-09-11)
+
+Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "RR-009 — Reported Near-Blank Render During AUTH-004 E4 Retest" section. Summary pointer, not a duplicate.
+
+**Governance**: `AUTH-004` corrected to `LIVE_VERIFICATION_BLOCKED` — not PASS, not FAIL — the owner's freshly-rebuilt E4 retest hit a separate rendering issue before Anonymous Mode could be genuinely re-exercised. New finding `RR-009` (Reliability domain) allocated, not folded into `AUTH-004`, since no evidence ties it to that fix.
+
+**Investigation, not reproduced despite rigor**: the exact named flow (Profile → Privacy Settings → Anonymous Mode) was driven live, twice, on the current `HEAD` build via a real synthetic account through the real UI. The first attempt hit a genuinely unstable emulator instance (traced live to a runaway macOS `replayd` process consuming 80%+ CPU, unrelated to this app, compounding with simultaneous iOS Simulator/Xcode/Gradle load); killing it and fully cold-restarting the emulator resolved the instability. The second attempt, on the freshly restarted instance, completed the entire flow cleanly with zero errors. An exhaustive `grep` across `lib/` found exactly one `AnimatedOpacity`/`FadeTransition` usage in the whole app (unrelated to Profile), and the one `SingleChildScrollView` reachable from Profile is correctly bounded — no code pattern matching the reported error was found anywhere.
+
+**No code fix implemented** — per this engagement's standing discipline, no fabricated remediation is offered for a defect that could not be located or reproduced. Leading theory, explicitly not proven: the reported "near-blank screen" is consistent with the same class of ANR-driven near-blank overlay this session independently reproduced and root-caused today from unrelated host resource contention — offered as the most probable explanation, not a certainty, since the specific structured exception text in the owner's log is more detailed than pure resource-starvation symptoms typically produce.
+
+**Relationship to AUTH-004**: confirmed unrelated — neither the `AUTH-004` fix nor its concurrency-guard follow-up touches any layout-affecting code, confirmed via `git` history and the exhaustive static trace.
+
+### Consolidated Report
+
+1. **New finding ID**: `RR-009` (Reliability domain), created — no existing finding matched.
+2. **Severity**: HIGH — reachable production flow (Profile → Privacy Settings → Anonymous Mode).
+3. **Exact screen/route**: `ProfileScreen` (`lib/features/auth/presentation/screens/profile_screen.dart`), Privacy Settings section.
+4. **Exact reproduction steps**: sign in → Profile tab → scroll to Privacy Settings → tap Anonymous Mode. Attempted twice live this pass; not reproduced.
+5. **Exact primary exception**: not reproduced this pass; owner-reported text was `RenderAnimatedOpacity object was given an infinite size during layout` with ancestor `_RenderSingleChildViewport`.
+6. **Responsible widget/file/line**: not identified — exhaustive search found no matching code pattern anywhere in Profile-reachable code.
+7. **Exact constraint chain**: as reported by the owner (`0.0 <= w <= 345.0, 0.0 <= h <= Infinity` → attempted `Size(345.0, Infinity)`); not independently reproduced.
+8. **Whether semantics errors were cascading**: presumed yes, consistent with the charter's own expected chronology, but not independently verified since the primary error was not reproduced.
+9. **Historical/regression cause**: not determined — confirmed unrelated to the `AUTH-004`/concurrency-guard changes via `git` history; pre-existing vs. environmental could not be distinguished further.
+10. **Commit that introduced issue**: none identified — not proven to be a code issue at all.
+11. **Remediation implemented**: none — no defect was located to remediate; fabricating a fix was deliberately avoided.
+12. **Tests added**: none — no known-failing widget tree exists to test against.
+13. **Arabic result**: the live-tested flow was in Arabic (the app's default locale) throughout, both attempts — rendered correctly on the second (clean) attempt.
+14. **200% text-scale result**: not tested this pass (no known failure to target; would be speculative).
+15. **Semantics result**: not independently re-verified this pass (primary error not reproduced, so no cascade to check against).
+16. **iOS live result**: app confirmed to build and launch cleanly on the iOS Simulator this pass (iOS UI automation for interactive taps was unavailable in this environment — no `idb`, no System Events access to the Simulator window); the interactive reproduction was performed on Android instead, since this is shared Dart/Flutter rendering code, not platform-specific.
+17. **Android live result**: PASS on a healthy emulator instance — full flow completed with zero errors (see above); an unrelated environmental ANR was hit and resolved on a separate, first attempt.
+18. **Full regression result**: unchanged — no code was modified this pass, so the existing 408/400 baseline stands.
+19. **Relationship to AUTH-004**: confirmed unrelated (see above).
+20. **AUTH-004 current status**: `LIVE_VERIFICATION_BLOCKED` — neither PASS nor FAIL.
+21. **Whether owner may resume AUTH-004 E4**: recommend one more retry; if the same rendering issue recurs, request the complete unabridged log for exact file/line identification.
+22. **Remaining Wave 1 blockers**: `AUTH-001` (owner-gated), `AUTH-004` (blocked pending `RR-009` resolution or a clean retest).
+23. **Overall verdict**: `NO-GO`, unchanged.
+24. **Final commit SHA**: recorded below after this wave's commit (documentation only — no `lib/`/`test/` changes this pass).
+25. **Local == upstream verification**: recorded below after this wave's push.
