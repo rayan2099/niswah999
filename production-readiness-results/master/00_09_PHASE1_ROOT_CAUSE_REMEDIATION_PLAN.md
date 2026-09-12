@@ -5228,3 +5228,27 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "RR-009 — Root-Caus
 29. **Overall verdict**: `NO-GO`, unchanged.
 30. **Final commit SHA**: `dc55a95bb17934f951e9cec5b408b3f65d52a856` (fix: resolve RR-009 -- SignInScreen crashes when embedded in onboarding).
 31. **Local == upstream verification**: recorded in the following addendum commit, after push.
+
+## 68. Wave 1 Evidence Reconciliation — Owner Combined iOS E4 Acceptance (2026-09-12)
+
+Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "Wave 1 Evidence Reconciliation — Owner Combined iOS E4 Acceptance" section. Summary pointer, not a duplicate.
+
+The owner performed a real, combined iOS E4 acceptance pass against production on commit `72204b28eca759509230318184caf79d8da3c282`, reporting PASS on every step of both the `RR-009` re-verification (onboarding transition, no white body, no infinite-size recurrence, full onboarding completion, no empty step anywhere) and the `AUTH-004` acceptance script (Profile → Privacy Settings reachable, Anonymous Mode changes successfully, no error message, persists across restart, persists across logout/login).
+
+**Canonical closure evaluated, not assumed**: `RR-009`'s five-element threshold (proven root cause, remediation, automated regression, Android live verification, owner iOS E4 verification) is now fully satisfied → `VERIFIED_CLOSED`. `AUTH-004`'s E4 threshold (root cause, remediation, E3 evidence, blocking dependency resolved, real owner E4 acceptance) is now fully satisfied → `VERIFIED_CLOSED`.
+
+**Preserved unchanged**: `AUTH-001 = BLOCKER` (owner-gated); `AUTH-002 = ADVERSARIAL_VERIFIED`; `AUTH-003` = tracked/non-blocking; `AUTH-005`/`AUTH-006` = `OPEN`/tracked, both real feature additions out of this reconciliation's scope.
+
+**Wave 1 remaining blockers**: `AUTH-001` only. **Global remaining blockers**: `AUTH-001`, `DC-010`, `PC-006` (the latter two standing, unrelated to Wave 1). **Overall verdict**: `NO-GO`, unchanged.
+
+### Consolidated Report
+
+1. **RR-009 final status**: `VERIFIED_CLOSED`.
+2. **RR-009 final evidence level**: E4 (code/E2 regression evidence plus a real live owner acceptance journey on iOS against production).
+3. **AUTH-004 final status**: `VERIFIED_CLOSED`.
+4. **AUTH-004 final evidence level**: E4 (E3 data-layer evidence plus a real live owner acceptance journey on iOS against production, covering the toggle, the error-message regression, and both persistence paths).
+5. **Wave 1 remaining blockers**: `AUTH-001` only.
+6. **Global remaining blockers**: `AUTH-001`, `DC-010`, `PC-006`.
+7. **Overall verdict**: `NO-GO`, unchanged.
+8. **Final commit SHA**: recorded below after this wave's commit.
+9. **Local == upstream verification**: recorded below after this wave's push.

@@ -721,3 +721,39 @@ Neither finding is affected. `git diff` confirms this pass touched only `sign_in
 - **AUTH-004**: reverts to `LIVE_VERIFICATION_REQUIRED` — the onboarding blocker that prevented ever reaching a stable completed account is resolved; the Anonymous Mode toggle itself still requires the owner's own retest.
 - **AUTH-002 / AUTH-003**: unaffected, not reopened.
 - **Overall verdict: `NO-GO`, unchanged** — `AUTH-001` remains the sole owner-gated blocker.
+
+---
+
+## Wave 1 Evidence Reconciliation — Owner Combined iOS E4 Acceptance (2026-09-12)
+
+The owner performed a real, combined iOS E4 acceptance pass against production, on commit `72204b28eca759509230318184caf79d8da3c282` (the exact commit this session's `RR-009` fix and prior `AUTH-004` work were pushed on), and reported:
+
+**`RR-009`**: onboarding language → `SignInScreen` transition rendered correctly (PASS); no white/empty body (PASS); no `RenderAnimatedOpacity`/infinite-size recurrence (PASS); full onboarding completed through to the dashboard (PASS); no empty onboarding step encountered anywhere in the flow (PASS).
+
+**`AUTH-004`**: Profile → Privacy Settings reachable (PASS); Anonymous Mode changed successfully (PASS); no "Unable to update your profile right now" error (PASS); value persisted after a full app restart (PASS); value persisted after logout/login (PASS).
+
+### Canonical closure — evaluated against the threshold, not assumed
+
+**`RR-009`**: proven root cause (full stack trace, exact responsible frame identified) — remediation (the `embedded`-flag fix, source-level not shell-level) — automated regression (18 new tests, including the state-machine sweep and the viewport/text-scale sweep that caught this fix's own first wrong attempt) — Android live verification (this session, real device, real taps, before/after) — owner iOS E4 verification (this pass, real device, real production backend). **All five elements of the canonical threshold are now satisfied.** Status: **`VERIFIED_CLOSED`**.
+
+**`AUTH-004`**: root cause (the `profiles`/`users` schema mismatch, historically traced to a never-applied migration) — remediation (`updateProfile`/`getProfile` retargeted to `public.users`) — E3 evidence (real synthetic-account writes/reads, cross-account RLS isolation) — the blocking `RR-009` rendering defect now resolved — real owner E4 acceptance on iOS covering the toggle itself, the error-message regression, and both persistence paths (restart, logout/login). **The canonical E4 threshold is satisfied.** Status: **`VERIFIED_CLOSED`**.
+
+### Preserved, unchanged
+
+- **`AUTH-001`**: `BLOCKER` — owner-gated (config authorization for `site_url`/`uri_allow_list`, plus SMTP), unaffected by this reconciliation.
+- **`AUTH-002`**: `ADVERSARIAL_VERIFIED`, unchanged.
+- **`AUTH-003`**: tracked/non-blocking — the no-false-completion invariant continues to hold; step-level resume remains an accepted, documented limitation.
+- **`AUTH-005`** (selected madhhab, `LOCAL_ONLY_UNSAFE`): `OPEN`/tracked, unchanged — a real feature addition, not part of this reconciliation's scope.
+- **`AUTH-006`** (prayer location, `LOCAL_ONLY_UNSAFE`): `OPEN`/tracked, unchanged — same reasoning.
+
+### Wave 1 remaining blockers, post-reconciliation
+
+**`AUTH-001` only.** Every other Wave 1 finding is either `VERIFIED_CLOSED`/`ADVERSARIAL_VERIFIED` (no longer blocking) or explicitly tracked as non-blocking (`AUTH-003`, `AUTH-005`, `AUTH-006`).
+
+### Global remaining blockers
+
+`AUTH-001` (Wave 1, owner-gated), `DC-010` (iOS production signing, owner-gated — standing, unrelated to this wave), `PC-006` (data-export retention/legal determination, counsel-gated — standing, unrelated to this wave).
+
+### Overall verdict
+
+**`NO-GO`**, unchanged — held exclusively by `AUTH-001` within Wave 1's scope, plus the two standing, unrelated `DC-010`/`PC-006` items outside it.
