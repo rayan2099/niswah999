@@ -5226,5 +5226,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "RR-009 — Root-Caus
 27. **AUTH-004 current status**: `LIVE_VERIFICATION_REQUIRED` (reverted from `LIVE_VERIFICATION_BLOCKED`, not marked PASS).
 28. **Remaining Wave 1 blockers**: `AUTH-001` (owner-gated: config authorization + SMTP) only.
 29. **Overall verdict**: `NO-GO`, unchanged.
-30. **Final commit SHA**: recorded below after this wave's commit.
-31. **Local == upstream verification**: recorded below after this wave's push.
+30. **Final commit SHA**: `dc55a95bb17934f951e9cec5b408b3f65d52a856` (fix: resolve RR-009 -- SignInScreen crashes when embedded in onboarding).
+31. **Local == upstream verification**: recorded in the following addendum commit, after push.
