@@ -659,3 +659,65 @@ Not caused by the `AUTH-004` remediation, its concurrency-guard follow-up, or an
 `RR-009` recorded as `OPEN` — not reproduced, root cause not proven, explicitly not closed on the strength of an inability to reproduce it. `AUTH-004` recorded as `LIVE_VERIFICATION_BLOCKED` — neither PASS nor FAIL from this blocked attempt, per explicit instruction.
 
 **Recommendation to the owner**: retry the AUTH-004 E4 script once more. If the exact same rendering issue recurs, please supply the complete, unabridged Flutter log text (not an excerpt) so the exact source file and line can be identified precisely — the excerpted text available this pass was sufficient to search broadly but not to pinpoint an exact `file:line`. If it does not recur, please proceed with the Anonymous Mode retest as originally planned.
+
+---
+
+## RR-009 — Root-Caused and Remediated: Onboarding Language → Login Transition (2026-09-12)
+
+**Governance**: `RR-009` (Reliability / UI Rendering) — status corrected from `OPEN` (root cause not proven) to `VERIFIED_CLOSED` at the code/E2 level. `AUTH-004` reverts from `LIVE_VERIFICATION_BLOCKED` to `LIVE_VERIFICATION_REQUIRED` — the blocking condition is removed, but the owner's own Anonymous Mode E4 retest still has not happened, so this is a reversion to the prior state, not a PASS.
+
+### A-B. Reproduction and exact state transition
+
+Owner report: mid-onboarding, on the language-selection step, selecting a language and tapping Continue produced an almost entirely white next step — only the shared progress bar and back chevron (both outside the switched content) remained visible.
+
+Reproduced live, on demand, using a fresh synthetic account and real device UI interaction (Android emulator, current `HEAD`): sign in (fresh account, `onboarding_completed=false`, real sign-in so `isNewSignUp=false` → onboarding starts at step 1) → tap "Get Started" (step 1 → 2) → select a language → tap Continue (step 2 → 3). **Exact transition**: `_step` 2 → 3, `_screen()` switches from `_Language` to `SignInScreen(onAuthenticated: _next)` (the onboarding flow's own "Login" step — see the class doc comment's own step map). The full, real Flutter runtime log was captured (`flutter run`, not just `flutter build`) and confirms the exact exception cascade: `RenderCustomMultiChildLayoutBox`, `_RenderInkFeatures`, `RenderPhysicalModel`, `RenderConstrainedBox`, `RenderTransform`, `RenderFractionalTranslation`, and finally `RenderAnimatedOpacity` — each "given an infinite size during layout," ancestor in every case `_RenderSingleChildViewport` — culminating in `'package:flutter/src/rendering/stack.dart': Failed assertion: line 666 pos 7: 'size.isFinite': A Stack requires bounded constraints from its parent.`
+
+### Exact primary exception and responsible widget chain
+
+The first exception's full stack trace was captured and traced frame-by-frame. Frame `#60: _ScaffoldLayout.performLayout (package:flutter/src/material/scaffold.dart:1113:7)` proves the `RenderCustomMultiChildLayoutBox` given infinite size *is `SignInScreen`'s own nested `Scaffold`*. The chain: `_RenderSingleChildViewport` (`onboarding_screen.dart`'s `SingleChildScrollView`) → `RenderPadding` → `RenderStack` (the onboarding shell's own `Stack`, back-button + content) → `RenderPositionedBox` (`Center`) → `RenderStack` (`AnimatedSwitcher`'s internal `Stack`) → the `FadeTransition`/`SlideTransition`/`ScaleTransition` proxy chain (`RenderAnimatedOpacity` etc.) → `ConstrainedBox(maxWidth: 390)` → `SignInScreen`'s own `Scaffold` → `SafeArea` → `Stack` (containing `Center` + `PositionedDirectional(_LanguageToggle)`).
+
+Two independent structural facts require bounded height here, confirmed via the log: (1) `_ScaffoldLayout` fundamentally sizes itself to fill available space; (2) `RenderStack`'s own explicit assertion — a `Stack` containing a `Positioned`/`PositionedDirectional` child (the language toggle, positioned `top: 8, end: 8` inside `SignInScreen`) cannot compute a size without a finite incoming constraint. `SingleChildScrollView`, by design, hands its child unbounded height along the scroll axis — a correct, intentional behavior every *other* (plain `Column`) onboarding step relies on for small-screen/large-text scroll-safety. `SignInScreen`'s nested `Scaffold` + `Stack`/`Positioned` is the one widget combination in this codebase incompatible with that.
+
+### Historical/regression cause
+
+Not a regression from any change made during this engagement — `git log -p` on both files shows this exact structure (onboarding's shared shell, `SignInScreen`'s `Scaffold`+`Stack`+`Positioned`) predates this engagement's own history. `SignInScreen`'s own doc comment already stated the intent explicitly: *"reused as onboarding's own login step"* — the dual-use was deliberate by design, but the embedding was never actually made safe for it. This is a **pre-existing, latent defect**, not a new one — reachable by any real user who signs in without having just completed sign-up (i.e., `isNewSignUp == false`, which includes every returning-but-onboarding-incomplete session, the exact case `AUTH-002`/`AUTH-003` are about), not merely a rare edge case.
+
+### Relationship to RR-009 (original report) — Outcome A, decided on evidence
+
+The original `RR-009` report (attributed to "Profile" by the owner) could not be reproduced anywhere in `ProfileScreen`'s own code, despite an exhaustive trace. This pass's onboarding reproduction produces the **identical exception signature** (`RenderAnimatedOpacity`, `_RenderSingleChildViewport`, matching constraint pattern) at the **one and only place in the entire codebase** with this specific widget combination (confirmed via the same exhaustive `grep` from the original investigation — `AnimatedSwitcher`+`FadeTransition` inside `SingleChildScrollView` exists nowhere else). Given a fresh test account with `onboarding_completed=false` is *always* routed through onboarding starting at step 1 before ever reaching Profile, the most parsimonious, evidence-based conclusion is that the original report was this same defect, encountered mid-onboarding and described by the owner using the destination they expected rather than the screen actually failing. Reclassified as the same finding (Outcome A), not decided from visual similarity alone but from an identical, independently-reproduced exception at the sole structurally-matching site.
+
+### D. Remediation — including a self-caught wrong first attempt
+
+**First attempt (incorrect, caught by this pass's own regression tests before being reported as a fix)**: bounded the shared shell's switched-content height directly via `LayoutBuilder` + `ConstrainedBox(maxHeight: viewportConstraints.maxHeight)`. This fixed step 3 — but the new all-step state-machine test immediately caught a real regression: steps 4 (Madhhab choices) and 7 (Last Period, a full calendar grid) began throwing genuine `RenderFlex overflow` at small test viewports, because they'd lost the original `SingleChildScrollView`'s unbounded growing room that they, unlike step 3, actually need and were always safe with. Reverted before being finalized.
+
+**Actual fix — the shared shell is untouched**, restored to its exact original form. `SignInScreen` itself was fixed instead: a new `embedded` constructor flag (`bool embedded = false`) controls whether it returns its original `Scaffold`-wrapped, `Stack`/`Positioned`-based layout (default — the standalone top-level route in `main.dart`, `const SignInScreen()`, is completely unaffected, unchanged, still explicitly bounded by `MaterialApp`'s own routing) or, when `true`, a plain `Column` (language toggle, then the scrollable sign-in content) with no `Scaffold` and no `Stack`/`Positioned` at all. A `Column` has no bounded-height requirement of its own — it sizes to its natural content regardless of whether its ancestor's height is bounded (top-level `Scaffold` body) or unbounded (onboarding's `SingleChildScrollView`), making it safe in both contexts without special-casing the shared shell for one step. Onboarding's step 3 now instantiates `SignInScreen(onAuthenticated: _next, embedded: true)`.
+
+### E-F. Regression tests and state-machine sweep
+
+18 new tests, `test/onboarding_ui_test.dart`:
+- English and Arabic language selection → Continue → real step-3 content visible (not blank), no exception.
+- A locale toggled back and forth before continuing does not desynchronize the step index.
+- Back navigation from step 3 returns to the language step; Continue still works after going back once.
+- Small viewport (320×568), 200% text scale, and semantics-enabled variants of the same transition — all pass with no layout exception.
+- **10-step state-machine sweep** (Section L): every step 1-10 rendered directly via `initialStep`, asserting real, step-specific content is present (never just the shared shell) and no exception is thrown. This is the test that caught the first, incorrect fix attempt's regression on steps 4 and 7 before it was ever proposed as done.
+
+Full suite re-run: zero new failures, same 8 known, unchanged golden-image diffs as every prior wave.
+
+### G. Semantics recheck
+
+The semantics-enabled variant of the language→login transition test passes cleanly (`tester.ensureSemantics()`, full transition, `tester.takeException()` is null). No `parentDataDirty`/`needsLayout` cascade — consistent with the charter's own expectation that these were downstream consequences of the primary infinite-size layout failure, now that the primary failure is gone.
+
+### H. Live verification (Android; iOS documented precisely)
+
+The exact failing sequence was reproduced live on a real Android emulator running the pre-fix build (full Flutter log captured, exception cascade confirmed), then, after the fix, the identical live sequence was re-run twice on a fresh rebuild — once selecting Arabic, once leaving English selected — both completing cleanly with zero exceptions, real step-3 content fully visible and interactive. **iOS**: interactive UI automation (taps, text entry) remains unavailable in this environment — no `idb`, no System Events accessibility access to the Simulator window, the same limitation documented in the original `RR-009` investigation. A clean iOS build was confirmed instead. Since this is a pure Dart/Flutter layout defect with zero platform-specific code involved, and the fix was verified against Flutter's own real constraint-solving behavior (not anything emulator-specific), Android's live evidence is offered as representative of iOS — stated as an inference, not claimed as literal iOS-device evidence.
+
+### N. AUTH-002 / AUTH-003 impact — not reopened, proven not just asserted
+
+Neither finding is affected. `git diff` confirms this pass touched only `sign_in_screen.dart` (layout structure) and one line of `onboarding_screen.dart` (the step-3 instantiation call, adding `embedded: true`) — `AuthController`, `AuthRepositoryImpl`'s onboarding-completion read/write, and the `_step` state-machine's own persistence behavior are byte-for-byte unchanged. The server-side onboarding-completion invariant (`AUTH-002`) and the partial-onboarding no-false-completion invariant (`AUTH-003`) are both structurally untouched by this fix.
+
+### Governance record
+
+- **RR-009**: `VERIFIED_CLOSED` at the code/E2 level (root-caused with a full stack trace, fixed at the true source after a wrong first attempt was self-caught and corrected, regression-tested exhaustively including the exact state-machine sweep that would have caught the original bug). A live *owner* E4 retest remains recommended, not yet performed.
+- **AUTH-004**: reverts to `LIVE_VERIFICATION_REQUIRED` — the onboarding blocker that prevented ever reaching a stable completed account is resolved; the Anonymous Mode toggle itself still requires the owner's own retest.
+- **AUTH-002 / AUTH-003**: unaffected, not reopened.
+- **Overall verdict: `NO-GO`, unchanged** — `AUTH-001` remains the sole owner-gated blocker.

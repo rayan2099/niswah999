@@ -152,7 +152,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       },
       onNext: _next,
     ),
-    3 => SignInScreen(onAuthenticated: _next),
+    3 => SignInScreen(onAuthenticated: _next, embedded: true),
     4 => _Choices(
       title: _t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟'),
       subtitle: _t(

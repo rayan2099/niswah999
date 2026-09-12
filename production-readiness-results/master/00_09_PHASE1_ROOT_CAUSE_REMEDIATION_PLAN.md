@@ -5178,3 +5178,53 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "RR-009 — Reported 
 23. **Overall verdict**: `NO-GO`, unchanged.
 24. **Final commit SHA**: `f6d43e55f97d5cd369bfa576ccd5f645976ffaec` (docs: RR-009 investigation -- AUTH-004 blocked by separate rendering issue).
 25. **Local == upstream verification**: recorded in the following addendum commit, after push.
+
+## 67. RR-009 — Root-Caused and Remediated: Onboarding Language → Login Transition (2026-09-12)
+
+Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "RR-009 — Root-Caused and Remediated: Onboarding Language → Login Transition" section. Summary pointer, not a duplicate.
+
+**Governance**: `RR-009` corrected from `OPEN` to `VERIFIED_CLOSED` (code/E2 level). `AUTH-004` reverts from `LIVE_VERIFICATION_BLOCKED` to `LIVE_VERIFICATION_REQUIRED` — the blocker is cleared, but the owner's own Anonymous Mode retest still has not happened.
+
+**Root cause, reproduced on demand and confirmed via a full Flutter stack trace**: onboarding's shared step shell wraps every step in `SingleChildScrollView` → `AnimatedSwitcher` → a custom `FadeTransition` chain. Step 3 is `SignInScreen`, which rendered a full nested `Scaffold` containing a `Stack` with a `PositionedDirectional` child. Neither can be laid out inside a scroll view's inherently unbounded child slot — the trace's own frame `#60: _ScaffoldLayout.performLayout` proves the object thrown as "given infinite size" is `SignInScreen`'s own `Scaffold`. Reclassified as the same finding as the original `RR-009` report (attributed to "Profile" by the owner) — Outcome A, decided on an identical, independently-reproduced exception signature at the one place in the codebase with this exact widget combination, not on visual similarity: a fresh account is always routed through onboarding from step 1 before ever reaching Profile, so the owner most likely hit this exact defect and described it by the destination they expected.
+
+**A wrong first fix attempt was self-caught before being finalized**: bounding the shared shell's height directly fixed step 3 but broke scroll-safety for steps 4 and 7 (caught by this pass's own new state-machine test, which found genuine `RenderFlex` overflow at small viewports). Reverted. **Actual fix**: the shared shell is untouched; `SignInScreen` gained an `embedded` flag — when true (onboarding only), it returns a plain `Column` (no `Scaffold`, no `Stack`/`Positioned`), which has no bounded-height requirement of its own and is safe under both bounded and unbounded ancestors. The standalone top-level usage in `main.dart` is completely unaffected.
+
+**18 new regression tests** (`test/onboarding_ui_test.dart`): both language transitions, locale-toggle-before-continuing, back/forward navigation, small viewport, 200% text scale, semantics enabled, and a full 10-step state-machine sweep (the test that caught the wrong first attempt). Full suite: zero new failures, same 8 known golden-image diffs.
+
+**Live verification**: the failure was reproduced live on Android (real emulator, real synthetic account, real taps, full Flutter log captured with the exact exception cascade), then the fix was verified live twice (English, Arabic) with zero exceptions. iOS: interactive automation remains unavailable in this environment (documented, not glossed over); a clean iOS build was confirmed; Android's live evidence is offered as representative given this is pure cross-platform Dart/Flutter layout code, not claimed as literal iOS-device evidence.
+
+**AUTH-002/AUTH-003**: confirmed unaffected via `git diff` — only `sign_in_screen.dart`'s layout structure and one line of `onboarding_screen.dart` (the step-3 call site) changed; the onboarding-completion invariant and the partial-onboarding state machine are untouched.
+
+### Consolidated Report
+
+1. **Finding ID reused/created**: `RR-009` reused (Outcome A — same root cause as the original report).
+2. **Severity**: HIGH.
+3. **Exact root cause**: `SignInScreen`'s nested `Scaffold` + `Stack`/`Positioned` laid out inside onboarding's unbounded `SingleChildScrollView` child slot.
+4. **Exact screen/step before transition**: onboarding step 2 (`_Language`).
+5. **Exact next expected step**: onboarding step 3 (`SignInScreen`, the flow's "Login" step).
+6. **Actual state reached**: step 3 mounted, but its `Scaffold`/`Stack` threw a layout exception cascade before painting, leaving only the shared shell (progress bar, back button) visible.
+7. **Whether locale rebuild contributed**: no — the same failure occurs regardless of which language is selected; confirmed via both English and Arabic reproduction.
+8. **Whether step-index/state-machine bug contributed**: no — `_step` advanced correctly to 3 in every trial; the state machine itself was never at fault.
+9. **Whether layout/rendering bug contributed**: yes — this was the entire root cause.
+10. **Relationship to RR-009**: same finding, expanded/reclassified (Outcome A), not a new separate ID.
+11. **Relationship to AUTH-002**: none — confirmed unaffected via `git diff`.
+12. **Relationship to AUTH-003**: none — confirmed unaffected via `git diff`.
+13. **Responsible file(s)/line(s)**: `lib/features/auth/presentation/screens/sign_in_screen.dart` (`build()`, now branching on the new `embedded` flag).
+14. **Reproduction result, iOS Arabic**: not interactively tested (tooling unavailable, documented); clean iOS build confirmed.
+15. **Reproduction result, iOS English**: same as above.
+16. **Reproduction result, Android Arabic**: FAIL on pre-fix build (reproduced with full log), PASS on fixed build.
+17. **Reproduction result, Android English**: FAIL on pre-fix build (reproduced with full log), PASS on fixed build.
+18. **Remediation implemented**: yes — `SignInScreen`'s `embedded` flag, restructured `build()`; onboarding's step 3 call site updated; shared shell reverted to unmodified after the wrong first attempt was caught.
+19. **Tests added**: 18 new tests, `test/onboarding_ui_test.dart`.
+20. **All-onboarding-step state-machine test result**: PASS for all 10 steps.
+21. **RTL result**: PASS (Arabic transition test, directionality assertion).
+22. **200% text-scale result**: PASS.
+23. **Semantics result**: PASS, no assertion cascade.
+24. **Full regression result**: zero new failures, same 8 known golden-image diffs.
+25. **Live verification result**: PASS on Android (real device, real taps, twice); iOS build-only (interactive automation unavailable, documented).
+26. **Owner may retry E4**: YES — recommend a full fresh onboarding pass (any language) through to the dashboard, then the AUTH-004 Anonymous Mode script.
+27. **AUTH-004 current status**: `LIVE_VERIFICATION_REQUIRED` (reverted from `LIVE_VERIFICATION_BLOCKED`, not marked PASS).
+28. **Remaining Wave 1 blockers**: `AUTH-001` (owner-gated: config authorization + SMTP) only.
+29. **Overall verdict**: `NO-GO`, unchanged.
+30. **Final commit SHA**: recorded below after this wave's commit.
+31. **Local == upstream verification**: recorded below after this wave's push.

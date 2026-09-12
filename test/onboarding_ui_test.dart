@@ -173,4 +173,338 @@ void main() {
       expect(calculation.hasSufficientHistory, isFalse);
     },
   );
+
+  // RR-009 (expanded) / onboarding language->login transition regression
+  // suite, 2026-09-12. Root cause: step 3 (SignInScreen) is a full nested
+  // Scaffold rendered as one step inside this screen's shared shell, which
+  // wrapped every step in SingleChildScrollView -> AnimatedSwitcher ->
+  // FadeTransition. A nested Scaffold (and AnimatedSwitcher's own internal
+  // Stack) cannot be laid out inside a scroll view's inherently unbounded
+  // child slot — Flutter throws "RenderAnimatedOpacity object was given an
+  // infinite size during layout" the instant the switcher tries to
+  // transition into step 3, leaving a blank body with only the progress
+  // bar/back button (which live outside the switcher) visible. None of the
+  // existing tests above ever exercised this transition — every one of
+  // them jumps past step 3 via `initialStep`. Fixed by capturing the real,
+  // already-bounded viewport height via LayoutBuilder (placed outside the
+  // scroll view) and re-imposing it as a genuine max-height ceiling on the
+  // switched content.
+  group('language -> login step transition (RR-009 root cause)', () {
+    testWidgets(
+      'English: selecting language and continuing reaches real sign-in '
+      'content, not a blank body',
+      (tester) async {
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(home: OnboardingScreen(onFinished: () {})),
+        );
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('English').first);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'the language -> login transition must not throw a layout '
+              'exception',
+        );
+        expect(
+          find.text('Understand your cycle, with peace of mind'),
+          findsOneWidget,
+          reason: 'step 3 must show real sign-in content, not a blank body',
+        );
+        expect(find.text('Choose your language'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Arabic: selecting language and continuing reaches real sign-in '
+      'content, not a blank body',
+      (tester) async {
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(home: OnboardingScreen(onFinished: () {})),
+        );
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('العربية'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('متابعة'));
+        await tester.tap(find.text('متابعة'));
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'the language -> login transition must not throw a layout '
+              'exception',
+        );
+        expect(
+          find.text('افهمي دورتكِ واطمنّي'),
+          findsOneWidget,
+          reason: 'step 3 must show real sign-in content, not a blank body',
+        );
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is Directionality &&
+                widget.textDirection == TextDirection.rtl,
+          ),
+          findsWidgets,
+          reason: 'step 3 must still render RTL after the transition',
+        );
+      },
+    );
+
+    testWidgets(
+      'a locale change mid-onboarding does not desynchronize the step '
+      'index or lose onboarding state',
+      (tester) async {
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(home: OnboardingScreen(onFinished: () {})),
+        );
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+        expect(find.text('Choose your language'), findsOneWidget);
+
+        // Toggling the selection back and forth before continuing must
+        // not corrupt the step machine.
+        await tester.tap(find.text('العربية'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('English').first);
+        await tester.pumpAndSettle();
+        expect(find.text('Choose your language'), findsOneWidget);
+
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text('Understand your cycle, with peace of mind'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('back navigation from step 3 returns to the language step', (
+      tester,
+    ) async {
+      AppLocaleController.instance.setArabic(false);
+      await tester.pumpWidget(
+        MaterialApp(home: OnboardingScreen(onFinished: () {})),
+      );
+      await tester.tap(find.text('Get Started'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('English').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Continue'));
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Understand your cycle, with peace of mind'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Choose your language'), findsOneWidget);
+    });
+
+    testWidgets(
+      'continue navigation still works after going back once',
+      (tester) async {
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(home: OnboardingScreen(onFinished: () {})),
+        );
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('English').first);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text('Understand your cycle, with peace of mind'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'the language -> login transition renders with no layout exception '
+      'on a small viewport',
+      (tester) async {
+        final originalSize = tester.view.physicalSize;
+        final originalRatio = tester.view.devicePixelRatio;
+        tester.view.physicalSize = const Size(320, 568); // small phone
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.physicalSize = originalSize;
+          tester.view.devicePixelRatio = originalRatio;
+        });
+
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(home: OnboardingScreen(onFinished: () {})),
+        );
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('English').first);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'a small viewport must not reintroduce the infinite-size '
+              'layout exception',
+        );
+        expect(
+          find.text('Understand your cycle, with peace of mind'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'the language -> login transition renders with no layout exception '
+      'at 200% text scale',
+      (tester) async {
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2.0)),
+              child: child!,
+            ),
+            home: OnboardingScreen(onFinished: () {}),
+          ),
+        );
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('English').first);
+        await tester.tap(find.text('English').first);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '200% text scale must not reintroduce the infinite-size '
+              'layout exception',
+        );
+        expect(
+          find.text('Understand your cycle, with peace of mind'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'the language -> login transition renders with no layout exception '
+      'with semantics enabled',
+      (tester) async {
+        final handle = tester.ensureSemantics();
+
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(home: OnboardingScreen(onFinished: () {})),
+        );
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('English').first);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text('Understand your cycle, with peace of mind'),
+          findsOneWidget,
+        );
+        handle.dispose();
+      },
+    );
+  });
+
+  // Section L: every reachable onboarding step must resolve to real
+  // content — never just the shared shell (progress bar/back button) with
+  // an empty body. Iterates the full state machine directly via
+  // initialStep, the same mechanism the existing tests above already use
+  // to reach steps 4+, extended here to cover every step including the
+  // one (3) no prior test ever exercised.
+  group('all-onboarding-step state machine (no step may render empty)', () {
+    final stepContent = <int, String>{
+      1: 'Niswah',
+      2: 'Choose your language',
+      3: 'Understand your cycle, with peace of mind',
+      4: 'What is your Fiqh Madhhab?',
+      5: 'Are you married?',
+      6: 'Where are you located?',
+      7: 'When did your last period start?',
+      8: 'How long is your period?',
+      9: 'Anonymous Mode',
+      10: 'You’re all set!',
+    };
+
+    for (final entry in stepContent.entries) {
+      testWidgets(
+        'step ${entry.key} renders its real content, not just the shell',
+        (tester) async {
+          AppLocaleController.instance.setArabic(false);
+          await tester.pumpWidget(
+            MaterialApp(
+              home: OnboardingScreen(
+                onFinished: () {},
+                initialStep: entry.key,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: 'step ${entry.key} must not throw a layout exception',
+          );
+          expect(
+            find.text(entry.value),
+            findsOneWidget,
+            reason:
+                'step ${entry.key} must show its real content — a step '
+                'rendering only the shared progress bar/back button shell '
+                'with an empty body must fail this assertion',
+          );
+        },
+      );
+    }
+  });
 }

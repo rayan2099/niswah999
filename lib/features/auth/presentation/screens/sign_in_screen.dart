@@ -19,13 +19,26 @@ String _tr(String english, String arabic) =>
 /// auth-state stream and `AuthController` swap it to `NiswahHomeShell`
 /// reactively; onboarding advances to its next step instead).
 class SignInScreen extends StatefulWidget {
-  const SignInScreen({super.key, this.onAuthenticated});
+  const SignInScreen({super.key, this.onAuthenticated, this.embedded = false});
 
   /// Called after a successful sign-in or sign-up. Defaults to a no-op —
   /// the root router's `AuthController` listener handles routing once the
   /// session lands, matching how this screen has always worked as the
   /// unauthenticated entry point.
   final VoidCallback? onAuthenticated;
+
+  /// True when this screen is reused as onboarding's own login step
+  /// (step 3), rather than shown as the app's top-level unauthenticated
+  /// route. In that context this screen cannot own a `Scaffold` or a
+  /// `Stack`/`Positioned` layout — both require bounded height from their
+  /// parent, and onboarding's shared step shell intentionally hands its
+  /// switched content unbounded height (the same mechanism every other,
+  /// plain-Column step already relies on to stay scroll-safe). Flutter
+  /// throws "RenderAnimatedOpacity object was given an infinite size
+  /// during layout" the moment this screen is switched into under that
+  /// shell otherwise (RR-009). Defaults to `false` — the standalone,
+  /// top-level usage in `main.dart` is unaffected.
+  final bool embedded;
 
   @override
   State<SignInScreen> createState() => _SignInScreenState();
@@ -106,28 +119,54 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-    body: SafeArea(
-      child: Stack(
+  Widget build(BuildContext context) {
+    final content = SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: _SignInContent(
+        onEmail: () => _showAuthSheet(isPhone: false),
+        onPhone: () => _showAuthSheet(isPhone: true),
+        onGoogle: _signInWithGoogle,
+        agreed: _agreed,
+        onAgreedChanged: (value) => setState(() => _agreed = value),
+      ),
+    );
+
+    if (widget.embedded) {
+      // See the `embedded` doc comment above — no Scaffold, no
+      // Stack/Positioned. A plain Column sizes to its own content
+      // regardless of whether its parent's height is bounded or
+      // unbounded, so it is safe under onboarding's shared step shell.
+      return Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: _SignInContent(
-                onEmail: () => _showAuthSheet(isPhone: false),
-                onPhone: () => _showAuthSheet(isPhone: true),
-                onGoogle: _signInWithGoogle,
-                agreed: _agreed,
-                onAgreedChanged: (value) => setState(() => _agreed = value),
-              ),
+          const Align(
+            alignment: AlignmentDirectional.topEnd,
+            child: Padding(
+              padding: EdgeInsetsDirectional.only(end: 8, top: 8),
+              child: _LanguageToggle(),
             ),
           ),
-          const PositionedDirectional(top: 8, end: 8, child: _LanguageToggle()),
+          content,
         ],
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Center(child: content),
+            const PositionedDirectional(
+              top: 8,
+              end: 8,
+              child: _LanguageToggle(),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// Compact EN/AR switch shown on the sign-in screen — the earliest point a
