@@ -757,3 +757,77 @@ The owner performed a real, combined iOS E4 acceptance pass against production, 
 ### Overall verdict
 
 **`NO-GO`**, unchanged — held exclusively by `AUTH-001` within Wave 1's scope, plus the two standing, unrelated `DC-010`/`PC-006` items outside it.
+
+---
+
+## AUTH-001 Production Closure — Configuration Applied (2026-09-12)
+
+**Owner authorization**: explicit, scoped authorization received to apply the non-secret production Auth configuration changes for `AUTH-001` only, conditional on live values matching the documented baseline.
+
+### A. Pre-mutation snapshot vs. documented baseline
+
+Live production Auth config was read via the Management API (`GET /v1/projects/jkmjobvxfrmuwafczvtw/config/auth`) before any change:
+
+| Field | Live value (pre-mutation) | Matches documented baseline? |
+|---|---|---|
+| `site_url` | `https://niswah.vercel.app` | Yes |
+| `uri_allow_list` | 4 Vercel-domain entries only (`https://niswah.vercel.app`, `.../**`, and the same two for a Vercel preview-deployment hostname) | Yes — "Vercel-domain entries only," no custom scheme present |
+| `mailer_autoconfirm` | `false` (confirmation required) | Yes |
+| `external_email_enabled` | `true` | Yes |
+| `mailer_subjects_confirmation` / `_recovery` | Generic Supabase defaults ("Confirm your email address" / "Reset your password") | Yes — confirmed still unbranded |
+| `mailer_templates_confirmation_content` / `_recovery_content` | Generic Supabase default HTML (no Niswah branding, no Arabic) | Yes |
+| `smtp_host`/`smtp_port`/`smtp_user`/`smtp_sender_name`/`smtp_admin_email` | all `null` | Yes — SMTP still not configured |
+| `external_google_enabled` | **`false`** | New, precise confirmation this pass (not previously stated this explicitly) — Google OAuth is currently disabled at the Supabase provider level in production, independent of the app's own code. `external_google_client_id` holds what appears to be a personal email address rather than a real OAuth client ID, consistent with this provider never having been properly configured. |
+
+All values matched the documented baseline closely enough to proceed per the owner's stated condition. No mismatch required stopping.
+
+### B-C. SITE_URL, mobile callback, redirect allowlist
+
+Reconfirmed unchanged: `niswah.app` still has no web server (only MX records, per the prior wave's check); `niswah://login-callback` remains the correct mobile callback, already registered natively on both platforms (Android `AndroidManifest.xml`, iOS `Info.plist` — both re-checked this pass, unchanged). Applied exactly the previously-approved design: `site_url` set to the mobile scheme; the same scheme appended to `uri_allow_list`; the four existing Vercel entries preserved untouched (the live, current web-reference deployment, a separate purpose). A future HTTPS universal/app-link destination under `niswah.app` remains the preferred long-term design once a real web landing endpoint exists — not built this wave, out of scope.
+
+### D. Flutter redirect contract — reconfirmed, no code change needed
+
+`signUp`/`resend` (`emailRedirectTo`), `resetPasswordForEmail` (`redirectTo`), and `signInWithGoogle` (`redirectTo`, fixed in a prior pass this wave) all already explicitly pass `niswah://login-callback`. No magic-link or OTP flow is used. Email-change is not reachable by any current app code (writes go to `profiles.email`, a column confirmed not to exist — `AUTH-004`'s original finding, unrelated to this wave's scope). No code change was necessary or made.
+
+### E. Auth email templates — applied
+
+Applied the two reachable, launch-relevant templates exactly as previously prepared and re-validated this pass (`AUTH_email_templates_prepared.md`): signup confirmation and password recovery, both bilingual (Arabic first, English second), both using `{{ .ConfirmationURL }}` correctly, no fabricated URLs, no stale Vercel references, no secrets. Email-change/magic-link/invite templates were **not** applied — confirmed via exhaustive `grep` (again, this pass) that no current app code reaches any of those three flows, so branding them carries no current user-facing benefit and was left out to keep this mutation minimal and exactly in scope.
+
+### F. Google OAuth
+
+Reconstructed the prior finding: `signInWithGoogle()` previously passed `redirectTo: null` (falls back to `site_url`); already fixed to pass the explicit callback in a prior pass. This pass's live config read confirms **Google OAuth itself is currently disabled** in production (`external_google_enabled: false`), with what looks like a placeholder value (a personal email address, not a real OAuth client ID) in the client-ID field. **Not touched this pass** — enabling it would require a real Google OAuth client ID/secret pair, which is Google Cloud Console + Supabase Dashboard configuration requiring real provider credentials this session does not have and must not request or generate. This is an owner-only action, out of this wave's authorized scope (the owner's authorization named only `site_url`/allowlist/redirect config/email templates/"Google OAuth redirect **corrections already documented**" — the app-code redirect fix, already done — not enabling the provider itself, which was never part of any prior `AUTH-001` proposal). Flagged precisely, not silently left ambiguous.
+
+### G. Applied and read back — actual == expected, not inferred from HTTP 200 alone
+
+`PATCH /v1/projects/jkmjobvxfrmuwafczvtw/config/auth` with exactly six fields (`site_url`, `uri_allow_list`, `mailer_subjects_confirmation`, `mailer_subjects_recovery`, `mailer_templates_confirmation_content`, `mailer_templates_recovery_content`) → `HTTP 200`. Immediately re-read the full live config and diffed every changed field against the exact intended value: **all six matched exactly** (subjects/URLs compared as exact strings; HTML template bodies compared by exact length and content). Every other field in the ~150-field config (SMTP, Google OAuth, all other providers, MFA, rate limits, sessions, etc.) was independently confirmed **unchanged** — the mutation's blast radius was exactly the six intended fields, nothing else.
+
+### H. SMTP — still owner-only, unchanged this pass
+
+`smtp_host`/`smtp_port`/`smtp_user`/`smtp_pass`/`smtp_sender_name`/`smtp_admin_email` remain `null` — not touched, not requested. Exact owner action, unchanged from the prior wave's preparation: Supabase Dashboard → Project Settings → Authentication → SMTP Settings — enter sender email (any real, deliverable address on a domain the owner controls), sender name (`Niswah`/`نسوة`), and the host/port/username/password issued by whichever transactional-email provider is chosen. This session will not see or request these values at any point.
+
+### J. Pre-owner automated verification — completed
+
+1. Live Auth config equals intended values — confirmed via direct read-back (§G above).
+2. Mobile callback still registered on Android — reconfirmed via `AndroidManifest.xml` (unchanged, `niswah`/`login-callback` intent-filter present).
+3. Mobile callback still registered on iOS — reconfirmed via `Info.plist` (unchanged, `CFBundleURLSchemes` contains `niswah`).
+4. Redirect allowlist contains the intended callback — confirmed (`niswah://login-callback` now present alongside the untouched Vercel entries).
+5. No stale Vercel auth destination used by production app code — confirmed via exhaustive `grep` of `lib/`, zero matches for `niswah.vercel.app` or the reported "niswal" typo anywhere in app code.
+6. Email templates contain the intended Niswah branding — confirmed via exact read-back match against the prepared HTML.
+7. Onboarding routing regression tests pass — full suite re-run, no code changed this pass, baseline unaffected.
+8. Full application regression remains clean — 418 tests, 410 passing, the same 8 known, unchanged golden-image diffs as every prior wave; zero new failures.
+9. `AUTH-002` remains protected — no code touched this pass (Auth config only); its own regression tests are part of the unchanged 410 passing.
+10. `AUTH-004` remains protected — same reasoning; its own regression tests are part of the unchanged 410 passing.
+
+### I/L. AUTH-001 status — not closed by config deployment alone
+
+Per explicit instruction, production configuration deployment does **not** by itself close `AUTH-001`. The full closure standard (config applied ✓, templates deployed ✓, SMTP active ✗, real confirmation email received ✗, real confirmation callback succeeds ✗, real new user reaches dashboard ✗, logout/login ✗, no stale Vercel destination ✓, no default Supabase branding on the two reachable flows ✓) is **not yet fully satisfied** — SMTP remains the one owner-only gap standing between the current state and a real E4 acceptance journey. **`AUTH-001` status: `LIVE_VERIFICATION_REQUIRED`** (config-complete, SMTP-pending) — not `VERIFIED_CLOSED`.
+
+### K. Final owner acceptance script — prepared, not yet actionable
+
+The script is ready (see `docs/final-owner-launch-checklist.md`'s Authentication/Onboarding Handoff section) but should not be run until SMTP is active — without it, a real signup would still hit the same `HTTP 429 over_email_send_rate_limit` this engagement already documented against Supabase's own default mailer. Once SMTP is configured, the owner should: use a genuinely new email → sign up → confirm the email is Niswah-branded → tap the confirmation link → confirm it opens the app directly (not a browser) → confirm onboarding appears → complete onboarding → confirm the dashboard appears → log out → log back in → confirm the dashboard appears again. Report PASS, or FAIL with what was visibly wrong — no code/database/log inspection required.
+
+### M. Wave 1 closure — not yet, pending SMTP + the real owner journey
+
+Wave 1 (Authentication + Identity + Session + Onboarding) is **not yet marked COMPLETE** — `AUTH-001` remains the sole blocker, now reduced to exactly one remaining owner action (SMTP) plus the one real acceptance journey that follows it. `AUTH-005`/`AUTH-006` remain tracked, non-blocking findings for a future wave, unaffected by this closure work.
+
+**Overall verdict: `NO-GO`, unchanged.**
