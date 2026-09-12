@@ -5291,5 +5291,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 20. **Production mutations made**: yes — the six-field Auth config `PATCH` described above. No schema, no other project settings, no secrets.
 21. **Rollback values recorded**: yes — `site_url = https://niswah.vercel.app`; `uri_allow_list` = the 4 Vercel-only entries; `mailer_subjects_confirmation = "Confirm your email address"`; `mailer_subjects_recovery = "Reset your password"`; both template bodies = the generic Supabase defaults (captured verbatim before mutation, available in this session's own pre-mutation snapshot).
 22. **Active branch**: `terminal`.
-23. **Final commit SHA**: recorded below after this wave's commit.
-24. **Local == upstream verification**: recorded below after this wave's push.
+23. **Final commit SHA**: `f0b3d22349270a5223a9a141aaf1a112c1d87f44` (`docs: record AUTH-001 production Auth config closure evidence`).
+24. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `f0b3d22349270a5223a9a141aaf1a112c1d87f44` after push.
