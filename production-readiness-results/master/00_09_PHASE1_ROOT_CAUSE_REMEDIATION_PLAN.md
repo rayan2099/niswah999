@@ -5250,5 +5250,5 @@ The owner performed a real, combined iOS E4 acceptance pass against production o
 5. **Wave 1 remaining blockers**: `AUTH-001` only.
 6. **Global remaining blockers**: `AUTH-001`, `DC-010`, `PC-006`.
 7. **Overall verdict**: `NO-GO`, unchanged.
-8. **Final commit SHA**: recorded below after this wave's commit.
-9. **Local == upstream verification**: recorded below after this wave's push.
+8. **Final commit SHA**: `5a7cff99d62fb6e4b1667755a819db0d64bb105c` (docs: close RR-009 and AUTH-004 -- owner iOS E4 acceptance PASS).
+9. **Local == upstream verification**: recorded in the following addendum commit, after push.
