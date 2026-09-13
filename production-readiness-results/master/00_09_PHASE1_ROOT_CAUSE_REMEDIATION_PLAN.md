@@ -5397,5 +5397,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 24. **Remaining Wave 1 blockers**: `AUTH-001` (fallback UX — design-ready, owner DNS + future authorized config change required) and `AUTH-007` (owner live retest). `AUTH-005`/`AUTH-006` remain tracked, non-blocking.
 25. **Overall verdict**: `NO-GO`, unchanged.
 26. **Exact minimum owner retest**: choose Arabic → confirm every onboarding step (incl. Madhhab) shows Arabic → confirm Sign In/Sign Up reads correctly RTL and tapping each tab shows the right fields → sign up with a new email → confirm the confirmation link opens the app correctly **on the same device** (the cross-device fallback gap is not expected to reproduce here) → confirm the account is recognized as confirmed. Already-proven SMTP/branding/template/token checks do not need to be repeated.
-27. **Final commit SHA**: recorded below after this wave's commit.
-28. **Local == upstream verification**: recorded below after this wave's push.
+27. **Final commit SHA**: `ff2081e3ad1bdb4c4f3e41c08697bb660be4cda8` (`fix: resolve AUTH-007 -- onboarding locale/RTL desync (Madhhab English + auth-sheet mirroring)`).
+28. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `ff2081e3ad1bdb4c4f3e41c08697bb660be4cda8` after push.
