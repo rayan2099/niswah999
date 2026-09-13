@@ -5352,5 +5352,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 9. **Rollback values recorded**: yes — all 7 fields' pre-mutation values were Supabase's own unmodified English-only defaults (full text captured in this session's pre-mutation snapshot; the standard, publicly-documented Supabase default content for each of these 7 template types, reproducible by clearing the corresponding "customized" flag in the Supabase Dashboard).
 10. **Verification result**: PASS — pre-apply checklist clean on all 7 new templates; post-apply read-back confirmed actual == expected on all 14 fields; full regression suite clean (418 tests, 410 passing, same 8 known golden-image diffs, zero new failures).
 11. **Unexpected drift**: none beyond the 7 expected `*_custom_contents` boolean flips (Supabase's own auto-derived "is this customized" indicators) — confirmed via full 243-field config diff.
-12. **Commit SHA**: recorded below after this wave's commit.
-13. **Local == upstream verification**: recorded below after this wave's push.
+12. **Commit SHA**: `ae8806d21e3c7eaf4bea6dc76db0047efc455d33` (`docs: standardize the final 7 auth email templates (13/13 complete)`).
+13. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `ae8806d21e3c7eaf4bea6dc76db0047efc455d33` after push.
