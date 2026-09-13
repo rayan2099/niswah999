@@ -5448,5 +5448,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 26. **Remaining Wave 1 blockers**: `AUTH-001` (fallback UX design-ready, owner DNS action pending), `AUTH-007` (owner retest), `AUTH-008` (owner retest). `AUTH-005`/`AUTH-006` remain tracked, non-blocking.
 27. **Overall verdict**: `NO-GO`, unchanged.
 28. **Owner minimum retest**: sign in → confirm Language→Madhhab→every step proceeds without repeating Sign In → Back from Madhhab returns to Language only → complete onboarding → reach dashboard → sign out → confirm Sign In appears → sign back in → confirm straight to dashboard.
-29. **Final commit SHA**: recorded below after this wave's commit.
-30. **Local == upstream verification**: recorded below after this wave's push.
+29. **Final commit SHA**: `e48a56269d767d448832733dd728a357f2701d73` (`fix: resolve AUTH-008 -- remove circular auth transition from onboarding`).
+30. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `e48a56269d767d448832733dd728a357f2701d73` after push.
