@@ -5493,5 +5493,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 26. **Remaining Wave 1 blockers**: `AUTH-001` (design-ready, owner DNS pending), `AUTH-007` (owner retest), `AUTH-008` (reopened, owner retest on a confirmed-fresh install), `AUTH-009` (owner retest). `AUTH-005`/`AUTH-006` remain tracked, non-blocking.
 27. **Overall verdict**: `NO-GO`, unchanged.
 28. **Owner minimum retest**: fully uninstall and reinstall the app first, then: select language pre-auth → sign up/confirm/sign in → confirm Madhhab appears directly (no second language screen) → complete onboarding with no second Sign In at any point → reach dashboard → sign out → confirm Sign In appears → sign back in → confirm straight to dashboard.
-29. **Final commit SHA**: recorded below after this wave's commit.
-30. **Local == upstream verification**: recorded below after this wave's push.
+29. **Final commit SHA**: `afd2efdc7773d4f0e5e57638161a61186aa57334` (`fix: resolve AUTH-009 -- remove redundant post-auth language step`).
+30. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `afd2efdc7773d4f0e5e57638161a61186aa57334` after push.
