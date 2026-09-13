@@ -426,6 +426,24 @@ Neither of these blocks anything already promised to be fixed, and neither was t
 
 **🟢 Update, 2026-09-13 (later the same day) — every single account-security email your app is capable of sending (all 13 types Supabase supports) now uses the same Niswah-branded, bilingual design.** The 7 remaining "exotic" email types mentioned above (magic-link sign-in, invitations, phone-number-changed, sign-in method linked/removed, verification method added/removed) are now branded too, using the exact wording you provided. None of these 7 can currently be triggered by anything in the app — nothing was turned on, no new sign-in method or feature became available; this was purely about having the right look and wording ready in Supabase in case any of them are ever built. **One thing noticed in passing, not changed by this session**: your Supabase project's SMTP host is no longer blank — it now shows `mail.spacemail.com`, which looks like you've already started (or finished) setting up your own email sender since the last update. This session did not touch or verify that further, since you asked specifically not to begin the `AUTH-001` final test in this pass. **What holds the verdict at NO-GO now**: unchanged — `DC-010`, `PC-006`, and `AUTH-001`. If your SMTP setup is in fact done, the real signup/email test for `AUTH-001` is ready to run whenever you'd like — just say so and this session will pick it up as its own next step, not automatically.
 
+**🟢 Update, 2026-09-13 (final update this day) — your real signup test mostly worked, and the two remaining problems you found have been fixed.** Great news first: the custom email setup worked — you got a real, Niswah-branded confirmation email, and your account was correctly recognized as confirmed when you came back to the app. That's the hard part, proven for real.
+
+Three things you flagged, all now handled:
+
+1. **The confirmation link opened a blank page when you tapped it from your computer's email/browser instead of from your phone/simulator.** Your account was still confirmed correctly behind the scenes — this was only about what you *saw*. The real cause: the link currently points straight at "open the Niswah app," which only works on the exact device the app is installed on; any other device or browser has nothing else to show, so it goes blank. The proper fix is a real webpage at `niswah.app` that shows a "your email is confirmed — open Niswah" message to everyone, and automatically opens the app for anyone who has it — that page's design is fully written and ready. **What's needed from you**: connecting `niswah.app` to a website (the technical setup is ready; it needs your DNS/domain access, which this session doesn't have). Nothing here was changed yet — this session did not touch your Supabase settings, exactly as you asked.
+
+2. **Choosing Arabic during onboarding, but the "which branch of Fiqh do you follow" question showing up in English.** Found and fixed — the app was keeping two separate copies of "which language did you pick," and one of them could get reset back to English behind the scenes (specifically: if you left the app to confirm your email and came back). Now there's only one copy, so this can't happen again. Covered by 13 new automated tests that walk through every onboarding screen in Arabic and confirm none of them silently switch to English.
+
+3. **The Sign In / Sign Up screen looking mirrored/flipped in Arabic.** This turned out to be caused by the exact same bug as #2 — once that's fixed, this is fixed too. (One small extra thing was fixed at the same time: the "back" arrow on onboarding screens now correctly points the right way in Arabic instead of always pointing left.)
+
+**What this session could not do**: run these fixes on a real phone/simulator itself (no hands-on device access in this environment) — everything above is proven with fast, automated screen-by-screen tests instead, which is strong evidence but not quite the same as you tapping through it yourself. **What holds the verdict at NO-GO now**: `DC-010`, `PC-006`, `AUTH-001` (now down to just the blank-page fallback, needs your `niswah.app` domain connected), and this new item — call it the Arabic/RTL fix — needs your own quick retest before it's fully closed.
+
+**Your retest, once you have a moment** (all fast, no technical steps):
+1. Pick Arabic during onboarding.
+2. Go through every screen — confirm the Fiqh Madhhab question (and everything else) shows Arabic.
+3. Check the Sign In / Sign Up screen looks right for Arabic (reads right-to-left, tapping each tab shows the right fields).
+4. Sign up with a new email, and this time tap the confirmation link on the same phone/simulator Niswah is running on — confirm it opens the app and recognizes you as confirmed. (No need to redo the "does the email arrive and look right" part — that's already proven.)
+
 ---
 
 # Post-owner verification pass (run once all steps above are complete)

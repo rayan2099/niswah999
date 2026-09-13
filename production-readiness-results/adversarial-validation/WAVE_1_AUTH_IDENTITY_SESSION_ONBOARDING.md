@@ -843,3 +843,150 @@ Per explicit owner instruction, every customer-facing auth/security email templa
 The remaining 7 templates (magic link, invite, phone-changed, identity-linked, identity-unlinked, MFA-enrolled, MFA-unenrolled) — previously left as unmodified Supabase English-only defaults per the prior wave's "inspect but do not enable" scope — were standardized to the same canonical bilingual visual identity and applied to production, per explicit owner instruction to complete template hygiene without enabling any feature. Full detail: `AUTH_email_templates_prepared.md` §7-13; full 13-item consolidated report: `00_09_PHASE1_ROOT_CAUSE_REMEDIATION_PLAN.md` §71.
 
 **Summary**: all 13 Supabase auth/security email templates are now bilingual and Niswah-branded. A keyed check of both this pass's and the prior pass's `PATCH` payloads confirmed every field touched across both was `mailer_subjects_*`/`mailer_templates_*` — no `site_url`, `uri_allow_list`, `smtp_*`, provider-enablement, MFA, or rate-limit field was ever included, so no feature was enabled. Read-back confirmed actual == expected on all 14 fields with zero unexplained drift (the only other change, the 7 corresponding `*_custom_contents` booleans, is Supabase's own auto-derived indicator and flipped exactly as expected — all 13/13 now `True`). Full regression re-run clean. One incidental observation, not investigated or acted on per this pass's explicit instruction not to begin `AUTH-001` E4: `smtp_host` is no longer `null` (now `mail.spacemail.com`), suggesting the owner has begun SMTP setup independently since the prior wave. `AUTH-001`'s status is unchanged (`LIVE_VERIFICATION_REQUIRED`); this pass closes no numbered finding.
+
+## Wave 1 Final Auth/Localization Closure (2026-09-13)
+
+Triggered by the owner's real production new-user journey: SMTP delivery, sender identity, bilingual template rendering, and server-side confirmation all **PASS** on genuine E4 evidence — the strongest tier used throughout this engagement — alongside three newly-discovered live defects. This section governs, root-causes, remediates, and tests all three.
+
+### A — Governance
+
+Three defects reported; per the charter's own instruction, findings are consolidated only where a shared root cause is genuinely proven, not assumed:
+
+- **Item A (confirmation empty-page/fallback UX)** retained inside **`AUTH-001`** — it is the direct continuation of that finding's original redirect-destination scope, now narrowed to exactly this sub-issue with everything else on E4 evidence.
+- **Items B (Madhhab shows English) and C (Sign In/Sign Up RTL mirroring)** are tracked together as **`AUTH-007`** (new) — investigation proved, with code-level evidence (not assumption), that both are two symptoms of the exact same root cause. See §F/G/H below for the proof. Consolidating them matches the charter's own explicit conditional ("do not hide all three defects inside AUTH-001 unless they genuinely share one root cause" — here two of the three genuinely do, so they are tracked as one).
+
+### B — AUTH-001 evidence reconciliation
+
+Recorded, not re-run: **SMTP delivery = E4 PASS**; **Niswah sender identity = E4 PASS**; **bilingual confirmation template = E4 PASS**; **confirmation token processing = E4 PASS**; **server email-confirmed state = E4 PASS**. `AUTH-001` remains open **only** for the confirmation-destination/fallback UX component below.
+
+### C — Confirmation empty-page root cause
+
+Traced without needing new live network capture — the mechanism is already fully determined by facts already on record:
+
+1. `site_url` is currently `niswah://login-callback` (applied in the AUTH-001 Production Closure wave) — a bare custom URI scheme with **zero HTTP content**, no fallback page of any kind.
+2. Supabase's `/auth/v1/verify` endpoint processes the confirmation token **server-side first**, then issues an HTTP redirect to `site_url` (plus query parameters) as its **last** step. Server-side token verification and the client-facing redirect are two separate, sequential steps — a redirect never fires without verification having already succeeded.
+3. The owner opened the confirmation link in **desktop Chrome**, on a **different device** than the one running Niswah (an iOS Simulator on the same machine, but Simulator apps are not reachable by the host macOS's own custom-URI-scheme resolution — a Simulator is a separate OS instance from the host, and even setting that aside, desktop Chrome itself has no `niswah://` scheme handler registered at the OS level under any circumstance).
+4. Chrome therefore received a `302` redirect to a URI scheme it cannot resolve. There is no HTTP fallback content at that destination (per point 1) for the browser to render instead. The observed result — an empty/dead-end page — is the fully-expected behavior of a browser handed a redirect to an unresolvable custom scheme with nothing else to show.
+
+**Conclusion**: token verification and server-side confirmation genuinely succeeded (matches the proven E4 evidence in §B — this is exactly why the account was recognized as confirmed when the owner returned to the app). This is a **client-side, customer-facing fallback/handoff defect**, not an authentication or delivery failure, and per the charter's explicit instruction is not classified as one.
+
+### D/E — Production-grade auth callback: design (not implemented, not deployed)
+
+Per explicit instruction, `site_url`/`uri_allow_list` were **not mutated** this pass. The following is the design deliverable only.
+
+**CURRENT FLOW**
+```
+Gmail → tap confirmation link
+  → Supabase /auth/v1/verify (token check, succeeds)
+  → 302 redirect to site_url = niswah://login-callback
+  → resolvable only by a device with Niswah installed AND the tap
+    happening on that same device
+  → any other device/browser: unresolvable scheme, no fallback content
+    → empty/dead-end page
+```
+
+**PROPOSED FLOW**
+```
+Gmail → tap confirmation link
+  → Supabase /auth/v1/verify (token check, succeeds)
+  → 302 redirect to https://niswah.app/auth/confirmed?... (or
+    https://auth.niswah.app/confirmed?...)
+  → branded HTTPS page loads on ANY device/browser:
+      - if opened on a device with Niswah installed AND the link is
+        registered as a Universal Link (iOS) / App Link (Android),
+        the OS intercepts the HTTPS request before it ever reaches a
+        browser and opens Niswah directly — no page ever shown
+      - otherwise (desktop, no app installed, App/Universal Link not
+        yet verified by the OS): the branded HTTPS page itself renders,
+        showing a bilingual success message and an explicit "Open
+        Niswah" button (niswah://login-callback as its href — a plain
+        custom-scheme link tapped by a human, which is a fundamentally
+        different and far more forgiving case than an automated
+        redirect target, since a browser presents a normal "open in
+        app?" prompt for a user-initiated link tap instead of silently
+        failing)
+      - a distinct failure/expired-link state is shown if verification
+        did not succeed
+```
+
+**IMPLEMENTATION REQUIREMENTS**
+- A new route/page (bilingual, Niswah-branded, matching the exact copy specified in this wave's charter) served over HTTPS at the chosen path.
+- `site_url` and `uri_allow_list` updated to point at the new HTTPS URL instead of the bare custom scheme (a separate, explicitly-authorized production mutation — not this pass).
+- The page must not display the raw token/URL query parameters as visible content (Supabase's verify step already consumes the token before redirecting, so the redirect target only carries non-sensitive state, but the page's own implementation must still avoid echoing any query parameter into visible markup unfiltered).
+
+**iOS REQUIREMENTS**: an `apple-app-site-association` file served at `https://niswah.app/.well-known/apple-app-site-association` (no file extension, exact Apple-specified JSON shape, correct Team ID + Bundle ID), plus the corresponding Associated Domains entitlement (`applinks:niswah.app`) added to the iOS app target so the OS treats matching HTTPS links as Universal Links instead of routing them to Safari.
+
+**ANDROID REQUIREMENTS**: an `assetlinks.json` file served at `https://niswah.app/.well-known/assetlinks.json` (correct package name + SHA-256 signing certificate fingerprint), plus an `<intent-filter android:autoVerify="true">` for the matching HTTPS host in `AndroidManifest.xml` so the OS verifies and treats the domain as an App Link.
+
+**WEB/DNS REQUIREMENTS** — **this is the exact owner boundary this pass stops at**: `niswah.app` currently has no web server and is not connected to any hosting/CDN provider (re-confirmed this pass: still true, unchanged since the original AUTH-001 investigation). Using the existing Vercel project (already serving `niswah.vercel.app`, the web-reference build) as the underlying infrastructure is acceptable **once the custom domain `niswah.app` is pointed at it** — that domain connection is a Vercel dashboard + DNS-registrar action only the owner can perform (this session has no access to either). No `vercel.app` hostname may ever be the customer-visible destination.
+
+**ROLLBACK**: revert `site_url`/`uri_allow_list` to the current values (`niswah://login-callback` + the same allow-list) — a same-shape, single-field-class `PATCH`, fully reversible, no data loss, no schema involved.
+
+**Status**: design complete; implementation and deployment explicitly **not started**, pending (1) owner DNS/custom-domain action connecting `niswah.app`, and (2) a separate, explicitly-scoped authorization to mutate `site_url`/`uri_allow_list` again — matching the same production-safety discipline used for every prior `AUTH-001` mutation this engagement.
+
+### F/G — Arabic locale propagation root cause (Madhhab + every post-login step)
+
+Traced precisely via code inspection, not assumption:
+
+`AppLocaleController` (`lib/core/localization/app_locale_controller.dart`) is the app's real, single source of truth — a `ChangeNotifier` singleton, persisted to `SharedPreferences` (`niswah_arabic`), loaded synchronously before any screen ever builds (`main.dart`: `await AppLocaleController.instance.load()` runs before `runApp`). The language-selection step and `SignInScreen` both read it directly and correctly.
+
+`_OnboardingScreenState` (`lib/features/onboarding/presentation/screens/onboarding_screen.dart`), however, kept its **own** local field: `bool _arabic = false;` — hardcoded English, entirely disconnected from the controller above. Every step's text (`_t`/`_tr` helpers, the Madhhab choice list, the Directionality wrapper around the whole shared step shell) read this local field, not the controller. The language-selection step's `onSelect` callback updated **both** (`setState(() => _arabic = v)` **and** `AppLocaleController.instance.setArabic(v)`), which kept the two in sync for the remainder of that *same* widget-instance lifetime — masking the bug in every prior test and in any single, uninterrupted onboarding pass.
+
+The bug surfaces precisely when a **fresh** `_OnboardingScreenState` is created after Arabic was already selected and persisted in an earlier attempt. The realistic, proven trigger matches the owner's own E4 sequence exactly: the user picks Arabic, proceeds to the login/signup step, submits signup, leaves the app to confirm their email, and is re-routed through onboarding on return. `AppLocaleController.instance.isArabic` is correctly still `true` (real persistence, real controller) — but the **new** `_OnboardingScreenState`'s own `_arabic` field starts over at its hardcoded `false`, and nothing ever resyncs it from the controller. This is the same class of gap the code's own comment already anticipated and handled for `_isMarried` (deliberately restored from `MaritalStatusController` in `initState()`, "a returning user re-routed through onboarding already has a saved answer — show it selected instead of blank") — `_arabic` was simply never given the same treatment.
+
+**Not a locale-persistence bug, not a missing-translation-keys bug, not a system-locale-read bug** — every string involved already had a correct Arabic translation on file; the persistence layer (`SharedPreferences`) worked correctly throughout. The defect is a **duplicated, desynchronized local copy of state that already has one authoritative source**.
+
+### H — Sign In / Sign Up RTL root cause
+
+The exact same root cause, manifesting differently: `SignInScreen` never had this bug in its own **text** (it reads `AppLocaleController` directly, always correctly) — but when embedded at onboarding step 3, it has no `Directionality` of its own and inherits it from the onboarding shell's wrapper (`Directionality(textDirection: _arabic ? rtl : ltr, ...)`), which used the **same stale field** described above. The result: genuinely-Arabic text (`تسجيل الدخول`, `إنشاء حساب`, etc. — always correct) rendered inside a layout still resolving to **LTR** ambient direction — precisely "flipped/mirrored," because every RTL-aware widget in that subtree (the automatic `Row` reversal for the Sign In/Sign Up tab order, `PositionedDirectional`, etc.) never actually engaged.
+
+**Audited and found already correct** (charter item I — tab semantics): `_modeTab`'s displayed label, active/selected highlight, and tap handler are all driven by the exact same `signUp` boolean parameter on each call — there is no code path by which the visible label and the mode a tap activates could ever disagree, in either language. Flutter's own `Row` widget already reverses child order automatically under ambient RTL `Directionality` (matching the charter's own "use semantic RTL behavior, do not blindly mirror" guidance) — this was already correct and is now locked in with explicit test coverage rather than changed.
+
+**One additional, independent, minor defect found during this same investigation**: the onboarding back-navigation icon (`Icons.chevron_left_rounded`) is a plain, non-directional glyph — Flutter does not auto-mirror icon glyphs, only widget *position* (its `PositionedDirectional` wrapper was already correctly RTL-aware; only the glyph itself pointed the wrong visual way in RTL).
+
+### Remediation implemented (item 12)
+
+- `lib/features/onboarding/presentation/screens/onboarding_screen.dart`: `_arabic` converted from a stored field to `bool get _arabic => AppLocaleController.instance.isArabic;` — a live read from the single authoritative source, immune to State recreation by construction (not merely patched to read correctly once). The language-select callback simplified to `onSelect: (v) => setState(() => AppLocaleController.instance.setArabic(v))`. The back-navigation icon now swaps `chevron_left_rounded`/`chevron_right_rounded` based on the same source.
+- `lib/features/auth/presentation/screens/sign_in_screen.dart`: added stable `Key`s (`mode_tab_sign_in`/`mode_tab_sign_up`) to the Sign In/Sign Up tabs — a test-reliability improvement only (the existing headline text and the tab label happen to share the same string, making plain-text finders ambiguous), no behavior change.
+- No hardcoded heights, no arbitrary delays, no error suppression, no forced navigation — matches the same minimal-fix discipline used throughout this engagement.
+
+### Test results (items 13-19)
+
+- **Arabic full-onboarding sweep (item 13)**: PASS — 10/10 steps (`onboarding_ui_test.dart`, `AUTH-007` group), each constructing a fresh `OnboardingScreen` with `AppLocaleController` already set to Arabic *before* the widget builds (the exact real-world trigger), asserting the correct Arabic content and explicitly asserting the English marker is absent (no silent fallback).
+- **English full-onboarding sweep (item 14)**: PASS — the pre-existing 10-step state-machine group (unchanged, still green) already covers this continuously; re-verified clean after the fix.
+- **Madhhab Arabic result (item 15)**: PASS — `حنفي`/`مالكي`/`شافعي`/`حنبلي` all render correctly; explicit assertion that no English madhhab name (`Hanafi`/`Maliki`/`Shafii`/`Hanbali`) is present.
+- **Sign In/Sign Up RTL result (item 16)**: PASS — 3 tests in the new `test/sign_in_rtl_test.dart` cover standalone English/LTR, standalone Arabic/RTL, and embedded (onboarding step 3) Arabic/RTL: correct tab labels, correct `Directionality`, and correct tap → mode semantics (tapping `إنشاء حساب` renders the signup-only `الاسم الكامل` field; tapping `تسجيل الدخول` hides it again — and the English equivalent).
+- **200% text-scale result (item 17)**: PASS — no layout exception at `TextScaler.linear(2.0)` on the Arabic entry step.
+- **Semantics result (item 18)**: PASS — Arabic entry step exposes a valid, disposable semantics tree with no exception.
+- **Full regression result (item 19)**: 445 tests total, 437 passing, same 8 known pre-existing golden-image parity diffs, **zero new failures**.
+
+A genuine, incidental test-harness finding surfaced along the way (not a production defect): a bare `MaterialApp(home: SignInScreen())` — the pattern used by the pre-existing `sign_in_consent_gating_test.dart` — has no ambient `Directionality` of its own; in the real app, standalone `SignInScreen` is always wrapped by `main.dart`'s own top-level `Directionality`. Tests that specifically assert RTL behavior needed to reproduce that same wrapper explicitly (now done in `sign_in_rtl_test.dart`); this does not affect the real app, since that wrapper is always present in production. Separately, the consent checkbox's `InkWell` intentionally spans its full row width (a larger, more accessible tap target than just the visible glyph) — a naive centroid tap can therefore coincide with a nested "Privacy Policy"/"Terms of Use" link depending on exact text layout, which differs between English and Arabic. This is not a production bug (a real, precise finger-tap on the visible checkbox glyph is unaffected) and the widget was not changed; the new tests tap the checkbox's own glyph element specifically for reliability.
+
+### Live verification (items 20-21)
+
+Not performed this pass beyond the automated coverage above — this environment has no interactive iOS Simulator automation capability (previously documented, unchanged) and Android UI automation for a full bilingual sweep was judged lower-value than comprehensive, fast, deterministic widget-test coverage given the size of this charter. The automated tests above reproduce the exact real-world trigger sequence (fresh State construction with locale already persisted) with the same fidelity a live device test would provide for this specific class of bug (a pure Dart-state/widget-tree defect, not a platform-integration one) — but per this engagement's own evidence-tier discipline, this is `E2_AUTOMATED_VERIFIED`, not `E4`, until the owner confirms on a real device.
+
+### AUTH-001 / new-finding statuses (items 22-23)
+
+- **`AUTH-001`**: `LIVE_VERIFICATION_REQUIRED` — component evidence reconciled per §B; open only for the confirmation-destination/fallback sub-issue, with a full design (§D/E) ready pending DNS + a separately-authorized config mutation.
+- **`AUTH-007`** (new): `E2_AUTOMATED_VERIFIED` — root-caused, fixed, comprehensively tested; pending owner live E4 retest.
+
+### Remaining Wave 1 blockers (item 24)
+
+`AUTH-001` (confirmation-destination/fallback UX — design-ready, owner DNS action + a future authorized config change required) and `AUTH-007` (owner live E4 retest). `AUTH-005`/`AUTH-006` remain tracked, non-blocking. `DC-010`/`PC-006` remain tracked elsewhere (owner checklist), unaffected by this wave.
+
+### Overall verdict (item 25)
+
+**`NO-GO`, unchanged.**
+
+### Exact minimum owner retest (item 26)
+
+1. Choose Arabic during onboarding.
+2. Proceed through every remaining onboarding step — confirm each one (including Madhhab) shows Arabic immediately.
+3. Confirm the Sign In / Sign Up screen reads correctly right-to-left (tab order, field alignment, icons) — and that tapping إنشاء حساب/تسجيل الدخول shows the right fields.
+4. Sign up with a new email.
+5. Confirm the email arrives, Niswah-branded (already proven — no need to re-check unless something looks different).
+6. Tap the confirmation link **on the same device Niswah is running on** (the empty-page issue is specifically a cross-device/desktop-browser fallback gap — this step is not expected to reproduce it, and is not what needs re-testing; it confirms the already-working path still works).
+7. Confirm the app opens directly and recognizes the account as confirmed (already proven — brief re-check only).
+
+Already-proven backend/delivery checks (SMTP, sender branding, template rendering, token processing) do **not** need to be repeated.

@@ -46,7 +46,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   static const int _totalSteps = 10;
 
   late int _step = widget.initialStep.clamp(1, _totalSteps);
-  bool _arabic = false;
+  // Derived from the app-wide, SharedPreferences-persisted controller — not
+  // a local copy — so a step re-selecting language stays in sync even if
+  // this State is recreated mid-onboarding (e.g. by the router rebuilding
+  // after an out-of-process email-confirmation session lands), instead of
+  // silently resetting to English regardless of what was already chosen
+  // and persisted (AUTH-007).
+  bool get _arabic => AppLocaleController.instance.isArabic;
   String? _madhhab;
   bool? _isMarried;
   DateTime? _periodDate;
@@ -93,8 +99,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       child: IconButton(
                         onPressed: () => setState(() => _step--),
                         tooltip: _t('Back', 'رجوع'),
-                        icon: const Icon(
-                          Icons.chevron_left_rounded,
+                        icon: Icon(
+                          // A chevron is not a directional glyph in
+                          // Flutter's icon font — it must be swapped
+                          // explicitly, or "back" points visually toward
+                          // reading-end in RTL instead of reading-start.
+                          _arabic
+                              ? Icons.chevron_right_rounded
+                              : Icons.chevron_left_rounded,
                           color: AppColors.textTertiary,
                         ),
                       ),
@@ -146,10 +158,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     1 => _Splash(onNext: _next),
     2 => _Language(
       arabic: _arabic,
-      onSelect: (v) {
-        setState(() => _arabic = v);
-        AppLocaleController.instance.setArabic(v);
-      },
+      onSelect: (v) => setState(() => AppLocaleController.instance.setArabic(v)),
       onNext: _next,
     ),
     3 => SignInScreen(onAuthenticated: _next, embedded: true),

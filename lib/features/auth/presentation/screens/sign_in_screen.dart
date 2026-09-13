@@ -1209,6 +1209,7 @@ class _AuthSheetState extends State<_AuthSheet> {
   Widget _modeTab(bool signUp) {
     final active = _isSignUp == signUp;
     return GestureDetector(
+      key: Key(signUp ? 'mode_tab_sign_up' : 'mode_tab_sign_in'),
       onTap: () => setState(() => _isSignUp = signUp),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),

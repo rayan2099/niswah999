@@ -5354,3 +5354,48 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 11. **Unexpected drift**: none beyond the 7 expected `*_custom_contents` boolean flips (Supabase's own auto-derived "is this customized" indicators) — confirmed via full 243-field config diff.
 12. **Commit SHA**: `ae8806d21e3c7eaf4bea6dc76db0047efc455d33` (`docs: standardize the final 7 auth email templates (13/13 complete)`).
 13. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `ae8806d21e3c7eaf4bea6dc76db0047efc455d33` after push.
+
+## 72. Wave 1 Final Auth/Localization Closure (2026-09-13)
+
+**Owner E4 evidence**: a real production signup/confirmation journey PASSED on SMTP delivery, sender identity, bilingual template rendering, token processing, and server-side confirmed state — the strongest evidence tier this engagement uses — alongside three newly-reported live defects. Full analysis, root causes, and design work: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md` §"Wave 1 Final Auth/Localization Closure".
+
+**Governance**: item A (confirmation empty-page/fallback) retained inside `AUTH-001`. Items B (Madhhab English) and C (Sign In/Sign Up RTL mirroring) consolidated into one new finding, `AUTH-007` — proven, not assumed, to share a single root cause.
+
+**AUTH-001**: component evidence reconciled (SMTP/branding/template/token/server-state all E4 PASS); narrowed to the confirmation-destination/fallback sub-issue only. Root cause: `site_url` is a bare custom URI scheme with no HTTP fallback content — a desktop/cross-device browser receiving Supabase's post-verification redirect has nothing to render. Server-side token verification and confirmation are proven to have already succeeded by that point (matches the E4 evidence) — this is a client-side handoff/UX gap, not an auth failure. A full HTTPS-callback architecture (Universal Link/App Link with a branded bilingual fallback page) was designed in detail (current/proposed flow, iOS/Android/DNS requirements, rollback) but **not implemented or deployed** — it requires connecting `niswah.app` to a web host via DNS (owner-only) plus a separately-authorized `site_url`/`uri_allow_list` mutation (not this pass, per explicit instruction not to mutate Auth redirects yet).
+
+**AUTH-007** (new): root-caused to `_OnboardingScreenState` keeping its own local `bool _arabic` field (hardcoded `false`), disconnected from `AppLocaleController.instance.isArabic` (the real, persisted, app-wide source of truth) — unlike its sibling field `_isMarried`, which was deliberately restored from its own controller for exactly this "returning user re-routed through onboarding" scenario. A fresh `OnboardingScreen` instance created after Arabic was already selected and persisted (the proven real trigger: the app process recreated while the user leaves to confirm their email) silently fell back to English for every step driven by that local field — and, since the embedded `SignInScreen` at step 3 inherits its `Directionality` from that same stale field while reading its own text correctly and directly from the controller, produced the second symptom: genuinely-Arabic text inside an LTR-mirrored layout. Fixed by converting `_arabic` to a getter reading the controller directly (single source of truth, immune to State recreation by construction). A second, independent, minor defect (the back-navigation chevron glyph not mirroring for RTL, despite correct `PositionedDirectional` placement) was found and fixed in the same pass. Sign In/Sign Up tab tap-semantics (charter item I) were audited and found already correct — locked in with tests, not changed.
+
+**Regression coverage**: 13 new tests in `test/onboarding_ui_test.dart` (`AUTH-007` group — full Arabic sweep across all 10 steps, explicit Madhhab Arabic-name coverage, back-chevron direction, embedded-step-3 RTL) and 7 new tests in `test/sign_in_rtl_test.dart` (standalone LTR/RTL, embedded RTL, small viewport, 200% text scale, semantics). All reproduce the real trigger (fresh State construction with locale already persisted) — none are vacuous; the equivalent assertions demonstrably fail against the pre-fix code. Full regression: 445 tests, 437 passing, same 8 known pre-existing golden-image diffs, zero new failures.
+
+**Live device verification**: not performed this pass — no interactive iOS Simulator automation in this environment (previously documented); the automated coverage above reproduces the exact real-world trigger with equivalent fidelity for this class of defect (pure Dart state/widget-tree, not platform-integration), but per this engagement's evidence-tier discipline this is `E2_AUTOMATED_VERIFIED`, not `E4`, pending the owner's live retest.
+
+### Consolidated Report
+
+1. **Finding IDs reused/created**: `AUTH-001` reused (narrowed scope); `AUTH-007` created (new, consolidating items B+C on proven shared root cause).
+2. **AUTH-001 component evidence reconciliation**: SMTP delivery = E4 PASS; Niswah sender identity = E4 PASS; bilingual confirmation template = E4 PASS; confirmation token processing = E4 PASS; server email-confirmed state = E4 PASS; confirmation destination/fallback = OPEN (only remaining component).
+3. **Confirmation empty-page exact root cause**: `site_url` is a bare custom URI scheme (`niswah://login-callback`) with zero HTTP fallback content; a desktop/cross-device browser receiving Supabase's post-verification 302 redirect to that scheme has nothing resolvable to render.
+4. **Whether email confirmation itself succeeded**: yes — proven server-side (token verified, account recognized as confirmed on return to the app). The empty page is a client-side fallback/handoff gap, not a confirmation failure.
+5. **Proposed/implemented confirmation fallback architecture**: proposed and fully designed (current flow, proposed flow, iOS/Android/DNS requirements, rollback); **not implemented, not deployed**.
+6. **HTTPS callback URL if implemented**: not implemented — proposed conceptually as `https://niswah.app/auth/confirmed` or `https://auth.niswah.app/confirmed`, pending DNS.
+7. **Universal Link/App Link status**: designed (entitlement/`apple-app-site-association`/`assetlinks.json`/intent-filter requirements documented); not implemented.
+8. **Owner DNS/domain action required**: yes — connect `niswah.app` to a web host (the existing Vercel project is an acceptable underlying infrastructure once the custom domain is pointed at it; no `vercel.app` hostname may ever be customer-visible). This is the exact boundary this pass stops at.
+9. **Arabic locale root cause**: `_OnboardingScreenState._arabic`, a local field disconnected from `AppLocaleController.instance.isArabic`, hardcoded `false` on every fresh construction, never resynced (unlike its sibling `_isMarried`, which was correctly restored from its own controller).
+10. **Madhhab localization defect root cause**: the same defect as item 9 — the Madhhab step reads the same desynced local field for its text and choice list.
+11. **RTL auth-screen root cause**: the same defect as item 9 — the embedded `SignInScreen`'s ambient `Directionality` (not its own text, which was always correct) is inherited from the onboarding shell's wrapper, driven by the same desynced field.
+12. **Remediation implemented**: `_arabic` converted to a getter reading `AppLocaleController.instance.isArabic` directly; language-select callback simplified accordingly; back-navigation chevron glyph now direction-aware; `Key`s added to the Sign In/Sign Up tabs (test-reliability only, no behavior change).
+13. **Arabic full-onboarding sweep result**: PASS — 10/10 steps, fresh-construction trigger reproduced, no English fallback.
+14. **English full-onboarding sweep result**: PASS — pre-existing 10-step coverage, re-verified clean.
+15. **Madhhab Arabic result**: PASS — all 4 madhhab names correct, no English fallback.
+16. **SignIn/Signup RTL result**: PASS — standalone + embedded, correct `Directionality`, correct tab labels, correct tap → mode semantics in both languages.
+17. **200% text-scale result**: PASS — no layout exception on the Arabic entry step.
+18. **Semantics result**: PASS — valid, disposable semantics tree, no exception.
+19. **Full regression result**: 445 tests, 437 passing, same 8 known golden-image diffs, zero new failures.
+20. **Live Android result**: not performed this pass (see live-verification note above).
+21. **Live iOS result**: not performed this pass — no interactive Simulator automation available in this environment.
+22. **AUTH-001 current status**: `LIVE_VERIFICATION_REQUIRED` — narrowed to the confirmation-destination/fallback component only.
+23. **New localization/RTL finding statuses**: `AUTH-007` = `E2_AUTOMATED_VERIFIED`, pending owner live E4 retest.
+24. **Remaining Wave 1 blockers**: `AUTH-001` (fallback UX — design-ready, owner DNS + future authorized config change required) and `AUTH-007` (owner live retest). `AUTH-005`/`AUTH-006` remain tracked, non-blocking.
+25. **Overall verdict**: `NO-GO`, unchanged.
+26. **Exact minimum owner retest**: choose Arabic → confirm every onboarding step (incl. Madhhab) shows Arabic → confirm Sign In/Sign Up reads correctly RTL and tapping each tab shows the right fields → sign up with a new email → confirm the confirmation link opens the app correctly **on the same device** (the cross-device fallback gap is not expected to reproduce here) → confirm the account is recognized as confirmed. Already-proven SMTP/branding/template/token checks do not need to be repeated.
+27. **Final commit SHA**: recorded below after this wave's commit.
+28. **Local == upstream verification**: recorded below after this wave's push.
