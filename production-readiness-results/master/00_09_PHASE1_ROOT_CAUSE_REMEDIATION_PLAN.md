@@ -5322,5 +5322,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 7. **Unused templates intentionally left disabled**: magic link, invite, phone-changed, identity-linked, identity-unlinked, MFA-enrolled, MFA-unenrolled — all confirmed still Supabase's unmodified English-only defaults, untouched.
 8. **Production mutations made**: yes — one 10-field `PATCH` to `config/auth` (2 footer-appends to existing templates + 4 new template/subject pairs). No schema, no other project settings, no secrets, no changes to the 7 left-disabled templates.
 9. **Verification result**: PASS — pre-apply automated checklist clean on all 6 touched templates; post-apply read-back confirmed actual == expected on all 10 intended fields with zero unexplained drift across the full config; full regression suite clean (zero new failures).
-10. **Commit SHA**: recorded below after this wave's commit.
-11. **Local == upstream verification**: recorded below after this wave's push.
+10. **Commit SHA**: `2f58ae38bd7b5cb7030d5507c46e423b60db9675` (`docs: standardize all reachable/brand-ready auth email templates`).
+11. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `2f58ae38bd7b5cb7030d5507c46e423b60db9675` after push.
