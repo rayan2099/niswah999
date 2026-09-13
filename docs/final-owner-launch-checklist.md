@@ -444,6 +444,24 @@ Three things you flagged, all now handled:
 3. Check the Sign In / Sign Up screen looks right for Arabic (reads right-to-left, tapping each tab shows the right fields).
 4. Sign up with a new email, and this time tap the confirmation link on the same phone/simulator Niswah is running on — confirm it opens the app and recognizes you as confirmed. (No need to redo the "does the email arrive and look right" part — that's already proven.)
 
+**🔴 Update, 2026-09-13 (later still) — a more serious problem: after signing in, choosing your language, and picking your Fiqh Madhhab, the app showed the Sign In / Sign Up screen again**, as if you had to log in twice. Found and fixed. The cause: the "sign in" screen used to be built as if it were one of onboarding's own steps — a leftover from a much older version of the app, from before there was a separate, proper "are you logged in?" check at the very front door. Once that proper front-door check was added (a while back), that leftover step inside onboarding became pointless and, it turns out, actively harmful — both the normal path through onboarding and simply tapping the "back" button from the Fiqh Madhhab question could land you back on it, even though you were already fully signed in.
+
+**Fixed by removing that leftover step entirely** — signing in now only ever happens at the app's front door, never again partway through onboarding. **One more serious thing found and fixed while making this change**: the "Sign Out" button in your Profile settings was — invisibly — relying on that exact same leftover step to let you sign back in afterward. If this hadn't been caught, removing the old step would have left Sign Out completely broken (no way to get back into the app afterward). Both are fixed together, and this class of bug cannot recur — the fix is architectural (there is no longer a "login screen" anywhere inside onboarding for it to redirect to).
+
+**One more small thing fixed along the way**: while testing every onboarding screen extra-large text size (an accessibility check), the Fiqh Madhhab question's answer buttons were found to visually overflow at that size — fixed with the same "shrink to fit" treatment already used elsewhere in the app.
+
+**What this session could not do**: test this specific fix on a real phone/simulator (no hands-on device access in this environment) — it's proven instead with 16+ new fast, automated checks that walk through sign-in, sign-out, app-restart, and back-navigation exactly the way a real phone would, and confirm the sign-in screen never reappears once you're logged in. Strong evidence, but not quite the same as you tapping through it yourself.
+
+**Your retest for this one, once you have a moment**:
+1. Sign in.
+2. Go through language, Madhhab, and every other onboarding question — confirm Sign In never appears again.
+3. From the Madhhab question, tap the back arrow once — confirm it goes back to the language question, not to Sign In.
+4. Finish onboarding, reach your dashboard.
+5. Go to Profile → Sign Out — confirm you land on Sign In (not a crash, not onboarding).
+6. Sign back in — confirm you go straight to your dashboard, not through onboarding again.
+
+**What holds the verdict at NO-GO now**: `DC-010`, `PC-006`, `AUTH-001` (confirmation fallback page, needs your `niswah.app` domain connected), and now this state-machine fix, pending your retest above.
+
 ---
 
 # Post-owner verification pass (run once all steps above are complete)

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/preferences/madhhab_controller.dart';
 import 'package:niswah/core/preferences/marital_status_controller.dart';
+import 'package:niswah/features/auth/presentation/screens/sign_in_screen.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/cycle_calculation_service.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
@@ -56,8 +57,9 @@ void main() {
     AppLocaleController.instance.setArabic(false);
     await MaritalStatusController.instance.load();
     await tester.pumpWidget(
-      // Start at the madhhab step (4) since login has no skip path.
-      MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 4)),
+      // Start at the madhhab step (3 — AUTH-008 removed the old embedded
+      // login step that used to occupy step 3).
+      MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 3)),
     );
 
     await tester.tap(find.text('Hanbali'));
@@ -85,7 +87,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: OnboardingScreen(onFinished: () {}, initialStep: 5),
+          home: OnboardingScreen(onFinished: () {}, initialStep: 4),
         ),
       );
 
@@ -110,7 +112,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     AppLocaleController.instance.setArabic(false);
     await tester.pumpWidget(
-      MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 4)),
+      MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 3)),
     );
 
     await tester.tap(find.text('Hanafi'));
@@ -127,7 +129,7 @@ void main() {
       AppLocaleController.instance.setArabic(false);
       await tester.pumpWidget(
         MaterialApp(
-          home: OnboardingScreen(onFinished: () {}, initialStep: 7),
+          home: OnboardingScreen(onFinished: () {}, initialStep: 6),
         ),
       );
 
@@ -147,7 +149,7 @@ void main() {
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
 
-      // Step 9 is now anonymous-mode only — the fake Face ID/PIN chooser
+      // Step 8 is now anonymous-mode only — the fake Face ID/PIN chooser
       // must be gone.
       expect(find.text('Face ID / Touch ID'), findsNothing);
       expect(find.text('PIN code'), findsNothing);
@@ -174,24 +176,19 @@ void main() {
     },
   );
 
-  // RR-009 (expanded) / onboarding language->login transition regression
-  // suite, 2026-09-12. Root cause: step 3 (SignInScreen) is a full nested
-  // Scaffold rendered as one step inside this screen's shared shell, which
-  // wrapped every step in SingleChildScrollView -> AnimatedSwitcher ->
-  // FadeTransition. A nested Scaffold (and AnimatedSwitcher's own internal
-  // Stack) cannot be laid out inside a scroll view's inherently unbounded
-  // child slot — Flutter throws "RenderAnimatedOpacity object was given an
-  // infinite size during layout" the instant the switcher tries to
-  // transition into step 3, leaving a blank body with only the progress
-  // bar/back button (which live outside the switcher) visible. None of the
-  // existing tests above ever exercised this transition — every one of
-  // them jumps past step 3 via `initialStep`. Fixed by capturing the real,
-  // already-bounded viewport height via LayoutBuilder (placed outside the
-  // scroll view) and re-imposing it as a genuine max-height ceiling on the
-  // switched content.
-  group('language -> login step transition (RR-009 root cause)', () {
+  // AUTH-008 removed onboarding's old embedded login step (formerly step
+  // 3, a full nested SignInScreen — the exact widget RR-009 root-caused a
+  // layout crash in). It is gone from the state machine entirely — the
+  // transition tested below is now language(2) -> Madhhab(3) directly.
+  // These tests preserve the general transition-safety coverage the old
+  // RR-009 suite established (small viewport, text scale, semantics, back
+  // navigation) against whatever now occupies that position, even though
+  // the original crash mechanism (a nested Scaffold inside this screen's
+  // unbounded scroll slot) can no longer occur — no step is a nested
+  // Scaffold any more.
+  group('language -> Madhhab step transition (AUTH-008)', () {
     testWidgets(
-      'English: selecting language and continuing reaches real sign-in '
+      'English: selecting language and continuing reaches real Madhhab '
       'content, not a blank body',
       (tester) async {
         AppLocaleController.instance.setArabic(false);
@@ -207,24 +204,18 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
+        expect(tester.takeException(), isNull);
         expect(
-          tester.takeException(),
-          isNull,
-          reason:
-              'the language -> login transition must not throw a layout '
-              'exception',
-        );
-        expect(
-          find.text('Understand your cycle, with peace of mind'),
+          find.text('What is your Fiqh Madhhab?'),
           findsOneWidget,
-          reason: 'step 3 must show real sign-in content, not a blank body',
+          reason: 'step 3 must show real Madhhab content, not a blank body',
         );
         expect(find.text('Choose your language'), findsNothing);
       },
     );
 
     testWidgets(
-      'Arabic: selecting language and continuing reaches real sign-in '
+      'Arabic: selecting language and continuing reaches real Madhhab '
       'content, not a blank body',
       (tester) async {
         AppLocaleController.instance.setArabic(false);
@@ -240,17 +231,11 @@ void main() {
         await tester.tap(find.text('متابعة'));
         await tester.pumpAndSettle();
 
+        expect(tester.takeException(), isNull);
         expect(
-          tester.takeException(),
-          isNull,
-          reason:
-              'the language -> login transition must not throw a layout '
-              'exception',
-        );
-        expect(
-          find.text('افهمي دورتكِ واطمنّي'),
+          find.text('ما مذهبكِ الفقهي؟'),
           findsOneWidget,
-          reason: 'step 3 must show real sign-in content, not a blank body',
+          reason: 'step 3 must show real Madhhab content, not a blank body',
         );
         expect(
           find.byWidgetPredicate(
@@ -289,38 +274,36 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
-        expect(
-          find.text('Understand your cycle, with peace of mind'),
-          findsOneWidget,
-        );
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
       },
     );
 
-    testWidgets('back navigation from step 3 returns to the language step', (
-      tester,
-    ) async {
-      AppLocaleController.instance.setArabic(false);
-      await tester.pumpWidget(
-        MaterialApp(home: OnboardingScreen(onFinished: () {})),
-      );
-      await tester.tap(find.text('Get Started'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('English').first);
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Continue'));
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Understand your cycle, with peace of mind'),
-        findsOneWidget,
-      );
+    testWidgets(
+      'back navigation from step 3 returns to the language step, never '
+      'to a Sign In screen',
+      (tester) async {
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(home: OnboardingScreen(onFinished: () {})),
+        );
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('English').first);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Back'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
 
-      expect(tester.takeException(), isNull);
-      expect(find.text('Choose your language'), findsOneWidget);
-    });
+        expect(tester.takeException(), isNull);
+        expect(find.text('Choose your language'), findsOneWidget);
+        expect(find.text('Email'), findsNothing);
+        expect(find.text('Mobile'), findsNothing);
+      },
+    );
 
     testWidgets(
       'continue navigation still works after going back once',
@@ -344,15 +327,12 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
-        expect(
-          find.text('Understand your cycle, with peace of mind'),
-          findsOneWidget,
-        );
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
       },
     );
 
     testWidgets(
-      'the language -> login transition renders with no layout exception '
+      'the language -> Madhhab transition renders with no layout exception '
       'on a small viewport',
       (tester) async {
         final originalSize = tester.view.physicalSize;
@@ -376,21 +356,13 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        expect(
-          tester.takeException(),
-          isNull,
-          reason: 'a small viewport must not reintroduce the infinite-size '
-              'layout exception',
-        );
-        expect(
-          find.text('Understand your cycle, with peace of mind'),
-          findsOneWidget,
-        );
+        expect(tester.takeException(), isNull);
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
       },
     );
 
     testWidgets(
-      'the language -> login transition renders with no layout exception '
+      'the language -> Madhhab transition renders with no layout exception '
       'at 200% text scale',
       (tester) async {
         AppLocaleController.instance.setArabic(false);
@@ -414,21 +386,13 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        expect(
-          tester.takeException(),
-          isNull,
-          reason: '200% text scale must not reintroduce the infinite-size '
-              'layout exception',
-        );
-        expect(
-          find.text('Understand your cycle, with peace of mind'),
-          findsOneWidget,
-        );
+        expect(tester.takeException(), isNull);
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
       },
     );
 
     testWidgets(
-      'the language -> login transition renders with no layout exception '
+      'the language -> Madhhab transition renders with no layout exception '
       'with semantics enabled',
       (tester) async {
         final handle = tester.ensureSemantics();
@@ -446,33 +410,29 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
-        expect(
-          find.text('Understand your cycle, with peace of mind'),
-          findsOneWidget,
-        );
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
         handle.dispose();
       },
     );
   });
 
-  // Section L: every reachable onboarding step must resolve to real
+  // Section L/O: every reachable onboarding step must resolve to real
   // content — never just the shared shell (progress bar/back button) with
   // an empty body. Iterates the full state machine directly via
-  // initialStep, the same mechanism the existing tests above already use
-  // to reach steps 4+, extended here to cover every step including the
-  // one (3) no prior test ever exercised.
+  // initialStep. AUTH-008 removed the old step 3 (embedded login) — the
+  // state machine now has 9 steps, not 10; there is no longer a login/
+  // signup step anywhere in this sequence.
   group('all-onboarding-step state machine (no step may render empty)', () {
     final stepContent = <int, String>{
       1: 'Niswah',
       2: 'Choose your language',
-      3: 'Understand your cycle, with peace of mind',
-      4: 'What is your Fiqh Madhhab?',
-      5: 'Are you married?',
-      6: 'Where are you located?',
-      7: 'When did your last period start?',
-      8: 'How long is your period?',
-      9: 'Anonymous Mode',
-      10: 'You’re all set!',
+      3: 'What is your Fiqh Madhhab?',
+      4: 'Are you married?',
+      5: 'Where are you located?',
+      6: 'When did your last period start?',
+      7: 'How long is your period?',
+      8: 'Anonymous Mode',
+      9: 'You’re all set!',
     };
 
     for (final entry in stepContent.entries) {
@@ -503,6 +463,14 @@ void main() {
                 'rendering only the shared progress bar/back button shell '
                 'with an empty body must fail this assertion',
           );
+          expect(
+            find.byType(SignInScreen),
+            findsNothing,
+            reason:
+                'AUTH-008: no onboarding step may show a Sign In/Sign Up '
+                'screen — this screen is only ever reached already '
+                'authenticated.',
+          );
         },
       );
     }
@@ -527,26 +495,24 @@ void main() {
     final arabicStepContent = <int, String>{
       1: 'دورتكِ. دينكِ. مساحتكِ.',
       2: 'اختاري لغتكِ',
-      3: 'افهمي دورتكِ واطمنّي',
-      4: 'ما مذهبكِ الفقهي؟',
-      5: 'هل أنتِ متزوجة؟',
-      6: 'أين تسكنين؟',
-      7: 'متى بدأ آخر حيض لديكِ؟',
-      8: 'كم تستمر مدة الحيض؟',
-      9: 'الوضع المجهول',
-      10: 'كل شيء جاهز!',
+      3: 'ما مذهبكِ الفقهي؟',
+      4: 'هل أنتِ متزوجة؟',
+      5: 'أين تسكنين؟',
+      6: 'متى بدأ آخر حيض لديكِ؟',
+      7: 'كم تستمر مدة الحيض؟',
+      8: 'الوضع المجهول',
+      9: 'كل شيء جاهز!',
     };
     final englishMarkerForStep = <int, String>{
       1: 'YOUR CYCLE. YOUR FAITH. YOUR SPACE.',
       2: 'Choose your language',
-      3: 'Understand your cycle, with peace of mind',
-      4: 'What is your Fiqh Madhhab?',
-      5: 'Are you married?',
-      6: 'Where are you located?',
-      7: 'When did your last period start?',
-      8: 'How long is your period?',
-      9: 'Anonymous Mode',
-      10: 'You’re all set!',
+      3: 'What is your Fiqh Madhhab?',
+      4: 'Are you married?',
+      5: 'Where are you located?',
+      6: 'When did your last period start?',
+      7: 'How long is your period?',
+      8: 'Anonymous Mode',
+      9: 'You’re all set!',
     };
 
     for (final entry in arabicStepContent.entries) {
@@ -596,7 +562,7 @@ void main() {
       AppLocaleController.instance.setArabic(true);
       await tester.pumpWidget(
         MaterialApp(
-          home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+          home: OnboardingScreen(onFinished: () {}, initialStep: 3),
         ),
       );
       await tester.pumpAndSettle();
@@ -612,6 +578,15 @@ void main() {
       expect(find.text('Maliki'), findsNothing);
       expect(find.text('Shafii'), findsNothing);
       expect(find.text('Hanbali'), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Directionality &&
+              widget.textDirection == TextDirection.rtl,
+        ),
+        findsWidgets,
+        reason: 'the Madhhab step must render RTL when Arabic is active',
+      );
     });
 
     testWidgets(
@@ -621,7 +596,7 @@ void main() {
         AppLocaleController.instance.setArabic(true);
         await tester.pumpWidget(
           MaterialApp(
-            home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+            home: OnboardingScreen(onFinished: () {}, initialStep: 3),
           ),
         );
         await tester.pumpAndSettle();
@@ -631,7 +606,7 @@ void main() {
         AppLocaleController.instance.setArabic(false);
         await tester.pumpWidget(
           MaterialApp(
-            home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+            home: OnboardingScreen(onFinished: () {}, initialStep: 3),
           ),
         );
         await tester.pumpAndSettle();
@@ -639,40 +614,138 @@ void main() {
         expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
       },
     );
+  });
 
+  // AUTH-008 items I/L/O: a full forward walk through every step, followed
+  // by a full backward walk, for an authenticated user — SignInScreen must
+  // never appear at any point in either direction, and no step transition
+  // may form a cycle back to an earlier step other than via the real Back
+  // button (which is asserted separately not to reach step 3/lower than
+  // expected).
+  group('AUTH-008 — full state-machine sweep, forward and backward', () {
     testWidgets(
-      'the embedded Sign In / Sign Up step (3) inherits correct RTL '
-      'Directionality when Arabic was already selected (not just correct '
-      'Arabic text)',
+      'walking every step forward from 1 to 9 never shows SignInScreen, '
+      'and step order strictly increases (no cycle)',
       (tester) async {
-        // This is the second symptom of the same AUTH-007 root cause:
-        // SignInScreen reads AppLocaleController directly for its own
-        // text (always correct), but when embedded it inherits ambient
-        // Directionality from OnboardingScreen's wrapper — which used to
-        // come from the same stale local `_arabic` field. That produced
-        // genuinely-Arabic text rendered inside an LTR-mirrored layout —
-        // exactly "flipped/mirrored" as the owner described it.
-        AppLocaleController.instance.setArabic(true);
+        AppLocaleController.instance.setArabic(false);
         await tester.pumpWidget(
-          MaterialApp(
-            home: OnboardingScreen(onFinished: () {}, initialStep: 3),
-          ),
+          MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 1)),
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('افهمي دورتكِ واطمنّي'), findsOneWidget);
+        final visited = <int>[];
+        // Step 1: splash.
+        expect(find.byType(SignInScreen), findsNothing);
+        visited.add(1);
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+
+        // Step 2: language.
+        expect(find.byType(SignInScreen), findsNothing);
+        visited.add(2);
+        await tester.tap(find.text('English').first);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // Step 3: Madhhab.
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
+        visited.add(3);
+        await tester.tap(find.text('Hanbali'));
+        await tester.pump();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // Step 4: married.
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('Are you married?'), findsOneWidget);
+        visited.add(4);
+        await tester.tap(find.text('No'));
+        await tester.pump();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // Step 5: location — skip.
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('Where are you located?'), findsOneWidget);
+        visited.add(5);
+        await tester.ensureVisible(find.text('Skip for now'));
+        await tester.tap(find.text('Skip for now'));
+        await tester.pumpAndSettle();
+
+        // Step 6: last period — "I'm not sure".
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('When did your last period start?'), findsOneWidget);
+        visited.add(6);
+        await tester.ensureVisible(find.text('I’m not sure'));
+        await tester.tap(find.text('I’m not sure'));
+        await tester.pumpAndSettle();
+
+        // Step 7: period length.
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('How long is your period?'), findsOneWidget);
+        visited.add(7);
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // Step 8: privacy/anonymous.
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('Anonymous Mode'), findsOneWidget);
+        visited.add(8);
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // Step 9: welcome.
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('You’re all set!'), findsOneWidget);
+        visited.add(9);
+
         expect(
-          find.byWidgetPredicate(
-            (widget) =>
-                widget is Directionality &&
-                widget.textDirection == TextDirection.rtl,
-          ),
-          findsWidgets,
+          visited,
+          List<int>.generate(9, (i) => i + 1),
           reason:
-              'the embedded login step must be wrapped in RTL '
-              'Directionality when Arabic text is showing, not left over '
-              'from a stale English default.',
+              'every step must be visited exactly once, in strictly '
+              'increasing order — a repeated or out-of-order entry would '
+              'mean a cycle back to an earlier step',
         );
+      },
+    );
+
+    testWidgets(
+      'walking backward from the last question step to step 1 never shows '
+      'SignInScreen at any point',
+      (tester) async {
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 8)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Anonymous Mode'), findsOneWidget);
+
+        // Step 8 -> 3: repeatedly tap Back, asserting no SignInScreen at
+        // any intermediate step (the back button is hidden below step 3
+        // and at the final step, so this walks 8 -> 7 -> 6 -> 5 -> 4 -> 3).
+        for (var i = 0; i < 5; i++) {
+          expect(find.byType(SignInScreen), findsNothing);
+          await tester.tap(find.byTooltip('Back'));
+          await tester.pumpAndSettle();
+          expect(find.byType(SignInScreen), findsNothing);
+        }
+
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
+
+        // One more Back reaches the language step (2) — the correct floor,
+        // never a Sign In screen.
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('Choose your language'), findsOneWidget);
       },
     );
   });

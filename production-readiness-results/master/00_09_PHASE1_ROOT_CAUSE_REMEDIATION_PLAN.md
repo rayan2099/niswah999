@@ -5399,3 +5399,54 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 26. **Exact minimum owner retest**: choose Arabic → confirm every onboarding step (incl. Madhhab) shows Arabic → confirm Sign In/Sign Up reads correctly RTL and tapping each tab shows the right fields → sign up with a new email → confirm the confirmation link opens the app correctly **on the same device** (the cross-device fallback gap is not expected to reproduce here) → confirm the account is recognized as confirmed. Already-proven SMTP/branding/template/token checks do not need to be repeated.
 27. **Final commit SHA**: `ff2081e3ad1bdb4c4f3e41c08697bb660be4cda8` (`fix: resolve AUTH-007 -- onboarding locale/RTL desync (Madhhab English + auth-sheet mirroring)`).
 28. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `ff2081e3ad1bdb4c4f3e41c08697bb660be4cda8` after push.
+
+## 73. Wave 1 Final State-Machine Closure — AUTH-008 (2026-09-13)
+
+**Owner E4 evidence**: a real production journey (signup → confirmed → returned → signed in → language → Madhhab) was followed by Niswah presenting Sign In/Sign Up again — an already-authenticated user routed back into authentication inside onboarding. Full analysis: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md` §"Wave 1 Final State-Machine Closure — AUTH-008".
+
+**Governance**: distinct from `AUTH-001` (confirmation fallback) and `AUTH-007` (locale/RTL desync) — a genuinely separate architecture defect. Tracked as new finding `AUTH-008`, severity CRITICAL/LAUNCH BLOCKER.
+
+**Proven root cause** (deterministic widget-test reproduction, not inference): onboarding step 3 was a full embedded `SignInScreen`, present since this repository's first tracked commit — predating `AUTH-002`'s introduction of the current root-level `!auth.isAuthenticated -> SignInScreen` gate (commit `409ef5d`), which made a login step *inside* onboarding provably redundant for every real path from that point on, but never removed it. `RR-009` (commit `dc55a95`) later fixed a crash inside that same already-redundant step without questioning it. Both forward navigation (any fresh instance defaulting to `initialStep: 1`) and ordinary Back navigation (from Madhhab, step 4 old numbering, straight onto step 3) reproducibly passed an authenticated user through a live Sign In/Sign Up screen.
+
+**A second, independent instance of the identical anti-pattern was found and fixed in the same pass**: `ProfileScreen._signOut()` manually pushed `OnboardingScreen()` via `Navigator.push` — bypassing the root router entirely — as an ad hoc re-authentication path through the now-removed step 3. Left unfixed, removing step 3 would have broken sign-out completely (no way back in). Removed; sign-out now relies solely on the already-correct, already-tested reactive root router.
+
+**Fix**: step 3 deleted from onboarding's step switch; steps renumbered (10 → 9: Splash, Language, Madhhab, Married, Location, LastPeriod, PeriodLength, Privacy, Welcome); `main.dart`'s two `initialStep` computations updated (`auth.isNewSignUp ? 3 : 1`; debug-preview flag likewise); `ProfileScreen._signOut()` simplified. A genuinely new, unrelated defect surfaced by extending 200%-text-scale coverage to the now-more-prominent Madhhab step — `_SelectCard`'s fixed-aspect-ratio grid overflowing at large text scale — fixed with the same `FittedBox(fit: BoxFit.scaleDown)` treatment `AU-006` already established for this exact bug class.
+
+**Regression coverage**: `auth_onboarding_routing_test.dart` +16 tests (root-router-level, all 4 restart scenarios, both logout/login journeys, both returning-user journeys, each asserting zero `SignInScreen` occurrences). `onboarding_ui_test.dart` renumbered and extended with a `SignInScreen`-absence assertion per step plus new forward/backward full-walk cycle-detection tests. `sign_in_rtl_test.dart`'s now-impossible embedded-step-3 test removed; a stale prior-wave "AUTH-008" mislabel (which actually belonged to `AUTH-007`) corrected. Full regression: 451 tests, 443 passing, same 8 known pre-existing golden-image diffs, zero new failures.
+
+**Live device verification**: not performed this pass (same environment constraint as the prior wave); the reproduction and fix are proven via deterministic widget test exercising the real `Navigator`/State machinery (a pure Dart state-machine defect, not platform-integration). `E2_AUTOMATED_VERIFIED`, pending owner live retest.
+
+**AUTH-001/AUTH-007**: both preserved exactly, untouched by this pass.
+
+### Consolidated Report
+
+1. **Finding ID reused/created**: `AUTH-008` created (new) — distinct from `AUTH-001`/`AUTH-007`.
+2. **Severity**: CRITICAL — LAUNCH BLOCKER.
+3. **Exact current state-machine root cause**: onboarding step 3 was a redundant embedded `SignInScreen`, reachable via both default forward navigation and ordinary Back navigation, for a user the root router had already proven authenticated.
+4. **Why SignInScreen was embedded in onboarding**: pre-dates this repository's tracked history; became provably redundant the moment `AUTH-002` introduced the current root-level auth gate (commit `409ef5d`), but was never removed at that time.
+5. **Current onboarding step inventory**: see §D table above (9 steps, Splash → Language → Madhhab → Married → Location → LastPeriod → PeriodLength → Privacy → Welcome).
+6. **Canonical state machine after remediation**: unauthenticated → auth; authenticated + incomplete → onboarding (no auth UI inside it); authenticated + complete → dashboard.
+7. **SignInScreen removed from authenticated onboarding**: YES.
+8. **Root auth guard behavior**: unchanged, already correct — `_buildHome` reacts to `AuthController.isAuthenticated`; now the *only* place authentication UI is ever shown to a user who was previously authenticated.
+9. **Onboarding completion write location**: `_completeOnboarding()` (final Welcome step only) → `AuthRepositoryImpl.markOnboardingCompleted()` — unchanged, verified as the sole call site.
+10. **Cycle/circular-navigation defect result**: FIXED — proven via deterministic reproduction before the fix, proven absent via the same test after.
+11. **New-user automated journey result**: PASS — full forward walk, steps 1-9 visited exactly once in order, zero `SignInScreen` occurrences.
+12. **Confirmed-incomplete journey result**: PASS — authenticated + onboarding incomplete routes to onboarding, never `SignInScreen`.
+13. **Returning-user journey result**: PASS — authenticated + onboarding complete routes straight to the dashboard, never language/Madhhab/signup.
+14. **Restart result**: PASS — all 4 required scenarios (incomplete, complete, unauthenticated, partial+killed) verified.
+15. **Logout/login result**: PASS — both partial and completed-onboarding journeys verified, no repeated Sign In.
+16. **Back-navigation result**: PASS — Madhhab → Language via Back never reaches Sign In; full backward walk (step 8 → 2) verified clean.
+17. **Arabic result**: PASS — `AUTH-007`'s fix re-verified unchanged against the renumbered step list.
+18. **Madhhab result**: PASS — content correct in both languages; a newly-found, unrelated 200%-text-scale overflow fixed in the same pass.
+19. **RTL auth result**: PASS — standalone screen (the only way it's shown now) verified RTL-correct.
+20. **All-step state-machine sweep**: PASS — every step (1-9) renders real content, no `SignInScreen`, no empty body.
+21. **Android live result**: not performed this pass.
+22. **iOS verification result**: not performed — no interactive Simulator automation available in this environment; not claimed.
+23. **AUTH-001 unchanged status**: `LIVE_VERIFICATION_REQUIRED`, all E4-proven components preserved, untouched.
+24. **AUTH-007 status**: `E2_AUTOMATED_VERIFIED`, unchanged, not marked E4-closed.
+25. **New finding status**: `AUTH-008` = `E2_AUTOMATED_VERIFIED`, pending owner live retest.
+26. **Remaining Wave 1 blockers**: `AUTH-001` (fallback UX design-ready, owner DNS action pending), `AUTH-007` (owner retest), `AUTH-008` (owner retest). `AUTH-005`/`AUTH-006` remain tracked, non-blocking.
+27. **Overall verdict**: `NO-GO`, unchanged.
+28. **Owner minimum retest**: sign in → confirm Language→Madhhab→every step proceeds without repeating Sign In → Back from Madhhab returns to Language only → complete onboarding → reach dashboard → sign out → confirm Sign In appears → sign back in → confirm straight to dashboard.
+29. **Final commit SHA**: recorded below after this wave's commit.
+30. **Local == upstream verification**: recorded below after this wave's push.

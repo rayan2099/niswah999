@@ -8,7 +8,6 @@ import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
-import '../../../auth/presentation/screens/sign_in_screen.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
@@ -39,11 +38,14 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-/// Streamlined onboarding flow (10 steps):
-/// 1 Splash → 2 Language → 3 Login → 4 Madhhab → 5 Married
-/// → 6 Location → 7 Last Period → 8 Period Length → 9 Privacy → 10 Welcome
+/// Streamlined onboarding flow (9 steps). Only ever shown to an already-
+/// authenticated user — main.dart's root router (AUTH-002's contract)
+/// gates every path here behind `auth.isAuthenticated == true`, so there
+/// is deliberately no login/signup step in this state machine (AUTH-008):
+/// 1 Splash → 2 Language → 3 Madhhab → 4 Married → 5 Location
+/// → 6 Last Period → 7 Period Length → 8 Privacy → 9 Welcome
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  static const int _totalSteps = 10;
+  static const int _totalSteps = 9;
 
   late int _step = widget.initialStep.clamp(1, _totalSteps);
   // Derived from the app-wide, SharedPreferences-persisted controller — not
@@ -161,8 +163,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onSelect: (v) => setState(() => AppLocaleController.instance.setArabic(v)),
       onNext: _next,
     ),
-    3 => SignInScreen(onAuthenticated: _next, embedded: true),
-    4 => _Choices(
+    // AUTH-008: step 3 used to be an embedded SignInScreen (login/signup)
+    // here. It is removed — by the time any user ever reaches
+    // OnboardingScreen at all, main.dart's own root router has already
+    // required `auth.isAuthenticated == true` (see its own routing
+    // contract doc comment); a login step inside onboarding was therefore
+    // always redundant for every real path, and both forward navigation
+    // (a fresh instance starting at step 1) and Back from Madhhab landed
+    // an already-authenticated user on a live Sign In/Sign Up screen —
+    // proven, reproducible, the exact defect the owner reported.
+    3 => _Choices(
       title: _t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟'),
       subtitle: _t(
         'This helps us personalize Haid and prayer guidance.',
@@ -191,7 +201,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       },
       onNext: _madhhab == null ? null : _next,
     ),
-    5 => _Choices(
+    4 => _Choices(
       title: _t('Are you married?', 'هل أنتِ متزوجة؟'),
       subtitle: _t(
         'This controls spouse-only pregnancy tools and reports.',
@@ -208,13 +218,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       },
       onNext: _isMarried == null ? null : _next,
     ),
-    6 => _Location(
+    5 => _Location(
       onSelected: (location) =>
           PrayerLocationController.instance.select(location),
       onUseCurrentLocation: () => _useDeviceLocation(),
       onNext: _next,
     ),
-    7 => _LastPeriod(
+    6 => _LastPeriod(
       selected: _periodDate,
       onSelect: (v) => setState(() => _periodDate = v),
       onNext: _periodDate == null ? null : _next,
@@ -223,7 +233,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _next();
       },
     ),
-    8 => _NumberStep(
+    7 => _NumberStep(
       title: _t('How long is your period?', 'كم تستمر مدة الحيض؟'),
       description: _madhhab == 'Hanafi' || _madhhab == 'حنفي'
           ? _t('Hanafi maximum: 10 days', 'الحد الأقصى للحنفية: 10 أيام')
@@ -234,7 +244,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onChanged: (v) => setState(() => _haidLength = v),
       onNext: _next,
     ),
-    9 => _Privacy(
+    8 => _Privacy(
       anonymous: _anonymous,
       onAnonymous: (v) => _setAnonymousMode(v),
       onNext: _next,
@@ -252,10 +262,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _next() => setState(() => _step = (_step + 1).clamp(1, _totalSteps));
 
   /// Seeds a real cycle log from the last-period date/length answered in
-  /// steps 7-8 (unless the user tapped "I'm not sure"), so onboarding's
+  /// steps 6-7 (unless the user tapped "I'm not sure"), so onboarding's
   /// answer actually counts toward the app's cycle history instead of being
-  /// silently discarded. By this point step 3 (Login) has already required
-  /// a successful sign-in, so a real user id is available.
+  /// silently discarded. This screen is only ever reached already
+  /// authenticated (main.dart's root router requires it), so a real user id
+  /// is always available.
   Future<void> _completeOnboarding() async {
     final periodDate = _periodDate;
     if (periodDate != null) {
@@ -921,12 +932,19 @@ class _SelectCard extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Center(
-                child: Text(
+          // FittedBox(scaleDown) matches the same fixed-dimension/large-
+          // text-scale treatment already applied to the dashboard (AU-006)
+          // — this grid cell has a fixed aspect ratio, so title+subtitle
+          // text would otherwise overflow it at large OS text-scale
+          // settings instead of shrinking to fit.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
                   title,
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     color: selected
                         ? const Color(0xFF881337)
@@ -935,20 +953,20 @@ class _SelectCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-              if (subtitle.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  subtitle,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 8,
-                    height: 1.3,
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 8,
+                      height: 1.3,
+                    ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
           if (selected)
             const PositionedDirectional(

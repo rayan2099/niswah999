@@ -13,7 +13,6 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/app_theme_controller.dart';
 import '../../../legal/presentation/screens/data_export_screen.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
-import '../../../onboarding/presentation/screens/onboarding_screen.dart';
 import 'sign_in_screen.dart';
 import '../../../private_messaging/presentation/screens/conversations_screen.dart';
 import '../../../private_messaging/domain/repositories/private_messaging_repository_base.dart';
@@ -443,19 +442,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     },
   );
 
+  // AUTH-008: this used to manually push OnboardingScreen (via its old,
+  // now-removed embedded login step) as an ad hoc way to let the user sign
+  // back in — exactly the "hard-code a login step to cover session loss"
+  // anti-pattern the root auth guard exists to prevent. `_viewModel
+  // .signOut()` performs a real Supabase sign-out, which AuthController's
+  // own `onAuthStateChange` listener already reacts to (`isAuthenticated`
+  // flips false, `notifyListeners()` fires) — main.dart's root router
+  // reactively shows SignInScreen on its own; no manual navigation here
+  // is needed, or correct, for this same reason.
   Future<void> _signOut() async {
     try {
       await _viewModel.signOut();
-      if (mounted) {
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute(
-            fullscreenDialog: true,
-            builder: (routeContext) => OnboardingScreen(
-              onFinished: () => Navigator.of(routeContext).pop(),
-            ),
-          ),
-        );
-      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)

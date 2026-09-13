@@ -107,11 +107,13 @@ void main() {
         await tester.pumpWidget(const NiswahApp());
         await tester.pump();
 
-        // Step 4 (Madhhab) rendered directly, not step 1 (splash) —
-        // confirms the initialStep hint took effect, without ever
-        // reaching the dashboard.
+        // Madhhab (step 3 — AUTH-008 removed the old embedded login step
+        // that used to sit at step 3) rendered directly, not step 1
+        // (splash) — confirms the initialStep hint took effect, without
+        // ever reaching the dashboard.
         expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
         expect(find.byType(NiswahHomeShell), findsNothing);
+        expect(find.byType(SignInScreen), findsNothing);
       },
     );
   });
@@ -193,6 +195,184 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(NiswahHomeShell), findsOneWidget);
+      },
+    );
+  });
+
+  // AUTH-008: a fresh app launch/restart re-evaluates the exact same
+  // `_buildHome` contract from scratch each time — these tests exercise
+  // that directly by pumping a brand-new `NiswahApp()` for each of the
+  // charter's four required restart scenarios, confirming none of them
+  // ever shows `SignInScreen` for an authenticated user.
+  group('AUTH-008 — app restart scenarios', () {
+    testWidgets(
+      '1. authenticated + onboarding incomplete -> restart -> onboarding',
+      (tester) async {
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: false,
+        );
+        await tester.pumpWidget(const NiswahApp());
+        await tester.pump();
+
+        expect(find.byType(NiswahHomeShell), findsNothing);
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('YOUR CYCLE. YOUR FAITH. YOUR SPACE.'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '2. authenticated + onboarding complete -> restart -> dashboard',
+      (tester) async {
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: true,
+        );
+        await tester.pumpWidget(const NiswahApp());
+        await tester.pumpAndSettle();
+
+        expect(find.byType(NiswahHomeShell), findsOneWidget);
+        expect(find.byType(SignInScreen), findsNothing);
+      },
+    );
+
+    testWidgets('3. unauthenticated -> restart -> auth', (tester) async {
+      AuthController.instance.setStateForTest(
+        isAuthenticated: false,
+        onboardingCompleted: false,
+      );
+      await tester.pumpWidget(const NiswahApp());
+      await tester.pump();
+
+      expect(find.byType(SignInScreen), findsOneWidget);
+    });
+
+    testWidgets(
+      '4. partial onboarding + app killed -> reopen -> onboarding '
+      'incomplete, no auth repetition (isNewSignUp lost across restart, '
+      'as it always is — this must still never surface SignInScreen)',
+      (tester) async {
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: false,
+          isNewSignUp: false,
+        );
+        await tester.pumpWidget(const NiswahApp());
+        await tester.pump();
+
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.byType(NiswahHomeShell), findsNothing);
+      },
+    );
+  });
+
+  // AUTH-008: logout/login must never produce login -> onboarding -> login
+  // again. Each test drives AuthController through the real event sequence
+  // (sign-out fires `isAuthenticated: false`; sign-in re-authenticates)
+  // rather than only checking static states in isolation.
+  group('AUTH-008 — logout / login', () {
+    testWidgets(
+      'partial onboarding -> logout -> login -> onboarding (not stuck on '
+      'Sign In, not skipped to dashboard)',
+      (tester) async {
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: false,
+        );
+        await tester.pumpWidget(const NiswahApp());
+        await tester.pump();
+        expect(find.byType(SignInScreen), findsNothing);
+
+        // Logout.
+        AuthController.instance.setStateForTest(
+          isAuthenticated: false,
+          onboardingCompleted: false,
+        );
+        await tester.pump();
+        expect(find.byType(SignInScreen), findsOneWidget);
+
+        // Login again — server state still says incomplete.
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: false,
+        );
+        await tester.pump();
+
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.byType(NiswahHomeShell), findsNothing);
+        expect(find.text('YOUR CYCLE. YOUR FAITH. YOUR SPACE.'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'completed onboarding -> logout -> login -> dashboard directly '
+      '(never re-shown onboarding or a repeated Sign In)',
+      (tester) async {
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: true,
+        );
+        await tester.pumpWidget(const NiswahApp());
+        await tester.pumpAndSettle();
+        expect(find.byType(NiswahHomeShell), findsOneWidget);
+
+        // Logout.
+        AuthController.instance.setStateForTest(
+          isAuthenticated: false,
+          onboardingCompleted: true,
+        );
+        await tester.pump();
+        expect(find.byType(SignInScreen), findsOneWidget);
+        expect(find.byType(NiswahHomeShell), findsNothing);
+
+        // Login again — server state still says complete.
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: true,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(NiswahHomeShell), findsOneWidget);
+        expect(find.byType(SignInScreen), findsNothing);
+      },
+    );
+  });
+
+  // AUTH-008 — charter items M/N: the two "already confirmed" journeys
+  // must never re-show signup/onboarding UI they've already passed.
+  group('AUTH-008 — returning-user journeys', () {
+    testWidgets(
+      'confirmed + onboarding complete -> login -> dashboard directly; '
+      'never language, Madhhab, signup, or onboarding of any kind',
+      (tester) async {
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: true,
+        );
+        await tester.pumpWidget(const NiswahApp());
+        await tester.pumpAndSettle();
+
+        expect(find.byType(NiswahHomeShell), findsOneWidget);
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('Choose your language'), findsNothing);
+        expect(find.text('What is your Fiqh Madhhab?'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'confirmed + onboarding incomplete -> login -> onboarding; never '
+      'signup shown again',
+      (tester) async {
+        AuthController.instance.setStateForTest(
+          isAuthenticated: true,
+          onboardingCompleted: false,
+        );
+        await tester.pumpWidget(const NiswahApp());
+        await tester.pump();
+
+        expect(find.byType(NiswahHomeShell), findsNothing);
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('YOUR CYCLE. YOUR FAITH. YOUR SPACE.'), findsOneWidget);
       },
     );
   });

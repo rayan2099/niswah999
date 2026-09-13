@@ -331,7 +331,7 @@ class NiswahApp extends StatelessWidget {
   Widget _buildHome(BuildContext context) {
     if (kDebugSkipSignup) {
       return OnboardingScreen(
-        initialStep: 4,
+        initialStep: 3,
         onFinished: () => Navigator.of(context).pushReplacementNamed('/'),
       );
     }
@@ -348,14 +348,16 @@ class NiswahApp extends StatelessWidget {
 
     if (!onboardingCompleted) {
       return OnboardingScreen(
-        // Step 3 of onboarding is itself a login step — skip straight
-        // past splash/language/login to Madhhab (step 4) only when we
-        // know this user is already authenticated from a signup that
-        // just happened in this same process. Any other case (a
-        // returning-but-not-onboarded user, a confirmation-driven
+        // AUTH-008: onboarding itself has no login step any more (this
+        // branch already proves `auth.isAuthenticated == true`) — splash
+        // and language are the only steps before Madhhab, and skipping
+        // them for a signup that just completed in this same process is
+        // a pure UX nicety (she just picked a language on the sign-up
+        // sheet itself), never a correctness requirement. Any other case
+        // (a returning-but-not-onboarded user, a confirmation-driven
         // session from a fresh process) starts at step 1, which is
         // correct and safe — never skipped based on a guess.
-        initialStep: auth.isNewSignUp ? 4 : 1,
+        initialStep: auth.isNewSignUp ? 3 : 1,
         onFinished: () {
           auth.clearNewSignUp();
           auth.setOnboardingCompletedLocally(true);

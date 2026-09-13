@@ -2,18 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/features/auth/presentation/screens/sign_in_screen.dart';
-import 'package:niswah/features/onboarding/presentation/screens/onboarding_screen.dart';
 
-/// AUTH-008 (shares its root cause with AUTH-007 — see
-/// `onboarding_ui_test.dart`'s AUTH-007 group): the owner reported the
-/// Sign In / Sign Up sheet appearing "flipped/mirrored" under Arabic.
-/// `SignInScreen` reads `AppLocaleController` directly for its own text
-/// (always correct), but when embedded in onboarding it used to inherit
-/// ambient `Directionality` from the onboarding shell's stale local
-/// `_arabic` field — producing genuinely-Arabic text inside an
-/// LTR-mirrored layout. These tests lock in correct RTL/LTR behavior for
-/// both the standalone screen and the embedded (onboarding step 3) case,
-/// across viewport size, text scale, and semantics.
+/// AUTH-007: the owner reported the Sign In / Sign Up sheet appearing
+/// "flipped/mirrored" under Arabic. `SignInScreen` reads
+/// `AppLocaleController` directly for its own text (always correct), but
+/// when embedded in onboarding (removed since, by AUTH-008 — see
+/// `onboarding_ui_test.dart`) it used to inherit ambient `Directionality`
+/// from the onboarding shell's stale local `_arabic` field — producing
+/// genuinely-Arabic text inside an LTR-mirrored layout. These tests lock
+/// in correct RTL/LTR behavior for the standalone screen (the only way
+/// this screen is shown at all now), across viewport size, text scale,
+/// and semantics.
 void main() {
   final signInTab = find.byKey(const Key('mode_tab_sign_in'));
   final signUpTab = find.byKey(const Key('mode_tab_sign_up'));
@@ -140,35 +139,11 @@ void main() {
     },
   );
 
-  testWidgets(
-    'embedded Sign In sheet (onboarding step 3) renders RTL under Arabic '
-    'with correct tab labels',
-    (tester) async {
-      AppLocaleController.instance.setArabic(true);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: OnboardingScreen(onFinished: () {}, initialStep: 3),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await openAuthSheet(tester, email: 'البريد الإلكتروني');
-
-      expect(find.text('تسجيل الدخول'), findsWidgets);
-      expect(find.text('إنشاء حساب'), findsWidgets);
-      expect(
-        find.byWidgetPredicate(
-          (widget) =>
-              widget is Directionality &&
-              widget.textDirection == TextDirection.rtl,
-        ),
-        findsWidgets,
-      );
-
-      await tester.tap(signUpTab);
-      await tester.pumpAndSettle();
-      expect(find.text('الاسم الكامل'), findsOneWidget);
-    },
-  );
+  // AUTH-008 removed the embedded SignInScreen from onboarding entirely —
+  // there is no longer an "embedded step 3" scenario to test; standalone
+  // is now the only way this screen is ever shown (see
+  // auth_onboarding_routing_test.dart / onboarding_ui_test.dart for
+  // coverage proving SignInScreen never appears inside onboarding).
 
   // The following three cross-cutting checks deliberately stop at the
   // entry step (language toggle + Email/Mobile choice) rather than
