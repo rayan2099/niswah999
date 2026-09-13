@@ -38,14 +38,18 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-/// Streamlined onboarding flow (9 steps). Only ever shown to an already-
+/// Streamlined onboarding flow (8 steps). Only ever shown to an already-
 /// authenticated user — main.dart's root router (AUTH-002's contract)
 /// gates every path here behind `auth.isAuthenticated == true`, so there
-/// is deliberately no login/signup step in this state machine (AUTH-008):
-/// 1 Splash → 2 Language → 3 Madhhab → 4 Married → 5 Location
-/// → 6 Last Period → 7 Period Length → 8 Privacy → 9 Welcome
+/// is deliberately no login/signup step in this state machine (AUTH-008).
+/// There is also deliberately no language-selection step (AUTH-009) —
+/// `AppLocaleController` (already set, pre-auth, by the SignInScreen's own
+/// language toggle, or its own sensible default) is the single language
+/// authority; asking again here would be pure duplication:
+/// 1 Splash → 2 Madhhab → 3 Married → 4 Location
+/// → 5 Last Period → 6 Period Length → 7 Privacy → 8 Welcome
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  static const int _totalSteps = 9;
+  static const int _totalSteps = 8;
 
   late int _step = widget.initialStep.clamp(1, _totalSteps);
   // Derived from the app-wide, SharedPreferences-persisted controller — not
@@ -158,11 +162,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Widget _screen() => switch (_step) {
     1 => _Splash(onNext: _next),
-    2 => _Language(
-      arabic: _arabic,
-      onSelect: (v) => setState(() => AppLocaleController.instance.setArabic(v)),
-      onNext: _next,
-    ),
     // AUTH-008: step 3 used to be an embedded SignInScreen (login/signup)
     // here. It is removed — by the time any user ever reaches
     // OnboardingScreen at all, main.dart's own root router has already
@@ -172,7 +171,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // (a fresh instance starting at step 1) and Back from Madhhab landed
     // an already-authenticated user on a live Sign In/Sign Up screen —
     // proven, reproducible, the exact defect the owner reported.
-    3 => _Choices(
+    //
+    // AUTH-009: the old step 2 (a Language selection screen, identical in
+    // purpose to the language toggle already on the pre-auth SignInScreen)
+    // is also removed. `AppLocaleController` is the single, canonical
+    // language authority throughout the app — it already has a real value
+    // (explicitly chosen pre-auth, or its own sensible Arabic default) by
+    // the time any authenticated user ever reaches this screen, so asking
+    // again here was pure duplication, not a genuine second choice.
+    2 => _Choices(
       title: _t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟'),
       subtitle: _t(
         'This helps us personalize Haid and prayer guidance.',
@@ -201,7 +208,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       },
       onNext: _madhhab == null ? null : _next,
     ),
-    4 => _Choices(
+    3 => _Choices(
       title: _t('Are you married?', 'هل أنتِ متزوجة؟'),
       subtitle: _t(
         'This controls spouse-only pregnancy tools and reports.',
@@ -218,13 +225,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       },
       onNext: _isMarried == null ? null : _next,
     ),
-    5 => _Location(
+    4 => _Location(
       onSelected: (location) =>
           PrayerLocationController.instance.select(location),
       onUseCurrentLocation: () => _useDeviceLocation(),
       onNext: _next,
     ),
-    6 => _LastPeriod(
+    5 => _LastPeriod(
       selected: _periodDate,
       onSelect: (v) => setState(() => _periodDate = v),
       onNext: _periodDate == null ? null : _next,
@@ -233,7 +240,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _next();
       },
     ),
-    7 => _NumberStep(
+    6 => _NumberStep(
       title: _t('How long is your period?', 'كم تستمر مدة الحيض؟'),
       description: _madhhab == 'Hanafi' || _madhhab == 'حنفي'
           ? _t('Hanafi maximum: 10 days', 'الحد الأقصى للحنفية: 10 أيام')
@@ -244,7 +251,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onChanged: (v) => setState(() => _haidLength = v),
       onNext: _next,
     ),
-    8 => _Privacy(
+    7 => _Privacy(
       anonymous: _anonymous,
       onAnonymous: (v) => _setAnonymousMode(v),
       onNext: _next,
@@ -406,50 +413,6 @@ class _Splash extends StatelessWidget {
         ),
         child: Text(_tr('Get Started', 'ابدئي')),
       ),
-    ],
-  );
-}
-
-
-
-class _Language extends StatelessWidget {
-  const _Language({
-    required this.arabic,
-    required this.onSelect,
-    required this.onNext,
-  });
-  final bool arabic;
-  final ValueChanged<bool> onSelect;
-  final VoidCallback onNext;
-  @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      _Title(_tr('Choose your language', 'اختاري لغتكِ')),
-      const SizedBox(height: 30),
-      Row(
-        children: [
-          Expanded(
-            child: _SelectCard(
-              title: 'العربية',
-              subtitle: 'Arabic',
-              selected: arabic,
-              onTap: () => onSelect(true),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: _SelectCard(
-              title: 'English',
-              subtitle: 'English',
-              selected: !arabic,
-              onTap: () => onSelect(false),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 28),
-      _Continue(onPressed: onNext),
     ],
   );
 }

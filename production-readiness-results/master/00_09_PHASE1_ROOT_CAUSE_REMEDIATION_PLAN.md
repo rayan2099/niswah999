@@ -5450,3 +5450,48 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 28. **Owner minimum retest**: sign in → confirm Language→Madhhab→every step proceeds without repeating Sign In → Back from Madhhab returns to Language only → complete onboarding → reach dashboard → sign out → confirm Sign In appears → sign back in → confirm straight to dashboard.
 29. **Final commit SHA**: `e48a56269d767d448832733dd728a357f2701d73` (`fix: resolve AUTH-008 -- remove circular auth transition from onboarding`).
 30. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `e48a56269d767d448832733dd728a357f2701d73` after push.
+
+## 74. Wave 1 Owner E4 Retest Failure — AUTH-008 Reopened, AUTH-009 (2026-09-13, later the same day)
+
+**Owner E4 evidence**: the real production journey (pre-auth Arabic selected → signup → confirmed → returned → signed in) was followed by onboarding re-asking for language, then re-showing Sign In/Sign Up — the same circular-auth symptom the prior wave believed fixed. Per explicit governance instruction, `AUTH-008` is reopened (`E4_FAIL`) regardless of what automated evidence shows; the prior `E2_AUTOMATED_VERIFIED` conclusion is preserved as historical evidence only. Full analysis: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md` §"Wave 1 Owner E4 Retest Failure".
+
+**Governance**: `AUTH-008` reopened, not superseded — the prior fix (removing the embedded login step) is not reverted or doubted; the owner's report is treated as authoritative regardless. The redundant-language symptom is tracked separately as new finding `AUTH-009` (not folded into `AUTH-007`, which is about locale/RTL *correctness*, not duplication) since it is a genuinely distinct root cause.
+
+**Investigation ("prove the running build")**: an exhaustive re-grep of every `SignInScreen(`/`OnboardingScreen(` construction site in `lib/` found no path beyond the two already-known legitimate sites (root router, delete-account flow) — the current source contains no reachable code path matching the reported "language again → Sign In again" transition. New root-router-level tests reproducing the owner's *exact* real sequence (`AppLocaleController` set to Arabic pre-auth, then a simulated real sign-in via `AuthController.setStateForTest`) pass cleanly, showing zero `SignInScreen`/language reappearance. This is strong evidence — not proof — that the retest ran against a build predating the `AUTH-008` fix (the same `DC-010` stale-build risk already documented elsewhere in this engagement).
+
+**AUTH-009, genuinely new and real regardless of the above**: onboarding's own step 2 (`_Language`) asked for a language choice unconditionally, with no awareness that `AppLocaleController` (the app's real, single language authority, already relied on by `AUTH-007`'s own fix) already had a value — either explicitly chosen pre-auth via `SignInScreen`'s own toggle, or its own sensible default. Fixed by removing the step entirely (not gating it) and deleting the now-fully-unused `_Language` widget class as dead code. Steps renumbered (8 steps: Splash → Madhhab → Married → Location → LastPeriod → PeriodLength → Privacy → Welcome); `main.dart`'s two `initialStep` computations updated accordingly. Madhhab, now the first content step, has no Back button at all — falls out of the existing `_step > 2` condition without any additional code change, the safest possible outcome (nothing before it to return to).
+
+**Live device verification, genuinely attempted**: built and ran the current code on Android; the emulator entered a persistent SystemUI ANR that survived four escalating remediation attempts (clean restart, process kill+relaunch, direct `com.android.systemui` force-stop, full AVD data wipe) — the final attempt reproduced the identical ANR on the bare Android launcher home screen before Niswah was ever installed, conclusively proving a host/infrastructure fault unrelated to this session's code. Not claimed as live verification; iOS was not attempted (no capability in this environment, as in every prior wave). Full regression: 449 tests, 441 passing, same 8 known golden-image diffs, zero new failures.
+
+### Consolidated Report
+
+1. **AUTH-008 reopened status**: `E4_FAIL`, `REOPENED`, `CRITICAL`, `LAUNCH BLOCKER` — owner E4 result treated as authoritative over the prior automated conclusion, which is preserved only as historical evidence.
+2. **Language-duplication finding ID reused/created**: `AUTH-009` created (new) — not folded into `AUTH-007`.
+3. **Exact cause of second Language screen**: onboarding's own step 2 asked for language unconditionally, never consulting `AppLocaleController` (already set, pre-auth or by default) to skip itself.
+4. **Exact cause of second SignIn/Signup screen**: not reproducible against the current source — no code path found; strong evidence points to a stale (pre-`AUTH-008`-fix) build on the owner's device.
+5. **Every auth UI construction/navigation call site**: exactly two — `main.dart`'s root router (`!auth.isAuthenticated`) and `ProfileScreen`'s delete-account flow (`pushAndRemoveUntil` to the same unauthenticated entry point). No others exist anywhere in `lib/`.
+6. **Canonical auth authority after fix**: unchanged, already correct — `main.dart`'s root router is the sole decision point; no child screen or callback overrides it.
+7. **Canonical language authority after fix**: `AppLocaleController` exclusively — no onboarding-specific language flag remains; the redundant selection screen and its widget class are deleted.
+8. **Final post-auth onboarding step list**: 1 Splash → 2 Madhhab → 3 Married → 4 Location → 5 Last Period → 6 Period Length → 7 Privacy → 8 Welcome.
+9. **Redundant Language step removed**: YES.
+10. **Embedded/secondary auth UI eliminated**: YES (already true after the prior wave's `AUTH-008` fix; re-confirmed via exhaustive re-audit this pass, no new instance found).
+11. **First-incomplete-step behavior**: unchanged beyond Language's removal — `initialStep` is `auth.isNewSignUp ? 2 : 1`; further per-field skip logic for later steps was considered and explicitly deferred as a separate UX decision, not a defect.
+12. **Arabic owner-journey automated reproduction before fix**: the redundant language screen was live and reproducible in the pre-fix code (any onboarding walk showed it at step 2 regardless of pre-auth choice).
+13. **Arabic journey result after fix**: PASS — pre-auth Arabic survives the auth transition, zero `SignInScreen`/language reappearance, Madhhab renders Arabic immediately.
+14. **English journey result after fix**: PASS — same, in English.
+15. **Partial/restart result**: PASS — a killed-and-reopened app with a restored session preserves pre-auth Arabic, shows neither `SignInScreen` nor the language screen.
+16. **Logout/login result**: PASS — unchanged from the prior wave's coverage, re-run clean.
+17. **Back-navigation result**: PASS — Madhhab (new first content step) has no Back button; falls out of the existing visibility condition with no code change needed.
+18. **Duplicate-language assertion result**: PASS — enforced throughout the full step sweep and the real-journey tests.
+19. **Duplicate-auth assertion result**: PASS — `find.byType(SignInScreen), findsNothing` enforced throughout the same coverage.
+20. **Android live result**: attempted, not completed — a proven host/infrastructure emulator fault (SystemUI ANR reproducing on the bare launcher before app install) blocked verification after four genuine remediation attempts.
+21. **iOS verification result**: not performed — no interactive Simulator automation available in this environment; not claimed.
+22. **AUTH-001 unchanged status**: `LIVE_VERIFICATION_REQUIRED`, all E4-proven components preserved, untouched.
+23. **AUTH-007 status**: `E2_AUTOMATED_VERIFIED`, unchanged, not marked E4-closed.
+24. **AUTH-008 status**: `E4_FAIL`, `REOPENED`.
+25. **Language-duplication finding status**: `AUTH-009` = `E2_AUTOMATED_VERIFIED`, pending owner live retest.
+26. **Remaining Wave 1 blockers**: `AUTH-001` (design-ready, owner DNS pending), `AUTH-007` (owner retest), `AUTH-008` (reopened, owner retest on a confirmed-fresh install), `AUTH-009` (owner retest). `AUTH-005`/`AUTH-006` remain tracked, non-blocking.
+27. **Overall verdict**: `NO-GO`, unchanged.
+28. **Owner minimum retest**: fully uninstall and reinstall the app first, then: select language pre-auth → sign up/confirm/sign in → confirm Madhhab appears directly (no second language screen) → complete onboarding with no second Sign In at any point → reach dashboard → sign out → confirm Sign In appears → sign back in → confirm straight to dashboard.
+29. **Final commit SHA**: recorded below after this wave's commit.
+30. **Local == upstream verification**: recorded below after this wave's push.

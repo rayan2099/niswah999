@@ -1087,3 +1087,102 @@ Not performed on a real device this pass — same environment constraint as the 
 6. Sign back in — confirm it goes straight to the dashboard (onboarding already complete), not through onboarding again.
 
 Already-proven Arabic/RTL and email-confirmation checks (from the prior two waves) do not need to be repeated unless something looks different.
+
+## Wave 1 Owner E4 Retest Failure — AUTH-008 Reopened, AUTH-009 (2026-09-13, later the same day)
+
+The owner ran the real production journey again and reported the circular-auth defect still occurring, plus a new observation: onboarding re-asked for language after it was already selected pre-auth. Per explicit governance instruction, `AUTH-008` is **reopened** (owner E4 result supersedes the prior automated conclusion) and a new finding, `AUTH-009`, is opened for the genuinely distinct redundant-language defect.
+
+### A — Governance
+
+`AUTH-008` reopened: `E4_FAIL`, `REOPENED`, `CRITICAL`, `LAUNCH BLOCKER`. The prior `E2_AUTOMATED_VERIFIED` conclusion is preserved in the master register as historical evidence only, explicitly not treated as current truth. `AUTH-007` was not overloaded — the redundant-language screen is a distinct defect (language *content* was always correct; the screen simply asked twice), tracked as new finding `AUTH-009`, severity HIGH, Wave 1 blocker.
+
+### B — Proving the running build
+
+Current `git` HEAD at the start of this pass was `184c7bc` (includes the AUTH-008 fix from the prior wave — step 3/embedded login already removed). An exhaustive re-grep of every `SignInScreen(`/`OnboardingScreen(` construction site in `lib/` found exactly the same two legitimate `SignInScreen` sites as before (root router, delete-account flow) and no new or overlooked construction site — **the current source code contains no reachable path matching the reported "language again → Sign In again" transition**. This does not, by itself, prove the owner's device was on a stale build — but combined with new root-router-level tests that reproduce the owner's *exact* real sequence (pre-auth language selection, then a simulated real sign-in) and pass cleanly with zero `SignInScreen`/language reappearance, it is strong evidence pointing that way. Per instruction, this finding was not dismissed on that basis — it was formally reopened, and live device verification was attempted (§R below) specifically to settle the question with real evidence rather than assumption.
+
+### C — Every auth UI entry/construction site (re-audited)
+
+| File | Call site | Condition | Expected auth state | Legitimate? |
+|---|---|---|---|---|
+| `lib/main.dart:341` | `return const SignInScreen();` | `!auth.isAuthenticated` | Unauthenticated | Yes — the root guard |
+| `lib/features/auth/presentation/screens/profile_screen.dart:512` | `pushAndRemoveUntil(... SignInScreen())` | After a successful account deletion | Session already cleared by that point | Yes — navigates to the same unauthenticated entry point sign-out uses |
+
+No other `SignInScreen(` or `OnboardingScreen(` construction site exists anywhere in `lib/`. There is exactly one canonical authority (`main.dart`'s root router) deciding when auth UI is shown for every normal path; the delete-account site is a deliberate, already-correct exception matching the exact same target state (unauthenticated).
+
+### D — Root router authority (unchanged, re-confirmed)
+
+```
+IF session == null:                          AUTH UI
+IF session != null AND onboarding incomplete: ONBOARDING (no auth UI inside it)
+IF session != null AND onboarding complete:   DASHBOARD
+```
+
+Confirmed unchanged and correctly the sole authority — no child onboarding step, local `_step`, navigation callback, or screen-specific `Navigator` operation overrides it anywhere in the current source.
+
+### E/F — Redundant language step removed; language authority
+
+Root cause: onboarding's own step 2 (`_Language`) asked for a language choice regardless of whether one already existed — `AppLocaleController` (set pre-auth by `SignInScreen`'s own toggle, or its own sensible Arabic default) was never consulted to skip it. Fixed by removing the step entirely (not gating it conditionally) — `AppLocaleController` is now the *only* language moment in the entire app, matching the charter's explicit "do not maintain another onboarding-specific language flag" directive. The now-fully-unused `_Language` widget class was deleted as dead code, not left behind.
+
+### G — New post-auth onboarding step order
+
+8 steps: 1 Splash → 2 Madhhab → 3 Married → 4 Location → 5 Last Period → 6 Period Length → 7 Privacy → 8 Welcome. No login step (`AUTH-008`), no language step (`AUTH-009`). Full per-step inventory (data collected, authority, required, next) is unchanged from the prior wave's table except for the renumbering and Language's removal.
+
+### H — First-incomplete-step routing
+
+Not changed beyond removing Language: `initialStep` remains `auth.isNewSignUp ? 2 : 1` (Madhhab directly for a same-process signup, splash otherwise). A more granular "skip Madhhab too if already answered" behavior was considered per the charter's own explicit permission ("at minimum... avoid unnecessary duplication where safe") but **not implemented** — Madhhab, unlike language, has no pre-auth equivalent selection point anywhere in the app, so there is no already-established value to skip ahead of; implementing per-field skip logic for the remaining steps was judged out of this pass's scope (a larger, separate UX design decision, not a defect).
+
+### I — Confirmation return behavior (preserved, unchanged)
+
+The owner-approved behavior — returning to Niswah after email confirmation shows Sign In with prior input state available — lives entirely inside `SignInScreen`'s own `_awaitingEmailConfirmation` handling and was not touched by this pass.
+
+### J — Duplicate-auth invariant
+
+Enforced via `find.byType(SignInScreen), findsNothing` assertions added throughout the onboarding journey in both `onboarding_ui_test.dart` (every step in the state-machine sweep, the full forward/backward walk) and the new root-router-level tests in `auth_onboarding_routing_test.dart`.
+
+### K/L — Real journey automated reproduction, Arabic and English
+
+Before this pass's fix, the redundant Language step was live and reproducible (any onboarding walk showed it as step 2 regardless of pre-auth choice). After the fix: `auth_onboarding_routing_test.dart`'s new "real journey" group sets `AppLocaleController` to Arabic (respectively English) *before* simulating the unauthenticated → authenticated transition via `AuthController.setStateForTest`, then asserts zero `SignInScreen` and zero language-screen occurrences, landing directly on the correctly-localized splash and then Madhhab. Both pass.
+
+### M — Partial user / restart
+
+A dedicated test simulates a killed-and-reopened app with Arabic already persisted and a still-valid restored session (`isAuthenticated: true, onboardingCompleted: false` on a fresh `NiswahApp()` pump) — confirms Arabic is preserved and neither `SignInScreen` nor the language screen appear.
+
+### N — Logout
+
+Unchanged from the prior wave's `AUTH-008` logout/login coverage — still passing, re-run this pass.
+
+### O — Back navigation
+
+Madhhab (the new first content step) has no Back button at all — the existing `_step > 2` visibility condition already excludes it without any code change, which is the safest possible choice per the charter's own framing (nothing to go back to, no path to ever expose auth from within onboarding).
+
+### P/Q — AUTH-007 and AUTH-001 (preserved, not touched)
+
+`AUTH-007` remains `E2_AUTOMATED_VERIFIED`, not marked E4-closed — its own Arabic/RTL regression suite was re-run against the further-renumbered step list and passes unchanged in content. `AUTH-001` was not modified this pass; all previously-recorded E4-PASS component evidence (SMTP, sender identity, templates, token processing, server-confirmed state) is preserved exactly as-is; the HTTPS fallback remains `OPEN` and was not implemented, per explicit instruction.
+
+### R — Live device verification attempt
+
+A genuine, multi-step attempt was made to verify the current build interactively on Android before requesting an owner retest:
+1. Built and installed the current code fresh on the existing running emulator instance.
+2. The Android emulator entered a persistent "System UI isn't responding" (ANR) state that did not clear after multiple "Wait" retries.
+3. Killed the emulator process outright and did a full fresh relaunch — the ANR recurred immediately.
+4. Directly force-restarted Android's own `com.android.systemui` process via `adb` — the ANR recurred immediately.
+5. Waited for host CPU/load to settle (confirmed via `ps`/`uptime`) and retried — the ANR recurred immediately.
+6. Fully wiped the emulator's AVD data and did a clean first-boot — **the same ANR appeared on the bare Android launcher home screen, before Niswah was ever installed** — conclusive proof this is a host/infrastructure condition, not an app defect, a build issue, or anything this session's own code changes could cause.
+
+Given step 6's result, further remediation attempts were stopped as unproductive; the emulator was shut down to free host resources (measured this pass: ~44MB free RAM, load average 10-12 on the host, under genuine multi-process contention). **iOS live interaction was not attempted this pass** (no interactive Simulator automation capability in this environment, as documented in every prior wave) and is not claimed. This is reported honestly as a real infrastructure limitation, not a skipped step — per the charter's own explicit standard not to claim live interaction that did not occur.
+
+**Full regression result**: 449 tests total, 441 passing, same 8 known pre-existing golden-image parity diffs, zero new failures.
+
+### S — Owner retest
+
+Prepared, pending the infrastructure constraint above being resolved (a healthier host/emulator environment) or the owner performing the retest directly:
+
+1. Select Arabic (or English) before authenticating.
+2. Sign up / confirm / return / sign in.
+3. Confirm Madhhab appears directly — no second language screen.
+4. Complete the remaining onboarding steps — confirm no second Sign In/Sign Up at any point.
+5. Reach the dashboard.
+6. Sign out — confirm Sign In appears.
+7. Sign back in — confirm the dashboard appears directly.
+
+**Before this retest, the owner should fully uninstall and reinstall the app (not just relaunch it)** — given the strong evidence this pass gathered that the reported symptom does not reproduce against the current source, a stale build is the leading explanation, and a clean reinstall directly removes that variable.

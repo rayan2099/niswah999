@@ -462,6 +462,18 @@ Three things you flagged, all now handled:
 
 **What holds the verdict at NO-GO now**: `DC-010`, `PC-006`, `AUTH-001` (confirmation fallback page, needs your `niswah.app` domain connected), and now this state-machine fix, pending your retest above.
 
+**🔴 Update, 2026-09-13 (later still) — you retested and it still happened: language asked again, then signed out and asked to sign in again.** Thank you for testing again — this is exactly the kind of real check that matters most. Two things came out of digging into this:
+
+1. **A real, separate bug was found: even though you'd already picked your language on the very first screen (the small EN/ع toggle), onboarding was asking you to pick it again a few screens later.** That's now fixed — onboarding no longer has its own "choose your language" screen at all; your first choice is the only one that matters, everywhere in the app, from now on.
+
+2. **The "signed in again" part could not be reproduced.** This session rebuilt the exact current code from scratch and traced every single place in the app that could ever show a sign-in screen — there are only two, and both are correct and expected (the very first screen when you're not signed in, and right after deleting an account). New automated tests that walk through your exact sequence — pick a language before signing in, then sign in for real — confirm the sign-in screen never reappears. The most likely explanation: **the copy of the app on your phone/simulator was built before yesterday's fix landed** — this is the same "needs a fresh rebuild, easy to miss" issue flagged a few times already in this process (there's still no automatic way to push a new build to your device). 
+
+**Before you retest this one, please fully uninstall the app and reinstall it from the latest build** (not just close and reopen it) — a plain relaunch can still be running old code underneath.
+
+**One more honest note**: this session tried hard to test the fix live on an Android emulator before asking you to retest — it hit a technical problem with the testing environment itself (not the app) that could not be resolved even after four different fixes were tried, including a full factory-reset of the test device. So this fix is backed by strong automated evidence, not by someone actually tapping through it on a real screen — please treat your retest as the real, first live check.
+
+**What holds the verdict at NO-GO now**: `DC-010`, `PC-006`, `AUTH-001`, the state-machine fix (reopened, pending your retest on a freshly reinstalled build), and the language-duplication fix (same retest covers both).
+
 ---
 
 # Post-owner verification pass (run once all steps above are complete)
