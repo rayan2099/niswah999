@@ -23,7 +23,8 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Evidence level**: **E1 (static verified)** for the suggestion engine's own logic in isolation; **E0 (assumed/not applicable)** for the end-to-end product requirement, since the feature does not exist in any reachable UI.
 - **Live verification status**: Not applicable — nothing to verify live.
 - **Production deployment status**: `MadhhabSuggestionService` and its data files are in the repository and would ship in any build, but are inert (never called) — effectively **not deployed as a feature**, only as dormant code.
-- **Finding IDs**: none previously assigned. This reconciliation does not assign a new finding ID either, per the explicit "discovery only, no remediation" instruction — it is recorded here as a ledger entry pending an owner product decision on wiring order (madhhab is onboarding step 4, location is step 6; wiring the suggestion engine requires either reordering or accepting a suggestion appear after the fact).
+- **Finding IDs**: **`AUTH-010`** (formally assigned, Post-Reconciliation Governance Correction wave, 2026-09-14 — this specific gap, item A only; the silent-default behavior, item B, is `AUTH-005`, a separate already-tracked finding, not duplicated here).
+- **Launch decision, 2026-09-14**: **NOT launch-blocking** — recorded explicitly, not left implicit. No current user receives incorrect religious guidance from this gap (every user who completes onboarding explicitly picks a real madhhab); the harm is a forced-guess UX gap, not a correctness defect. Recommended for a near-term post-reconciliation wave, pending owner priority.
 - **Status**: **MISSING** (UI/product surface) with **VERIFIED** (isolated, dead) backend logic underneath.
 
 ## REQ-FIQH-002 — Madhhab: no server-side persistence (reinstall/new-device loss)
@@ -40,8 +41,8 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Evidence level**: **E2 (automated verified)** for the fact of local-only storage (confirmed via direct code grep and live schema query this pass); **E0** for any claim of correctness, since correctness requires server sync that doesn't exist.
 - **Live verification status**: Confirmed live via direct Supabase query this pass (`users.madhhab` and `profiles.selected_madhhab` both exist; app never writes the former, only dead code writes the latter).
 - **Production deployment status**: The gap is present in current production — a real reinstall today loses the madhhab choice.
-- **Finding IDs**: none previously assigned — same class of gap as `AUTH-006` (prayer location) and the newly-discovered marital-status equivalent (REQ-ONBOARD-003), never itself tracked.
-- **Status**: **MISSING** (server persistence).
+- **Finding IDs**: **`AUTH-005`** — **governance correction, 2026-09-14**: this ledger entry was drafted without cross-referencing the finding register and incorrectly stated "none previously assigned." `AUTH-005` (opened Wave 1 Governance Update, 2026-09-11) already tracks this exact requirement, in nearly identical terms, with the same evidence. `REQ-FIQH-002` and `AUTH-005` are the same requirement — this entry is retained in the ledger for the charter's requested REQ-ID structure, but the finding register's `AUTH-005` row is the canonical, authoritative record; see it for the current, corrected status (including this pass's confirmation that the silent-default mechanism reaches live fiqh-calculation and AI-context code, and a recommendation for owner reconsideration of its blocking status). Same class of gap as `AUTH-006` (prayer location) and the newly-classified marital-status equivalent (`REQ-ONBOARD-003`, `LOCAL_ONLY_UNSAFE`, not yet assigned its own finding ID).
+- **Status**: **MISSING** (server persistence) — tracked as `AUTH-005`, not a new/duplicate entry.
 
 ## REQ-ONBOARD-001 — Onboarding must not show authentication UI to an already-authenticated user
 
@@ -53,11 +54,11 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Backend/database dependency**: `public.users.onboarding_completed`.
 - **Local storage dependency**: none (in-memory `AuthController` state only, re-fetched from server on every genuine sign-in).
 - **Test location**: `test/auth_onboarding_routing_test.dart`, `test/onboarding_ui_test.dart`.
-- **Evidence level**: **E2 (automated verified)** — comprehensive, including tests reproducing the exact real-world trigger sequence.
-- **Live verification status**: **E4_FAIL, REOPENED** — the owner's real device retest reported the symptom recurring; this session's own re-investigation this pass found no current code path reproducing it and could not complete a live device re-check due to a proven, documented emulator/host infrastructure fault (not a code issue). See `AUTH-008` in the finding register for full detail — **this ledger entry inherits that exact status, not a more optimistic one.**
-- **Production deployment status**: The fix is live in the current codebase (commit `e48a562` and later); whether the owner's device was running that build at retest time is unresolved.
-- **Finding IDs**: `AUTH-008` (REOPENED).
-- **Status**: **LIVE_VERIFICATION_REQUIRED** (reopened, pending a confirmed-fresh-install owner retest or a working live-device environment).
+- **Evidence level**: **E4 (live journey verified)** — automated coverage plus a real, fresh-install owner device retest.
+- **Live verification status**: **E4 PASS, 2026-09-14** — the owner completed a fresh-install iOS retest of the exact prescribed script and reported PASS on every item this requirement covers (no second Sign In/Sign Up during onboarding; Sign Out returns to Sign In; subsequent Sign In goes directly to the dashboard). This supersedes the prior `E4_FAIL`/`REOPENED` status recorded below for historical context.
+- **Production deployment status**: The fix is live in the current codebase and now confirmed running on the owner's real device.
+- **Finding IDs**: `AUTH-008` (`VERIFIED_CLOSED` / `E4`, closed 2026-09-14; the full reopening episode is preserved in the finding register as historical evidence).
+- **Status**: **VERIFIED_CLOSED** (`E4`).
 
 ## REQ-ONBOARD-002 — Onboarding must not re-ask for a language already selected pre-auth
 
@@ -69,11 +70,11 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Backend/database dependency**: none — language is intentionally local-only by design (not flagged as a gap, unlike madhhab/marital-status/prayer-location, since there is no server-side concept of "account language" documented as required).
 - **Local storage dependency**: SharedPreferences key `niswah_arabic`.
 - **Test location**: `test/onboarding_ui_test.dart` (splash → Madhhab direct-transition group), `test/auth_onboarding_routing_test.dart` (real-journey group).
-- **Evidence level**: **E2 (automated verified)**, including root-router-level tests reproducing the owner's exact real sequence.
-- **Live verification status**: pending owner retest (same retest as REQ-ONBOARD-001, since both were reported together).
-- **Production deployment status**: fix is live in current codebase (commit `afd2efd`); not yet owner-confirmed on a real device.
-- **Finding IDs**: `AUTH-009`.
-- **Status**: **VERIFIED (code/test)**, **LIVE_VERIFICATION_REQUIRED** (owner retest pending).
+- **Evidence level**: **E4 (live journey verified)**, including root-router-level tests reproducing the owner's exact real sequence, plus a real owner device retest.
+- **Live verification status**: **E4 PASS, 2026-09-14** — the owner's fresh-install iOS retest reported both "language selected pre-auth: PASS" and "no duplicate Language screen after login: PASS."
+- **Production deployment status**: fix is live in current codebase, confirmed running on the owner's real device.
+- **Finding IDs**: `AUTH-009` (`VERIFIED_CLOSED` / `E4`, closed 2026-09-14).
+- **Status**: **VERIFIED_CLOSED** (`E4`).
 
 ## REQ-ONBOARD-003 — Marital status must not be local-only if it is account-level state
 
@@ -81,7 +82,8 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Description**: Same class of concern as `AUTH-006` (prayer location): if marital status is meant to be account-level state (it gates spouse-only pregnancy tools/reports, per existing product logic), it should not be lost on reinstall.
 - **Source**: Inferred from the adversarial charter's general local-only-authority rule, applied by analogy to `AUTH-006`'s own reasoning; newly surfaced by this pass's code inventory, not previously documented as its own gap.
 - **Severity**: MEDIUM — lower than madhhab/prayer-location since marital status gates optional UI, not core fiqh correctness, but the same structural defect.
-- **Launch-critical**: Not previously assessed; flagged for owner triage alongside `AUTH-006`.
+- **Governance classification (item 5 of the correction charter)**: **`LOCAL_ONLY_UNSAFE`**, not `INTENTIONAL_LOCAL_ONLY` — reasoned explicitly, not asserted by analogy alone: (1) it is **not** documented anywhere as an intentional device-only preference (unlike, say, theme mode, which genuinely is a device preference by design); (2) a real downstream feature depends on it — the Married onboarding step's own subtitle states it "controls spouse-only pregnancy tools and reports," confirming real features are gated by this value; (3) reinstall/account-switching **does** cause incorrect behavior: since `onboarding_completed = true` for an already-onboarded user routes her straight to the dashboard (never back through the Married step), a silent reset to the unmarried default would hide spouse-only features she should have access to, with no prompt to re-answer; (4) server durability is therefore genuinely required for correctness, not merely nice-to-have. This is a real, if lower-stakes than `AUTH-005`/`AUTH-006`, product-correctness gap — not ordinary UX polish.
+- **Launch-critical**: Not launch-blocking (feature-visibility gap, not religious/safety correctness) — flagged for owner triage alongside `AUTH-006`.
 - **Implementation location**: `MaritalStatusController` (`lib/core/preferences/marital_status_controller.dart`).
 - **Backend/database dependency**: none found — confirmed via grep, no Supabase column for marital status is read or written anywhere in `lib/`.
 - **Local storage dependency**: SharedPreferences key `niswah_is_married`.
@@ -89,8 +91,8 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Evidence level**: **E2 (automated verified)** for the fact of local-only storage.
 - **Live verification status**: not applicable (no server sync to verify).
 - **Production deployment status**: gap present in current production.
-- **Finding IDs**: none previously assigned — recommend tracking alongside `AUTH-006` in a future wave (not done here).
-- **Status**: **MISSING** (server persistence).
+- **Finding IDs**: none previously assigned — recommend tracking alongside `AUTH-006` in a future wave (not done here; this pass classifies but does not allocate a new finding ID for this one, since the charter's item 5 asked for classification, not formal tracking).
+- **Status**: **MISSING** (server persistence), classified **`LOCAL_ONLY_UNSAFE`**.
 
 ## REQ-ARCH-001 — No duplicate/orphaned state-authority stacks for the same user concept
 
@@ -126,8 +128,9 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Evidence level**: **E2 (automated verified)** for the fact of the promise + the orphaned screen; **E0** for whether the screen itself works if wired in.
 - **Live verification status**: not applicable.
 - **Production deployment status**: ships in the bundle, unreachable.
-- **Finding IDs**: none previously assigned.
-- **Status**: **MISSING** (navigation wiring only — the feature itself appears built).
+- **Finding IDs**: **`PJ-007`** (formally assigned, Post-Reconciliation Governance Correction wave, 2026-09-14).
+- **Governance classification (item 6 of the correction charter)**: **not** `GRAY`/`DEFERRED` — every genuinely-deferred item in the founder dashboard (retention period, DPA terms, age-gate, scholar review) has an explicit, on-record rationale and, critically, does **not** advertise the missing thing to users. This one does (onboarding's own Welcome screen lists it as delivered), which is a materially worse, more visible pattern than a silent gap. Classified as approved-but-undelivered launch functionality.
+- **Status**: **MISSING** (navigation wiring only — the feature itself appears built), tracked as `PJ-007`.
 
 ## REQ-ONBOARD-005 — Onboarding's "Privacy" step must match its name
 
@@ -135,7 +138,7 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Description**: A step titled "Privacy" in a 4/8-step onboarding flow collecting health and religious data should reasonably be expected to address data-processing consent, not just a display-identity toggle.
 - **Source**: Cross-referenced from `PRIVACY_COMPLIANCE_AUDIT_TEMPLATE_MASTER.md`'s heightened-consent requirement (already tracked as `PC-001`/a proposed-but-unbuilt `R1-2` durable consent record) against the actual current onboarding step inventory.
 - **Severity**: LOW as a naming issue, MEDIUM as a symptom of the still-open `PC-005` labeling finding and the never-built `R1-2` durable consent record.
-- **Launch-critical**: Not independently blocking (the underlying consent-gate defect, `PC-001`, is already fixed and tracked); this is a naming/UX clarity observation layered on top.
+- **Launch-critical**: **Launch decision (item 7 of the correction charter): non-blocking but recommended.** The underlying consent-gate defect (`PC-001`) is already fixed and tracked; this is a naming/UX clarity observation layered on top, not a functional gap.
 - **Implementation location**: `_Privacy` widget, onboarding step 9/7 — contains only the Anonymous Mode ("Hide my identity") toggle. The actual ToS/Privacy-Policy consent checkbox lives on the embedded sign-in step (`sign_in_screen.dart`, `Key('consent_checkbox')`), not this step.
 - **Backend/database dependency**: `profiles.anonymous_mode` (correct, server-authoritative, single authority — confirmed clean).
 - **Local storage dependency**: none.
@@ -151,7 +154,7 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Domain**: Privacy / Data rights
 - **Source**: `PRIVACY_COMPLIANCE_AUDIT_TEMPLATE_MASTER.md` §23; already tracked as `PC-006`, `PARTIALLY_REMEDIATED`.
 - **Severity**: MEDIUM (legal-adjacent, GDPR/data-portability-style expectation).
-- **Launch-critical**: Owner/legal judgment call.
+- **Launch-critical**: **Launch decision (item 7): non-blocking but required before the app can honestly claim "full data export."** No cross-user data leaks and no security exposure — the gap is completeness, not correctness. Recommended resolution alongside the already-legal-gated retention-period and DPA items, not a technical launch blocker on its own.
 - **Implementation location**: `lib/features/legal/domain/data_export_builder.dart` — exports `users`, `profiles`, `pregnancy_profile`, `cycle_entries`, `prayer_log`, `community_posts`, `chat_threads`, `chat_messages`.
 - **Backend/database dependency**: confirmed live tables **not** included: `wellbeing_logs`, `community_comments`, `community_likes`, `private_conversations`, `private_messages`, `dream_entries`, `educational_resources`. `flagged_conversations` is deliberately, correctly excluded (documented `UNAVAILABLE_BY_DESIGN`, a safety log).
 - **Local storage dependency**: none (export is server-data only, correctly).
@@ -167,7 +170,7 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Domain**: Privacy / Data rights
 - **Source**: Addendum to `PC-007`; this pass's code inventory.
 - **Severity**: MEDIUM.
-- **Launch-critical**: Owner/legal judgment call.
+- **Launch-critical**: **Launch decision (item 7): non-blocking but recommended.** This is on-device residue only (not a cross-user leak — `PC-010`'s cross-user isolation fix is unaffected and remains correct); a "deleted" account leaving stale local preferences on the same physical device is a privacy-hygiene gap, not a security or correctness one.
 - **Implementation location**: `lib/core/storage/local_sensitive_data_cleanup.dart`, `localSensitiveDataCleanupTasks` map — covers only `cycle_tracking` and `prayer_tracking` local caches.
 - **Backend/database dependency**: n/a (this is entirely about local, on-device residue after the server-side `delete_my_account` RPC succeeds).
 - **Local storage dependency**: confirmed **not** cleared on deletion: madhhab selection, marital status, prayer-location (3 keys), pregnancy-status (4 keys), notification log/preferences, theme mode, TTC-mode, language preference.
@@ -192,6 +195,7 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Live verification status**: not checked this pass.
 - **Production deployment status**: unknown current state — this is the one item in this ledger this pass could not confidently resolve either way.
 - **Finding IDs**: `RR-003`.
+- **Governance answer (item 8 of the correction charter)**: **Required evidence level**: E2 (an automated test asserting `NotificationService` failure surfaces visibly and does not silently no-op) at minimum; E3/E4 recommended given it affects a core prayer-tracking feature. **Launch-blocking**: NO — this is a failure-path/edge-case defect (occurs only if `initialize()` itself fails), not a defect in the normal, working path. **Recommended future validation wave**: a dedicated Notifications Reliability wave, bundled with `RR-003`'s original scope, not this reconciliation pass.
 - **Status**: **UNTESTED** (this reconciliation could not confirm current resolution state; recommend explicit re-check in the traceability matrix's follow-up column).
 
 ## REQ-CYCLE-001 — Wellbeing check-in local cache must not silently diverge from the synced record
@@ -208,6 +212,7 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Live verification status**: not tested.
 - **Production deployment status**: current, live.
 - **Finding IDs**: none previously assigned.
+- **Governance answer (item 8 of the correction charter)**: **Required evidence level**: E2 (a test asserting the local "today" cache and the server `wellbeing_logs` upsert stay consistent, or explicitly confirming the cache is display-only and cannot cause data loss if they diverge). **Launch-blocking**: NO — low-medium severity, no confirmed live-divergence, no data-loss mechanism identified (the durable record is server-side and correct). **Recommended future validation wave**: a future Wellbeing/data-integrity wave, not this reconciliation pass.
 - **Status**: **UNTESTED**.
 
 ---
@@ -216,16 +221,23 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 
 The following approved requirements were confirmed by this pass's historical-finding re-verification to already have accurate, current `CLOSED`/`VERIFIED_CLOSED` tracking in `00_04_MASTER_FINDING_REGISTER.md`, with their cited code/test evidence still present and unregressed — they are intentionally **not** duplicated as new ledger entries: `AUTH-002` (onboarding-completion server authority), `RR-004/005/006/007/008` (reliability contracts + idempotency), `OB-002`/`RR-002`/`FQ-002` (global error reporting), `DC-003/004` (secret handling, config-load safety), `SEC-001` (no client-side AI keys), `DI-001`/`BR-002` (migration-drift CI gate), `CQ-007`/`PJ-005` (no fabricated-data fallback on session loss), `PJ-004` (chat persistence error visibility), `PJ-006` (report completeness), `PC-001/002/010` (consent gating, account deletion, cross-user local-storage isolation), `AU-003/004/012/013/014` (contrast, severity-indicator, semantics), `RD-006/009` (release workflows), `AB-008`/`W1-001` (AI rate-limiter regression + its own sentinel detection).
 
-Also confirmed still correctly and honestly **open** (not falsely claimed closed): `AUTH-001` (Auth config — see the Production Drift Report for this pass's fresh confirmation of exactly what *is* now live vs. still open), `PF-001/002/003` (startup parallelization), `AB-003/004/006/007`, `RD-007`/`PC-004` (public policy hosting), retention period, DPA/subprocessor terms, age-gate, `FIQH-2/4/6/7` (scholar review, istihada state, prayer-fiqh linkage).
+**Closed this session (2026-09-14) on fresh owner E4 evidence**: `AUTH-007` (Arabic locale/RTL), `AUTH-008` (circular auth, reopened then reclosed), `AUTH-009` (redundant language step) — all `VERIFIED_CLOSED` / `E4`, per the owner's fresh-install iOS retest reporting PASS on every covered item. See the finding register for the full reconciliation and preserved historical-evidence trail.
+
+**New findings formally assigned this session (2026-09-14)**: `AUTH-010` (Madhhab "I don't know" UX — `REQ-FIQH-001`), `PJ-007` (Journeys screen unreachable — `REQ-ONBOARD-004`).
+
+Also confirmed still correctly and honestly **open** (not falsely claimed closed): `AUTH-001` (Auth config — see the Production Drift Report for this pass's fresh confirmation of exactly what *is* now live vs. still open), `AUTH-005` (Madhhab persistence — **this is the canonical finding for `REQ-FIQH-002`**, sharpened this session with a confirmed live fiqh-calculation/AI-context impact mechanism and a recommendation for owner reconsideration of its blocking status), `PF-001/002/003` (startup parallelization), `AB-003/004/006/007`, `RD-007`/`PC-004` (public policy hosting), retention period, DPA/subprocessor terms, age-gate, `FIQH-2/4/6/7` (scholar review, istihada state, prayer-fiqh linkage).
 
 ---
 
 ## Ledger summary
 
 - **Total ledger entries this pass**: 12 new/refined (above), plus ~35 existing findings referenced as already-accurate.
-- **New MISSING**: `REQ-FIQH-001` (Madhhab "I don't know" UI), `REQ-FIQH-002` (Madhhab server persistence), `REQ-ONBOARD-003` (marital status server persistence), `REQ-ONBOARD-004` (Journeys screen unreachable).
-- **New PARTIAL**: `REQ-ONBOARD-005` (Privacy step naming), `REQ-DATA-001` (export coverage), `REQ-DATA-002` (deletion local-cleanup coverage).
-- **New UNTESTED**: `REQ-NOTIF-001` (notification silent-failure current state unconfirmed), `REQ-CYCLE-001` (wellbeing local-cache divergence risk).
+- **New MISSING**: `REQ-FIQH-001` / `AUTH-010` (Madhhab "I don't know" UI — not launch-blocking), `REQ-FIQH-002` / `AUTH-005` (Madhhab server persistence — **corrected**: maps to the already-open `AUTH-005`, not a new/duplicate finding), `REQ-ONBOARD-003` (marital status server persistence, classified `LOCAL_ONLY_UNSAFE`, not launch-blocking), `REQ-ONBOARD-004` / `PJ-007` (Journeys screen unreachable — not launch-blocking, owner decision to wire in or remove the promise).
+- **New PARTIAL**: `REQ-ONBOARD-005` (Privacy step naming — non-blocking, recommended), `REQ-DATA-001` (export coverage — non-blocking, required before claiming "full" export), `REQ-DATA-002` (deletion local-cleanup coverage — non-blocking, recommended).
+- **New UNTESTED**: `REQ-NOTIF-001` (not launch-blocking; future Notifications Reliability wave), `REQ-CYCLE-001` (not launch-blocking; future Wellbeing/data-integrity wave).
 - **New REGRESSED-RISK**: `REQ-ARCH-001` (3 duplicate/orphaned state-authority stacks — dead today, real risk if ever reactivated by a future edit).
-- **Carried at existing status, reopened this session**: `REQ-ONBOARD-001` (`AUTH-008`, `E4_FAIL`/`REOPENED`).
-- **Carried at existing status, pending retest**: `REQ-ONBOARD-002` (`AUTH-009`).
+- **Governance corrections applied this session (2026-09-14, Post-Reconciliation Governance Correction wave)**:
+  - `REQ-ONBOARD-001` (`AUTH-008`) — owner completed a fresh-install iOS E4 retest, **PASS**. Reconciled to **`VERIFIED_CLOSED` / `E4`**, no longer `LIVE_VERIFICATION_REQUIRED`.
+  - `REQ-ONBOARD-002` (`AUTH-009`) — same owner retest, **PASS**. Reconciled to **`VERIFIED_CLOSED` / `E4`**.
+  - `AUTH-007` (Arabic locale/RTL) — same owner retest confirms "Arabic onboarding remained Arabic," **PASS**. Reconciled to **`VERIFIED_CLOSED` / `E4`** in the finding register (not previously a standalone ledger entry, referenced here for completeness).
+  - `REQ-FIQH-002` — corrected from "no finding ID assigned" to its true canonical mapping, `AUTH-005`, which already tracked this exact requirement since 2026-09-11. No new finding was created; the duplication was caught and fixed.
