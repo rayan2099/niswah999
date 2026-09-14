@@ -5729,5 +5729,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 27. **Remaining Fiqh blockers**: `FIQH-8`, `FIQH-9` (Knowledge Base/Scholar Review, explicitly out of scope this wave, unchanged).
 28. **Owner minimum E4 test**: the 4-step acceptance script in `docs/final-owner-launch-checklist.md`'s Madhhab Authority Handoff (I-don't-know flow, reinstall persistence, UNKNOWN-reinstall persistence, change-Madhhab-later).
 29. **Overall verdict**: `NO-GO`, unchanged for the whole app; for the Fiqh feature specifically, `AUTH-005`/`AUTH-010` move from open blockers to remediated-pending-owner-retest — a real, substantive improvement, not yet full closure.
-30. **Final commit SHA**: recorded in the addendum commit immediately following this wave's substantive commit.
-31. **Local == upstream verification**: confirmed after push — see the addendum commit for the exact SHA comparison.
+30. **Final commit SHA**: `20d02ae551cb636879137877d0fed74fd81c717a` (`fix: establish canonical Madhhab authority model -- AUTH-005/AUTH-010 remediation`).
+31. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `20d02ae551cb636879137877d0fed74fd81c717a` after push.
