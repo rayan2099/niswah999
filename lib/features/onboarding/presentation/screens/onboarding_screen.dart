@@ -1254,68 +1254,80 @@ class _SelectCard extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(18),
-    child: Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: selected ? const Color(0xFFFFF1F2) : Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: selected ? const Color(0xFFFDA4AF) : AppColors.shadowColor,
-          width: 2,
+  // Fiqh Remediation Wave 1 — Pre-E4 Verification (Section 2): this tile's
+  // selected state was previously conveyed only visually (color/border/
+  // checkmark) — a real accessibility gap, matching the pattern already
+  // fixed for FloatingNavBar's tabs (floating_nav_bar.dart). `excludeSemantics:
+  // true` stops the child Text's own label from merging in and doubling the
+  // announcement (e.g. "Hanafi, Hanafi, button").
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    label: subtitle.isEmpty ? title : '$title, $subtitle',
+    excludeSemantics: true,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFFFF1F2) : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? const Color(0xFFFDA4AF) : AppColors.shadowColor,
+            width: 2,
+          ),
         ),
-      ),
-      child: Stack(
-        children: [
-          // FittedBox(scaleDown) matches the same fixed-dimension/large-
-          // text-scale treatment already applied to the dashboard (AU-006)
-          // — this grid cell has a fixed aspect ratio, so title+subtitle
-          // text would otherwise overflow it at large OS text-scale
-          // settings instead of shrinking to fit.
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: selected
-                        ? const Color(0xFF881337)
-                        : AppColors.textSecondary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+        child: Stack(
+          children: [
+            // FittedBox(scaleDown) matches the same fixed-dimension/large-
+            // text-scale treatment already applied to the dashboard (AU-006)
+            // — this grid cell has a fixed aspect ratio, so title+subtitle
+            // text would otherwise overflow it at large OS text-scale
+            // settings instead of shrinking to fit.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
                   Text(
-                    subtitle,
+                    title,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: 8,
-                      height: 1.3,
+                    style: TextStyle(
+                      color: selected
+                          ? const Color(0xFF881337)
+                          : AppColors.textSecondary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      subtitle,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textTertiary,
+                        fontSize: 8,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            ),
-          ),
-          if (selected)
-            const PositionedDirectional(
-              top: 0,
-              end: 0,
-              child: Icon(
-                Icons.check_rounded,
-                color: Color(0xFFFB7185),
-                size: 17,
               ),
             ),
-        ],
+            if (selected)
+              const PositionedDirectional(
+                top: 0,
+                end: 0,
+                child: Icon(
+                  Icons.check_rounded,
+                  color: Color(0xFFFB7185),
+                  size: 17,
+                ),
+              ),
+          ],
+        ),
       ),
     ),
   );

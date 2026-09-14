@@ -1591,53 +1591,82 @@ class _MadhhabGrid extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = values[index];
         final active = selected == item.$1;
-        return InkWell(
-          onTap: () => onSelected(item.$1),
-          borderRadius: BorderRadius.circular(24),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: active ? const Color(0xFFFFF1F2) : Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: active ? const Color(0xFFFFCDD5) : AppColors.shadowColor,
+        // Fiqh Remediation Wave 1 — Pre-E4 Verification (Section 2): same
+        // fix as onboarding's _SelectCard — selection was previously
+        // conveyed only visually. `excludeSemantics: true` stops the child
+        // Text's own label from merging in and doubling the announcement.
+        return Semantics(
+          button: true,
+          selected: active,
+          label: item.$3.isEmpty ? item.$2 : '${item.$2}, ${item.$3}',
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: () => onSelected(item.$1),
+            borderRadius: BorderRadius.circular(24),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFFFFF1F2) : Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: active
+                      ? const Color(0xFFFFCDD5)
+                      : AppColors.shadowColor,
+                ),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item.$2,
-                        style: TextStyle(
-                          color: active
-                              ? const Color(0xFF881337)
-                              : AppColors.textSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
+              // Fiqh Remediation Wave 1 — Pre-E4 Verification (Section 1):
+              // this tile is inside a fixed-height grid cell
+              // (`mainAxisExtent: 122`) — a real overflow was found here at
+              // 200% text scale (AU-006's own fix was never applied to this
+              // grid). Restructured to match `_SelectCard`'s already-working
+              // Stack + FittedBox(scaleDown) + PositionedDirectional icon
+              // pattern, which is compatible with FittedBox's unbounded
+              // child constraints (a `Row`+`Expanded` title/icon layout is
+              // not — that combination is what overflowed).
+              child: Stack(
+                children: [
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.topStart,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.$2,
+                          style: TextStyle(
+                            color: active
+                                ? const Color(0xFF881337)
+                                : AppColors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
+                        if (item.$3.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            item.$3,
+                            style: const TextStyle(
+                              color: AppColors.textTertiary,
+                              fontSize: 10,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (active)
-                      const Icon(
+                  ),
+                  if (active)
+                    const PositionedDirectional(
+                      top: 0,
+                      end: 0,
+                      child: Icon(
                         Icons.check_rounded,
                         color: AppColors.brandSecondary,
                         size: 17,
                       ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  item.$3,
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 10,
-                    height: 1.45,
-                  ),
-                ),
-              ],
+                    ),
+                ],
+              ),
             ),
           ),
         );
