@@ -5591,5 +5591,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 15. **Corrected founder dashboard counts**: 3 items moved RED→GREEN (`AUTH-007`/`008`/`009`); 2 new YELLOW items added (`AUTH-010`, and `AUTH-005` reframed with the sharpened risk evidence); `PJ-007` reframed from generic YELLOW to an explicit "worth fixing before launch, not a hard gate" item; no GRAY items changed.
 16. **Overall verdict**: `NO-GO`, improved from the prior pass — three previously-blocking items are now closed on real owner device evidence; remaining blockers are `AUTH-001` (owner DNS action), `DC-010` (owner Apple Developer Team selection), `PC-006` (counsel determination), none of which are engineering tasks this session can perform.
 17. **Files updated**: see the "Files updated this pass" list above (6 files: finding register, requirements ledger, traceability matrix, founder dashboard, owner checklist, this file).
-18. **Final commit SHA**: recorded in the addendum commit immediately following this wave's substantive commit.
-19. **Local == upstream verification**: confirmed after push — see the addendum commit for the exact SHA comparison.
+18. **Final commit SHA**: `1f224bc40d6dd2938e1224b348eb025a72de1d99` (`docs: post-reconciliation governance correction -- close AUTH-007/008/009 on owner E4 evidence`).
+19. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `1f224bc40d6dd2938e1224b348eb025a72de1d99` after push.
