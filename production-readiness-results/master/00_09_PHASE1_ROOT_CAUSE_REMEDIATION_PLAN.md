@@ -5639,5 +5639,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 13. **Overall verdict if Fiqh launches enabled**: **NO-GO for the Fiqh feature** (1 CRITICAL + 3 HIGH blockers unresolved), on top of the unchanged core-app `NO-GO`.
 14. **Overall verdict if Fiqh is disabled/deferred**: Fiqh-feature blockers become non-blocking by construction; only the 3 core-app blockers remain — same posture as the general app launch, with the explicit caveat that no existing feature-flag mechanism was found to implement this cleanly without a small scoped code change.
 15. **Files updated**: `00_04_MASTER_FINDING_REGISTER.md`, `00_11_REQUIREMENTS_LEDGER.md`, `00_12_TRACEABILITY_MATRIX.md`, `docs/founder-launch-confidence-dashboard.md`, `docs/final-owner-launch-checklist.md`, this file (§77 — 6 files total).
-16. **Final commit SHA**: recorded in the addendum commit immediately following this wave's substantive commit.
-17. **Local == upstream verification**: confirmed after push — see the addendum commit for the exact SHA comparison.
+16. **Final commit SHA**: `715abd9c1eef4557a6dfdb7e1f727f18e0ea596f` (`docs: fiqh authority/knowledge-base governance correction -- AUTH-005/AUTH-010 reclassified as Fiqh-feature blockers`).
+17. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `715abd9c1eef4557a6dfdb7e1f727f18e0ea596f` after push.
