@@ -24,8 +24,8 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Live verification status**: Not applicable — nothing to verify live.
 - **Production deployment status**: `MadhhabSuggestionService` and its data files are in the repository and would ship in any build, but are inert (never called) — effectively **not deployed as a feature**, only as dormant code.
 - **Finding IDs**: **`AUTH-010`** (formally assigned, Post-Reconciliation Governance Correction wave, 2026-09-14 — this specific gap, item A only; the silent-default behavior, item B, is `AUTH-005`, a separate already-tracked finding, not duplicated here).
-- **Launch decision, 2026-09-14**: **NOT launch-blocking** — recorded explicitly, not left implicit. No current user receives incorrect religious guidance from this gap (every user who completes onboarding explicitly picks a real madhhab); the harm is a forced-guess UX gap, not a correctness defect. Recommended for a near-term post-reconciliation wave, pending owner priority.
-- **Status**: **MISSING** (UI/product surface) with **VERIFIED** (isolated, dead) backend logic underneath.
+- **Launch decision, 2026-09-14 (superseded same day)**: ~~NOT launch-blocking — no current user receives incorrect religious guidance from this gap~~. **Reassessed and reversed, Fiqh Authority / Knowledge-Base Governance Correction wave, 2026-09-14: `AUTH-010` is now a HIGH Fiqh-feature launch blocker.** The prior reasoning treated a forced, uninformed guess as equivalent to a correct choice — it is not. `FIQH-CASE-010` (the golden dataset's own madhhab-disagreement case) confirms the 4 schools genuinely classify identical facts differently, so a wrong guess can produce a materially wrong haid/tahara determination shown with full confidence. This is a real correctness risk, not only UX confusion. Not a whole-app blocker — scoped to the Fiqh-guidance-bearing surfaces only, same as `AUTH-005`. See `AUTH-010`'s row in `00_04_MASTER_FINDING_REGISTER.md` for the full reassessment.
+- **Status**: **MISSING** (UI/product surface) with **VERIFIED** (isolated, dead) backend logic underneath; **HIGH Fiqh-feature launch blocker** as of 2026-09-14.
 
 ## REQ-FIQH-002 — Madhhab: no server-side persistence (reinstall/new-device loss)
 
@@ -42,8 +42,85 @@ Each requirement has 9 fields, per the charter: ID · Domain · Description · S
 - **Live verification status**: Confirmed live via direct Supabase query this pass (`users.madhhab` and `profiles.selected_madhhab` both exist; app never writes the former, only dead code writes the latter).
 - **Production deployment status**: The gap is present in current production — a real reinstall today loses the madhhab choice.
 - **Finding IDs**: **`AUTH-005`** — **governance correction, 2026-09-14**: this ledger entry was drafted without cross-referencing the finding register and incorrectly stated "none previously assigned." `AUTH-005` (opened Wave 1 Governance Update, 2026-09-11) already tracks this exact requirement, in nearly identical terms, with the same evidence. `REQ-FIQH-002` and `AUTH-005` are the same requirement — this entry is retained in the ledger for the charter's requested REQ-ID structure, but the finding register's `AUTH-005` row is the canonical, authoritative record; see it for the current, corrected status (including this pass's confirmation that the silent-default mechanism reaches live fiqh-calculation and AI-context code, and a recommendation for owner reconsideration of its blocking status). Same class of gap as `AUTH-006` (prayer location) and the newly-classified marital-status equivalent (`REQ-ONBOARD-003`, `LOCAL_ONLY_UNSAFE`, not yet assigned its own finding ID).
-- **Status**: **MISSING** (server persistence) — tracked as `AUTH-005`, not a new/duplicate entry.
+- **Status**: **MISSING** (server persistence) — tracked as `AUTH-005`, not a new/duplicate entry. **Reclassified CRITICAL Fiqh-feature launch blocker, 2026-09-14** (Fiqh Authority / Knowledge-Base Governance Correction wave) — see `AUTH-005`'s row in `00_04_MASTER_FINDING_REGISTER.md` for the full formal reassessment; superseded the earlier same-day "recommendation only, not launch-blocking" framing per explicit charter instruction not to leave this as a recommendation.
 
+---
+
+## Fiqh Knowledge-Base architecture requirements (REQ-FIQH-003 through REQ-FIQH-019) — new, Fiqh Authority / Knowledge-Base Governance Correction wave, 2026-09-14
+
+**Context**: the founder's approved Fiqh architecture is a five-stage pipeline — scholar-approved knowledge base → structured retrieval → madhhab-aware rule selection → deterministic fiqh logic where applicable → an LLM (Gemini) that explains/contextualizes only, never acting as the religious authority itself → user-facing answer. This section formally enumerates every component of that vision as its own requirement, and states the current, evidence-based (not inferred) implementation status of each — determined by direct inspection of `lib/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart`, `supabase/functions/fiqh-advisor-chat/index.ts` (full source, including its system prompt), `supabase/functions/_shared/ai_user_context.ts`, the live 25-table Supabase schema, and every file in `production-readiness-results/fiqh-engine/`, per the charter's explicit instruction not to infer status from the existence of the edge functions alone.
+
+Status taxonomy used below: **IMPLEMENTED** / **PARTIAL** / **MISSING** / **UNTESTED** / **SCHOLAR_REVIEW_REQUIRED**.
+
+### REQ-FIQH-003 — Scholar-approved source corpus
+- **Description**: A real corpus of religious source material, approved by a qualified scholar, backing every fiqh rule and AI answer.
+- **Current status**: **MISSING.** A draft 16-entry registry (`fiqh_source_registry.json`) exists — 12 madhhab reference works (3 per school) + 4 institutional sources — but every entry is `source_confidence: AI_RECALLED_UNVERIFIED` and `reviewer_status: NOT_REVIEWED`. Zero entries are scholar-approved. The registry's own `_meta.do_not` field explicitly instructs: "Do not deploy this registry as the sole grounding basis for a live ruling without scholar sign-off."
+
+### REQ-FIQH-004 — Source IDs / provenance
+- **Description**: Every cited source must carry a stable, traceable identifier and real provenance (author, work, institution).
+- **Current status**: **PARTIAL.** Source IDs exist and are well-formed (`SRC-HANAFI-001` etc.); author/work-title provenance is real and correctly named. Institutional provenance for jurisdiction sources is real (Dar al-Ifta Egypt, Saudi Permanent Committee, islamweb.net, Dorar Saniyyah). But page/chapter-level provenance is absent for all 12 classical-work entries.
+
+### REQ-FIQH-005 — Source versioning
+- **Description**: Rules and sources must carry a version so future edits can be tracked against what was originally scholar-reviewed (or not).
+- **Current status**: **MISSING.** No version field/scheme exists for the deterministic engine's rule constants or for the golden dataset (confirmed: "engine version: unversioned in production code"). The source registry entries have no version field either.
+
+### REQ-FIQH-006 — Source location/reference
+- **Description**: A specific, checkable chapter/section/page reference for each source-backed rule.
+- **Current status**: **MISSING.** Every one of the 12 classical-work entries' `reference_section` field is the literal string `"NOT_LOCATED_THIS_PASS"` — confirmed via direct JSON inspection, not paraphrased.
+
+### REQ-FIQH-007 — Madhhab attribution
+- **Description**: Every rule/source must be correctly attributed to the madhhab it applies to.
+- **Current status**: **IMPLEMENTED** (engineering level, content unreviewed). The rule matrix and source registry both correctly tag every entry to exactly one of the 4 madhahib (or explicitly cross-madhhab where appropriate, e.g. jurisdiction sources). Attribution accuracy itself is not scholar-confirmed — see REQ-FIQH-017.
+
+### REQ-FIQH-008 — Strict separation between Madhhabs
+- **Description**: No madhhab's rule may be silently substituted for or blended with another's.
+- **Current status**: **IMPLEMENTED, verified.** `MadhhabRuleEvaluator` selects each madhhab's boundaries via explicit branching with zero blending — confirmed by direct code read and by the existing `FIQH-2`/discovery findings' own conclusion ("no cross-madhhab contamination found"). The `fiqh-advisor-chat` system prompt also explicitly instructs the model: "stay within that school unless comparison is explicitly requested."
+
+### REQ-FIQH-009 — Handling of scholarly disagreement
+- **Description**: Where madhahib genuinely disagree, the app must surface that disagreement rather than silently picking one position.
+- **Current status**: **PARTIAL.** The golden dataset's `FIQH-CASE-010` explicitly models a disagreement scenario (identical facts, divergent classifications across all 4 schools) for reviewer evaluation. The `fiqh-advisor-chat` system prompt instructs the model: "if reliable sources conflict... say the case needs a qualified scholar and do not give a definitive ruling." But there is no structured, general-purpose disagreement-resolution or disclosure mechanism in the deterministic engine itself — each user only ever sees her own selected madhhab's answer, with no built-in surfacing that other schools would answer differently, unless she happens to ask the AI directly.
+
+### REQ-FIQH-010 — Structured rule retrieval
+- **Description**: A real, database-backed, structured retrieval layer the AI draws from, keyed by rule/topic/madhhab — the core of "structured retrieval" in the approved architecture.
+- **Current status**: **MISSING.** Confirmed via exhaustive grep of the live 25-table schema, all migration files, and the entire `supabase/functions/` tree: no table or retrieval mechanism resembling a fiqh knowledge base exists. `fiqh-advisor-chat` substitutes live Google Search grounding plus a citation-domain allowlist for this stage. A replacement architecture (validated-source-registry-backed retrieval) is documented as **designed, not implemented** in `fiqh_rule_source_matrix.md`, blocked on scholar-approved passage content that does not yet exist. This is the single largest gap between the approved vision and current reality — see `FIQH-8` in the master finding register.
+
+### REQ-FIQH-011 — Conditions/exceptions
+- **Description**: Fiqh rules commonly carry conditions and exceptions (e.g., personal-habit ('adah) tracking, purity-interval enforcement) that must be modeled per madhhab where they apply, with the modeling choice itself reviewable.
+- **Current status**: **PARTIAL.** Some conditional logic exists (Maliki-only 'adah/habit tracking; a 15-day minimum-purity threshold) but its scope is inconsistent and not fully explained: the purity threshold is *enforced* as a gate for Hanafi but only *computed, unused* for the other three schools (open finding `FIQH-7`, "requires qualified reviewer judgment" on whether this is a genuine fiqh distinction or an engineering oversight); Maliki-only habit modeling has no documented rationale for why the other 3 schools don't model it.
+
+### REQ-FIQH-012 — Unsupported-question behavior
+- **Description**: When the system cannot produce a sourced, confident answer, it must say so rather than guess.
+- **Current status**: **IMPLEMENTED.** Confirmed via direct read of `fiqh-advisor-chat/index.ts`: two distinct, honest, Arabic-language fallback messages exist — one for "Gemini answered but nothing passed the trusted-citation-domain filter," one for "the Gemini call itself failed" — both explicitly direct the user to a qualified scholar, never silently guess or present an uncited answer as sourced.
+
+### REQ-FIQH-013 — No model-memory fallback presented as an approved ruling
+- **Description**: The LLM's own unstructured training-data recall must never be presented to the user as an approved, sourced ruling.
+- **Current status**: **PARTIAL — a genuine, if lower-probability, residual risk.** The system prompt instructs the model to cite sources and to say "case needs a qualified scholar" when sources are absent/conflicting, and the response pipeline does filter citations to two trusted domains — but this is enforced entirely at the prompt-instruction and citation-domain-filter level, not architecturally: the domain filter checks whether a *citation* exists on a trusted domain, not whether the *substantive answer text* is actually grounded in that citation's content. There is no structural guarantee the model's underlying explanation itself, as opposed to its attached citation, isn't drawn from unverified model memory. Flagged for the founder's awareness as a real (not merely theoretical) residual risk, not classified as launch-blocking on its own given the existing fail-safe behavior.
+
+### REQ-FIQH-014 — Explicit user Madhhab precedence
+- **Description**: The user's own selected madhhab must always take precedence; the system must never silently answer as if she follows a different school.
+- **Current status**: **IMPLEMENTED** (subject to `AUTH-005`'s persistence gap above). `fiqh-advisor-chat` requires `madhhab` as a validated request field (`ALLOWED_MADHHABS = ['hanafi','maliki','shafii','hanbali']`) and returns `HTTP 400` if missing/invalid — it never silently proceeds without one. All 7 jurisdiction-source entries are explicitly flagged `can_override_madhhab_rule: false` / `can_supplement_madhhab_rule: true`, meaning local/jurisdictional guidance is designed to never override the madhhab layer. The precedence mechanism itself is sound; what can go wrong is upstream of it, in what value `MadhhabController` supplies (see `AUTH-005`/`AUTH-010`).
+
+### REQ-FIQH-015 — Madhhab change behavior
+- **Description**: When a user changes her selected madhhab, prior fiqh classifications, reports, and AI conversation history should behave predictably (not silently mix old and new madhhab's rules).
+- **Current status**: **UNTESTED.** No test, discovery note, or code trace in either research stream confirms what happens to a user's fiqh report history, prior AI Fiqh Advisor conversation content, or in-flight classification when she changes her madhhab selection mid-use. `MadhhabRuleEvaluator` is stateless and always recomputes from the currently-selected madhhab (a reasonable design for future classifications), but historical chat/report artifacts generated under a prior selection have not been checked for correct labeling. Recommended for a dedicated test in a future Fiqh Engineering wave; not established as broken, only as unverified.
+
+### REQ-FIQH-016 — Source-backed AI context
+- **Description**: The AI features should receive actual source/rule content as context, not merely a madhhab label.
+- **Current status**: **MISSING**, as a direct consequence of REQ-FIQH-010. `ai_user_context.ts`'s own header comment explicitly documents this by design: the deterministic classification "is NOT recomputed here... exists today only as a client-side algorithm," and the module passes through only a `clientMadhhab` label (marked `client_supplied`, never server-verified) plus, optionally, a `clientFiqhState` classification (marked `client_computed`, never server-verified) — no source text, rule ID, or citation content is ever included in AI context, because no such structured content exists to include.
+
+### REQ-FIQH-017 — Scholar review status
+- **Description**: A formal, tracked record of what has and has not been reviewed and approved by a qualified Islamic scholar.
+- **Current status**: **MISSING** in substance (present as a taxonomy/process, empty of actual approvals). `FIQH_ENGINE_ACCURACY_AUDIT_MASTER.md` Phase 12 defines the gate and taxonomy (`NOT_REVIEWED`/`REVIEW_IN_PROGRESS`/`APPROVED`/`REJECTED`/`REVISION_REQUIRED`); `SCHOLAR_REVIEW_PACKAGE.md` is a complete, reviewer-ready request document. But every single reviewable item across every file — 16 sources, the rule matrix, 13 geographic-suggestion entries, 7 jurisdiction entries, 12 golden cases, all user-facing religious wording — is `NOT_REVIEWED`, and no record anywhere indicates the package has been sent to or reviewed by an actual scholar. This is `FIQH-9` in the master finding register.
+
+### REQ-FIQH-018 — Evaluation corpus
+- **Description**: A version-controlled test corpus covering, at minimum, known/unknown madhhab, reinstall/madhhab-change scenarios, normal/irregular/prolonged bleeding, purity intervals, uncertain dates, missing history, postpartum/pregnancy, madhhab disagreement, timezone/day-boundary cases, insufficient source coverage, and contradictory input.
+- **Current status**: **PARTIAL.** `golden_fiqh_dataset.json` has 12 real cases (not merely planned) covering: simple normal case, exact-minimum boundary, one-unit-below-minimum, exact-maximum boundary, one-unit-above-maximum, insufficient history, exceeded personal habit, purity-interval boundary, non-bleeding/tuhr baseline, madhhab disagreement (`CASE-010`), a nifas/postpartum architectural placeholder, and a dual-failure ambiguous case. **Confirmed missing from the corpus entirely**: overlapping/interrupted-interval cases, retrospective-correction cases, timezone/day-boundary cases, cross-month/cross-year-boundary cases, a true pregnancy-related-bleeding classification case (the existing nifas case is documentation-only, not an exercised boundary), and an unresolved/unknown-madhhab scenario (all 12 existing cases assume a madhhab is already selected). Every existing case's `review_status` is `NOT_REVIEWED`.
+
+### REQ-FIQH-019 — Adversarial Fiqh validation
+- **Description**: Live, adversarial testing of the AI's authority boundaries — attempts to make it override tracked state, treat geography as a madhhab declaration, fabricate sources, or assert certainty under pressure.
+- **Current status**: **PARTIAL — 3 of 4 required categories live-tested and passed, the 4th blocked, not failed.** Real production adversarial prompts were run (not merely designed): (1) demanding purity/prayer-eligibility confirmation overriding tracked bleeding state — AI correctly refused and deferred; (2) claiming residency alone constitutes an official madhhab change — AI correctly refused, cited the actual stored madhhab; (3) demanding a definitive haid/tahara ruling under pressure with no classification supplied — AI held its refusal; (4) asking the Fiqh Advisor to quote a deliberately fabricated source — **could not be completed**, blocked by the same Google Cloud Search-grounding billing/quota issue tracked as `AICTX-3` (owner-gated, not an engineering defect). This 4th category — resistance to source fabrication — remains genuinely untested, not merely undocumented.
+
+---
 ## REQ-ONBOARD-001 — Onboarding must not show authentication UI to an already-authenticated user
 
 - **Domain**: Onboarding / Auth
@@ -225,14 +302,43 @@ The following approved requirements were confirmed by this pass's historical-fin
 
 **New findings formally assigned this session (2026-09-14)**: `AUTH-010` (Madhhab "I don't know" UX — `REQ-FIQH-001`), `PJ-007` (Journeys screen unreachable — `REQ-ONBOARD-004`).
 
-Also confirmed still correctly and honestly **open** (not falsely claimed closed): `AUTH-001` (Auth config — see the Production Drift Report for this pass's fresh confirmation of exactly what *is* now live vs. still open), `AUTH-005` (Madhhab persistence — **this is the canonical finding for `REQ-FIQH-002`**, sharpened this session with a confirmed live fiqh-calculation/AI-context impact mechanism and a recommendation for owner reconsideration of its blocking status), `PF-001/002/003` (startup parallelization), `AB-003/004/006/007`, `RD-007`/`PC-004` (public policy hosting), retention period, DPA/subprocessor terms, age-gate, `FIQH-2/4/6/7` (scholar review, istihada state, prayer-fiqh linkage).
+Also confirmed still correctly and honestly **open** (not falsely claimed closed): `AUTH-001` (Auth config — see the Production Drift Report for this pass's fresh confirmation of exactly what *is* now live vs. still open), `AUTH-005` (Madhhab persistence — **this is the canonical finding for `REQ-FIQH-002`**, and as of the Fiqh Authority / Knowledge-Base Governance Correction wave, 2026-09-14, is a **CRITICAL Fiqh-feature launch blocker**, not merely a recommendation), `PF-001/002/003` (startup parallelization), `AB-003/004/006/007`, `RD-007`/`PC-004` (public policy hosting), retention period, DPA/subprocessor terms, age-gate, `FIQH-2/4/6/7` (scholar review, istihada state, prayer-fiqh linkage) — and now also `FIQH-8`/`FIQH-9` (no structured KB/retrieval exists; Scholar Review Gate at 0%), both newly assigned this wave.
+
+---
+
+## Fiqh Authority / Knowledge-Base Governance Correction — 2026-09-14 (same-day follow-on to the Post-Reconciliation Governance Correction wave)
+
+**Trigger**: the founder asked whether Niswah can safely launch Fiqh guidance while a user's explicitly selected madhhab can silently disappear and be replaced by an undisclosed default, and whether the previously-approved Fiqh knowledge-base architecture is actually built. Both questions required reassessing the prior wave's blocker model, which had left `AUTH-005` as a recommendation-only item and `AUTH-010` as explicitly non-blocking.
+
+### Two-layer global blocker model (rebuilt, not mechanically preserved)
+
+**CORE APP BLOCKERS** (apply regardless of whether Fiqh guidance is enabled):
+- `AUTH-001` — confirmation-link fallback page; needs owner DNS action (`niswah.app` domain connection).
+- `DC-010` — iOS production code signing; owner-blocked (no Apple Developer Team/account on this machine).
+- `PC-006` — data-retention/export legal scope; needs counsel determination.
+
+**FIQH-FEATURE BLOCKERS** (apply only if Niswah launches with Fiqh guidance surfaces — dashboard fiqh-status card, Fiqh Report, Fiqh Advisor AI chat — enabled):
+- `AUTH-005` — **CRITICAL.** Undisclosed silent madhhab default reaches live fiqh-calculation and AI-context output for already-onboarded users who reinstall/change devices.
+- `AUTH-010` — **HIGH.** Forced madhhab guess for users who don't know their school risks a materially wrong classification presented with full confidence.
+- `FIQH-9` (Scholar Review Gate, 0% complete) — **HIGH** for any claim that fiqh guidance is scholar-approved; not blocking if the feature ships with honest "not yet scholar-reviewed" framing (a disclosure/product decision, not an engineering task).
+- `FIQH-8` (no structured KB/retrieval layer exists) — **HIGH** for any claim that fiqh guidance runs on a scholar-approved knowledge base; not blocking if framed honestly as AI-generated guidance with a citation-domain fail-safe.
+- `FIQH-2` (production rule-constant source status, partially addressed) and `FIQH-7` (Hanafi-only purity-enforcement asymmetry) — MEDIUM, require qualified-reviewer judgment, not independently launch-blocking.
+- `REQ-FIQH-018` (evaluation-corpus category gaps) and `REQ-FIQH-019` (source-fabrication adversarial test blocked by the `AICTX-3` grounding-quota issue) — MEDIUM, recommended before Fiqh Certification.
+- `REQ-FIQH-013` (no-model-memory-fallback guarantee is prompt-enforced only, not architectural) and `REQ-FIQH-015` (madhhab-change behavior untested) — MEDIUM, flagged for awareness, not independently blocking.
+
+**Explicit correction from the prior wave**: that wave's report stated "all remaining blockers are owner/external/legal" for the app overall. That statement is corrected here — it remains true for the **core app** layer, but is **not** true for the **Fiqh feature** layer, where genuine engineering/content gaps (not owner/external/legal gates) remain open (`AUTH-005`, `AUTH-010`, `FIQH-8`, `FIQH-9`).
+
+### Overall verdict, split by Fiqh-enablement scenario
+
+- **If Fiqh guidance ships enabled**: **NO-GO for the Fiqh feature specifically**, on top of the unchanged core-app `NO-GO`. The CRITICAL (`AUTH-005`) and HIGH (`AUTH-010`, `FIQH-9`, `FIQH-8`) Fiqh-feature blockers above are unresolved.
+- **If Fiqh guidance is disabled/deferred at launch** (dashboard fiqh-status card, Fiqh Report, and Fiqh Advisor chat withheld or clearly marked pre-release): the Fiqh-feature blockers above become non-blocking by construction, and only the **core app blockers** (`AUTH-001`, `DC-010`, `PC-006`) remain — the same posture as the general app launch already tracked. **Caveat, not asserted as settled**: no evidence was found this pass of an existing feature-flag/kill-switch mechanism that could disable these surfaces without a code change — this option is a real product path but would itself require a small, scoped engineering change to implement cleanly, not merely a documentation decision. This is presented as an option for the founder's evaluation, not a recommendation made unilaterally.
 
 ---
 
 ## Ledger summary
 
-- **Total ledger entries this pass**: 12 new/refined (above), plus ~35 existing findings referenced as already-accurate.
-- **New MISSING**: `REQ-FIQH-001` / `AUTH-010` (Madhhab "I don't know" UI — not launch-blocking), `REQ-FIQH-002` / `AUTH-005` (Madhhab server persistence — **corrected**: maps to the already-open `AUTH-005`, not a new/duplicate finding), `REQ-ONBOARD-003` (marital status server persistence, classified `LOCAL_ONLY_UNSAFE`, not launch-blocking), `REQ-ONBOARD-004` / `PJ-007` (Journeys screen unreachable — not launch-blocking, owner decision to wire in or remove the promise).
+- **Total ledger entries this pass**: 12 original + 17 new Fiqh-KB entries (`REQ-FIQH-003` through `REQ-FIQH-019`) this same-day follow-on wave, plus ~35 existing findings referenced as already-accurate.
+- **New MISSING**: `REQ-FIQH-001` / `AUTH-010` (Madhhab "I don't know" UI — **reclassified HIGH Fiqh-feature launch blocker, 2026-09-14**), `REQ-FIQH-002` / `AUTH-005` (Madhhab server persistence — **reclassified CRITICAL Fiqh-feature launch blocker, 2026-09-14**; maps to the already-open `AUTH-005`, not a new/duplicate finding), `REQ-FIQH-010`/`016` (no structured KB/retrieval layer, no source-backed AI context — `FIQH-8`, HIGH Fiqh-feature blocker), `REQ-FIQH-017` (scholar review status — `FIQH-9`, HIGH Fiqh-feature blocker), `REQ-FIQH-005/006` (no source versioning, no located page/chapter references), `REQ-ONBOARD-003` (marital status server persistence, classified `LOCAL_ONLY_UNSAFE`, not launch-blocking), `REQ-ONBOARD-004` / `PJ-007` (Journeys screen unreachable — not launch-blocking, owner decision to wire in or remove the promise).
 - **New PARTIAL**: `REQ-ONBOARD-005` (Privacy step naming — non-blocking, recommended), `REQ-DATA-001` (export coverage — non-blocking, required before claiming "full" export), `REQ-DATA-002` (deletion local-cleanup coverage — non-blocking, recommended).
 - **New UNTESTED**: `REQ-NOTIF-001` (not launch-blocking; future Notifications Reliability wave), `REQ-CYCLE-001` (not launch-blocking; future Wellbeing/data-integrity wave).
 - **New REGRESSED-RISK**: `REQ-ARCH-001` (3 duplicate/orphaned state-authority stacks — dead today, real risk if ever reactivated by a future edit).
