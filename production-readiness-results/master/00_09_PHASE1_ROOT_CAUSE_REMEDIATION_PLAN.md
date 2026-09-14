@@ -5547,5 +5547,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 23. **Generated canonical requirements ledger path**: `production-readiness-results/master/00_11_REQUIREMENTS_LEDGER.md`.
 24. **Generated traceability matrix path**: `production-readiness-results/master/00_12_TRACEABILITY_MATRIX.md`.
 25. **Generated production-drift report path**: `production-readiness-results/master/00_13_PRODUCTION_DRIFT_REPORT.md`.
-26. **Final commit SHA**: recorded below after this wave's commit.
-27. **Local == upstream verification**: recorded below after this wave's push.
+26. **Final commit SHA**: `ad73c2f35399efcf7d8e95c322601f283cd2a9fe` (`docs: full implementation reconciliation -- discovery only, no remediation`).
+27. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `ad73c2f35399efcf7d8e95c322601f283cd2a9fe` after push.
