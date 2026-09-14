@@ -5781,5 +5781,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 17. **Exact minimum owner E4 acceptance**: the existing 4-step script in `docs/final-owner-launch-checklist.md`'s Madhhab Authority Handoff — confirmed this pass to already meet the "device behavior only, no code/DB/log inspection" bar.
 18. **Remaining Fiqh blockers**: `FIQH-8`, `FIQH-9` (Knowledge Base/Scholar Review) — unchanged, explicitly out of scope.
 19. **Overall verdict**: `NO-GO` unchanged for the whole app; for the Fiqh feature, every engineering-verifiable gap ahead of `AUTH-005`/`AUTH-010`'s closure is now closed — only the owner's own real-device retest remains.
-20. **Final commit SHA**: recorded in the addendum commit immediately following this wave's substantive commit.
-21. **Local == upstream verification**: confirmed after push — see the addendum commit for the exact SHA comparison.
+20. **Final commit SHA**: `87aa8cb38c3c82a4eae66e606807baa5e6d2f6be` (`fix: close remaining Madhhab accessibility gaps ahead of owner E4 retest`).
+21. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `87aa8cb38c3c82a4eae66e606807baa5e6d2f6be` after push.
