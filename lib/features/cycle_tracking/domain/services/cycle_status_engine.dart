@@ -51,10 +51,16 @@ class CycleStatusSnapshot {
 class CycleStatusEngine {
   const CycleStatusEngine();
 
+  /// [madhhab]: null whenever the caller's `MadhhabController.state` is not
+  /// `selected` (i.e. UNSET or UNKNOWN) — see Fiqh Remediation Wave 1,
+  /// Section E. A null madhhab never blocks a `tahara` (not currently
+  /// bleeding) determination, since that holds regardless of madhhab, but
+  /// gates every classification that would otherwise require one:
+  /// [FiqhCycleState.madhhabUnresolved] is returned instead of guessing.
   CycleStatusSnapshot evaluate({
     required List<CycleLog> logs,
     required CycleCalculationResult calculation,
-    required Madhhab madhhab,
+    required Madhhab? madhhab,
     required DateTime now,
   }) {
     CycleStatusSnapshot baseline({
@@ -91,6 +97,14 @@ class CycleStatusEngine {
     final daysIntoCurrentEpisode = bleedingDuration.inDays + 1 > 0
         ? bleedingDuration.inDays + 1
         : 1;
+
+    if (madhhab == null) {
+      // Currently bleeding, but no madhhab is SELECTED — never guess one.
+      return baseline(
+        state: FiqhCycleState.madhhabUnresolved,
+        daysIntoCurrentEpisode: daysIntoCurrentEpisode,
+      );
+    }
 
     final result = const MadhhabRuleEvaluator().evaluate(
       madhhab: madhhab,

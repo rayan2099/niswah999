@@ -67,12 +67,16 @@ class FiqhReportPdfBuilder {
   static String _monthLabel(DateTime date, bool isArabic) =>
       isArabic ? _monthNamesAr[date.month - 1] : _monthNamesEn[date.month - 1];
 
-  static String _madhhabLabel(Madhhab madhhab, bool isArabic) =>
+  /// [madhhab]: null whenever the user's Madhhab is UNSET/UNKNOWN (Fiqh
+  /// Remediation Wave 1) — an honest "not yet selected" label is shown
+  /// rather than guessing one.
+  static String _madhhabLabel(Madhhab? madhhab, bool isArabic) =>
       switch (madhhab) {
         Madhhab.hanafi => isArabic ? 'الحنفي' : 'Hanafi',
         Madhhab.maliki => isArabic ? 'المالكي' : 'Maliki',
         Madhhab.shafii => isArabic ? 'الشافعي' : 'Shafi\'i',
         Madhhab.hanbali => isArabic ? 'الحنبلي' : 'Hanbali',
+        null => isArabic ? 'لم يُحدَّد بعد' : 'Not yet selected',
       };
 
   static (String, String) _stateLabelAndColor(
@@ -87,6 +91,12 @@ class FiqhReportPdfBuilder {
     ),
     FiqhCycleState.insufficientHistory => (
       isArabic ? 'سجل غير كافٍ' : 'Insufficient history',
+      _textTertiary,
+    ),
+    // Fiqh Remediation Wave 1 (Section E): a currently-bleeding user with
+    // no SELECTED madhhab — never silently shown as a specific state.
+    FiqhCycleState.madhhabUnresolved => (
+      isArabic ? 'يلزم اختيار المذهب' : 'Select your Madhhab',
       _textTertiary,
     ),
   };
@@ -275,7 +285,10 @@ class FiqhReportPdfBuilder {
       if (insights.notes.isNotEmpty) {
         widgets
           ..add(
-            _sectionLabel(isArabic ? 'ملاحظات مسجّلة' : 'Logged notes', semiBold),
+            _sectionLabel(
+              isArabic ? 'ملاحظات مسجّلة' : 'Logged notes',
+              semiBold,
+            ),
           )
           ..add(_notesSection(insights.notes, isArabic));
       }
@@ -314,7 +327,23 @@ class FiqhReportPdfBuilder {
       ),
     );
 
-    if (state == FiqhCycleState.needsAdvisory) {
+    if (state == FiqhCycleState.madhhabUnresolved) {
+      widgets.add(
+        _card(
+          bg: '#FFF8E7',
+          child: pw.Text(
+            isArabic
+                ? 'لا يمكن تحديد حالتكِ الفقهية الحالية دون اختيار مذهبكِ أولاً. يمكنكِ اختياره من الإعدادات.'
+                : 'Your current Fiqh state cannot be determined until you select your Madhhab. You can do this in Settings.',
+            style: pw.TextStyle(
+              color: PdfColor.fromHex(_advisory),
+              fontSize: 10,
+              lineSpacing: 2,
+            ),
+          ),
+        ),
+      );
+    } else if (state == FiqhCycleState.needsAdvisory) {
       widgets.add(
         _card(
           bg: '#FFF8E7',
@@ -334,7 +363,9 @@ class FiqhReportPdfBuilder {
 
     if (insights.notes.isNotEmpty) {
       widgets
-        ..add(_sectionLabel(isArabic ? 'ملاحظات مسجّلة' : 'Logged notes', semiBold))
+        ..add(
+          _sectionLabel(isArabic ? 'ملاحظات مسجّلة' : 'Logged notes', semiBold),
+        )
         ..add(_notesSection(insights.notes, isArabic));
     }
 

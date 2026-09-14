@@ -1,5 +1,6 @@
 import '../../core/errors/app_error_reporter.dart';
 import '../../core/network/supabase_client.dart';
+import '../../core/preferences/madhhab_controller.dart';
 import '../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 
 class FiqhCitation {
@@ -49,9 +50,17 @@ class AiAdvisorService {
   static const _noSourcesFallbackAr =
       'تعذر الوصول إلى المصادر الموثقة الآن. لا يمكن إصدار توجيه فقهي آلي دون مصادر؛ يُرجى المحاولة لاحقاً أو سؤال عالِمة أو جهة إفتاء مؤهلة.';
 
+  /// [madhhab]/[madhhabState] (Fiqh Remediation Wave 1, Section F): the AI
+  /// context must distinguish UNKNOWN from UNSET, never send a fabricated
+  /// madhhab for either. [madhhab] is non-null only when [madhhabState] is
+  /// [MadhhabSelectionState.selected] — callers must pass
+  /// `MadhhabController.instance.selectedOrNull`/`.state` directly, never
+  /// substitute a default when the user hasn't made a real choice.
   Future<FiqhAnswer> askFiqh({
     required String question,
-    required Madhhab madhhab,
+    required Madhhab? madhhab,
+    required MadhhabSelectionState madhhabState,
+
     /// AICTX remediation: the app's own already-computed deterministic
     /// classification (e.g. "haid"), or null if unavailable. Sent
     /// unconditionally when present so the advisor can reference the
@@ -70,7 +79,8 @@ class AiAdvisorService {
         'fiqh-advisor-chat',
         body: {
           'question': question,
-          'madhhab': madhhab.name,
+          'madhhab': madhhab?.name,
+          'madhhab_state': madhhabState.name,
           if (clientFiqhState != null) 'clientFiqhState': clientFiqhState,
         },
       );
@@ -91,7 +101,11 @@ class AiAdvisorService {
         citations: citations,
       );
     } catch (error, stack) {
-      AppErrorReporter.report(error, stack, context: 'AiAdvisorService.askFiqh');
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'AiAdvisorService.askFiqh',
+      );
       return const FiqhAnswer(text: _noSourcesFallbackAr);
     }
   }

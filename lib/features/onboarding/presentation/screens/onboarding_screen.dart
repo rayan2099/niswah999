@@ -13,18 +13,32 @@ import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
 import '../../../cycle_tracking/presentation/models/cycle_log_form_data.dart';
+import '../../domain/services/madhhab_suggestion_service.dart';
 
 String _tr(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
 
 /// Matches the order of both the English and Arabic choice lists in the
-/// Madhhab step below.
+/// Madhhab step below. The 5th choice ("I don't know my Madhhab") is
+/// handled separately — see [_MadhhabSubStep] — and has no entry here.
 const _madhhabOrder = [
   Madhhab.hanafi,
   Madhhab.maliki,
   Madhhab.shafii,
   Madhhab.hanbali,
 ];
+
+/// Fiqh Remediation Wave 1 (Section H/I/J): the Madhhab step's own small
+/// state machine for the "I don't know my Madhhab" path. [choices] is the
+/// normal 5-option grid; the rest are only ever reached by explicitly
+/// tapping the 5th option, and every exit from them is an explicit user
+/// action — nothing here ever calls `MadhhabController` on its own.
+enum _MadhhabSubStep {
+  choices,
+  unknownExplanation,
+  helpAskCountry,
+  helpSuggestion,
+}
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -60,6 +74,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // and persisted (AUTH-007).
   bool get _arabic => AppLocaleController.instance.isArabic;
   String? _madhhab;
+  _MadhhabSubStep _madhhabSubStep = _MadhhabSubStep.choices;
+  String _madhhabHelpCountry = '';
+  MadhhabSuggestion? _madhhabSuggestion;
   bool? _isMarried;
   DateTime? _periodDate;
   double _haidLength = 5;
@@ -179,35 +196,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // (explicitly chosen pre-auth, or its own sensible Arabic default) by
     // the time any authenticated user ever reaches this screen, so asking
     // again here was pure duplication, not a genuine second choice.
-    2 => _Choices(
-      title: _t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟'),
-      subtitle: _t(
-        'This helps us personalize Haid and prayer guidance.',
-        'يساعدنا ذلك في تخصيص أحكام الحيض والصلاة.',
-      ),
-      choices: _madhhabChoices,
-      selected: _madhhab == null ? {} : {_madhhab!},
-      rules: _arabic
-          ? const [
-              'حد أدنى 3 أيام · حد أقصى 10 أيام',
-              'لا يوجد حد أدنى · حد أقصى 15 يوماً',
-              'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
-              'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
-            ]
-          : const [
-              '3-day min · 10-day max',
-              'No minimum · 15-day max',
-              '24-hour min · 15-day max',
-              '24-hour min · 15-day max',
-            ],
-      onToggle: (v) {
-        setState(() => _madhhab = v);
-        MadhhabController.instance.select(
-          _madhhabOrder[_madhhabChoices.indexOf(v)],
-        );
-      },
-      onNext: _madhhab == null ? null : _next,
-    ),
+    2 => _madhhabStep(),
     3 => _Choices(
       title: _t('Are you married?', 'هل أنتِ متزوجة؟'),
       subtitle: _t(
@@ -261,10 +250,137 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   String _t(String en, String ar) => _arabic ? ar : en;
 
-  /// Matches the order of [_madhhabOrder] above.
+  /// Matches the order of [_madhhabOrder] above — the 4 real madhahib
+  /// only. See [_madhhabGridChoices] for the grid shown to the user, which
+  /// appends the 5th "I don't know" option (Fiqh Remediation Wave 1,
+  /// Section G).
   List<String> get _madhhabChoices => _arabic
       ? const ['حنفي', 'مالكي', 'شافعي', 'حنبلي']
       : const ['Hanafi', 'Maliki', "Shafi'i", 'Hanbali'];
+
+  String get _unknownMadhhabLabel =>
+      _t('I don\'t know my Madhhab', 'لا أعرف مذهبي');
+
+  List<String> get _madhhabGridChoices => [
+    ..._madhhabChoices,
+    _unknownMadhhabLabel,
+  ];
+
+  /// Section G/H/I/J: the Madhhab step's full sub-flow. [choices] is the
+  /// normal 5-option grid (never gates Continue on anything but an
+  /// explicit answer); the 5th option leads to an explanation and a
+  /// choice between "Help me choose" (a real, confirmation-gated
+  /// geographic suggestion, never an auto-declaration) and "I'll decide
+  /// later" (persists UNKNOWN, a first-class state — never silently
+  /// resolved to any specific madhhab).
+  Widget _madhhabStep() {
+    switch (_madhhabSubStep) {
+      case _MadhhabSubStep.choices:
+        return _Choices(
+          title: _t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟'),
+          subtitle: _t(
+            'This helps us personalize Haid and prayer guidance.',
+            'يساعدنا ذلك في تخصيص أحكام الحيض والصلاة.',
+          ),
+          choices: _madhhabGridChoices,
+          selected: _madhhab == null ? {} : {_madhhab!},
+          rules: _arabic
+              ? const [
+                  'حد أدنى 3 أيام · حد أقصى 10 أيام',
+                  'لا يوجد حد أدنى · حد أقصى 15 يوماً',
+                  'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
+                  'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
+                  '',
+                ]
+              : const [
+                  '3-day min · 10-day max',
+                  'No minimum · 15-day max',
+                  '24-hour min · 15-day max',
+                  '24-hour min · 15-day max',
+                  '',
+                ],
+          onToggle: (v) {
+            if (v == _unknownMadhhabLabel) {
+              // Does NOT persist anything yet — only an explicit action in
+              // the explanation step below (Section H/J) ever calls
+              // MadhhabController. Tapping the option itself is not a
+              // selection.
+              setState(
+                () => _madhhabSubStep = _MadhhabSubStep.unknownExplanation,
+              );
+              return;
+            }
+            setState(() => _madhhab = v);
+            MadhhabController.instance.selectMadhhab(
+              _madhhabOrder[_madhhabChoices.indexOf(v)],
+            );
+          },
+          onNext: _madhhab == null ? null : _next,
+        );
+
+      case _MadhhabSubStep.unknownExplanation:
+        return _MadhhabUnknownExplanation(
+          onHelpMeChoose: () =>
+              setState(() => _madhhabSubStep = _MadhhabSubStep.helpAskCountry),
+          onDecideLater: () {
+            MadhhabController.instance.selectUnknown();
+            setState(() {
+              _madhhab = _unknownMadhhabLabel;
+              _madhhabSubStep = _MadhhabSubStep.choices;
+            });
+            _next();
+          },
+          onBack: () =>
+              setState(() => _madhhabSubStep = _MadhhabSubStep.choices),
+        );
+
+      case _MadhhabSubStep.helpAskCountry:
+        return _MadhhabHelpAskCountry(
+          initialValue: _madhhabHelpCountry,
+          onSubmit: (country) {
+            final suggestion = const MadhhabSuggestionService().suggest(
+              explicitCountry: country,
+            );
+            setState(() {
+              _madhhabHelpCountry = country;
+              _madhhabSuggestion = suggestion;
+              _madhhabSubStep = _MadhhabSubStep.helpSuggestion;
+            });
+          },
+          onBack: () => setState(
+            () => _madhhabSubStep = _MadhhabSubStep.unknownExplanation,
+          ),
+        );
+
+      case _MadhhabSubStep.helpSuggestion:
+        return _MadhhabHelpSuggestion(
+          suggestion: _madhhabSuggestion ?? MadhhabSuggestion.unresolved,
+          // Section I: a suggestion is never treated as authoritative by
+          // merely being displayed — SELECTED only happens on this
+          // explicit confirmation.
+          onConfirm: (madhhab) {
+            MadhhabController.instance.selectMadhhab(madhhab);
+            final label = _madhhabChoices[_madhhabOrder.indexOf(madhhab)];
+            setState(() {
+              _madhhab = label;
+              _madhhabSubStep = _MadhhabSubStep.choices;
+            });
+            _next();
+          },
+          // Section J: no confirmation -> remains UNKNOWN, never SELECTED.
+          onNoneOfThese: () {
+            MadhhabController.instance.selectUnknown();
+            setState(() {
+              _madhhab = _unknownMadhhabLabel;
+              _madhhabSubStep = _MadhhabSubStep.choices;
+            });
+            _next();
+          },
+          onTryAgain: () =>
+              setState(() => _madhhabSubStep = _MadhhabSubStep.helpAskCountry),
+        );
+    }
+  }
 
   void _next() => setState(() => _step = (_step + 1).clamp(1, _totalSteps));
 
@@ -466,6 +582,264 @@ class _Choices extends StatelessWidget {
       _Continue(onPressed: onNext),
     ],
   );
+}
+
+/// Fiqh Remediation Wave 1, Section H: the calm, non-punitive explanation
+/// shown after tapping "I don't know my Madhhab" — never pressures a
+/// guess, and never implies UNKNOWN is a lesser or incomplete answer.
+class _MadhhabUnknownExplanation extends StatelessWidget {
+  const _MadhhabUnknownExplanation({
+    required this.onHelpMeChoose,
+    required this.onDecideLater,
+    required this.onBack,
+  });
+  final VoidCallback onHelpMeChoose;
+  final VoidCallback onDecideLater;
+  final VoidCallback onBack;
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('No problem', 'لا بأس')),
+      const SizedBox(height: 14),
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: const [
+            BoxShadow(color: AppColors.shadowColor, blurRadius: 20),
+          ],
+        ),
+        child: Text(
+          _tr(
+            'We can help you find a likely school based on where you live '
+                '— it\'s always just a suggestion, and only becomes your choice '
+                'once you confirm it yourself. No Madhhab will ever be assumed '
+                'for you without your choosing it.',
+            'يمكن لنسوة مساعدتكِ في معرفة المذهب الشائع في منطقتكِ — وهو '
+                'دائماً مجرد اقتراح، ولا يصبح خيارك إلا بعد تأكيدكِ له بنفسكِ. '
+                'لن يُفترض لكِ أي مذهب دون اختياركِ.',
+          ),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12,
+            height: 1.6,
+          ),
+        ),
+      ),
+      const SizedBox(height: 26),
+      _Continue(
+        label: _tr('Help me choose', 'ساعديني في الاختيار'),
+        onPressed: onHelpMeChoose,
+        strong: true,
+      ),
+      const SizedBox(height: 10),
+      TextButton(
+        onPressed: onDecideLater,
+        child: Text(_tr('I\'ll decide later', 'سأقرر لاحقاً')),
+      ),
+      TextButton(
+        onPressed: onBack,
+        child: Text(_tr('Back to choices', 'العودة للخيارات')),
+      ),
+    ],
+  );
+}
+
+/// Fiqh Remediation Wave 1, Section I: a lightweight, single-question
+/// country input — deliberately not the full Location step (city/GPS),
+/// which comes later in onboarding and is unavailable yet at this step.
+/// Feeds [MadhhabSuggestionService] directly; nothing here is persisted as
+/// a Madhhab choice.
+class _MadhhabHelpAskCountry extends StatefulWidget {
+  const _MadhhabHelpAskCountry({
+    required this.initialValue,
+    required this.onSubmit,
+    required this.onBack,
+  });
+  final String initialValue;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onBack;
+  @override
+  State<_MadhhabHelpAskCountry> createState() => _MadhhabHelpAskCountryState();
+}
+
+class _MadhhabHelpAskCountryState extends State<_MadhhabHelpAskCountry> {
+  late final _controller = TextEditingController(text: widget.initialValue);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('Which country do you live in?', 'في أي دولة تسكنين؟')),
+      const SizedBox(height: 8),
+      Text(
+        _tr(
+          'Used only to suggest a likely Madhhab — never to decide it for '
+              'you.',
+          'تُستخدم فقط لاقتراح مذهب محتمل — ولا تُستخدم أبداً لتحديده نيابةً '
+              'عنكِ.',
+        ),
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+      ),
+      const SizedBox(height: 22),
+      TextField(
+        controller: _controller,
+        textAlign: TextAlign.center,
+        decoration: InputDecoration(
+          hintText: _tr('e.g. Egypt', 'مثال: مصر'),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        // Rebuilds so the Continue button's enabled state below reflects
+        // the current text — without this it stays disabled/stale after
+        // the first frame, since Continue's onPressed is otherwise only
+        // ever evaluated at this State's last build.
+        onChanged: (_) => setState(() {}),
+        onSubmitted: (value) => widget.onSubmit(value.trim()),
+      ),
+      const SizedBox(height: 22),
+      _Continue(
+        onPressed: _controller.text.trim().isEmpty
+            ? null
+            : () => widget.onSubmit(_controller.text.trim()),
+      ),
+      const SizedBox(height: 10),
+      TextButton(onPressed: widget.onBack, child: Text(_tr('Back', 'رجوع'))),
+    ],
+  );
+}
+
+/// Fiqh Remediation Wave 1, Sections I/J: shows the geographic suggestion
+/// (if any) and requires an explicit confirmation per school before it
+/// ever becomes a SELECTED state — never a declaration on its own.
+class _MadhhabHelpSuggestion extends StatelessWidget {
+  const _MadhhabHelpSuggestion({
+    required this.suggestion,
+    required this.onConfirm,
+    required this.onNoneOfThese,
+    required this.onTryAgain,
+  });
+  final MadhhabSuggestion suggestion;
+  final ValueChanged<Madhhab> onConfirm;
+  final VoidCallback onNoneOfThese;
+  final VoidCallback onTryAgain;
+
+  static String _madhhabName(Madhhab madhhab) => switch (madhhab) {
+    Madhhab.hanafi => _tr('Hanafi', 'الحنفي'),
+    Madhhab.maliki => _tr('Maliki', 'المالكي'),
+    Madhhab.shafii => _tr("Shafi'i", 'الشافعي'),
+    Madhhab.hanbali => _tr('Hanbali', 'الحنبلي'),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    if (!suggestion.isResolved) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Title(
+            _tr(
+              'We don\'t have a suggestion for that yet',
+              'لا يتوفر اقتراح لهذه المنطقة بعد',
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _tr(
+              'That\'s alright — you can try a different spelling, or '
+                  'simply decide later. Nothing has been assumed for you.',
+              'لا بأس بذلك — يمكنكِ تجربة تهجئة مختلفة، أو تأجيل القرار '
+                  'ببساطة. لم يُفترض لكِ شيء.',
+            ),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _Continue(
+            label: _tr('Try again', 'المحاولة مجدداً'),
+            onPressed: onTryAgain,
+          ),
+          const SizedBox(height: 10),
+          TextButton(
+            onPressed: onNoneOfThese,
+            child: Text(_tr('I\'ll decide later', 'سأقرر لاحقاً')),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _Title(_tr('A suggestion for you', 'اقتراح لكِ')),
+        const SizedBox(height: 8),
+        if (suggestion.regionNote != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text(
+              suggestion.regionNote!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        // Section J: this is only ever a suggestion until she taps one of
+        // these — displaying it never itself changes any stored state.
+        for (final madhhab in suggestion.likelyMadhahib)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => onConfirm(madhhab),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  _tr(
+                    'Yes, ${_madhhabName(madhhab)} is my Madhhab',
+                    'نعم، مذهبي هو ${_madhhabName(madhhab)}',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: onNoneOfThese,
+          child: Text(
+            _tr(
+              'None of these — I\'ll decide later',
+              'لا شيء من هذا — سأقرر لاحقاً',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _Location extends StatelessWidget {

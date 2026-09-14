@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../network/supabase_client.dart';
+import '../preferences/madhhab_controller.dart';
 
 /// Tracks whether a Supabase session currently exists, so the root router
 /// in main.dart can gate `NiswahHomeShell` behind `SignInScreen`. Session
@@ -141,6 +142,11 @@ class AuthController extends ChangeNotifier {
       if (!signedIn) {
         _isNewSignUp = false;
         _onboardingCompleted = null;
+        // Fiqh Remediation Wave 1 (AUTH-005/M — account switching): clears
+        // the previous account's in-memory Madhhab state immediately on
+        // sign-out, so a different account signing in next can never
+        // briefly observe it before its own load() below completes.
+        MadhhabController.instance.resetInMemory();
       }
       if (signedIn != wasAuthenticated) {
         _isAuthenticated = signedIn;
@@ -154,6 +160,11 @@ class AuthController extends ChangeNotifier {
       if (signedIn && !wasAuthenticated) {
         _onboardingCompleted = null;
         unawaited(refreshOnboardingStatus());
+        // Fiqh Remediation Wave 1 (AUTH-005) — re-reads the canonical
+        // server-side Madhhab state for whichever account just signed in,
+        // the same way onboarding status is re-checked on every sign-in
+        // transition rather than trusted from a stale in-memory value.
+        unawaited(MadhhabController.instance.load());
       }
     });
   }

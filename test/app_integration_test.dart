@@ -85,12 +85,13 @@ void main() {
       expect(AppLocaleController.instance.isArabic, isTrue);
 
       // Toggle Madhhab
-      MadhhabController.instance.select(Madhhab.hanafi);
-      expect(MadhhabController.instance.selected, Madhhab.hanafi);
+      await MadhhabController.instance.selectMadhhab(Madhhab.hanafi);
+      expect(MadhhabController.instance.selectedOrNull, Madhhab.hanafi);
+      expect(MadhhabController.instance.state, MadhhabSelectionState.selected);
 
       // Clean up
       AppLocaleController.instance.setArabic(false);
-      MadhhabController.instance.select(Madhhab.hanbali);
+      await MadhhabController.instance.selectMadhhab(Madhhab.hanbali);
     });
   });
 }

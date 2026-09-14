@@ -77,7 +77,7 @@ class _HusbandReportScreenState extends State<HusbandReportScreen> {
 
     final insights = HusbandReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
-      madhhab: MadhhabController.instance.selected,
+      madhhab: MadhhabController.instance.selectedOrNull,
       displayName: widget.displayName,
       pregnancyProfile: pregnancyProfile,
       now: now,

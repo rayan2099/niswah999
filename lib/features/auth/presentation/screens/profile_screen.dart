@@ -101,7 +101,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       minHeight: 2,
                       color: AppColors.brandSecondary,
                       backgroundColor: Colors.transparent,
-                      semanticsLabel: _pr('Loading profile', 'جارٍ تحميل الملف الشخصي'),
+                      semanticsLabel: _pr(
+                        'Loading profile',
+                        'جارٍ تحميل الملف الشخصي',
+                      ),
                     ),
                   ),
                 if (_viewModel.errorMessage != null)
@@ -250,9 +253,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _SectionTitle(_pr('Fiqh Madhhab', 'المذهب الفقهي')),
                       const SizedBox(height: 10),
                       _MadhhabGrid(
-                        selected: MadhhabController.instance.selected.name,
-                        onSelected: (value) => MadhhabController.instance
-                            .select(Madhhab.values.byName(value.toLowerCase())),
+                        // Fiqh Remediation Wave 1 (Section K): reflects
+                        // the real three-state model — 'unknown' when the
+                        // user explicitly said so, nothing highlighted
+                        // when UNSET, never a guessed madhhab.
+                        selected:
+                            MadhhabController.instance.state ==
+                                MadhhabSelectionState.unknown
+                            ? 'unknown'
+                            : (MadhhabController
+                                      .instance
+                                      .selectedOrNull
+                                      ?.name ??
+                                  ''),
+                        onSelected: (value) => value == 'unknown'
+                            ? MadhhabController.instance.selectUnknown()
+                            : MadhhabController.instance.selectMadhhab(
+                                Madhhab.values.byName(value.toLowerCase()),
+                              ),
                       ),
                       const SizedBox(height: 30),
                       _SectionTitle(
@@ -269,18 +287,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ? null
                                 : (value) async {
                                     try {
-                                      await _viewModel.setAnonymousMode(
-                                        value,
-                                      );
+                                      await _viewModel.setAnonymousMode(value);
                                     } catch (error) {
                                       if (context.mounted) {
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(error.toString()),
-                                          ),
-                                        );
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                              SnackBar(
+                                                content: Text(error.toString()),
+                                              ),
+                                            );
                                       }
                                     }
                                   },
@@ -410,7 +425,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2.4,
                                   color: const Color(0xFF991B1B),
-                                  semanticsLabel: _pr('Deleting account', 'جارٍ حذف الحساب'),
+                                  semanticsLabel: _pr(
+                                    'Deleting account',
+                                    'جارٍ حذف الحساب',
+                                  ),
                                 ),
                               )
                             : Text(
@@ -476,11 +494,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         content: Text(
           _pr(
             'This permanently deletes your account and all associated '
-            'data — cycle logs, pregnancy data, chat history, and '
-            'community posts. This cannot be undone.',
+                'data — cycle logs, pregnancy data, chat history, and '
+                'community posts. This cannot be undone.',
             'سيؤدي هذا إلى حذف حسابكِ وجميع البيانات المرتبطة به نهائياً '
-            '— سجلات الدورة، بيانات الحمل، سجل المحادثات، ومنشورات '
-            'المجتمع. لا يمكن التراجع عن هذا الإجراء.',
+                '— سجلات الدورة، بيانات الحمل، سجل المحادثات، ومنشورات '
+                'المجتمع. لا يمكن التراجع عن هذا الإجراء.',
           ),
         ),
         actions: [
@@ -490,7 +508,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: const Color(0xFF991B1B)),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF991B1B),
+            ),
             child: Text(_pr('Delete', 'حذف')),
           ),
         ],
@@ -1553,6 +1573,10 @@ class _MadhhabGrid extends StatelessWidget {
           'أقل الحيض يوم وليلة، وأكثره 15 يوماً',
         ),
       ),
+      // Fiqh Remediation Wave 1 (Section K — change Madhhab): a durable,
+      // first-class UNKNOWN state must remain reachable here too, not
+      // only at onboarding — see MadhhabController.selectUnknown().
+      ('unknown', _pr('I don\'t know', 'لا أعرف'), ''),
     ];
     return GridView.builder(
       shrinkWrap: true,

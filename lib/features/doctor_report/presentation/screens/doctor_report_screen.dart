@@ -188,7 +188,7 @@ class _DoctorReportScreenState extends State<DoctorReportScreen> {
 
     final insights = DoctorReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
-      madhhab: MadhhabController.instance.selected,
+      madhhab: MadhhabController.instance.selectedOrNull,
       pregnancyProfile: pregnancyResult.data,
       currentWellbeingLogs: currentWellbeingLogs,
       previousWellbeingLogs: previousWellbeingLogs,
@@ -216,7 +216,9 @@ class _DoctorReportScreenState extends State<DoctorReportScreen> {
       body: SafeArea(
         child: _loading
             ? Center(
-                child: Text(_t('Preparing your report…', 'جارٍ إعداد تقريركِ…')),
+                child: Text(
+                  _t('Preparing your report…', 'جارٍ إعداد تقريركِ…'),
+                ),
               )
             : _buildLoaded(isArabic),
       ),
@@ -270,14 +272,18 @@ class _DoctorReportScreenState extends State<DoctorReportScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off_rounded, size: 40, color: Color(0xFF9F1239)),
+            const Icon(
+              Icons.cloud_off_rounded,
+              size: 40,
+              color: Color(0xFF9F1239),
+            ),
             const SizedBox(height: 16),
             Semantics(
               liveRegion: true,
               child: Text(
                 _t(
                   "Your cycle history could not be loaded, so this report "
-                  "can't be generated right now.",
+                      "can't be generated right now.",
                   'تعذّر تحميل سجل دورتكِ، لذا لا يمكن إنشاء هذا التقرير '
                       'الآن.',
                 ),
@@ -316,7 +322,7 @@ class _DoctorReportScreenState extends State<DoctorReportScreen> {
             Text(
               _t(
                 "There isn't enough recorded history yet to generate a "
-                'meaningful report. Log a few cycle entries first.',
+                    'meaningful report. Log a few cycle entries first.',
                 'لا يوجد سجل كافٍ بعد لإنشاء تقرير مفيد. سجّلي بعض '
                     'بيانات الدورة أولاً.',
               ),
@@ -372,8 +378,8 @@ class _CompletenessBanner extends StatelessWidget {
               child: Text(
                 _t(
                   'This report reflects only the information that could be '
-                  'loaded. The following could not be loaded and are not '
-                  'reflected: ${failedLabels.join(", ")}.',
+                      'loaded. The following could not be loaded and are not '
+                      'reflected: ${failedLabels.join(", ")}.',
                   'يعكس هذا التقرير فقط المعلومات التي أمكن تحميلها. '
                       'تعذّر تحميل التالي ولا يظهر في التقرير: '
                       '${failedLabels.join("، ")}.',

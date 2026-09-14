@@ -74,9 +74,7 @@ void main() {
       expect(MaritalStatusController.instance.isMarried, isTrue);
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: OnboardingScreen(onFinished: () {}, initialStep: 3),
-        ),
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 3)),
       );
 
       expect(find.text('Are you married?'), findsOneWidget);
@@ -106,7 +104,8 @@ void main() {
     await tester.tap(find.text('Hanafi'));
     await tester.pump();
 
-    expect(MadhhabController.instance.selected, Madhhab.hanafi);
+    expect(MadhhabController.instance.selectedOrNull, Madhhab.hanafi);
+    expect(MadhhabController.instance.state, MadhhabSelectionState.selected);
   });
 
   testWidgets(
@@ -116,9 +115,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       AppLocaleController.instance.setArabic(false);
       await tester.pumpWidget(
-        MaterialApp(
-          home: OnboardingScreen(onFinished: () {}, initialStep: 5),
-        ),
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 5)),
       );
 
       expect(find.text('When did your last period start?'), findsOneWidget);
@@ -188,31 +185,29 @@ void main() {
       },
     );
 
-    testWidgets(
-      'Arabic: splash continues directly to real Madhhab content in '
-      'Arabic, no language screen in between',
-      (tester) async {
-        AppLocaleController.instance.setArabic(true);
-        await tester.pumpWidget(
-          MaterialApp(home: OnboardingScreen(onFinished: () {})),
-        );
-        await tester.tap(find.text('ابدئي'));
-        await tester.pumpAndSettle();
+    testWidgets('Arabic: splash continues directly to real Madhhab content in '
+        'Arabic, no language screen in between', (tester) async {
+      AppLocaleController.instance.setArabic(true);
+      await tester.pumpWidget(
+        MaterialApp(home: OnboardingScreen(onFinished: () {})),
+      );
+      await tester.tap(find.text('ابدئي'));
+      await tester.pumpAndSettle();
 
-        expect(tester.takeException(), isNull);
-        expect(find.text('ما مذهبكِ الفقهي؟'), findsOneWidget);
-        expect(
-          find.byWidgetPredicate(
-            (widget) =>
-                widget is Directionality &&
-                widget.textDirection == TextDirection.rtl,
-          ),
-          findsWidgets,
-          reason: 'Madhhab must render RTL immediately, not after a second '
-              'language choice',
-        );
-      },
-    );
+      expect(tester.takeException(), isNull);
+      expect(find.text('ما مذهبكِ الفقهي؟'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Directionality &&
+              widget.textDirection == TextDirection.rtl,
+        ),
+        findsWidgets,
+        reason:
+            'Madhhab must render RTL immediately, not after a second '
+            'language choice',
+      );
+    });
 
     testWidgets(
       'the Madhhab step (now the first real step) has no back button — '
@@ -266,9 +261,8 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: const TextScaler.linear(2.0)),
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(2.0)),
               child: child!,
             ),
             home: OnboardingScreen(onFinished: () {}),
@@ -328,10 +322,7 @@ void main() {
           AppLocaleController.instance.setArabic(false);
           await tester.pumpWidget(
             MaterialApp(
-              home: OnboardingScreen(
-                onFinished: () {},
-                initialStep: entry.key,
-              ),
+              home: OnboardingScreen(onFinished: () {}, initialStep: entry.key),
             ),
           );
           await tester.pumpAndSettle();
@@ -416,10 +407,7 @@ void main() {
           AppLocaleController.instance.setArabic(true);
           await tester.pumpWidget(
             MaterialApp(
-              home: OnboardingScreen(
-                onFinished: () {},
-                initialStep: entry.key,
-              ),
+              home: OnboardingScreen(onFinished: () {}, initialStep: entry.key),
             ),
           );
           await tester.pumpAndSettle();
@@ -450,9 +438,7 @@ void main() {
     ) async {
       AppLocaleController.instance.setArabic(true);
       await tester.pumpWidget(
-        MaterialApp(
-          home: OnboardingScreen(onFinished: () {}, initialStep: 2),
-        ),
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 2)),
       );
       await tester.pumpAndSettle();
 
@@ -519,7 +505,9 @@ void main() {
       (tester) async {
         AppLocaleController.instance.setArabic(false);
         await tester.pumpWidget(
-          MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 1)),
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 1),
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -599,40 +587,295 @@ void main() {
       },
     );
 
-    testWidgets(
-      'walking backward from the last question step all the way to '
-      'Madhhab never shows SignInScreen or a language screen, and Madhhab '
-      'itself has no further Back',
-      (tester) async {
-        AppLocaleController.instance.setArabic(false);
-        await tester.pumpWidget(
-          MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 7)),
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('Anonymous Mode'), findsOneWidget);
+    testWidgets('walking backward from the last question step all the way to '
+        'Madhhab never shows SignInScreen or a language screen, and Madhhab '
+        'itself has no further Back', (tester) async {
+      AppLocaleController.instance.setArabic(false);
+      await tester.pumpWidget(
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 7)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Anonymous Mode'), findsOneWidget);
 
-        // Step 7 -> 2: repeatedly tap Back (walks 7 -> 6 -> 5 -> 4 -> 3),
-        // asserting no SignInScreen and no language screen at any point.
-        for (var i = 0; i < 4; i++) {
-          expect(find.byType(SignInScreen), findsNothing);
-          expect(find.text('Choose your language'), findsNothing);
-          await tester.tap(find.byTooltip('Back'));
-          await tester.pumpAndSettle();
-          expect(find.byType(SignInScreen), findsNothing);
-          expect(find.text('Choose your language'), findsNothing);
-        }
-
-        expect(find.text('Are you married?'), findsOneWidget);
-
-        // One more Back reaches Madhhab (step 2) — the correct floor.
+      // Step 7 -> 2: repeatedly tap Back (walks 7 -> 6 -> 5 -> 4 -> 3),
+      // asserting no SignInScreen and no language screen at any point.
+      for (var i = 0; i < 4; i++) {
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('Choose your language'), findsNothing);
         await tester.tap(find.byTooltip('Back'));
         await tester.pumpAndSettle();
         expect(find.byType(SignInScreen), findsNothing);
-        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
+        expect(find.text('Choose your language'), findsNothing);
+      }
 
-        // Madhhab itself has no Back button at all — nothing before it to
-        // return to, and no way to accidentally expose auth.
-        expect(find.byTooltip('Back'), findsNothing);
+      expect(find.text('Are you married?'), findsOneWidget);
+
+      // One more Back reaches Madhhab (step 2) — the correct floor.
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SignInScreen), findsNothing);
+      expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
+
+      // Madhhab itself has no Back button at all — nothing before it to
+      // return to, and no way to accidentally expose auth.
+      expect(find.byTooltip('Back'), findsNothing);
+    });
+  });
+
+  group('Fiqh Remediation Wave 1 — Madhhab step 5-option grid and unknown-Madhhab flow (Sections G/H/I/J/R)', () {
+    testWidgets(
+      'English: all 5 choices are visible, including "I don\'t know my Madhhab"',
+      (tester) async {
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        for (final label in [
+          'Hanafi',
+          'Maliki',
+          "Shafi'i",
+          'Hanbali',
+          "I don't know my Madhhab",
+        ]) {
+          expect(
+            find.text(label),
+            findsOneWidget,
+            reason: '"$label" must be visible',
+          );
+        }
+      },
+    );
+
+    testWidgets(
+      'Arabic: all 5 choices are visible with the correct RTL labels',
+      (tester) async {
+        AppLocaleController.instance.setArabic(true);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        for (final label in [
+          'حنفي',
+          'مالكي',
+          'شافعي',
+          'حنبلي',
+          'لا أعرف مذهبي',
+        ]) {
+          expect(
+            find.text(label),
+            findsOneWidget,
+            reason: '"$label" must be visible',
+          );
+        }
+        AppLocaleController.instance.setArabic(false);
+      },
+    );
+
+    testWidgets(
+      'tapping "I don\'t know my Madhhab" shows the calm explanation, not an immediate selection',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know my Madhhab"));
+        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.pumpAndSettle();
+
+        expect(find.text('No problem'), findsOneWidget);
+        expect(find.text('What is your Fiqh Madhhab?'), findsNothing);
+        expect(
+          MadhhabController.instance.state,
+          isNot(MadhhabSelectionState.selected),
+          reason: 'tapping the option itself must never persist anything',
+        );
+      },
+    );
+
+    testWidgets(
+      '"I\'ll decide later" persists UNKNOWN (never a guessed madhhab) and advances',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know my Madhhab"));
+        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text("I'll decide later"));
+        await tester.tap(find.text("I'll decide later"));
+        await tester.pumpAndSettle();
+
+        expect(MadhhabController.instance.state, MadhhabSelectionState.unknown);
+        expect(MadhhabController.instance.selectedOrNull, isNull);
+        expect(find.text('Are you married?'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '"Back to choices" from the explanation returns to the 5-option grid',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know my Madhhab"));
+        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Back to choices'));
+        await tester.tap(find.text('Back to choices'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '"Help me choose" -> a recognized country -> confirming the suggestion persists SELECTED, never silently',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know my Madhhab"));
+        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Help me choose'));
+        await tester.tap(find.text('Help me choose'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Which country do you live in?'), findsOneWidget);
+        await tester.enterText(find.byType(TextField), 'Saudi Arabia');
+        // Required frame: onChanged's setState (which flips the Continue
+        // button from disabled to enabled) has not been processed until
+        // this pump — without it, ensureVisible/tap below would act on
+        // the still-disabled button from the pre-input frame.
+        await tester.pump();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('A suggestion for you'), findsOneWidget);
+        expect(
+          MadhhabController.instance.state,
+          isNot(MadhhabSelectionState.selected),
+          reason:
+              'a displayed suggestion must never itself persist a selection',
+        );
+
+        await tester.ensureVisible(
+          find.textContaining('Hanbali is my Madhhab'),
+        );
+        await tester.tap(find.textContaining('Hanbali is my Madhhab'));
+        await tester.pumpAndSettle();
+
+        expect(
+          MadhhabController.instance.state,
+          MadhhabSelectionState.selected,
+        );
+        expect(MadhhabController.instance.selectedOrNull, Madhhab.hanbali);
+        expect(find.text('Are you married?'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '"Help me choose" -> an unrecognized country -> "I\'ll decide later" persists UNKNOWN, not a guess',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know my Madhhab"));
+        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Help me choose'));
+        await tester.tap(find.text('Help me choose'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Nowhereland');
+        await tester.pump();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text("We don't have a suggestion for that yet"),
+          findsOneWidget,
+        );
+
+        await tester.ensureVisible(find.text("I'll decide later"));
+        await tester.tap(find.text("I'll decide later"));
+        await tester.pumpAndSettle();
+
+        expect(MadhhabController.instance.state, MadhhabSelectionState.unknown);
+        expect(find.text('Are you married?'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '"None of these" on a resolved suggestion persists UNKNOWN, not the suggested madhhab',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know my Madhhab"));
+        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Help me choose'));
+        await tester.tap(find.text('Help me choose'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Turkey');
+        await tester.pump();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('A suggestion for you'), findsOneWidget);
+        await tester.ensureVisible(find.textContaining("None of these"));
+        await tester.tap(find.textContaining("None of these"));
+        await tester.pumpAndSettle();
+
+        expect(MadhhabController.instance.state, MadhhabSelectionState.unknown);
+        expect(
+          MadhhabController.instance.selectedOrNull,
+          isNot(Madhhab.hanafi),
+          reason: 'Turkey suggests Hanafi — declining it must never persist it anyway',
+        );
       },
     );
   });

@@ -69,7 +69,7 @@ class _FiqhReportScreenState extends State<FiqhReportScreen> {
 
     final insights = FiqhReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
-      madhhab: MadhhabController.instance.selected,
+      madhhab: MadhhabController.instance.selectedOrNull,
       pregnancyProfile: pregnancyProfile,
       now: now,
     );

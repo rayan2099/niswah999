@@ -18,11 +18,13 @@ class ClientFiqhStateProvider {
 
   final CycleTrackingRepository _repository;
 
-  /// Returns the current [FiqhCycleState]'s name (e.g. "haid", "tahara"),
-  /// or null if it could not be determined (no history, a repository
-  /// error, etc.) — callers must treat null as "omit the field", never
-  /// invent a fallback value.
-  Future<String?> currentClassification(Madhhab madhhab) async {
+  /// Returns the current [FiqhCycleState]'s name (e.g. "haid", "tahara",
+  /// "madhhabUnresolved"), or null if it could not be determined (no
+  /// history, a repository error, etc.) — callers must treat null as "omit
+  /// the field", never invent a fallback value. [madhhab] is null whenever
+  /// `MadhhabController.state` is not `selected` (Fiqh Remediation Wave 1)
+  /// — [CycleStatusEngine] itself never guesses one on this class's behalf.
+  Future<String?> currentClassification(Madhhab? madhhab) async {
     try {
       final logs = await _repository.getCycleLogs();
       if (logs.isEmpty) return null;

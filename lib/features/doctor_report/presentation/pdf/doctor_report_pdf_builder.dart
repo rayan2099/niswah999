@@ -88,6 +88,15 @@ class DoctorReportPdfBuilder {
       isArabic ? 'سجل غير كافٍ بعد' : 'Not enough history yet',
       _textTertiary,
     ),
+    // Fiqh Remediation Wave 1 (Section E): bleeding is occurring but no
+    // Madhhab is SELECTED yet, so the fiqh-derived classification above
+    // cannot be produced — shown plainly rather than guessed.
+    FiqhCycleState.madhhabUnresolved => (
+      isArabic
+          ? 'يلزم اختيار المذهب لتحديد الحالة'
+          : 'Madhhab selection required',
+      _textTertiary,
+    ),
   };
 
   static Future<Uint8List> build({
@@ -252,7 +261,9 @@ class DoctorReportPdfBuilder {
 
     if (insights.recentNotes.isNotEmpty) {
       widgets
-        ..add(_sectionLabel(isArabic ? 'ملاحظات مسجّلة' : 'Logged notes', semiBold))
+        ..add(
+          _sectionLabel(isArabic ? 'ملاحظات مسجّلة' : 'Logged notes', semiBold),
+        )
         ..add(_notesSection(insights.recentNotes, isArabic));
     }
 
@@ -341,10 +352,7 @@ class DoctorReportPdfBuilder {
             : 'This report is partial. It reflects only the information '
                   'that could be loaded. The following could not be '
                   'loaded: ${failedLabels.join(", ")}.',
-        style: pw.TextStyle(
-          color: PdfColor.fromHex(_advisory),
-          fontSize: 9.5,
-        ),
+        style: pw.TextStyle(color: PdfColor.fromHex(_advisory), fontSize: 9.5),
       ),
     );
   }
@@ -358,10 +366,7 @@ class DoctorReportPdfBuilder {
     ),
     child: pw.Text(
       text,
-      style: pw.TextStyle(
-        color: PdfColor.fromHex(_textSecondary),
-        fontSize: 9,
-      ),
+      style: pw.TextStyle(color: PdfColor.fromHex(_textSecondary), fontSize: 9),
     ),
   );
 

@@ -326,21 +326,27 @@ class ChatViewModel extends ChangeNotifier {
       content: content,
     );
 
+    // Fiqh Remediation Wave 1: null whenever the user's Madhhab is
+    // UNSET/UNKNOWN — never a fabricated value. See Section F.
+    final madhhabState = MadhhabController.instance.state;
+    final selectedMadhhab = MadhhabController.instance.selectedOrNull;
+
     // AICTX remediation: best-effort, never blocking — a failure here
     // (no history, a network error) just means the field is omitted.
-    final clientFiqhState = await ClientFiqhStateProvider().currentClassification(
-      MadhhabController.instance.selected,
-    );
+    final clientFiqhState = await ClientFiqhStateProvider()
+        .currentClassification(selectedMadhhab);
     final result = await AiAdvisorService.instance.askFiqh(
       question: content,
-      madhhab: MadhhabController.instance.selected,
+      madhhab: selectedMadhhab,
+      madhhabState: madhhabState,
       clientFiqhState: clientFiqhState,
     );
 
     final metadata = {
       'source': 'gemini',
       'grounded': true,
-      'madhhab': MadhhabController.instance.selected.name,
+      'madhhab': selectedMadhhab?.name,
+      'madhhab_state': madhhabState.name,
       'citations': result.citations.map((item) => item.toJson()).toList(),
     };
     await showAssistantReplyAndPersistForTesting(
@@ -375,8 +381,14 @@ class ChatViewModel extends ChangeNotifier {
       // AICTX remediation: the general assistant previously received no
       // context at all. madhhab is cheap and always known client-side
       // (MadhhabController), so it's sent unconditionally now — the
-      // Edge Function treats it as optional either way.
-      body: {'content': content, 'madhhab': MadhhabController.instance.selected.name},
+      // Edge Function treats it as optional either way. Fiqh Remediation
+      // Wave 1: null/'unset'/'unknown' are sent as-is, never a fabricated
+      // madhhab (Section F).
+      body: {
+        'content': content,
+        'madhhab': MadhhabController.instance.selectedOrNull?.name,
+        'madhhab_state': MadhhabController.instance.state.name,
+      },
     );
     final data = response.data;
     if (data is! Map || response.status != 200) {

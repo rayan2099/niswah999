@@ -36,6 +36,12 @@ String _stateLabel(_FiqhState state) => switch (state) {
   _FiqhState.haid => _l('Haid', 'حيض'),
   _FiqhState.istihadah => _l('Istihadah', 'استحاضة'),
   _FiqhState.needsAdvisory => _l('Needs review', 'تحتاج مراجعة'),
+  // Fiqh Remediation Wave 1 (Section E): bleeding, but no Madhhab
+  // SELECTED — never labeled as if a ruling were known.
+  _FiqhState.madhhabUnresolved => _l(
+    'Select your Madhhab',
+    'يلزم اختيار المذهب',
+  ),
 };
 
 /// Arabic masculine ordinals ("اليوم الأول", "اليوم الثاني", …) for "يوم"
@@ -240,7 +246,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ? const CycleStatusEngine().evaluate(
                 logs: _viewModel.logs,
                 calculation: calculation,
-                madhhab: MadhhabController.instance.selected,
+                madhhab: MadhhabController.instance.selectedOrNull,
                 now: AppClock.now(),
               )
             : const CycleStatusSnapshot(
@@ -256,6 +262,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           FiqhCycleState.needsAdvisory => _FiqhState.needsAdvisory,
           FiqhCycleState.tahara ||
           FiqhCycleState.insufficientHistory => _FiqhState.tahara,
+          // Fiqh Remediation Wave 1 (Section E): never mapped to tahara —
+          // that would silently claim purity for a currently-bleeding user
+          // with no Madhhab SELECTED.
+          FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
         };
         final state = _istihadahMode ? _FiqhState.istihadah : mappedState;
         final isCurrentlyBleeding =
@@ -325,8 +335,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     AppErrorReporter.report(
                                       error,
                                       stack,
-                                      context:
-                                          'DashboardScreen.onLogBirth',
+                                      context: 'DashboardScreen.onLogBirth',
                                       feature: 'pregnancy_profile',
                                     );
                                   }
@@ -434,7 +443,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 state: state,
                                 cycleDay: cycleDay!,
                                 madhhab:
-                                    MadhhabController.instance.selected.name,
+                                    MadhhabController
+                                        .instance
+                                        .selectedOrNull
+                                        ?.name ??
+                                    '',
                                 onLogBlood: () => showCycleLogSheet(
                                   context,
                                   viewModel: _viewModel,
@@ -1620,6 +1633,11 @@ class _CycleOverview extends StatelessWidget {
         state == _FiqhState.needsAdvisory || state == _FiqhState.istihadah;
     final isWaiting = isAdvisoryState && confirmAt != null;
     final needsConsult = isAdvisoryState && confirmAt == null;
+    // Fiqh Remediation Wave 1 (Section E): bleeding, but no Madhhab
+    // SELECTED — treated as its own "needs your input" case, distinct
+    // from `needsConsult` (which means "a madhhab is selected but this
+    // case needs a human"), never silently folded into tahara/haid.
+    final needsMadhhabSelection = state == _FiqhState.madhhabUnresolved;
     final averagePeriodLength = summary.averagePeriodLength;
     final message = switch (state) {
       _FiqhState.haid =>
@@ -1645,11 +1663,16 @@ class _CycleOverview extends StatelessWidget {
                 'نمط هذا النزيف يخرج عن الحدود المعتادة في مذهبك، يُنصح باستشارة مصدر موثوق.',
               ),
       _FiqhState.tahara => _nextSegmentMessage(segmentPlan, dayInActiveSegment),
+      _FiqhState.madhhabUnresolved => _l(
+        'Bleeding detected — select your Madhhab in Settings to see your Fiqh state.',
+        'تم رصد نزيف — يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حالتكِ الفقهية.',
+      ),
     };
-    final isNextSegmentArrow = !isWaiting && !needsConsult;
+    final isNextSegmentArrow =
+        !isWaiting && !needsConsult && !needsMadhhabSelection;
     final icon = isWaiting
         ? Icons.hourglass_top_rounded
-        : needsConsult
+        : needsConsult || needsMadhhabSelection
         ? Icons.info_outline_rounded
         : Icons.arrow_back_rounded;
     final iconWidget = Icon(icon, size: 18, color: state.color);
@@ -2743,6 +2766,12 @@ class _FiqhStateBanner extends StatelessWidget {
                 'This case is outside the basic tracking window and needs a case-specific review.',
                 'هذه الحالة خارج نطاق الحساب الأساسي وتحتاج إلى مراجعة خاصة بالحالة.',
               ),
+              // Fiqh Remediation Wave 1 (Section E): bleeding, but no
+              // Madhhab SELECTED — asked explicitly, never guessed.
+              _FiqhState.madhhabUnresolved => _l(
+                'Select your Madhhab in Settings to see your current Fiqh obligation.',
+                'يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حكمكِ الفقهي الحالي.',
+              ),
             },
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: AppColors.textPrimary,
@@ -3307,6 +3336,16 @@ enum _FiqhState {
     'Needs review',
     Color(0xFF9A6700),
     'This case needs a case-specific review.',
+  ),
+  // Fiqh Remediation Wave 1 (Section E): bleeding is occurring but no
+  // Madhhab is SELECTED (UNSET or UNKNOWN) — the app must ask, never
+  // guess. Same tertiary tone as `needsAdvisory`'s spirit ("this needs
+  // your input"), but a distinct state so it is never confused with an
+  // actual fiqh ruling.
+  madhhabUnresolved(
+    'Select your Madhhab',
+    Color(0xFF6B7280),
+    'Select your Madhhab to see your current Fiqh state.',
   );
 
   const _FiqhState(this.label, this.color, this.message);

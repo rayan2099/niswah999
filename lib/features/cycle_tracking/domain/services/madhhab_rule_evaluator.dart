@@ -1,6 +1,21 @@
 enum Madhhab { hanafi, maliki, shafii, hanbali }
 
-enum FiqhCycleState { insufficientHistory, tahara, haid, needsAdvisory }
+/// [madhhabUnresolved] (Fiqh Remediation Wave 1, AUTH-005/AUTH-010's
+/// Section E): the explicit, non-crashing, non-fabricating result for
+/// "the user is currently bleeding, but no madhhab is SELECTED (she is
+/// UNSET or UNKNOWN), so no fiqh classification can be produced without
+/// inventing one." Callers must render this as a clear "select your
+/// Madhhab to see this" state — never silently substitute [haid] under an
+/// assumed madhhab, and never crash. Not applicable to [tahara] (a user
+/// who isn't bleeding is pure regardless of madhhab), so a null/unresolved
+/// madhhab never blocks that determination.
+enum FiqhCycleState {
+  insufficientHistory,
+  tahara,
+  haid,
+  needsAdvisory,
+  madhhabUnresolved,
+}
 
 class MadhhabRuleResult {
   const MadhhabRuleResult({

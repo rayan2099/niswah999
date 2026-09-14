@@ -40,6 +40,12 @@ const NO_SOURCES_FALLBACK_AR =
   'تعذر الوصول إلى المصادر الموثقة الآن. لا يمكن إصدار توجيه فقهي آلي دون مصادر؛ يُرجى المحاولة لاحقاً أو سؤال عالِمة أو جهة إفتاء مؤهلة.';
 const NO_TRUSTED_CITATIONS_AR =
   'لم أجد مصادر فقهية موثقة وكافية لهذه الحالة. يُرجى عرض التفاصيل على عالِمة أو جهة إفتاء مؤهلة، ولا تعتمدي على إجابة آلية لاتخاذ حكم العبادة.';
+// Fiqh Remediation Wave 1 (Section E, extended to this AI-facing surface):
+// no madhhab is SELECTED yet (UNSET or UNKNOWN) — this function must never
+// invent one just to produce an answer. Calm, matches the onboarding
+// explanation's tone (Section H), never implies fault or pressure.
+const NO_MADHHAB_SELECTED_AR =
+  'لم تختاري مذهبكِ الفقهي بعد، لذا لا يمكن تقديم توجيه دقيق دون معرفته. يمكنكِ اختياره من الإعدادات، أو اختيار "لا أعرف مذهبي" إذا كنتِ غير متأكدة — سنساعدكِ في ذلك.';
 
 function buildSystemInstruction(madhhab: string): string {
   return `You are Niswah's Fiqh research assistant. The user's selected school is ${madhhab}.
@@ -106,7 +112,7 @@ Deno.serve(async (req) => {
       return limiterUnavailableResponse(corsHeaders);
     }
 
-    const { question, madhhab, clientFiqhState } = await req.json();
+    const { question, madhhab, madhhab_state: madhhabStateRaw, clientFiqhState } = await req.json();
     if (typeof question !== 'string' || !question.trim()) {
       return new Response(JSON.stringify({ error: 'question is required.' }), {
         status: 400,
@@ -119,6 +125,24 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
+
+    // Fiqh Remediation Wave 1 (Section F): madhhab_state distinguishes
+    // UNSET/UNKNOWN/SELECTED explicitly. An older client build that never
+    // sends madhhab_state at all is treated as the pre-existing contract
+    // (a plain madhhab string implies SELECTED) — every current client
+    // build sends it explicitly.
+    const madhhabState =
+      madhhabStateRaw === 'unset' || madhhabStateRaw === 'unknown' || madhhabStateRaw === 'selected'
+        ? madhhabStateRaw
+        : (typeof madhhab === 'string' && ALLOWED_MADHHABS.includes(madhhab) ? 'selected' : 'unset');
+
+    if (madhhabState !== 'selected') {
+      // Never call Gemini with an invented madhhab — an honest, calm,
+      // non-blocking degraded response instead (Section E/H).
+      return new Response(JSON.stringify({ text: NO_MADHHAB_SELECTED_AR, citations: [] }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     if (typeof madhhab !== 'string' || !ALLOWED_MADHHABS.includes(madhhab)) {
       return new Response(JSON.stringify({ error: 'madhhab must be one of: ' + ALLOWED_MADHHABS.join(', ') }), {
         status: 400,
@@ -128,6 +152,7 @@ Deno.serve(async (req) => {
 
     const userContext = await buildUserAiContext(userClient, {
       clientMadhhab: madhhab,
+      clientMadhhabState: madhhabState,
       clientFiqhState: typeof clientFiqhState === 'string' ? clientFiqhState : null,
     });
     const systemInstruction = `${buildSystemInstruction(madhhab)}\n\n${formatContextBlock(userContext, 'fiqh_advisor')}`;
