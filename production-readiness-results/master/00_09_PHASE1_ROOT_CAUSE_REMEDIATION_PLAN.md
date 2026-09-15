@@ -6019,7 +6019,7 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 16. **iOS CI result**: PASS (4m19s, same run).
 17. **PR #1 mergeability**: `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN` — all 4 required checks green, no conflicts.
 18. **`BR-002` status**: remains `VERIFIED_CLOSED` — this pass fixed and re-verified a reconstruction-order regression in its own validation mechanism, explicitly not classified as production schema corruption or a reopening of the underlying finding.
-19. **Final commit SHA**: recorded in this wave's own addendum commit immediately following.
-20. **Local == upstream verification**: to be confirmed in the same addendum commit.
+19. **Final commit SHA**: `e79e0373500abf0619efa30a79d663de0789ae51` (`docs: record BR-002 CI harness repair as a regression, not schema corruption`).
+20. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `e79e0373500abf0619efa30a79d663de0789ae51` after push.
 
 **Per explicit instruction: PR #1 was NOT merged this pass**, despite now showing fully green CI and `CLEAN` mergeability — that decision remains the owner's own action on GitHub, whenever they're ready.
