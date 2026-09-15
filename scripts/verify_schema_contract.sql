@@ -83,3 +83,108 @@ FROM retired_objects ro
 LEFT JOIN information_schema.tables t
   ON t.table_schema = 'public' AND t.table_name = ro.name
 ORDER BY 3 DESC, 1, 2;
+
+-- ============================================================
+-- Madhhab Authority Model contract (AUTH-005 / AUTH-010, extended by the
+-- BR-002 CI Migration-Reproducibility Repair wave, 2026-09-15).
+--
+-- The checks above only prove the historical baseline's own objects
+-- exist — they say nothing about whether the *active migrations* that
+-- run on top of it (supabase/migrations/20260914120000_.../20260914120100_...)
+-- actually took effect in a fresh rebuild. This section closes that gap:
+-- it verifies the reconstructed schema reflects the CURRENT expected
+-- state (a real UNSET/UNKNOWN/SELECTED authority model, no silent
+-- Hanbali default), not just the baseline's own pre-remediation shape.
+-- Existing checks above are unchanged, not removed, per instruction.
+-- ============================================================
+
+-- Column shape: madhhab_selection_state is NOT NULL with a real 'unset'
+-- default; madhhab is nullable with NO default at all (nothing left to
+-- silently fall back to).
+SELECT 'COLUMN PROPERTY' AS object_type,
+       'users.madhhab_selection_state.not_null' AS name,
+       CASE WHEN c.is_nullable = 'NO' THEN 'OK' ELSE 'FAIL - SHOULD BE NOT NULL' END AS status
+FROM information_schema.columns c
+WHERE c.table_schema = 'public' AND c.table_name = 'users' AND c.column_name = 'madhhab_selection_state'
+UNION ALL
+SELECT 'COLUMN PROPERTY', 'users.madhhab_selection_state.default_unset',
+       CASE WHEN c.column_default ILIKE '%unset%' THEN 'OK'
+            ELSE 'FAIL - WRONG/MISSING DEFAULT: ' || COALESCE(c.column_default, 'NULL') END
+FROM information_schema.columns c
+WHERE c.table_schema = 'public' AND c.table_name = 'users' AND c.column_name = 'madhhab_selection_state'
+UNION ALL
+SELECT 'COLUMN PROPERTY', 'users.madhhab.nullable',
+       CASE WHEN c.is_nullable = 'YES' THEN 'OK' ELSE 'FAIL - SHOULD BE NULLABLE' END
+FROM information_schema.columns c
+WHERE c.table_schema = 'public' AND c.table_name = 'users' AND c.column_name = 'madhhab'
+UNION ALL
+SELECT 'COLUMN PROPERTY', 'users.madhhab.no_silent_default',
+       CASE WHEN c.column_default IS NULL THEN 'OK'
+            ELSE 'FAIL - SILENT DEFAULT STILL PRESENT: ' || c.column_default END
+FROM information_schema.columns c
+WHERE c.table_schema = 'public' AND c.table_name = 'users' AND c.column_name = 'madhhab';
+
+-- Constraint presence (the 3 new constraints) and absence (the legacy
+-- uppercase-only constraint the follow-up migration drops).
+WITH required_constraints(name) AS (
+  VALUES
+    ('users_madhhab_selection_state_check'),
+    ('users_madhhab_value_check'),
+    ('users_madhhab_state_consistency_check')
+),
+retired_constraints(name) AS (
+  VALUES
+    ('users_madhhab_check')  -- legacy UPPERCASE-only constraint; must be dropped
+)
+SELECT 'CONSTRAINT' AS object_type, rc.name AS name,
+       CASE WHEN pc.conname IS NULL THEN 'FAIL - MISSING' ELSE 'OK' END AS status
+FROM required_constraints rc
+LEFT JOIN pg_constraint pc ON pc.conname = rc.name
+UNION ALL
+SELECT 'RETIRED CONSTRAINT (must be absent)', rc.name,
+       CASE WHEN pc.conname IS NOT NULL THEN 'FAIL - SHOULD NOT EXIST (blocks every real lowercase save)' ELSE 'OK' END
+FROM retired_constraints rc
+LEFT JOIN pg_constraint pc ON pc.conname = rc.name;
+
+-- Constraint *logic*, not just presence — substring checks rather than an
+-- exact-text match, since Postgres may reformat CHECK expressions
+-- (e.g. IN (...) vs = ANY (ARRAY[...])) without changing their meaning.
+-- Verifies the actual applied constraint encodes the right states/values,
+-- not merely that a same-named constraint exists.
+SELECT 'CONSTRAINT LOGIC' AS object_type,
+       'users_madhhab_selection_state_check.covers_all_3_states' AS name,
+       CASE WHEN pg_get_constraintdef(oid) ILIKE '%unset%'
+             AND pg_get_constraintdef(oid) ILIKE '%unknown%'
+             AND pg_get_constraintdef(oid) ILIKE '%selected%'
+            THEN 'OK' ELSE 'FAIL - DOES NOT REFERENCE ALL 3 STATES: ' || pg_get_constraintdef(oid) END AS status
+FROM pg_constraint WHERE conname = 'users_madhhab_selection_state_check'
+UNION ALL
+SELECT 'CONSTRAINT LOGIC', 'users_madhhab_value_check.allows_null_and_lowercase_schools',
+       CASE WHEN pg_get_constraintdef(oid) ILIKE '%madhhab IS NULL%'
+             AND pg_get_constraintdef(oid) LIKE '%hanafi%'   -- case-sensitive: must be lowercase
+             AND pg_get_constraintdef(oid) LIKE '%hanbali%'  -- case-sensitive: must be lowercase
+            THEN 'OK' ELSE 'FAIL - DOES NOT ALLOW NULL + LOWERCASE SCHOOLS: ' || pg_get_constraintdef(oid) END
+FROM pg_constraint WHERE conname = 'users_madhhab_value_check'
+UNION ALL
+SELECT 'CONSTRAINT LOGIC', 'users_madhhab_state_consistency_check.selected_requires_value',
+       CASE WHEN pg_get_constraintdef(oid) ILIKE '%selected%' AND pg_get_constraintdef(oid) ILIKE '%IS NOT NULL%'
+             AND pg_get_constraintdef(oid) ILIKE '%IS NULL%'
+            THEN 'OK' ELSE 'FAIL - DOES NOT TIE selected TO A REQUIRED VALUE: ' || pg_get_constraintdef(oid) END
+FROM pg_constraint WHERE conname = 'users_madhhab_state_consistency_check';
+
+-- create_user_profile()'s actual applied body — proves the fresh-rebuild
+-- function matches the migration's replacement, not the baseline's
+-- original hardcoded-Hanbali version (which the migration's own
+-- CREATE OR REPLACE must have overridden when applied in the correct
+-- order, baseline-then-migrations).
+SELECT 'FUNCTION BODY' AS object_type, 'create_user_profile.no_hardcoded_HANBALI' AS name,
+       CASE WHEN pg_get_functiondef(p.oid) LIKE '%HANBALI%'
+            THEN 'FAIL - HARDCODED HANBALI STILL PRESENT (baseline version, not migrated)'
+            ELSE 'OK' END AS status
+FROM pg_proc p WHERE p.proname = 'create_user_profile'
+UNION ALL
+SELECT 'FUNCTION BODY', 'create_user_profile.sets_madhhab_selection_state_unset',
+       CASE WHEN pg_get_functiondef(p.oid) ILIKE '%madhhab_selection_state%'
+             AND pg_get_functiondef(p.oid) ILIKE '%''unset''%'
+            THEN 'OK' ELSE 'FAIL - DOES NOT SET madhhab_selection_state TO unset' END
+FROM pg_proc p WHERE p.proname = 'create_user_profile';
