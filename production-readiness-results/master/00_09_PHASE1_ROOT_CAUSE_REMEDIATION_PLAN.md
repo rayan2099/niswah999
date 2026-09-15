@@ -5972,5 +5972,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 24. **current remaining blockers**: whole-app — `DC-010` (iOS signing, owner-blocked), `PC-006` (legal/counsel), `AUTH-001` (confirmation-fallback, owner DNS). Fiqh-feature — `FIQH-8`/`FIQH-9` (Knowledge Base/Scholar Review, unchanged, out of scope). Merge-specific — the CI infrastructure issue (Section 4) is newly flagged, not yet resolved, and is not itself one of this engagement's numbered findings; recommended for the owner's own GitHub/billing review, out of this session's access.
 25. **overall verdict**: reconciliation is **safe and ready** on every check this session can perform (topology, diff, secrets, migrations, local analyze/test, static presence) — the sole thing standing between "ready" and "merged" is CI's own red status and the owner's resulting decision on how to proceed, not any defect found in `terminal` itself.
 
-**Final commit SHA**: recorded in this wave's own addendum commit immediately following.
-**Local == upstream verification**: to be confirmed in the same addendum commit, via `git rev-parse HEAD`/`git rev-parse origin/terminal` after push.
+**Final commit SHA**: `0820ccf0169a39a587325f6251377ea5d2ffb4bb` (`docs: reconcile release branches, correct AUTH-010 evidence classification`).
+**Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `0820ccf0169a39a587325f6251377ea5d2ffb4bb` after push.
