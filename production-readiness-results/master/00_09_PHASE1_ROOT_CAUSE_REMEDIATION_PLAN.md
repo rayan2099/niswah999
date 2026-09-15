@@ -6089,6 +6089,6 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 25. **Logout/login result**: not performed live; the equivalent existing automated tests re-run and pass, plus the new logout-mid-flight test (H) covers the specific race this investigation added.
 26. **Full regression result**: `flutter analyze` clean (0 errors, same 43 pre-existing baseline info-level issues); `flutter test` 505/515 passing, the same 10 pre-existing golden-image failures by name, 0 new failures.
 27. **Finding status**: `AUTH-012` — `REMEDIATED — E2_AUTOMATED_VERIFIED`, owner E4 retest required for closure (specifically on the same currently-stuck device, not a fresh install, per the charter's own instruction).
-28. **PR status**: recorded once opened — see the addendum immediately following this Consolidated Report.
-29. **Final commit SHA**: recorded in this wave's own addendum commit immediately following.
+28. **PR status**: recorded in the addendum immediately following this Consolidated Report, once opened.
+29. **Final commit SHA**: `415c73da6136cef6efe4f24520ee964b4d7948c0` (`fix: replace ambiguous null onboarding-status contract with explicit states`).
 30. **Exact owner E4 retest**: the 4-step script in `docs/final-owner-launch-checklist.md`'s new Startup Recovery Handoff section — update to the latest code on the *same* stuck device (no wipe/reinstall), observe whether it now resolves directly or shows the new recoverable error screen, and confirm Retry/Sign out both lead to a real screen, never another indefinite spinner.
