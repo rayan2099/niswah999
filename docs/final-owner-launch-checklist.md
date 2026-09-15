@@ -6,6 +6,14 @@ Produced by the Final Pre-Owner-Action Readiness Consolidation wave, 2026-09-07.
 
 ---
 
+## 🔴 Read this first, 2026-09-15 — your real-device Madhhab retest failed, and the root cause changes what "complete" above means
+
+Your retest of the Madhhab fix showed only the original 4 choices on a real phone — a genuine FAIL, not a false alarm. The code itself was re-checked and re-tested and is correct. The reason your phone didn't show it: **this entire project's work — everything in this document, everything ever fixed across the whole engagement — has been committed only to a working copy of the code that has never been sent to wherever your real app builds are produced from.** GitHub's own "main" copy has been frozen since before this project started; the working copy is 97 commits ahead of it, with nothing ever merged. Your phone has, in effect, never run any fix from this entire project.
+
+**What this means practically**: every "done, just needs your retest" item below is genuinely done in the code, but a retest against your current app build will very likely still fail — not because the fix is wrong, but because your build doesn't contain it. **This needs one decision from you: how you'd like the finished work delivered to your actual build pipeline** (a one-time review-and-merge into `main` is the standard way; there are other options too). Nothing here was merged or changed on your behalf — that's a decision for you, not something to make unilaterally on shared project state. Once it's resolved, every retest in this document becomes meaningful again, and none of the underlying fixes need to be redone.
+
+---
+
 ## 🟢 RESOLVED — production AI outage (2026-09-08 → 2026-09-09), read this for the incident record
 
 **All 4 AI features returned `503` to every real user in production for a window on 2026-09-08/09.** Discovered as a side effect of live testing during the AI User-State Context Layer wave: the `W1-001` rate-limiter's database objects (`ai_rate_limit_counters` table, `check_and_increment_ai_rate_limit()` function) were found completely absent from production, confirmed via three independent read-only checks. This was *not* a full database rollback — a synthetic row created seconds earlier in the same investigation was present and current, and all other tables/data were intact — only these specific `W1-001` objects were gone.
@@ -380,6 +388,8 @@ Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md
 
 ## Madhhab Authority Handoff (new, 2026-09-14, Fiqh Remediation Wave 1) — `AUTH-005` / `AUTH-010`, `E3`/`E2` DONE, `E4` NEEDS YOU
 
+**🔴 Update, 2026-09-15 — you ran the retest below and it FAILED: your phone showed only the original 4 choices, no "I don't know" option.** This is a real result and both findings are now correctly `REOPENED` in the finding register, not held at their prior `E3`/`E2` status. The investigation that followed found the cause is not a defect in the fix itself: the code was re-read line by line and its full automated test suite re-run, both confirming the fix is genuinely present and correct in this project's working copy. The actual problem is bigger — **this project's entire body of work (97 rounds of changes, everything ever fixed in this whole engagement) has been sitting on a working copy of the code that has never been sent to wherever your real app builds come from.** GitHub's own "main" copy of the project has been frozen since before this project began. So the app on your phone was never running any of this project's fixes — the Madhhab screen just happened to be the first place that became visible to you. **Nothing below should be retested again until that delivery gap is resolved** — a retest against the same undelivered code would only reproduce the same FAIL for the same reason, telling us nothing new. This needs a decision from you on how you'd like the finished work delivered to your real build pipeline (a one-time review-and-merge is the usual way); once that's done, both findings are ready for an immediate real retest with no further code changes expected.
+
 **What changed**: your madhhab selection is now genuinely durable — it lives on the server (`public.users`), not only on your phone — and the exact spot that used to silently assume "Hanbali" whenever nothing was saved has been removed everywhere it was found, including a spot inside the database itself (the signup trigger) that had been doing this for every new account since the column existed. Separately, onboarding's Madhhab question now has a real 5th option — "I don't know my Madhhab" — with a calm explanation, a genuine confirmation-gated suggestion (asks your country, suggests a likely school, saves nothing until you explicitly say yes), and an "I'll decide later" path that's remembered as its own real state, never silently turned into a guess. You can also change your madhhab later from Settings, including switching to "I don't know."
 
 **Why this needed a real database change, not just an app update**: your production database had `madhhab` as a required text column defaulting to `'HANBALI'` for every new signup — that default was never a real choice, just an unused placeholder nobody had gotten around to removing. A new migration adds a proper `madhhab_selection_state` column (`unset`/`unknown`/`selected`) and makes `madhhab` itself optional, so "nobody has answered yet" and "she said she doesn't know" can each be recorded honestly, never collapsed into "Hanbali" or into each other. **One thing found and fixed along the way, not anticipated going in**: your database already had a second, undocumented rule left over from earlier development requiring `madhhab` to be one of 4 *UPPERCASE* values, which would have silently rejected every real save the app makes (which uses lowercase) — found and removed during this session's own verification, before it could cause a real failure for a real user.
@@ -428,6 +438,28 @@ Report PASS/FAIL for each of the 4 items — if anything fails, note exactly whi
 Report PASS/FAIL for each — if you still see the tiny-speck behavior anywhere, please note exactly which button and, if possible, whether the app was just freshly reinstalled or had been open for a while beforehand (that detail would help pin down whether this is a stale-build issue). If both pass, `UI-001` closes as `VERIFIED_CLOSED / E4`.
 
 </details>
+
+---
+
+## Location Confirmation Handoff (new, 2026-09-15, Live Onboarding Contradiction Investigation) — `AUTH-011`, `E2` DONE, `E4` NEEDS YOU
+
+**What you reported**: tapping "استخدام موقعي الحالي" (Use Current Location) during onboarding seemed tappable but didn't appear to detect anything, and onboarding seemed to just continue/skip internally with no clear confirmation a location had actually been obtained.
+
+**What this session found**: the underlying location detection and saving was already working correctly — it genuinely checks whether location services are on, genuinely asks for permission, genuinely gets a real GPS position, and genuinely saves it. The defect was entirely in what you saw (or rather, didn't see): the screen advanced to the next onboarding question the instant it succeeded, with no message, no checkmark, nothing — so a successful detection and a silently broken one looked identical to you. The same gap existed for tapping any of the 6 city buttons (Riyadh, Jeddah, Makkah, Madinah, Dubai, Cairo) — each one already saved correctly, but advanced with no visible confirmation either.
+
+**What was fixed**: the Location step now shows a real, always-visible status message: a spinner and "Detecting your location…" while it's working, a checkmark and "Location confirmed: [Current location / the city you picked]" for about three-quarters of a second once it succeeds, and a plain error message if location services are off or permission is denied (in addition to the brief on-screen banner you already got before). While a detection is in progress, the other buttons are disabled so you can't accidentally trigger two things at once. Tapping "Skip for now" (تخطي الآن) still works exactly as before — it never pretends a location was set.
+
+**Distinct from an older, already-known issue**: your saved prayer location still doesn't yet survive a full reinstall or a new phone (tracked separately as `AUTH-006`, still open) — that's a different problem (nothing is wrong with your phone's saving in this specific session, it just doesn't yet get backed up to the server), and fixing the confirmation message above did not fix that. Both are real, but they're separate.
+
+**What this session could not do**: test an actual real GPS fix on real hardware — no phone or emulator with real location hardware was available in this environment. The detecting → confirmed flow was proven correct using a simulated location service standing in for a real one, which lets the whole on-screen behavior be verified without guessing, but the very last link — an actual satellite/network location fix on your actual phone — still needs your own test.
+
+**Your test, once you have a moment** (about 3 minutes):
+
+1. **Use current location**: On the Location onboarding step (or wherever you can reach it), tap "Use current location." Confirm you see a spinner with "Detecting your location…" text, then — once it finishes — a checkmark with a message telling you your location was confirmed, before the app moves on. If your phone denies permission or has location services off, confirm you see a clear error message instead of nothing happening.
+2. **A city button**: Tap any one of the 6 city buttons (e.g. Jeddah). Confirm you see its own "Location confirmed: Jeddah" message before the app moves on.
+3. **Skip still works**: On a fresh run, confirm tapping "Skip for now" moves on immediately without showing any "confirmed" message.
+
+Report PASS/FAIL for each — if the "Use current location" step never resolves at all (spinner never stops), please note how long you waited and whether you were asked for location permission. If all 3 pass, `AUTH-011` closes as `VERIFIED_CLOSED / E4`.
 
 ---
 

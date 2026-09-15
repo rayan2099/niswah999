@@ -1,14 +1,60 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/preferences/madhhab_controller.dart';
 import 'package:niswah/core/preferences/marital_status_controller.dart';
+import 'package:niswah/core/preferences/prayer_location_controller.dart';
 import 'package:niswah/features/auth/presentation/screens/sign_in_screen.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/cycle_calculation_service.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import 'package:niswah/features/onboarding/presentation/screens/onboarding_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Live Onboarding Contradiction Investigation (Section 13): a fake
+/// [GeolocatorPlatform] so the real GPS-success and permission/service
+/// failure paths can be exercised without a device or emulator, per the
+/// charter's own explicit allowance ("still verify the callback/state
+/// machine with a mocked location service").
+class _FakeGeolocatorPlatform extends GeolocatorPlatform {
+  _FakeGeolocatorPlatform({
+    this.serviceEnabled = true,
+    this.permission = LocationPermission.whileInUse,
+  });
+
+  bool serviceEnabled;
+  LocationPermission permission;
+
+  static final _defaultPosition = Position(
+    latitude: 24.7136,
+    longitude: 46.6753,
+    timestamp: DateTime.utc(2026, 1, 1),
+    accuracy: 0,
+    altitude: 0,
+    altitudeAccuracy: 0,
+    heading: 0,
+    headingAccuracy: 0,
+    speed: 0,
+    speedAccuracy: 0,
+  );
+
+  @override
+  Future<bool> isLocationServiceEnabled() async => serviceEnabled;
+
+  @override
+  Future<LocationPermission> checkPermission() async => permission;
+
+  @override
+  Future<LocationPermission> requestPermission() async => permission;
+
+  @override
+  Future<Position> getCurrentPosition({
+    LocationSettings? locationSettings,
+  }) async => _defaultPosition;
+}
 
 void main() {
   testWidgets(
@@ -879,4 +925,243 @@ void main() {
       },
     );
   });
+
+  group('Live Onboarding Contradiction Investigation — Location UX state '
+      'machine (Sections 6/9/10/11/13)', () {
+    late GeolocatorPlatform originalPlatform;
+
+    setUp(() {
+      originalPlatform = GeolocatorPlatform.instance;
+      SharedPreferences.setMockInitialValues({});
+      AppLocaleController.instance.setArabic(false);
+    });
+
+    tearDown(() {
+      GeolocatorPlatform.instance = originalPlatform;
+    });
+
+    testWidgets(
+      'idle: arriving at the Location step shows no confirmation banner',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+          ),
+        );
+
+        expect(find.text('Where are you located?'), findsOneWidget);
+        expect(find.textContaining('Location confirmed'), findsNothing);
+        expect(find.text('Detecting your location…'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      '"Use current location" success: shows detecting, then a visible '
+      'confirmation, before advancing — never a silent skip',
+      (tester) async {
+        final completer = Completer<Position>();
+        GeolocatorPlatform.instance = _HangingGeolocatorPlatform(completer);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+          ),
+        );
+
+        await tester.tap(find.text('Use current location'));
+        await tester.pump();
+        expect(
+          find.text('Detecting your location…'),
+          findsOneWidget,
+          reason: 'a slow GPS fix must not look like a dead tap',
+        );
+        expect(find.text('When did your last period start?'), findsNothing);
+
+        completer.complete(_FakeGeolocatorPlatform._defaultPosition);
+        await tester.pump();
+        expect(
+          find.text('Location confirmed: Current location'),
+          findsOneWidget,
+          reason:
+              'success must be visibly confirmed, not just silently '
+              'advance to the next step',
+        );
+        expect(find.text('When did your last period start?'), findsNothing);
+
+        await tester.pump(const Duration(milliseconds: 700));
+        expect(
+          find.text('When did your last period start?'),
+          findsOneWidget,
+          reason: 'a confirmed location must still advance onward',
+        );
+      },
+    );
+
+    testWidgets('"Use current location" — location services disabled shows a '
+        'real, visible error, not a silent no-op', (tester) async {
+      GeolocatorPlatform.instance = _FakeGeolocatorPlatform(
+        serviceEnabled: false,
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 4)),
+      );
+
+      await tester.tap(find.text('Use current location'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Turn on location services to use your current location.'),
+        findsWidgets,
+      );
+      expect(find.text('When did your last period start?'), findsNothing);
+    });
+
+    testWidgets(
+      '"Use current location" — permission denied shows a real, visible '
+      'error, not a silent no-op',
+      (tester) async {
+        GeolocatorPlatform.instance = _FakeGeolocatorPlatform(
+          permission: LocationPermission.denied,
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+          ),
+        );
+
+        await tester.tap(find.text('Use current location'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Location permission denied — pick a city instead.'),
+          findsWidgets,
+        );
+        expect(find.text('When did your last period start?'), findsNothing);
+      },
+    );
+
+    testWidgets('tapping a popular-city chip persists it and shows a visible '
+        'confirmation before advancing — no city button is decorative-only', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 4)),
+      );
+
+      await tester.tap(find.text('Riyadh'));
+      await tester.pump();
+      expect(find.text('Location confirmed: Riyadh'), findsOneWidget);
+      expect(
+        PrayerLocationController.instance.selectedOrNull,
+        PrayerLocationController.presets.firstWhere((p) => p.label == 'Riyadh'),
+        reason:
+            'the tapped city must actually be persisted, not just '
+            'displayed',
+      );
+
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.text('When did your last period start?'), findsOneWidget);
+    });
+
+    testWidgets(
+      'Arabic: a popular-city chip shows its Arabic confirmation label',
+      (tester) async {
+        AppLocaleController.instance.setArabic(true);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+          ),
+        );
+
+        await tester.tap(find.text('دبي'));
+        await tester.pump();
+        expect(find.text('تم تحديد موقعكِ: دبي'), findsOneWidget);
+
+        await tester.pump(const Duration(milliseconds: 700));
+        AppLocaleController.instance.setArabic(false);
+      },
+    );
+
+    testWidgets(
+      'Skip is the only deliberate skip path: it advances immediately '
+      'and never fakes a detected/selected location',
+      (tester) async {
+        await PrayerLocationController.instance.select(
+          PrayerLocationController.presets.firstWhere(
+            (p) => p.label == 'Jeddah',
+          ),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+          ),
+        );
+
+        expect(find.textContaining('Location confirmed'), findsNothing);
+        await tester.tap(find.text('Skip for now'));
+        await tester.pump();
+
+        expect(find.text('When did your last period start?'), findsOneWidget);
+        expect(
+          PrayerLocationController.instance.selectedOrNull?.label,
+          'Jeddah',
+          reason: 'Skip must never overwrite or fake a location selection',
+        );
+      },
+    );
+
+    testWidgets(
+      'while detecting, city chips and Skip are disabled — no competing '
+      'action can race the in-flight detection',
+      (tester) async {
+        final completer = Completer<Position>();
+        GeolocatorPlatform.instance = _HangingGeolocatorPlatform(completer);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 4),
+          ),
+        );
+
+        await tester.tap(find.text('Use current location'));
+        await tester.pump();
+        expect(find.text('Detecting your location…'), findsOneWidget);
+
+        await tester.tap(find.text('Skip for now'));
+        await tester.pump();
+        expect(
+          find.text('Where are you located?'),
+          findsOneWidget,
+          reason: 'Skip must be inert while a detection is in flight',
+        );
+
+        completer.complete(_FakeGeolocatorPlatform._defaultPosition);
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+      },
+    );
+  });
+}
+
+/// A [GeolocatorPlatform] whose [getCurrentPosition] stays pending until the
+/// test explicitly completes it — used to prove the Location step's controls
+/// are truly disabled during an in-flight detection, not just slow.
+class _HangingGeolocatorPlatform extends GeolocatorPlatform {
+  _HangingGeolocatorPlatform(this._completer);
+  final Completer<Position> _completer;
+
+  @override
+  Future<bool> isLocationServiceEnabled() async => true;
+
+  @override
+  Future<LocationPermission> checkPermission() async =>
+      LocationPermission.whileInUse;
+
+  @override
+  Future<LocationPermission> requestPermission() async =>
+      LocationPermission.whileInUse;
+
+  @override
+  Future<Position> getCurrentPosition({LocationSettings? locationSettings}) =>
+      _completer.future;
 }

@@ -7,6 +7,7 @@ import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
@@ -39,6 +40,21 @@ enum _MadhhabSubStep {
   helpAskCountry,
   helpSuggestion,
 }
+
+/// Live Onboarding Contradiction Investigation — Location UX contract
+/// (Sections 6/9): the Location step's prior behavior called
+/// `PrayerLocationController.select`/`useDeviceLocation` and immediately
+/// advanced to the next step with zero visible confirmation — detection
+/// and persistence both genuinely worked, but nothing on screen ever told
+/// the user that, which is indistinguishable from the button silently
+/// doing nothing. This explicit state makes every phase visible:
+/// [idle] (nothing attempted yet), [detecting] (a real GPS fix is in
+/// flight — shown so a slow first fix doesn't look like a dead tap),
+/// [selected] (a location — current-location or a tapped city — was just
+/// confirmed; shown briefly before advancing), [error] (service
+/// disabled/permission denied/other failure — already had a real
+/// SnackBar message; this adds a matching on-screen state too).
+enum _LocationStatus { idle, detecting, selected, error }
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -78,6 +94,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String _madhhabHelpCountry = '';
   MadhhabSuggestion? _madhhabSuggestion;
   bool? _isMarried;
+  _LocationStatus _locationStatus = _LocationStatus.idle;
+  String? _confirmedLocationLabel;
+  String? _locationErrorMessage;
   DateTime? _periodDate;
   double _haidLength = 5;
   bool _anonymous = false;
@@ -215,10 +234,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onNext: _isMarried == null ? null : _next,
     ),
     4 => _Location(
-      onSelected: (location) =>
-          PrayerLocationController.instance.select(location),
-      onUseCurrentLocation: () => _useDeviceLocation(),
-      onNext: _next,
+      status: _locationStatus,
+      confirmedLabel: _confirmedLocationLabel,
+      errorMessage: _locationErrorMessage,
+      onSelectCity: _selectCityLocation,
+      onUseCurrentLocation: _useDeviceLocation,
+      onSkip: _next,
     ),
     5 => _LastPeriod(
       selected: _periodDate,
@@ -425,50 +446,83 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     widget.onFinished();
   }
 
+  /// Live Onboarding Contradiction Investigation — Location UX contract
+  /// (Section 6): tapping a preset city is a real, explicit selection —
+  /// persisted immediately via `PrayerLocationController.select` (already
+  /// correct before this fix) — but previously advanced to the next step
+  /// with no visible confirmation of *which* city had just been chosen.
+  /// Now shows a brief, real "selected" state (Section 9) before
+  /// advancing, matching the same contract as device-location detection
+  /// below, so no location-setting action in this step is silent.
+  Future<void> _selectCityLocation(PrayerLocation preset) async {
+    await PrayerLocationController.instance.select(preset);
+    if (!mounted) return;
+    setState(() {
+      _locationStatus = _LocationStatus.selected;
+      _confirmedLocationLabel = prayerLocationLabel(preset, isArabic: _arabic);
+    });
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (mounted) _next();
+  }
+
+  /// Live Onboarding Contradiction Investigation — Location UX contract
+  /// (Sections 6/9): detection and persistence were already correct
+  /// (`PrayerLocationController.useDeviceLocation` genuinely requests
+  /// permission, gets a real GPS fix, and persists it) — the defect was
+  /// that success advanced to the next step immediately, with **no**
+  /// visible confirmation of what was detected, which looks identical to
+  /// the button silently doing nothing. This now shows an explicit
+  /// `detecting` state while the request is in flight (so a slow first
+  /// GPS fix doesn't look like a dead tap either) and a `selected`
+  /// confirmation before advancing. Failure paths already had a real
+  /// SnackBar message (unchanged) — this adds a matching on-screen state
+  /// so failure is visible even if the SnackBar is missed/dismissed.
   Future<void> _useDeviceLocation() async {
+    setState(() {
+      _locationStatus = _LocationStatus.detecting;
+      _locationErrorMessage = null;
+    });
     try {
       await PrayerLocationController.instance.useDeviceLocation();
+      if (!mounted) return;
+      setState(() {
+        _locationStatus = _LocationStatus.selected;
+        _confirmedLocationLabel = _tr('Current location', 'الموقع الحالي');
+      });
+      await Future.delayed(const Duration(milliseconds: 700));
       if (mounted) _next();
     } on LocationServiceDisabled {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _tr(
-                'Turn on location services to use your current location.',
-                'فعّلي خدمة الموقع لاستخدام موقعكِ الحالي.',
-              ),
-            ),
-          ),
-        );
-      }
+      _showLocationError(
+        _tr(
+          'Turn on location services to use your current location.',
+          'فعّلي خدمة الموقع لاستخدام موقعكِ الحالي.',
+        ),
+      );
     } on LocationPermissionDenied {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _tr(
-                'Location permission denied — pick a city instead.',
-                'تم رفض إذن الموقع، يمكنكِ اختيار مدينة بدلاً من ذلك.',
-              ),
-            ),
-          ),
-        );
-      }
+      _showLocationError(
+        _tr(
+          'Location permission denied — pick a city instead.',
+          'تم رفض إذن الموقع، يمكنكِ اختيار مدينة بدلاً من ذلك.',
+        ),
+      );
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _tr(
-                'Unable to get your location right now.',
-                'تعذر تحديد موقعكِ الآن.',
-              ),
-            ),
-          ),
-        );
-      }
+      _showLocationError(
+        _tr(
+          'Unable to get your location right now.',
+          'تعذر تحديد موقعكِ الآن.',
+        ),
+      );
     }
+  }
+
+  void _showLocationError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _locationStatus = _LocationStatus.error;
+      _locationErrorMessage = message;
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Best-effort: onboarding doesn't block progress on this write — the
@@ -844,13 +898,23 @@ class _MadhhabHelpSuggestion extends StatelessWidget {
 
 class _Location extends StatelessWidget {
   const _Location({
-    required this.onSelected,
+    required this.status,
+    required this.confirmedLabel,
+    required this.errorMessage,
+    required this.onSelectCity,
     required this.onUseCurrentLocation,
-    required this.onNext,
+    required this.onSkip,
   });
-  final ValueChanged<PrayerLocation> onSelected;
+  final _LocationStatus status;
+  final String? confirmedLabel;
+  final String? errorMessage;
+  final ValueChanged<PrayerLocation> onSelectCity;
   final VoidCallback onUseCurrentLocation;
-  final VoidCallback onNext;
+  final VoidCallback onSkip;
+
+  bool get _busy =>
+      status == _LocationStatus.detecting || status == _LocationStatus.selected;
+
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
@@ -864,10 +928,22 @@ class _Location extends StatelessWidget {
         ),
         style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
       ),
-      const SizedBox(height: 26),
+      const SizedBox(height: 18),
+      // Live Onboarding Contradiction Investigation (Sections 6/9): the
+      // one always-visible status region for this step — every location-
+      // setting action (device detection or a city tap) reports here, so
+      // nothing can look like a silent no-op the way the original
+      // immediate-advance behavior did.
+      _LocationStatusBanner(status: status, confirmedLabel: confirmedLabel),
+      const SizedBox(height: 18),
       FilledButton.icon(
-        onPressed: onUseCurrentLocation,
-        icon: const Icon(Icons.navigation_rounded),
+        onPressed: _busy ? null : onUseCurrentLocation,
+        icon: status == _LocationStatus.detecting
+            ? const NiswahLoadingIndicator(
+                size: NiswahLoadingSize.small,
+                contrast: NiswahLoadingContrast.dark,
+              )
+            : const Icon(Icons.navigation_rounded),
         label: Text(_tr('Use current location', 'استخدام موقعي الحالي')),
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(54),
@@ -901,19 +977,108 @@ class _Location extends StatelessWidget {
                   isArabic: AppLocaleController.instance.isArabic,
                 ),
               ),
-              onPressed: () {
-                onSelected(preset);
-                onNext();
-              },
+              onPressed: _busy ? null : () => onSelectCity(preset),
             ),
         ],
       ),
       const SizedBox(height: 22),
       TextButton(
-        onPressed: onNext,
+        onPressed: _busy ? null : onSkip,
         child: Text(_tr('Skip for now', 'تخطي الآن')),
       ),
     ],
+  );
+}
+
+/// Live Onboarding Contradiction Investigation (Sections 6/9): the single
+/// always-visible confirmation region — renders nothing for [idle] (no
+/// action attempted yet, no reason to occupy space), a real in-flight
+/// spinner + "detecting" text for [detecting], a checkmark + the exact
+/// resolved label for [selected], and the same error text already shown
+/// in the SnackBar for [error] (so the failure is visible even if the
+/// SnackBar is missed or already dismissed).
+class _LocationStatusBanner extends StatelessWidget {
+  const _LocationStatusBanner({
+    required this.status,
+    required this.confirmedLabel,
+  });
+  final _LocationStatus status;
+  final String? confirmedLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (status) {
+      case _LocationStatus.idle:
+        return const SizedBox.shrink();
+      case _LocationStatus.detecting:
+        return _banner(
+          color: AppColors.textSecondary,
+          background: const Color(0xFFF3F4F6),
+          icon: const NiswahLoadingIndicator(
+            size: NiswahLoadingSize.small,
+            contrast: NiswahLoadingContrast.dark,
+          ),
+          text: _tr('Detecting your location…', 'جارٍ تحديد موقعكِ…'),
+        );
+      case _LocationStatus.selected:
+        return _banner(
+          color: AppColors.tahara,
+          background: const Color(0xFFECFDF5),
+          icon: const Icon(
+            Icons.check_circle_rounded,
+            color: AppColors.tahara,
+            size: 20,
+          ),
+          text: _tr(
+            'Location confirmed: ${confirmedLabel ?? ''}',
+            'تم تحديد موقعكِ: ${confirmedLabel ?? ''}',
+          ),
+        );
+      case _LocationStatus.error:
+        return _banner(
+          color: const Color(0xFF9F1239),
+          background: const Color(0xFFFFF1F2),
+          icon: const Icon(
+            Icons.error_outline_rounded,
+            color: Color(0xFF9F1239),
+            size: 20,
+          ),
+          text: _tr(
+            'Location not detected — try again or pick a city below.',
+            'تعذر تحديد الموقع — حاولي مجدداً أو اختاري مدينة أدناه.',
+          ),
+        );
+    }
+  }
+
+  Widget _banner({
+    required Color color,
+    required Color background,
+    required Widget icon,
+    required String text,
+  }) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      children: [
+        icon,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    ),
   );
 }
 
