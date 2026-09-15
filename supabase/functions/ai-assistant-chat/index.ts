@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
       return limiterUnavailableResponse(corsHeaders);
     }
 
-    const { content, madhhab, clientFiqhState } = await req.json();
+    const { content, madhhab, madhhab_state: madhhabState, clientFiqhState } = await req.json();
     if (typeof content !== 'string' || !content.trim()) {
       return new Response(JSON.stringify({ error: 'content is required.' }), {
         status: 400,
@@ -91,11 +91,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    // madhhab/clientFiqhState are both optional — older client builds that
-    // don't send them yet simply get 'not_provided' fields in the context,
-    // never a guessed value.
+    // madhhab/madhhab_state/clientFiqhState are all optional — older client
+    // builds that don't send them yet simply get 'not_provided'/'unset'
+    // fields in the context, never a guessed value (Fiqh Remediation Wave
+    // 1, Section F).
     const userContext = await buildUserAiContext(userClient, {
       clientMadhhab: typeof madhhab === 'string' ? madhhab : null,
+      clientMadhhabState: typeof madhhabState === 'string' ? madhhabState : null,
       clientFiqhState: typeof clientFiqhState === 'string' ? clientFiqhState : null,
     });
     const systemInstruction = `${SYSTEM_PROMPT}\n\n${formatContextBlock(userContext, 'general_assistant')}`;

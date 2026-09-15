@@ -101,6 +101,7 @@ function baseContext(overrides: Partial<UserAiContext> = {}): UserAiContext {
     fiqh: {
       madhhab: null,
       madhhabSource: 'not_provided',
+      madhhabState: 'not_provided',
       classification: null,
       classificationSource: 'not_provided',
       uncertainty: 'none',
@@ -126,6 +127,7 @@ Deno.test('formatContextBlock — general_assistant includes pregnancy, cycle, f
     fiqh: {
       madhhab: 'hanafi',
       madhhabSource: 'client_supplied',
+      madhhabState: 'selected',
       classification: null,
       classificationSource: 'not_provided',
       uncertainty: 'not provided this call',
@@ -150,6 +152,7 @@ Deno.test('formatContextBlock — dream_interpreter scope excludes fiqh/symptoms
     fiqh: {
       madhhab: 'hanafi',
       madhhabSource: 'client_supplied',
+      madhhabState: 'selected',
       classification: 'haid',
       classificationSource: 'client_computed',
       uncertainty: 'none',
@@ -169,6 +172,7 @@ Deno.test('formatContextBlock — fiqh_advisor scope surfaces deterministic clas
     fiqh: {
       madhhab: 'shafii',
       madhhabSource: 'client_supplied',
+      madhhabState: 'selected',
       classification: 'haid',
       classificationSource: 'client_computed',
       uncertainty: 'none',
@@ -186,6 +190,7 @@ Deno.test('formatContextBlock — fiqh_advisor scope states uncertainty explicit
     fiqh: {
       madhhab: 'shafii',
       madhhabSource: 'client_supplied',
+      madhhabState: 'selected',
       classification: null,
       classificationSource: 'not_provided',
       uncertainty: 'Deterministic fiqh classification was not supplied by the client this call — do not assume a classification.',
@@ -211,4 +216,90 @@ Deno.test('formatContextBlock — always wraps in the internal-only marker', () 
   const block = formatContextBlock(baseContext(), 'general_assistant');
   assertEquals(block.startsWith('[CONTEXT'), true);
   assertEquals(block.trim().endsWith('[END CONTEXT]'), true);
+});
+
+// Fiqh Remediation Wave 1 (Section Q): madhhab_state must distinguish
+// SELECTED / UNKNOWN / UNSET explicitly in every AI-facing context block,
+// and no state other than SELECTED may ever carry a non-null madhhab.
+
+Deno.test('formatContextBlock — madhhab_state selected surfaces the real madhhab, no unset/unknown note', () => {
+  const context = baseContext({
+    fiqh: {
+      madhhab: 'hanbali',
+      madhhabSource: 'client_supplied',
+      madhhabState: 'selected',
+      classification: null,
+      classificationSource: 'not_provided',
+      uncertainty: 'none',
+    },
+  });
+  const block = formatContextBlock(context, 'fiqh_advisor');
+  assertEquals(block.includes('madhhab_state: selected'), true);
+  assertEquals(block.includes('selected_madhhab: hanbali'), true);
+  assertEquals(block.includes('madhhab_unknown_note'), false);
+  assertEquals(block.includes('madhhab_unset_note'), false);
+});
+
+Deno.test('formatContextBlock — madhhab_state unknown never carries a madhhab and warns the model not to assume one', () => {
+  const context = baseContext({
+    fiqh: {
+      madhhab: null,
+      madhhabSource: 'not_provided',
+      madhhabState: 'unknown',
+      classification: null,
+      classificationSource: 'not_provided',
+      uncertainty: 'none',
+    },
+  });
+  const block = formatContextBlock(context, 'fiqh_advisor');
+  assertEquals(block.includes('madhhab_state: unknown'), true);
+  assertEquals(block.includes('selected_madhhab: not_provided'), true);
+  assertEquals(block.includes('does not know her madhhab'), true);
+  // The exact defect this wave removes: unknown must never read as hanbali
+  // or any other specific school.
+  assertEquals(block.includes('selected_madhhab: hanbali'), false);
+  assertEquals(block.includes('selected_madhhab: hanafi'), false);
+  assertEquals(block.includes('selected_madhhab: maliki'), false);
+  assertEquals(block.includes('selected_madhhab: shafii'), false);
+});
+
+Deno.test('formatContextBlock — madhhab_state unset never carries a madhhab and warns the model not to assume one', () => {
+  const context = baseContext({
+    fiqh: {
+      madhhab: null,
+      madhhabSource: 'not_provided',
+      madhhabState: 'unset',
+      classification: null,
+      classificationSource: 'not_provided',
+      uncertainty: 'none',
+    },
+  });
+  const block = formatContextBlock(context, 'fiqh_advisor');
+  assertEquals(block.includes('madhhab_state: unset'), true);
+  assertEquals(block.includes('selected_madhhab: not_provided'), true);
+  assertEquals(block.includes('has not yet answered'), true);
+});
+
+Deno.test('formatContextBlock — madhhab_state not_provided (legacy client) is treated the same as unset, never selected', () => {
+  const context = baseContext(); // default: madhhabState 'not_provided'
+  const block = formatContextBlock(context, 'fiqh_advisor');
+  assertEquals(block.includes('madhhab_state: not_provided'), true);
+  assertEquals(block.includes('has not yet answered'), true);
+});
+
+Deno.test('formatContextBlock — madhhab_state line always precedes selected_madhhab (model reads state before the possibly-null value)', () => {
+  const context = baseContext({
+    fiqh: {
+      madhhab: null,
+      madhhabSource: 'not_provided',
+      madhhabState: 'unknown',
+      classification: null,
+      classificationSource: 'not_provided',
+      uncertainty: 'none',
+    },
+  });
+  const block = formatContextBlock(context, 'fiqh_advisor');
+  const stateIndex = block.indexOf('madhhab_state:');
+  const madhhabIndex = block.indexOf('selected_madhhab:');
+  assertEquals(stateIndex >= 0 && madhhabIndex > stateIndex, true);
 });

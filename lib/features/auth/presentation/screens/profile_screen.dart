@@ -11,9 +11,9 @@ import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/app_theme_controller.dart';
+import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../legal/presentation/screens/data_export_screen.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
-import '../../../onboarding/presentation/screens/onboarding_screen.dart';
 import 'sign_in_screen.dart';
 import '../../../private_messaging/presentation/screens/conversations_screen.dart';
 import '../../../private_messaging/domain/repositories/private_messaging_repository_base.dart';
@@ -102,7 +102,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       minHeight: 2,
                       color: AppColors.brandSecondary,
                       backgroundColor: Colors.transparent,
-                      semanticsLabel: _pr('Loading profile', 'جارٍ تحميل الملف الشخصي'),
+                      semanticsLabel: _pr(
+                        'Loading profile',
+                        'جارٍ تحميل الملف الشخصي',
+                      ),
                     ),
                   ),
                 if (_viewModel.errorMessage != null)
@@ -251,9 +254,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _SectionTitle(_pr('Fiqh Madhhab', 'المذهب الفقهي')),
                       const SizedBox(height: 10),
                       _MadhhabGrid(
-                        selected: MadhhabController.instance.selected.name,
-                        onSelected: (value) => MadhhabController.instance
-                            .select(Madhhab.values.byName(value.toLowerCase())),
+                        // Fiqh Remediation Wave 1 (Section K): reflects
+                        // the real three-state model — 'unknown' when the
+                        // user explicitly said so, nothing highlighted
+                        // when UNSET, never a guessed madhhab.
+                        selected:
+                            MadhhabController.instance.state ==
+                                MadhhabSelectionState.unknown
+                            ? 'unknown'
+                            : (MadhhabController
+                                      .instance
+                                      .selectedOrNull
+                                      ?.name ??
+                                  ''),
+                        onSelected: (value) => value == 'unknown'
+                            ? MadhhabController.instance.selectUnknown()
+                            : MadhhabController.instance.selectMadhhab(
+                                Madhhab.values.byName(value.toLowerCase()),
+                              ),
                       ),
                       const SizedBox(height: 30),
                       _SectionTitle(
@@ -266,17 +284,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             icon: Icons.visibility_off_outlined,
                             title: _pr('Anonymous Mode', 'الوضع المجهول'),
                             value: isAnonymous,
-                            onChanged: (value) async {
-                              try {
-                                await _viewModel.setAnonymousMode(value);
-                              } catch (error) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(error.toString())),
-                                  );
-                                }
-                              }
-                            },
+                            onChanged: _viewModel.isSaving
+                                ? null
+                                : (value) async {
+                                    try {
+                                      await _viewModel.setAnonymousMode(value);
+                                    } catch (error) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                              SnackBar(
+                                                content: Text(error.toString()),
+                                              ),
+                                            );
+                                      }
+                                    }
+                                  },
                           ),
                           _ActionRow(
                             icon: Icons.privacy_tip_outlined,
@@ -397,13 +420,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         child: _isDeletingAccount
-                            ? SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.4,
-                                  color: const Color(0xFF991B1B),
-                                  semanticsLabel: _pr('Deleting account', 'جارٍ حذف الحساب'),
+                            ? NiswahLoadingIndicator(
+                                size: NiswahLoadingSize.small,
+                                color: const Color(0xFF991B1B),
+                                semanticsLabel: _pr(
+                                  'Deleting account',
+                                  'جارٍ حذف الحساب',
                                 ),
                               )
                             : Text(
@@ -435,19 +457,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     },
   );
 
+  // AUTH-008: this used to manually push OnboardingScreen (via its old,
+  // now-removed embedded login step) as an ad hoc way to let the user sign
+  // back in — exactly the "hard-code a login step to cover session loss"
+  // anti-pattern the root auth guard exists to prevent. `_viewModel
+  // .signOut()` performs a real Supabase sign-out, which AuthController's
+  // own `onAuthStateChange` listener already reacts to (`isAuthenticated`
+  // flips false, `notifyListeners()` fires) — main.dart's root router
+  // reactively shows SignInScreen on its own; no manual navigation here
+  // is needed, or correct, for this same reason.
   Future<void> _signOut() async {
     try {
       await _viewModel.signOut();
-      if (mounted) {
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute(
-            fullscreenDialog: true,
-            builder: (routeContext) => OnboardingScreen(
-              onFinished: () => Navigator.of(routeContext).pop(),
-            ),
-          ),
-        );
-      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -470,11 +491,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         content: Text(
           _pr(
             'This permanently deletes your account and all associated '
-            'data — cycle logs, pregnancy data, chat history, and '
-            'community posts. This cannot be undone.',
+                'data — cycle logs, pregnancy data, chat history, and '
+                'community posts. This cannot be undone.',
             'سيؤدي هذا إلى حذف حسابكِ وجميع البيانات المرتبطة به نهائياً '
-            '— سجلات الدورة، بيانات الحمل، سجل المحادثات، ومنشورات '
-            'المجتمع. لا يمكن التراجع عن هذا الإجراء.',
+                '— سجلات الدورة، بيانات الحمل، سجل المحادثات، ومنشورات '
+                'المجتمع. لا يمكن التراجع عن هذا الإجراء.',
           ),
         ),
         actions: [
@@ -484,7 +505,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: const Color(0xFF991B1B)),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF991B1B),
+            ),
             child: Text(_pr('Delete', 'حذف')),
           ),
         ],
@@ -1184,36 +1207,18 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
                   ),
                 ],
                 const SizedBox(height: 20),
-                FilledButton(
+                NiswahLoadingButton(
                   key: const Key('pregnancy-setup-activate'),
-                  onPressed: _isSaving ? null : _activate,
+                  loading: _isSaving,
+                  onPressed: _activate,
+                  label: _pr('Activate Pregnancy Tracking', 'تفعيل تتبع الحمل'),
+                  loadingSemanticsLabel: _pr('Saving', 'جارٍ الحفظ'),
                   style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(54),
                     backgroundColor: AppColors.haid,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  child: _isSaving
-                      ? SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            color: Colors.white,
-                            semanticsLabel: _pr('Saving', 'جارٍ الحفظ'),
-                          ),
-                        )
-                      : Text(
-                          _pr(
-                            'Activate Pregnancy Tracking',
-                            'تفعيل تتبع الحمل',
-                          ),
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
                 ),
                 const SizedBox(height: 10),
                 TextButton(
@@ -1547,6 +1552,10 @@ class _MadhhabGrid extends StatelessWidget {
           'أقل الحيض يوم وليلة، وأكثره 15 يوماً',
         ),
       ),
+      // Fiqh Remediation Wave 1 (Section K — change Madhhab): a durable,
+      // first-class UNKNOWN state must remain reachable here too, not
+      // only at onboarding — see MadhhabController.selectUnknown().
+      ('unknown', _pr('I don\'t know', 'لا أعرف'), ''),
     ];
     return GridView.builder(
       shrinkWrap: true,
@@ -1561,53 +1570,82 @@ class _MadhhabGrid extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = values[index];
         final active = selected == item.$1;
-        return InkWell(
-          onTap: () => onSelected(item.$1),
-          borderRadius: BorderRadius.circular(24),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: active ? const Color(0xFFFFF1F2) : Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: active ? const Color(0xFFFFCDD5) : AppColors.shadowColor,
+        // Fiqh Remediation Wave 1 — Pre-E4 Verification (Section 2): same
+        // fix as onboarding's _SelectCard — selection was previously
+        // conveyed only visually. `excludeSemantics: true` stops the child
+        // Text's own label from merging in and doubling the announcement.
+        return Semantics(
+          button: true,
+          selected: active,
+          label: item.$3.isEmpty ? item.$2 : '${item.$2}, ${item.$3}',
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: () => onSelected(item.$1),
+            borderRadius: BorderRadius.circular(24),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFFFFF1F2) : Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: active
+                      ? const Color(0xFFFFCDD5)
+                      : AppColors.shadowColor,
+                ),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item.$2,
-                        style: TextStyle(
-                          color: active
-                              ? const Color(0xFF881337)
-                              : AppColors.textSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
+              // Fiqh Remediation Wave 1 — Pre-E4 Verification (Section 1):
+              // this tile is inside a fixed-height grid cell
+              // (`mainAxisExtent: 122`) — a real overflow was found here at
+              // 200% text scale (AU-006's own fix was never applied to this
+              // grid). Restructured to match `_SelectCard`'s already-working
+              // Stack + FittedBox(scaleDown) + PositionedDirectional icon
+              // pattern, which is compatible with FittedBox's unbounded
+              // child constraints (a `Row`+`Expanded` title/icon layout is
+              // not — that combination is what overflowed).
+              child: Stack(
+                children: [
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.topStart,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.$2,
+                          style: TextStyle(
+                            color: active
+                                ? const Color(0xFF881337)
+                                : AppColors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
+                        if (item.$3.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            item.$3,
+                            style: const TextStyle(
+                              color: AppColors.textTertiary,
+                              fontSize: 10,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (active)
-                      const Icon(
+                  ),
+                  if (active)
+                    const PositionedDirectional(
+                      top: 0,
+                      end: 0,
+                      child: Icon(
                         Icons.check_rounded,
                         color: AppColors.brandSecondary,
                         size: 17,
                       ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  item.$3,
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 10,
-                    height: 1.45,
-                  ),
-                ),
-              ],
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -1639,7 +1677,7 @@ class _ToggleRow extends StatelessWidget {
   final String title;
   final String? subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
   final bool last;
   @override
   Widget build(BuildContext context) => Container(

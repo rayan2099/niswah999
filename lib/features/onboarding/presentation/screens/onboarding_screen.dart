@@ -7,25 +7,54 @@ import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
-import '../../../auth/presentation/screens/sign_in_screen.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
 import '../../../cycle_tracking/presentation/models/cycle_log_form_data.dart';
+import '../../domain/services/madhhab_suggestion_service.dart';
 
 String _tr(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
 
 /// Matches the order of both the English and Arabic choice lists in the
-/// Madhhab step below.
+/// Madhhab step below. The 5th choice ("I don't know my Madhhab") is
+/// handled separately — see [_MadhhabSubStep] — and has no entry here.
 const _madhhabOrder = [
   Madhhab.hanafi,
   Madhhab.maliki,
   Madhhab.shafii,
   Madhhab.hanbali,
 ];
+
+/// Fiqh Remediation Wave 1 (Section H/I/J): the Madhhab step's own small
+/// state machine for the "I don't know my Madhhab" path. [choices] is the
+/// normal 5-option grid; the rest are only ever reached by explicitly
+/// tapping the 5th option, and every exit from them is an explicit user
+/// action — nothing here ever calls `MadhhabController` on its own.
+enum _MadhhabSubStep {
+  choices,
+  unknownExplanation,
+  helpAskCountry,
+  helpSuggestion,
+}
+
+/// Live Onboarding Contradiction Investigation — Location UX contract
+/// (Sections 6/9): the Location step's prior behavior called
+/// `PrayerLocationController.select`/`useDeviceLocation` and immediately
+/// advanced to the next step with zero visible confirmation — detection
+/// and persistence both genuinely worked, but nothing on screen ever told
+/// the user that, which is indistinguishable from the button silently
+/// doing nothing. This explicit state makes every phase visible:
+/// [idle] (nothing attempted yet), [detecting] (a real GPS fix is in
+/// flight — shown so a slow first fix doesn't look like a dead tap),
+/// [selected] (a location — current-location or a tapped city — was just
+/// confirmed; shown briefly before advancing), [error] (service
+/// disabled/permission denied/other failure — already had a real
+/// SnackBar message; this adds a matching on-screen state too).
+enum _LocationStatus { idle, detecting, selected, error }
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -39,16 +68,35 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-/// Streamlined onboarding flow (10 steps):
-/// 1 Splash → 2 Language → 3 Login → 4 Madhhab → 5 Married
-/// → 6 Location → 7 Last Period → 8 Period Length → 9 Privacy → 10 Welcome
+/// Streamlined onboarding flow (8 steps). Only ever shown to an already-
+/// authenticated user — main.dart's root router (AUTH-002's contract)
+/// gates every path here behind `auth.isAuthenticated == true`, so there
+/// is deliberately no login/signup step in this state machine (AUTH-008).
+/// There is also deliberately no language-selection step (AUTH-009) —
+/// `AppLocaleController` (already set, pre-auth, by the SignInScreen's own
+/// language toggle, or its own sensible default) is the single language
+/// authority; asking again here would be pure duplication:
+/// 1 Splash → 2 Madhhab → 3 Married → 4 Location
+/// → 5 Last Period → 6 Period Length → 7 Privacy → 8 Welcome
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  static const int _totalSteps = 10;
+  static const int _totalSteps = 8;
 
   late int _step = widget.initialStep.clamp(1, _totalSteps);
-  bool _arabic = false;
+  // Derived from the app-wide, SharedPreferences-persisted controller — not
+  // a local copy — so a step re-selecting language stays in sync even if
+  // this State is recreated mid-onboarding (e.g. by the router rebuilding
+  // after an out-of-process email-confirmation session lands), instead of
+  // silently resetting to English regardless of what was already chosen
+  // and persisted (AUTH-007).
+  bool get _arabic => AppLocaleController.instance.isArabic;
   String? _madhhab;
+  _MadhhabSubStep _madhhabSubStep = _MadhhabSubStep.choices;
+  String _madhhabHelpCountry = '';
+  MadhhabSuggestion? _madhhabSuggestion;
   bool? _isMarried;
+  _LocationStatus _locationStatus = _LocationStatus.idle;
+  String? _confirmedLocationLabel;
+  String? _locationErrorMessage;
   DateTime? _periodDate;
   double _haidLength = 5;
   bool _anonymous = false;
@@ -93,8 +141,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       child: IconButton(
                         onPressed: () => setState(() => _step--),
                         tooltip: _t('Back', 'رجوع'),
-                        icon: const Icon(
-                          Icons.chevron_left_rounded,
+                        icon: Icon(
+                          // A chevron is not a directional glyph in
+                          // Flutter's icon font — it must be swapped
+                          // explicitly, or "back" points visually toward
+                          // reading-end in RTL instead of reading-start.
+                          _arabic
+                              ? Icons.chevron_right_rounded
+                              : Icons.chevron_left_rounded,
                           color: AppColors.textTertiary,
                         ),
                       ),
@@ -144,45 +198,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Widget _screen() => switch (_step) {
     1 => _Splash(onNext: _next),
-    2 => _Language(
-      arabic: _arabic,
-      onSelect: (v) {
-        setState(() => _arabic = v);
-        AppLocaleController.instance.setArabic(v);
-      },
-      onNext: _next,
-    ),
-    3 => SignInScreen(onAuthenticated: _next),
-    4 => _Choices(
-      title: _t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟'),
-      subtitle: _t(
-        'This helps us personalize Haid and prayer guidance.',
-        'يساعدنا ذلك في تخصيص أحكام الحيض والصلاة.',
-      ),
-      choices: _madhhabChoices,
-      selected: _madhhab == null ? {} : {_madhhab!},
-      rules: _arabic
-          ? const [
-              'حد أدنى 3 أيام · حد أقصى 10 أيام',
-              'لا يوجد حد أدنى · حد أقصى 15 يوماً',
-              'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
-              'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
-            ]
-          : const [
-              '3-day min · 10-day max',
-              'No minimum · 15-day max',
-              '24-hour min · 15-day max',
-              '24-hour min · 15-day max',
-            ],
-      onToggle: (v) {
-        setState(() => _madhhab = v);
-        MadhhabController.instance.select(
-          _madhhabOrder[_madhhabChoices.indexOf(v)],
-        );
-      },
-      onNext: _madhhab == null ? null : _next,
-    ),
-    5 => _Choices(
+    // AUTH-008: step 3 used to be an embedded SignInScreen (login/signup)
+    // here. It is removed — by the time any user ever reaches
+    // OnboardingScreen at all, main.dart's own root router has already
+    // required `auth.isAuthenticated == true` (see its own routing
+    // contract doc comment); a login step inside onboarding was therefore
+    // always redundant for every real path, and both forward navigation
+    // (a fresh instance starting at step 1) and Back from Madhhab landed
+    // an already-authenticated user on a live Sign In/Sign Up screen —
+    // proven, reproducible, the exact defect the owner reported.
+    //
+    // AUTH-009: the old step 2 (a Language selection screen, identical in
+    // purpose to the language toggle already on the pre-auth SignInScreen)
+    // is also removed. `AppLocaleController` is the single, canonical
+    // language authority throughout the app — it already has a real value
+    // (explicitly chosen pre-auth, or its own sensible Arabic default) by
+    // the time any authenticated user ever reaches this screen, so asking
+    // again here was pure duplication, not a genuine second choice.
+    2 => _madhhabStep(),
+    3 => _Choices(
       title: _t('Are you married?', 'هل أنتِ متزوجة؟'),
       subtitle: _t(
         'This controls spouse-only pregnancy tools and reports.',
@@ -199,13 +233,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       },
       onNext: _isMarried == null ? null : _next,
     ),
-    6 => _Location(
-      onSelected: (location) =>
-          PrayerLocationController.instance.select(location),
-      onUseCurrentLocation: () => _useDeviceLocation(),
-      onNext: _next,
+    4 => _Location(
+      status: _locationStatus,
+      confirmedLabel: _confirmedLocationLabel,
+      errorMessage: _locationErrorMessage,
+      onSelectCity: _selectCityLocation,
+      onUseCurrentLocation: _useDeviceLocation,
+      onSkip: _next,
     ),
-    7 => _LastPeriod(
+    5 => _LastPeriod(
       selected: _periodDate,
       onSelect: (v) => setState(() => _periodDate = v),
       onNext: _periodDate == null ? null : _next,
@@ -214,7 +250,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _next();
       },
     ),
-    8 => _NumberStep(
+    6 => _NumberStep(
       title: _t('How long is your period?', 'كم تستمر مدة الحيض؟'),
       description: _madhhab == 'Hanafi' || _madhhab == 'حنفي'
           ? _t('Hanafi maximum: 10 days', 'الحد الأقصى للحنفية: 10 أيام')
@@ -225,7 +261,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onChanged: (v) => setState(() => _haidLength = v),
       onNext: _next,
     ),
-    9 => _Privacy(
+    7 => _Privacy(
       anonymous: _anonymous,
       onAnonymous: (v) => _setAnonymousMode(v),
       onNext: _next,
@@ -235,18 +271,146 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   String _t(String en, String ar) => _arabic ? ar : en;
 
-  /// Matches the order of [_madhhabOrder] above.
+  /// Matches the order of [_madhhabOrder] above — the 4 real madhahib
+  /// only. See [_madhhabGridChoices] for the grid shown to the user, which
+  /// appends the 5th "I don't know" option (Fiqh Remediation Wave 1,
+  /// Section G).
   List<String> get _madhhabChoices => _arabic
       ? const ['حنفي', 'مالكي', 'شافعي', 'حنبلي']
       : const ['Hanafi', 'Maliki', "Shafi'i", 'Hanbali'];
 
+  String get _unknownMadhhabLabel =>
+      _t('I don\'t know my Madhhab', 'لا أعرف مذهبي');
+
+  List<String> get _madhhabGridChoices => [
+    ..._madhhabChoices,
+    _unknownMadhhabLabel,
+  ];
+
+  /// Section G/H/I/J: the Madhhab step's full sub-flow. [choices] is the
+  /// normal 5-option grid (never gates Continue on anything but an
+  /// explicit answer); the 5th option leads to an explanation and a
+  /// choice between "Help me choose" (a real, confirmation-gated
+  /// geographic suggestion, never an auto-declaration) and "I'll decide
+  /// later" (persists UNKNOWN, a first-class state — never silently
+  /// resolved to any specific madhhab).
+  Widget _madhhabStep() {
+    switch (_madhhabSubStep) {
+      case _MadhhabSubStep.choices:
+        return _Choices(
+          title: _t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟'),
+          subtitle: _t(
+            'This helps us personalize Haid and prayer guidance.',
+            'يساعدنا ذلك في تخصيص أحكام الحيض والصلاة.',
+          ),
+          choices: _madhhabGridChoices,
+          selected: _madhhab == null ? {} : {_madhhab!},
+          rules: _arabic
+              ? const [
+                  'حد أدنى 3 أيام · حد أقصى 10 أيام',
+                  'لا يوجد حد أدنى · حد أقصى 15 يوماً',
+                  'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
+                  'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
+                  '',
+                ]
+              : const [
+                  '3-day min · 10-day max',
+                  'No minimum · 15-day max',
+                  '24-hour min · 15-day max',
+                  '24-hour min · 15-day max',
+                  '',
+                ],
+          onToggle: (v) {
+            if (v == _unknownMadhhabLabel) {
+              // Does NOT persist anything yet — only an explicit action in
+              // the explanation step below (Section H/J) ever calls
+              // MadhhabController. Tapping the option itself is not a
+              // selection.
+              setState(
+                () => _madhhabSubStep = _MadhhabSubStep.unknownExplanation,
+              );
+              return;
+            }
+            setState(() => _madhhab = v);
+            MadhhabController.instance.selectMadhhab(
+              _madhhabOrder[_madhhabChoices.indexOf(v)],
+            );
+          },
+          onNext: _madhhab == null ? null : _next,
+        );
+
+      case _MadhhabSubStep.unknownExplanation:
+        return _MadhhabUnknownExplanation(
+          onHelpMeChoose: () =>
+              setState(() => _madhhabSubStep = _MadhhabSubStep.helpAskCountry),
+          onDecideLater: () {
+            MadhhabController.instance.selectUnknown();
+            setState(() {
+              _madhhab = _unknownMadhhabLabel;
+              _madhhabSubStep = _MadhhabSubStep.choices;
+            });
+            _next();
+          },
+          onBack: () =>
+              setState(() => _madhhabSubStep = _MadhhabSubStep.choices),
+        );
+
+      case _MadhhabSubStep.helpAskCountry:
+        return _MadhhabHelpAskCountry(
+          initialValue: _madhhabHelpCountry,
+          onSubmit: (country) {
+            final suggestion = const MadhhabSuggestionService().suggest(
+              explicitCountry: country,
+            );
+            setState(() {
+              _madhhabHelpCountry = country;
+              _madhhabSuggestion = suggestion;
+              _madhhabSubStep = _MadhhabSubStep.helpSuggestion;
+            });
+          },
+          onBack: () => setState(
+            () => _madhhabSubStep = _MadhhabSubStep.unknownExplanation,
+          ),
+        );
+
+      case _MadhhabSubStep.helpSuggestion:
+        return _MadhhabHelpSuggestion(
+          suggestion: _madhhabSuggestion ?? MadhhabSuggestion.unresolved,
+          // Section I: a suggestion is never treated as authoritative by
+          // merely being displayed — SELECTED only happens on this
+          // explicit confirmation.
+          onConfirm: (madhhab) {
+            MadhhabController.instance.selectMadhhab(madhhab);
+            final label = _madhhabChoices[_madhhabOrder.indexOf(madhhab)];
+            setState(() {
+              _madhhab = label;
+              _madhhabSubStep = _MadhhabSubStep.choices;
+            });
+            _next();
+          },
+          // Section J: no confirmation -> remains UNKNOWN, never SELECTED.
+          onNoneOfThese: () {
+            MadhhabController.instance.selectUnknown();
+            setState(() {
+              _madhhab = _unknownMadhhabLabel;
+              _madhhabSubStep = _MadhhabSubStep.choices;
+            });
+            _next();
+          },
+          onTryAgain: () =>
+              setState(() => _madhhabSubStep = _MadhhabSubStep.helpAskCountry),
+        );
+    }
+  }
+
   void _next() => setState(() => _step = (_step + 1).clamp(1, _totalSteps));
 
   /// Seeds a real cycle log from the last-period date/length answered in
-  /// steps 7-8 (unless the user tapped "I'm not sure"), so onboarding's
+  /// steps 6-7 (unless the user tapped "I'm not sure"), so onboarding's
   /// answer actually counts toward the app's cycle history instead of being
-  /// silently discarded. By this point step 3 (Login) has already required
-  /// a successful sign-in, so a real user id is available.
+  /// silently discarded. This screen is only ever reached already
+  /// authenticated (main.dart's root router requires it), so a real user id
+  /// is always available.
   Future<void> _completeOnboarding() async {
     final periodDate = _periodDate;
     if (periodDate != null) {
@@ -282,50 +446,83 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     widget.onFinished();
   }
 
+  /// Live Onboarding Contradiction Investigation — Location UX contract
+  /// (Section 6): tapping a preset city is a real, explicit selection —
+  /// persisted immediately via `PrayerLocationController.select` (already
+  /// correct before this fix) — but previously advanced to the next step
+  /// with no visible confirmation of *which* city had just been chosen.
+  /// Now shows a brief, real "selected" state (Section 9) before
+  /// advancing, matching the same contract as device-location detection
+  /// below, so no location-setting action in this step is silent.
+  Future<void> _selectCityLocation(PrayerLocation preset) async {
+    await PrayerLocationController.instance.select(preset);
+    if (!mounted) return;
+    setState(() {
+      _locationStatus = _LocationStatus.selected;
+      _confirmedLocationLabel = prayerLocationLabel(preset, isArabic: _arabic);
+    });
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (mounted) _next();
+  }
+
+  /// Live Onboarding Contradiction Investigation — Location UX contract
+  /// (Sections 6/9): detection and persistence were already correct
+  /// (`PrayerLocationController.useDeviceLocation` genuinely requests
+  /// permission, gets a real GPS fix, and persists it) — the defect was
+  /// that success advanced to the next step immediately, with **no**
+  /// visible confirmation of what was detected, which looks identical to
+  /// the button silently doing nothing. This now shows an explicit
+  /// `detecting` state while the request is in flight (so a slow first
+  /// GPS fix doesn't look like a dead tap either) and a `selected`
+  /// confirmation before advancing. Failure paths already had a real
+  /// SnackBar message (unchanged) — this adds a matching on-screen state
+  /// so failure is visible even if the SnackBar is missed/dismissed.
   Future<void> _useDeviceLocation() async {
+    setState(() {
+      _locationStatus = _LocationStatus.detecting;
+      _locationErrorMessage = null;
+    });
     try {
       await PrayerLocationController.instance.useDeviceLocation();
+      if (!mounted) return;
+      setState(() {
+        _locationStatus = _LocationStatus.selected;
+        _confirmedLocationLabel = _tr('Current location', 'الموقع الحالي');
+      });
+      await Future.delayed(const Duration(milliseconds: 700));
       if (mounted) _next();
     } on LocationServiceDisabled {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _tr(
-                'Turn on location services to use your current location.',
-                'فعّلي خدمة الموقع لاستخدام موقعكِ الحالي.',
-              ),
-            ),
-          ),
-        );
-      }
+      _showLocationError(
+        _tr(
+          'Turn on location services to use your current location.',
+          'فعّلي خدمة الموقع لاستخدام موقعكِ الحالي.',
+        ),
+      );
     } on LocationPermissionDenied {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _tr(
-                'Location permission denied — pick a city instead.',
-                'تم رفض إذن الموقع، يمكنكِ اختيار مدينة بدلاً من ذلك.',
-              ),
-            ),
-          ),
-        );
-      }
+      _showLocationError(
+        _tr(
+          'Location permission denied — pick a city instead.',
+          'تم رفض إذن الموقع، يمكنكِ اختيار مدينة بدلاً من ذلك.',
+        ),
+      );
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _tr(
-                'Unable to get your location right now.',
-                'تعذر تحديد موقعكِ الآن.',
-              ),
-            ),
-          ),
-        );
-      }
+      _showLocationError(
+        _tr(
+          'Unable to get your location right now.',
+          'تعذر تحديد موقعكِ الآن.',
+        ),
+      );
     }
+  }
+
+  void _showLocationError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _locationStatus = _LocationStatus.error;
+      _locationErrorMessage = message;
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Best-effort: onboarding doesn't block progress on this write — the
@@ -390,50 +587,6 @@ class _Splash extends StatelessWidget {
   );
 }
 
-
-
-class _Language extends StatelessWidget {
-  const _Language({
-    required this.arabic,
-    required this.onSelect,
-    required this.onNext,
-  });
-  final bool arabic;
-  final ValueChanged<bool> onSelect;
-  final VoidCallback onNext;
-  @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      _Title(_tr('Choose your language', 'اختاري لغتكِ')),
-      const SizedBox(height: 30),
-      Row(
-        children: [
-          Expanded(
-            child: _SelectCard(
-              title: 'العربية',
-              subtitle: 'Arabic',
-              selected: arabic,
-              onTap: () => onSelect(true),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: _SelectCard(
-              title: 'English',
-              subtitle: 'English',
-              selected: !arabic,
-              onTap: () => onSelect(false),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 28),
-      _Continue(onPressed: onNext),
-    ],
-  );
-}
-
 class _Choices extends StatelessWidget {
   const _Choices({
     required this.title,
@@ -485,15 +638,283 @@ class _Choices extends StatelessWidget {
   );
 }
 
+/// Fiqh Remediation Wave 1, Section H: the calm, non-punitive explanation
+/// shown after tapping "I don't know my Madhhab" — never pressures a
+/// guess, and never implies UNKNOWN is a lesser or incomplete answer.
+class _MadhhabUnknownExplanation extends StatelessWidget {
+  const _MadhhabUnknownExplanation({
+    required this.onHelpMeChoose,
+    required this.onDecideLater,
+    required this.onBack,
+  });
+  final VoidCallback onHelpMeChoose;
+  final VoidCallback onDecideLater;
+  final VoidCallback onBack;
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('No problem', 'لا بأس')),
+      const SizedBox(height: 14),
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: const [
+            BoxShadow(color: AppColors.shadowColor, blurRadius: 20),
+          ],
+        ),
+        child: Text(
+          _tr(
+            'We can help you find a likely school based on where you live '
+                '— it\'s always just a suggestion, and only becomes your choice '
+                'once you confirm it yourself. No Madhhab will ever be assumed '
+                'for you without your choosing it.',
+            'يمكن لنسوة مساعدتكِ في معرفة المذهب الشائع في منطقتكِ — وهو '
+                'دائماً مجرد اقتراح، ولا يصبح خيارك إلا بعد تأكيدكِ له بنفسكِ. '
+                'لن يُفترض لكِ أي مذهب دون اختياركِ.',
+          ),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12,
+            height: 1.6,
+          ),
+        ),
+      ),
+      const SizedBox(height: 26),
+      _Continue(
+        label: _tr('Help me choose', 'ساعديني في الاختيار'),
+        onPressed: onHelpMeChoose,
+        strong: true,
+      ),
+      const SizedBox(height: 10),
+      TextButton(
+        onPressed: onDecideLater,
+        child: Text(_tr('I\'ll decide later', 'سأقرر لاحقاً')),
+      ),
+      TextButton(
+        onPressed: onBack,
+        child: Text(_tr('Back to choices', 'العودة للخيارات')),
+      ),
+    ],
+  );
+}
+
+/// Fiqh Remediation Wave 1, Section I: a lightweight, single-question
+/// country input — deliberately not the full Location step (city/GPS),
+/// which comes later in onboarding and is unavailable yet at this step.
+/// Feeds [MadhhabSuggestionService] directly; nothing here is persisted as
+/// a Madhhab choice.
+class _MadhhabHelpAskCountry extends StatefulWidget {
+  const _MadhhabHelpAskCountry({
+    required this.initialValue,
+    required this.onSubmit,
+    required this.onBack,
+  });
+  final String initialValue;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onBack;
+  @override
+  State<_MadhhabHelpAskCountry> createState() => _MadhhabHelpAskCountryState();
+}
+
+class _MadhhabHelpAskCountryState extends State<_MadhhabHelpAskCountry> {
+  late final _controller = TextEditingController(text: widget.initialValue);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('Which country do you live in?', 'في أي دولة تسكنين؟')),
+      const SizedBox(height: 8),
+      Text(
+        _tr(
+          'Used only to suggest a likely Madhhab — never to decide it for '
+              'you.',
+          'تُستخدم فقط لاقتراح مذهب محتمل — ولا تُستخدم أبداً لتحديده نيابةً '
+              'عنكِ.',
+        ),
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+      ),
+      const SizedBox(height: 22),
+      TextField(
+        controller: _controller,
+        textAlign: TextAlign.center,
+        decoration: InputDecoration(
+          hintText: _tr('e.g. Egypt', 'مثال: مصر'),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        // Rebuilds so the Continue button's enabled state below reflects
+        // the current text — without this it stays disabled/stale after
+        // the first frame, since Continue's onPressed is otherwise only
+        // ever evaluated at this State's last build.
+        onChanged: (_) => setState(() {}),
+        onSubmitted: (value) => widget.onSubmit(value.trim()),
+      ),
+      const SizedBox(height: 22),
+      _Continue(
+        onPressed: _controller.text.trim().isEmpty
+            ? null
+            : () => widget.onSubmit(_controller.text.trim()),
+      ),
+      const SizedBox(height: 10),
+      TextButton(onPressed: widget.onBack, child: Text(_tr('Back', 'رجوع'))),
+    ],
+  );
+}
+
+/// Fiqh Remediation Wave 1, Sections I/J: shows the geographic suggestion
+/// (if any) and requires an explicit confirmation per school before it
+/// ever becomes a SELECTED state — never a declaration on its own.
+class _MadhhabHelpSuggestion extends StatelessWidget {
+  const _MadhhabHelpSuggestion({
+    required this.suggestion,
+    required this.onConfirm,
+    required this.onNoneOfThese,
+    required this.onTryAgain,
+  });
+  final MadhhabSuggestion suggestion;
+  final ValueChanged<Madhhab> onConfirm;
+  final VoidCallback onNoneOfThese;
+  final VoidCallback onTryAgain;
+
+  static String _madhhabName(Madhhab madhhab) => switch (madhhab) {
+    Madhhab.hanafi => _tr('Hanafi', 'الحنفي'),
+    Madhhab.maliki => _tr('Maliki', 'المالكي'),
+    Madhhab.shafii => _tr("Shafi'i", 'الشافعي'),
+    Madhhab.hanbali => _tr('Hanbali', 'الحنبلي'),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    if (!suggestion.isResolved) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Title(
+            _tr(
+              'We don\'t have a suggestion for that yet',
+              'لا يتوفر اقتراح لهذه المنطقة بعد',
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _tr(
+              'That\'s alright — you can try a different spelling, or '
+                  'simply decide later. Nothing has been assumed for you.',
+              'لا بأس بذلك — يمكنكِ تجربة تهجئة مختلفة، أو تأجيل القرار '
+                  'ببساطة. لم يُفترض لكِ شيء.',
+            ),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _Continue(
+            label: _tr('Try again', 'المحاولة مجدداً'),
+            onPressed: onTryAgain,
+          ),
+          const SizedBox(height: 10),
+          TextButton(
+            onPressed: onNoneOfThese,
+            child: Text(_tr('I\'ll decide later', 'سأقرر لاحقاً')),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _Title(_tr('A suggestion for you', 'اقتراح لكِ')),
+        const SizedBox(height: 8),
+        if (suggestion.regionNote != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text(
+              suggestion.regionNote!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        // Section J: this is only ever a suggestion until she taps one of
+        // these — displaying it never itself changes any stored state.
+        for (final madhhab in suggestion.likelyMadhahib)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => onConfirm(madhhab),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  _tr(
+                    'Yes, ${_madhhabName(madhhab)} is my Madhhab',
+                    'نعم، مذهبي هو ${_madhhabName(madhhab)}',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: onNoneOfThese,
+          child: Text(
+            _tr(
+              'None of these — I\'ll decide later',
+              'لا شيء من هذا — سأقرر لاحقاً',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _Location extends StatelessWidget {
   const _Location({
-    required this.onSelected,
+    required this.status,
+    required this.confirmedLabel,
+    required this.errorMessage,
+    required this.onSelectCity,
     required this.onUseCurrentLocation,
-    required this.onNext,
+    required this.onSkip,
   });
-  final ValueChanged<PrayerLocation> onSelected;
+  final _LocationStatus status;
+  final String? confirmedLabel;
+  final String? errorMessage;
+  final ValueChanged<PrayerLocation> onSelectCity;
   final VoidCallback onUseCurrentLocation;
-  final VoidCallback onNext;
+  final VoidCallback onSkip;
+
+  bool get _busy =>
+      status == _LocationStatus.detecting || status == _LocationStatus.selected;
+
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
@@ -507,10 +928,22 @@ class _Location extends StatelessWidget {
         ),
         style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
       ),
-      const SizedBox(height: 26),
+      const SizedBox(height: 18),
+      // Live Onboarding Contradiction Investigation (Sections 6/9): the
+      // one always-visible status region for this step — every location-
+      // setting action (device detection or a city tap) reports here, so
+      // nothing can look like a silent no-op the way the original
+      // immediate-advance behavior did.
+      _LocationStatusBanner(status: status, confirmedLabel: confirmedLabel),
+      const SizedBox(height: 18),
       FilledButton.icon(
-        onPressed: onUseCurrentLocation,
-        icon: const Icon(Icons.navigation_rounded),
+        onPressed: _busy ? null : onUseCurrentLocation,
+        icon: status == _LocationStatus.detecting
+            ? const NiswahLoadingIndicator(
+                size: NiswahLoadingSize.small,
+                contrast: NiswahLoadingContrast.dark,
+              )
+            : const Icon(Icons.navigation_rounded),
         label: Text(_tr('Use current location', 'استخدام موقعي الحالي')),
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(54),
@@ -544,19 +977,108 @@ class _Location extends StatelessWidget {
                   isArabic: AppLocaleController.instance.isArabic,
                 ),
               ),
-              onPressed: () {
-                onSelected(preset);
-                onNext();
-              },
+              onPressed: _busy ? null : () => onSelectCity(preset),
             ),
         ],
       ),
       const SizedBox(height: 22),
       TextButton(
-        onPressed: onNext,
+        onPressed: _busy ? null : onSkip,
         child: Text(_tr('Skip for now', 'تخطي الآن')),
       ),
     ],
+  );
+}
+
+/// Live Onboarding Contradiction Investigation (Sections 6/9): the single
+/// always-visible confirmation region — renders nothing for [idle] (no
+/// action attempted yet, no reason to occupy space), a real in-flight
+/// spinner + "detecting" text for [detecting], a checkmark + the exact
+/// resolved label for [selected], and the same error text already shown
+/// in the SnackBar for [error] (so the failure is visible even if the
+/// SnackBar is missed or already dismissed).
+class _LocationStatusBanner extends StatelessWidget {
+  const _LocationStatusBanner({
+    required this.status,
+    required this.confirmedLabel,
+  });
+  final _LocationStatus status;
+  final String? confirmedLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (status) {
+      case _LocationStatus.idle:
+        return const SizedBox.shrink();
+      case _LocationStatus.detecting:
+        return _banner(
+          color: AppColors.textSecondary,
+          background: const Color(0xFFF3F4F6),
+          icon: const NiswahLoadingIndicator(
+            size: NiswahLoadingSize.small,
+            contrast: NiswahLoadingContrast.dark,
+          ),
+          text: _tr('Detecting your location…', 'جارٍ تحديد موقعكِ…'),
+        );
+      case _LocationStatus.selected:
+        return _banner(
+          color: AppColors.tahara,
+          background: const Color(0xFFECFDF5),
+          icon: const Icon(
+            Icons.check_circle_rounded,
+            color: AppColors.tahara,
+            size: 20,
+          ),
+          text: _tr(
+            'Location confirmed: ${confirmedLabel ?? ''}',
+            'تم تحديد موقعكِ: ${confirmedLabel ?? ''}',
+          ),
+        );
+      case _LocationStatus.error:
+        return _banner(
+          color: const Color(0xFF9F1239),
+          background: const Color(0xFFFFF1F2),
+          icon: const Icon(
+            Icons.error_outline_rounded,
+            color: Color(0xFF9F1239),
+            size: 20,
+          ),
+          text: _tr(
+            'Location not detected — try again or pick a city below.',
+            'تعذر تحديد الموقع — حاولي مجدداً أو اختاري مدينة أدناه.',
+          ),
+        );
+    }
+  }
+
+  Widget _banner({
+    required Color color,
+    required Color background,
+    required Widget icon,
+    required String text,
+  }) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      children: [
+        icon,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -897,61 +1419,80 @@ class _SelectCard extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(18),
-    child: Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: selected ? const Color(0xFFFFF1F2) : Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: selected ? const Color(0xFFFDA4AF) : AppColors.shadowColor,
-          width: 2,
-        ),
-      ),
-      child: Stack(
-        children: [
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Center(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: selected
-                        ? const Color(0xFF881337)
-                        : AppColors.textSecondary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              if (subtitle.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  subtitle,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 8,
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ],
+  // Fiqh Remediation Wave 1 — Pre-E4 Verification (Section 2): this tile's
+  // selected state was previously conveyed only visually (color/border/
+  // checkmark) — a real accessibility gap, matching the pattern already
+  // fixed for FloatingNavBar's tabs (floating_nav_bar.dart). `excludeSemantics:
+  // true` stops the child Text's own label from merging in and doubling the
+  // announcement (e.g. "Hanafi, Hanafi, button").
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    label: subtitle.isEmpty ? title : '$title, $subtitle',
+    excludeSemantics: true,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFFFF1F2) : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? const Color(0xFFFDA4AF) : AppColors.shadowColor,
+            width: 2,
           ),
-          if (selected)
-            const PositionedDirectional(
-              top: 0,
-              end: 0,
-              child: Icon(
-                Icons.check_rounded,
-                color: Color(0xFFFB7185),
-                size: 17,
+        ),
+        child: Stack(
+          children: [
+            // FittedBox(scaleDown) matches the same fixed-dimension/large-
+            // text-scale treatment already applied to the dashboard (AU-006)
+            // — this grid cell has a fixed aspect ratio, so title+subtitle
+            // text would otherwise overflow it at large OS text-scale
+            // settings instead of shrinking to fit.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: selected
+                          ? const Color(0xFF881337)
+                          : AppColors.textSecondary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      subtitle,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textTertiary,
+                        fontSize: 8,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-        ],
+            if (selected)
+              const PositionedDirectional(
+                top: 0,
+                end: 0,
+                child: Icon(
+                  Icons.check_rounded,
+                  color: Color(0xFFFB7185),
+                  size: 17,
+                ),
+              ),
+          ],
+        ),
       ),
     ),
   );

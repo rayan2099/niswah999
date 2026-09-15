@@ -80,20 +80,28 @@ void main() {
       expect(insights.notes, isEmpty);
     });
 
-    test('a logged note surfaces even with insufficient history for averages', () {
-      final logs = [
-        _log(1, flow: FlowLevel.medium, cycleDay: 1, notes: 'first period ever'),
-      ];
+    test(
+      'a logged note surfaces even with insufficient history for averages',
+      () {
+        final logs = [
+          _log(
+            1,
+            flow: FlowLevel.medium,
+            cycleDay: 1,
+            notes: 'first period ever',
+          ),
+        ];
 
-      final insights = FiqhReportInsightsEngine.analyze(
-        cycleLogs: logs,
-        madhhab: Madhhab.hanbali,
-        now: DateTime(2026, 1, 10),
-      );
+        final insights = FiqhReportInsightsEngine.analyze(
+          cycleLogs: logs,
+          madhhab: Madhhab.hanbali,
+          now: DateTime(2026, 1, 10),
+        );
 
-      expect(insights.hasEnoughForAverages, isFalse);
-      expect(insights.notes.single.text, 'first period ever');
-    });
+        expect(insights.hasEnoughForAverages, isFalse);
+        expect(insights.notes.single.text, 'first period ever');
+      },
+    );
 
     test('fewer than two haid starts does not compute an average', () {
       final logs = [
@@ -176,6 +184,63 @@ void main() {
 
       expect(insights.hasEnoughForAverages, isTrue);
       expect(insights.cycleState, FiqhCycleState.needsAdvisory);
+    });
+  });
+
+  group('FiqhReportInsightsEngine — Fiqh Remediation Wave 1 (Section E/P): no madhhab SELECTED', () {
+    test(
+      'currently bleeding with null madhhab reports madhhabUnresolved, never '
+      'a guessed haid/tahara',
+      () {
+        final logs = [
+          _log(1, flow: FlowLevel.medium, cycleDay: 1),
+          _log(2, flow: FlowLevel.medium, cycleDay: 2),
+          _log(3, flow: FlowLevel.none, cycleDay: 3),
+          _log(29, flow: FlowLevel.medium, cycleDay: 1),
+          _log(30, flow: FlowLevel.medium, cycleDay: 2),
+        ];
+
+        final insights = FiqhReportInsightsEngine.analyze(
+          cycleLogs: logs,
+          madhhab: null,
+          now: DateTime(2026, 1, 31),
+        );
+
+        expect(insights.madhhab, isNull);
+        expect(insights.cycleState, FiqhCycleState.madhhabUnresolved);
+      },
+    );
+
+    test('not currently bleeding with null madhhab still correctly reports '
+        'tahara — a null madhhab never blocks a determination that holds '
+        'regardless of madhhab', () {
+      final insights = FiqhReportInsightsEngine.analyze(
+        cycleLogs: const [],
+        madhhab: null,
+        now: DateTime(2026, 1, 20),
+      );
+
+      expect(insights.cycleState, FiqhCycleState.tahara);
+    });
+
+    test('nifas mode is entirely unaffected by a null madhhab — postpartum '
+        'status does not depend on Madhhab selection', () {
+      final profile = PregnancyProfile(
+        id: 'p1',
+        userId: 'user-1',
+        isPostpartum: true,
+        postpartumStartDate: DateTime(2026, 1, 1),
+      );
+
+      final insights = FiqhReportInsightsEngine.analyze(
+        cycleLogs: const [],
+        madhhab: null,
+        pregnancyProfile: profile,
+        now: DateTime(2026, 1, 20),
+      );
+
+      expect(insights.mode, FiqhReportMode.nifas);
+      expect(insights.madhhab, isNull);
     });
   });
 }

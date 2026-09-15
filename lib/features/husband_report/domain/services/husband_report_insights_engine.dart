@@ -63,7 +63,7 @@ class HusbandReportInsightsEngine {
 
   static HusbandReportInsights analyze({
     required List<CycleLog> cycleLogs,
-    required Madhhab madhhab,
+    required Madhhab? madhhab,
     required String displayName,
     PregnancyProfile? pregnancyProfile,
     required DateTime now,
@@ -93,10 +93,19 @@ class HusbandReportInsightsEngine {
       final cycleStart = summary.lastCycleStart;
       final cycleLength = summary.averageCycleLength;
       final periodLength = summary.averagePeriodLength;
+      // Fiqh Remediation Wave 1 (Section E): `isBleedingNow` below is
+      // fiqh-derived (`FiqhCycleState.haid`) — if the madhhab is
+      // UNSET/UNKNOWN, that comparison would silently read as "not
+      // bleeding" even while bleeding is actually occurring (false
+      // precision, exactly what this wave forbids). The segment plan is
+      // simply not computed in that case, mirroring the existing
+      // `hasPlausibleAverage` "not enough to show yet" pattern, rather
+      // than asserting an unresolvable bleeding state.
       if (cycleStart != null &&
           cycleLength != null &&
           periodLength != null &&
-          summary.hasPlausibleAverage) {
+          summary.hasPlausibleAverage &&
+          fiqh.cycleState != FiqhCycleState.madhhabUnresolved) {
         final cycleDayEstimate = now.difference(cycleStart).inDays + 1;
         segmentPlan = const CycleSegmentPlanner().plan(
           cycleLength: cycleLength,

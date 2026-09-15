@@ -19,6 +19,7 @@ import 'core/storage/local_sensitive_data_cleanup.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
 import 'core/widgets/floating_nav_bar.dart';
+import 'core/widgets/niswah_loading_indicator.dart';
 import 'features/notifications/domain/services/notification_refresh_coordinator.dart';
 import 'features/ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
 import 'features/auth/presentation/screens/profile_screen.dart';
@@ -82,14 +83,8 @@ Future<void> _runApp() async {
   // through AppErrorReporter.report() — wiring this hook here, rather than
   // adding Sentry calls at each of those sites, is what makes all of them
   // reach Sentry without any of them changing.
-  AppErrorReporter.onReport = (
-    error,
-    stack, {
-    context,
-    feature,
-    retryAttempt,
-    recordId,
-  }) {
+  AppErrorReporter
+      .onReport = (error, stack, {context, feature, retryAttempt, recordId}) {
     if (AppEnvironment.sentryDsn.isEmpty) return;
     unawaited(
       Sentry.captureException(
@@ -331,7 +326,7 @@ class NiswahApp extends StatelessWidget {
   Widget _buildHome(BuildContext context) {
     if (kDebugSkipSignup) {
       return OnboardingScreen(
-        initialStep: 4,
+        initialStep: 2,
         onFinished: () => Navigator.of(context).pushReplacementNamed('/'),
       );
     }
@@ -343,19 +338,33 @@ class NiswahApp extends StatelessWidget {
 
     final onboardingCompleted = auth.onboardingCompleted;
     if (onboardingCompleted == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        body: Center(
+          child: NiswahLoadingIndicator(
+            size: NiswahLoadingSize.large,
+            contrast: NiswahLoadingContrast.dark,
+            semanticsLabel: AppLocaleController.instance.text(
+              'Loading',
+              'جارٍ التحميل',
+            ),
+          ),
+        ),
+      );
     }
 
     if (!onboardingCompleted) {
       return OnboardingScreen(
-        // Step 3 of onboarding is itself a login step — skip straight
-        // past splash/language/login to Madhhab (step 4) only when we
-        // know this user is already authenticated from a signup that
-        // just happened in this same process. Any other case (a
-        // returning-but-not-onboarded user, a confirmation-driven
-        // session from a fresh process) starts at step 1, which is
-        // correct and safe — never skipped based on a guess.
-        initialStep: auth.isNewSignUp ? 4 : 1,
+        // AUTH-008/AUTH-009: onboarding itself has no login step and no
+        // language step any more (this branch already proves
+        // `auth.isAuthenticated == true`, and AppLocaleController is
+        // already the sole language authority) — splash is the only step
+        // before Madhhab, and skipping it for a signup that just
+        // completed in this same process is a pure UX nicety, never a
+        // correctness requirement. Any other case (a returning-but-not-
+        // onboarded user, a confirmation-driven session from a fresh
+        // process) starts at step 1, which is correct and safe — never
+        // skipped based on a guess.
+        initialStep: auth.isNewSignUp ? 2 : 1,
         onFinished: () {
           auth.clearNewSignUp();
           auth.setOnboardingCompletedLocally(true);

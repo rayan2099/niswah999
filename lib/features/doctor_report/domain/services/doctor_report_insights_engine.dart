@@ -79,7 +79,7 @@ class DoctorReportInsightsEngine {
 
   static DoctorReportInsights analyze({
     required List<CycleLog> cycleLogs,
-    required Madhhab madhhab,
+    required Madhhab? madhhab,
     PregnancyProfile? pregnancyProfile,
     required List<WellbeingLog> currentWellbeingLogs,
     required List<WellbeingLog> previousWellbeingLogs,
@@ -105,9 +105,7 @@ class DoctorReportInsightsEngine {
 
     final topSymptoms = CycleSymptomDecoder.aggregateSymptoms(cycleLogs);
     final recentNotes = CycleSymptomDecoder.recentNotes(cycleLogs);
-    final recentBloodColors = CycleSymptomDecoder.recentBloodColors(
-      cycleLogs,
-    );
+    final recentBloodColors = CycleSymptomDecoder.recentBloodColors(cycleLogs);
 
     final hasAnyMeaningfulData =
         cycleLogs.isNotEmpty ||

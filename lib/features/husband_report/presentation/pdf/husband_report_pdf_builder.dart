@@ -73,10 +73,9 @@ class HusbandReportPdfBuilder {
   static String _monthLabel(DateTime date, bool isArabic) =>
       isArabic ? _monthNamesAr[date.month - 1] : _monthNamesEn[date.month - 1];
 
-  static String _dateLabel(DateTime date, bool isArabic) =>
-      isArabic
-          ? '${date.day} ${_monthLabel(date, true)} ${date.year}'
-          : '${_monthLabel(date, false)} ${date.day}, ${date.year}';
+  static String _dateLabel(DateTime date, bool isArabic) => isArabic
+      ? '${date.day} ${_monthLabel(date, true)} ${date.year}'
+      : '${_monthLabel(date, false)} ${date.day}, ${date.year}';
 
   static (String, String) _stateLabelAndColor(
     FiqhCycleState state,
@@ -90,6 +89,12 @@ class HusbandReportPdfBuilder {
     ),
     FiqhCycleState.insufficientHistory => (
       isArabic ? 'سجل غير كافٍ' : 'Insufficient history',
+      _textTertiary,
+    ),
+    // Fiqh Remediation Wave 1 (Section E): bleeding is occurring but no
+    // Madhhab is SELECTED yet — shown plainly rather than guessed.
+    FiqhCycleState.madhhabUnresolved => (
+      isArabic ? 'يلزم اختيار المذهب' : 'Madhhab selection required',
       _textTertiary,
     ),
   };
@@ -107,8 +112,8 @@ class HusbandReportPdfBuilder {
 
   static String _segmentLabel(CycleSegmentId id, bool isArabic) => switch (id) {
     CycleSegmentId.haid => isArabic ? 'حيض' : 'Haid',
-    CycleSegmentId.tahara1 || CycleSegmentId.tahara2 =>
-      isArabic ? 'طهارة' : 'Tahara',
+    CycleSegmentId.tahara1 ||
+    CycleSegmentId.tahara2 => isArabic ? 'طهارة' : 'Tahara',
     CycleSegmentId.fertile => isArabic ? 'خصوبة' : 'Fertile',
     CycleSegmentId.prePeriod => isArabic ? 'ما قبل الحيض' : 'Pre-Period',
     CycleSegmentId.expected => isArabic ? 'حيض متوقع' : 'Expected Period',
@@ -183,7 +188,12 @@ class HusbandReportPdfBuilder {
                     color: PdfColor.fromHex('#FFFFFF'),
                     shape: pw.BoxShape.circle,
                   ),
-                  child: pw.Image(logo, width: 22, height: 22, fit: pw.BoxFit.contain),
+                  child: pw.Image(
+                    logo,
+                    width: 22,
+                    height: 22,
+                    fit: pw.BoxFit.contain,
+                  ),
                 ),
                 pw.SizedBox(width: 8),
                 pw.Text(
@@ -269,32 +279,35 @@ class HusbandReportPdfBuilder {
     child: child,
   );
 
-  static pw.Widget _sectionLabel(String text, String accentHex, pw.Font semiBold) =>
-      pw.Padding(
-        padding: const pw.EdgeInsets.only(bottom: 8),
-        child: pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.center,
-          children: [
-            pw.Container(
-              width: 7,
-              height: 7,
-              decoration: pw.BoxDecoration(
-                color: PdfColor.fromHex(accentHex),
-                shape: pw.BoxShape.circle,
-              ),
-            ),
-            pw.SizedBox(width: 6),
-            pw.Text(
-              text,
-              style: pw.TextStyle(
-                font: semiBold,
-                color: PdfColor.fromHex(_emeraldInk),
-                fontSize: 12,
-              ),
-            ),
-          ],
+  static pw.Widget _sectionLabel(
+    String text,
+    String accentHex,
+    pw.Font semiBold,
+  ) => pw.Padding(
+    padding: const pw.EdgeInsets.only(bottom: 8),
+    child: pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        pw.Container(
+          width: 7,
+          height: 7,
+          decoration: pw.BoxDecoration(
+            color: PdfColor.fromHex(accentHex),
+            shape: pw.BoxShape.circle,
+          ),
         ),
-      );
+        pw.SizedBox(width: 6),
+        pw.Text(
+          text,
+          style: pw.TextStyle(
+            font: semiBold,
+            color: PdfColor.fromHex(_emeraldInk),
+            fontSize: 12,
+          ),
+        ),
+      ],
+    ),
+  );
 
   static pw.Widget _infoRow(String text) => pw.Padding(
     padding: const pw.EdgeInsets.only(bottom: 4),
@@ -357,7 +370,10 @@ class HusbandReportPdfBuilder {
               color: PdfColor.fromHex(_segmentColorHex(plan.segments[i].id)),
               borderRadius: pw.BorderRadius.circular(4),
               border: i == plan.activeIndex
-                  ? pw.Border.all(color: PdfColor.fromHex(_textPrimary), width: 1.4)
+                  ? pw.Border.all(
+                      color: PdfColor.fromHex(_textPrimary),
+                      width: 1.4,
+                    )
                   : null,
             ),
           ),
@@ -395,7 +411,10 @@ class HusbandReportPdfBuilder {
               pw.SizedBox(width: 5),
               pw.Text(
                 label,
-                style: pw.TextStyle(color: PdfColor.fromHex(_textSecondary), fontSize: 8.5),
+                style: pw.TextStyle(
+                  color: PdfColor.fromHex(_textSecondary),
+                  fontSize: 8.5,
+                ),
               ),
             ],
           ),
@@ -419,7 +438,9 @@ class HusbandReportPdfBuilder {
               ? 'اليوم ${insights.fiqh.daysPostpartum}'
               : 'Day ${insights.fiqh.daysPostpartum}')
         : (fiqh.cycleState == FiqhCycleState.insufficientHistory
-              ? (isArabic ? 'غير كافٍ للحساب' : 'Insufficient data for calculation')
+              ? (isArabic
+                    ? 'غير كافٍ للحساب'
+                    : 'Insufficient data for calculation')
               : null);
 
     final safeNextPeriod = insights.nextPeriodDate == null
@@ -434,9 +455,7 @@ class HusbandReportPdfBuilder {
       pw.Padding(
         padding: const pw.EdgeInsets.fromLTRB(0, 0, 0, 18),
         child: pw.Text(
-          isArabic
-              ? '${insights.displayName}،'
-              : '${insights.displayName},',
+          isArabic ? '${insights.displayName}،' : '${insights.displayName},',
           style: pw.TextStyle(
             font: semiBold,
             color: PdfColor.fromHex(_textSecondary),
@@ -499,9 +518,7 @@ class HusbandReportPdfBuilder {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             _statTile(
-              label: isArabic
-                  ? 'الحيض المتوقع القادم'
-                  : 'NEXT EXPECTED PERIOD',
+              label: isArabic ? 'الحيض المتوقع القادم' : 'NEXT EXPECTED PERIOD',
               value: safeNextPeriod,
               accentHex: _haid,
             ),
@@ -540,7 +557,9 @@ class HusbandReportPdfBuilder {
                   decoration: pw.BoxDecoration(
                     color: PdfColor.fromHex(_amberBg),
                     borderRadius: pw.BorderRadius.circular(10),
-                    border: pw.Border.all(color: PdfColor.fromHex(_amberBorder)),
+                    border: pw.Border.all(
+                      color: PdfColor.fromHex(_amberBorder),
+                    ),
                   ),
                   child: pw.Text(
                     isArabic

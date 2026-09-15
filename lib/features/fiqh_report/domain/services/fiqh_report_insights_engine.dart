@@ -44,7 +44,12 @@ class FiqhReportInsights extends Equatable {
        nifasPhase = null;
 
   final FiqhReportMode mode;
-  final Madhhab madhhab;
+
+  /// Null whenever the caller's `MadhhabController.state` is not
+  /// `selected` (UNSET or UNKNOWN) — Fiqh Remediation Wave 1. The report
+  /// screen/PDF builder must render an explicit "select your Madhhab
+  /// first" state rather than assume one.
+  final Madhhab? madhhab;
 
   // Nifas fields (mode == nifas)
   final int? daysPostpartum;
@@ -107,9 +112,15 @@ class FiqhReportInsightsEngine {
 
   static const minHaidStartsForAverage = 2;
 
+  /// [madhhab]: null whenever the caller's `MadhhabController.state` is
+  /// not `selected` — see Fiqh Remediation Wave 1, Section E. The nifas
+  /// branch below still runs (postpartum status doesn't depend on
+  /// madhhab); the cycle branch returns
+  /// [FiqhCycleState.madhhabUnresolved] via [_currentCycleState] instead
+  /// of guessing.
   static FiqhReportInsights analyze({
     required List<CycleLog> cycleLogs,
-    required Madhhab madhhab,
+    required Madhhab? madhhab,
     PregnancyProfile? pregnancyProfile,
     required DateTime now,
   }) {
@@ -182,7 +193,7 @@ class FiqhReportInsightsEngine {
 
   static FiqhCycleState _currentCycleState({
     required List<CycleLog> sortedLogs,
-    required Madhhab madhhab,
+    required Madhhab? madhhab,
     required bool hasSufficientHistory,
     required DateTime now,
   }) {
@@ -201,6 +212,11 @@ class FiqhReportInsightsEngine {
       }
       activeStart = log.date;
       if (log.cycleDay == 1) break;
+    }
+
+    if (madhhab == null) {
+      // Currently bleeding, but no madhhab is SELECTED — never guess one.
+      return FiqhCycleState.madhhabUnresolved;
     }
 
     final result = const MadhhabRuleEvaluator().evaluate(

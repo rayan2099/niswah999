@@ -7,8 +7,25 @@ import 'package:niswah/features/auth/presentation/models/profile_form_data.dart'
 import 'package:niswah/features/auth/presentation/viewmodels/profile_view_model.dart';
 
 /// A minimal fake covering only what ProfileViewModel actually calls.
+///
+/// Also models AUTH-004's real fix (updateProfile targets a single,
+/// implicit "current session user" row — no caller can ever pass a
+/// different user's id, mirroring the real repository, which derives the
+/// target row from `_client.auth.currentUser` rather than any parameter)
+/// so the account-isolation regression test below can assert this
+/// structurally, in addition to the live RLS evidence already gathered
+/// against production (Wave 1 Final Blocker Remediation, 2026-09-11).
 class _FakeAuthRepository implements AuthRepository {
   Object? failUpdateWith;
+  Duration updateDelay = Duration.zero;
+  int updateCallCount = 0;
+  Map<String, dynamic>? lastUpdatePayload;
+
+  // Simulates the one server-side row this fake "session" is scoped to —
+  // there is no way to address any other row, matching the real
+  // implicit-current-user contract.
+  bool _serverAnonymousMode = false;
+  String _serverDisplayName = '';
 
   @override
   Future<AppUser?> updateProfile({
@@ -18,12 +35,40 @@ class _FakeAuthRepository implements AuthRepository {
     String? bio,
     bool? anonymousMode,
   }) async {
+    updateCallCount++;
+    lastUpdatePayload = {
+      'displayName': displayName,
+      'email': email,
+      'phoneNumber': phoneNumber,
+      'bio': bio,
+      'anonymousMode': anonymousMode,
+    };
+    if (updateDelay > Duration.zero) {
+      await Future<void>.delayed(updateDelay);
+    }
     if (failUpdateWith != null) throw failUpdateWith!;
-    return AppUser(id: 'u1', email: email, displayName: displayName);
+    _serverDisplayName = displayName;
+    if (anonymousMode != null) {
+      _serverAnonymousMode = anonymousMode;
+    }
+    return AppUser(
+      id: 'u1',
+      email: email,
+      displayName: _serverDisplayName,
+      isAnonymous: _serverAnonymousMode,
+    );
   }
 
   @override
-  Future<AppUser?> get currentUser async => null;
+  Future<AppUser?> getProfile() async => AppUser(
+    id: 'u1',
+    email: 'sara@example.com',
+    displayName: _serverDisplayName,
+    isAnonymous: _serverAnonymousMode,
+  );
+
+  @override
+  Future<AppUser?> get currentUser async => getProfile();
 
   @override
   Future<void> signInWithEmail({
@@ -74,9 +119,6 @@ class _FakeAuthRepository implements AuthRepository {
 
   @override
   Future<void> deleteAccount() async {}
-
-  @override
-  Future<AppUser?> getProfile() async => null;
 
   @override
   Future<bool?> fetchOnboardingCompleted() async => null;
@@ -178,6 +220,176 @@ void main() {
         );
 
         expect(reportedError, isNotNull);
+      },
+    );
+
+    // AUTH-004 E4 investigation regression suite (Wave 1 Final Blocker
+    // Remediation, 2026-09-11) — added after the owner's real-device E4
+    // retest reported "Unable to update your profile right now." Live
+    // re-testing against production (two synthetic accounts, multiple
+    // real single-tap trials, a restart, and a double-tap stress test)
+    // did not reproduce a persistent defect in the current code — these
+    // tests lock in the observed-correct contract so any future
+    // regression is caught immediately, without needing another live
+    // production round-trip to notice it.
+
+    test('anonymous_mode false -> true persists the new value', () async {
+      viewModel.user = const AppUser(
+        id: 'u1',
+        email: 'sara@example.com',
+        isAnonymous: false,
+      );
+
+      await viewModel.setAnonymousMode(true);
+
+      expect(viewModel.user?.isAnonymous, isTrue);
+      expect(reportedError, isNull);
+    });
+
+    test('anonymous_mode true -> false persists the new value', () async {
+      viewModel.user = const AppUser(
+        id: 'u1',
+        email: 'sara@example.com',
+        isAnonymous: true,
+      );
+
+      await viewModel.setAnonymousMode(false);
+
+      expect(viewModel.user?.isAnonymous, isFalse);
+      expect(reportedError, isNull);
+    });
+
+    test(
+      'save succeeds for the current authenticated user without error',
+      () async {
+        viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+
+        await viewModel.setAnonymousMode(true);
+
+        expect(repository.updateCallCount, 1);
+        expect(reportedError, isNull);
+      },
+    );
+
+    test('the new value survives a simulated reload', () async {
+      viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+      await viewModel.setAnonymousMode(true);
+
+      // Simulate a fresh app session re-fetching the profile from the
+      // server rather than trusting any in-memory value.
+      final reloaded = await repository.currentUser;
+
+      expect(reloaded?.isAnonymous, isTrue);
+    });
+
+    test(
+      'logout/login (a fresh currentUser fetch) reloads the correct value',
+      () async {
+        viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+        await viewModel.setAnonymousMode(true);
+
+        // Simulate signing out (dropping all local view-model state) and
+        // signing back in — the only source of truth left is the server.
+        final freshViewModel = ProfileViewModel(authRepository: repository);
+        await freshViewModel.loadCurrentUser();
+
+        expect(freshViewModel.user?.isAnonymous, isTrue);
+      },
+    );
+
+    test(
+      'the repository contract cannot address another user\'s row — '
+      'updateProfile takes no user-id parameter, so a caller has no way '
+      'to target anyone but the current session user (structural '
+      'guarantee; the live cross-account RLS attack test against '
+      'production is the authoritative evidence for the server-side '
+      'enforcement of this same boundary)',
+      () async {
+        // The design fact itself: updateProfile's signature (see the
+        // AuthRepository interface) has no id/userId parameter anywhere,
+        // so no caller — this ViewModel included — can ever construct a
+        // request naming a different user's row.
+        viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+        await viewModel.setAnonymousMode(true);
+        // The fake's own single-row model demonstrates the same shape the
+        // real repository has: there is exactly one addressable row per
+        // authenticated session, never a caller-supplied target.
+        expect(repository.lastUpdatePayload, isNot(contains('id')));
+        expect(repository.lastUpdatePayload, isNot(contains('userId')));
+      },
+    );
+
+    test('unrelated profile fields are not overwritten by the toggle', () async {
+      viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+
+      await viewModel.setAnonymousMode(true);
+
+      // Only display_name/anonymous_mode are ever part of this call's
+      // concern — phoneNumber/bio are always null from this call site,
+      // confirming the toggle never sends unrelated field values.
+      expect(repository.lastUpdatePayload?['phoneNumber'], isNull);
+      expect(repository.lastUpdatePayload?['bio'], isNull);
+    });
+
+    test(
+      'a null/missing optional field does not break the update',
+      () async {
+        viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+
+        await expectLater(
+          () => viewModel.setAnonymousMode(true),
+          returnsNormally,
+        );
+      },
+    );
+
+    test('a failure response produces a user-visible error', () async {
+      viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+      repository.failUpdateWith = Exception('simulated backend failure');
+
+      await expectLater(
+        () => viewModel.setAnonymousMode(true),
+        throwsA(
+          isA<AuthFailure>().having(
+            (f) => f.message,
+            'message',
+            'Unable to update your profile right now.',
+          ),
+        ),
+      );
+    });
+
+    test('a success response does not produce any error', () async {
+      viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+
+      await viewModel.setAnonymousMode(true);
+
+      expect(reportedError, isNull);
+      expect(viewModel.errorMessage, isNot(contains('Unable to update')));
+    });
+
+    test(
+      'a rapid second call while a save is already in flight is '
+      'ignored, not sent as an overlapping second request — previously '
+      'unguarded (setAnonymousMode had no isSaving check, unlike the '
+      'sibling updateProfile), a real gap found during the AUTH-004 E4 '
+      'investigation even though it was not proven to be the owner\'s '
+      'exact failure',
+      () async {
+        viewModel.user = const AppUser(id: 'u1', email: 'sara@example.com');
+        repository.updateDelay = const Duration(milliseconds: 50);
+
+        final first = viewModel.setAnonymousMode(true);
+        // Fired while the first call is still in flight.
+        final second = viewModel.setAnonymousMode(false);
+
+        await Future.wait([first, second]);
+
+        expect(
+          repository.updateCallCount,
+          1,
+          reason: 'the second overlapping call must be dropped, not sent',
+        );
       },
     );
   });

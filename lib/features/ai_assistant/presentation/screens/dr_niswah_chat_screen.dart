@@ -8,6 +8,7 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/chat_thread.dart';
 import '../viewmodels/chat_view_model.dart';
@@ -192,9 +193,7 @@ class _DrNiswahChatScreenState extends State<DrNiswahChatScreen> {
         return _ConversationsPicker(
           mode: widget.mode,
           threads: _model.threads
-              .where(
-                (t) => t.threadType == chatThreadTypeFor(widget.mode),
-              )
+              .where((t) => t.threadType == chatThreadTypeFor(widget.mode))
               .toList(),
           isLoading: _model.isLoading,
           onNewChat: _startNewFromPicker,
@@ -297,7 +296,8 @@ class _ChatBody extends StatelessWidget {
               )
             : ListView.builder(
                 controller: scrollController,
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
                 itemCount: model.messages.length + (model.isSending ? 1 : 0),
                 itemBuilder: (_, i) => i < model.messages.length
@@ -357,7 +357,11 @@ class _ChatBody extends StatelessWidget {
                 : 'نسوة AI للمعلومات العامة، وليست بديلاً عن التشخيص الطبي أو الفتوى الشرعية.',
           ),
           textAlign: TextAlign.center,
-          style: TextStyle(color: Color(0xFFB99A91), fontSize: 8.5, height: 1.35),
+          style: TextStyle(
+            color: Color(0xFFB99A91),
+            fontSize: 8.5,
+            height: 1.35,
+          ),
         ),
       ),
     ],
@@ -420,15 +424,11 @@ class _ConversationsPicker extends StatelessWidget {
           child: threads.isEmpty
               ? Center(
                   child: isLoading
-                      ? SizedBox.square(
-                          dimension: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: accent,
-                            semanticsLabel: _ai(
-                              'Loading conversations',
-                              'جارٍ تحميل المحادثات',
-                            ),
+                      ? NiswahLoadingIndicator(
+                          color: accent,
+                          semanticsLabel: _ai(
+                            'Loading conversations',
+                            'جارٍ تحميل المحادثات',
                           ),
                         )
                       : Text(
@@ -512,7 +512,11 @@ class _ConversationsPicker extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.add_rounded, color: Colors.white, size: 38),
+                    const Icon(
+                      Icons.add_rounded,
+                      color: Colors.white,
+                      size: 38,
+                    ),
                     const SizedBox(height: 8),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -1033,13 +1037,12 @@ class _Composer extends StatelessWidget {
               disabledBackgroundColor: const Color(0xFFE8CAC5),
             ),
             icon: busy
-                ? SizedBox(
-                    width: 15,
-                    height: 15,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                      semanticsLabel: _ai('Sending message', 'جارٍ إرسال الرسالة'),
+                ? NiswahLoadingIndicator(
+                    size: NiswahLoadingSize.small,
+                    contrast: NiswahLoadingContrast.light,
+                    semanticsLabel: _ai(
+                      'Sending message',
+                      'جارٍ إرسال الرسالة',
                     ),
                   )
                 : const Icon(Icons.arrow_upward_rounded, size: 20),

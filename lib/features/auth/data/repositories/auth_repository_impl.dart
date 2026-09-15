@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/storage/local_sensitive_data_cleanup.dart';
-import '../models/user_profile.dart';
 import '../../domain/account_deletion_orchestrator.dart';
 import '../../domain/entities/app_user.dart';
 import '../../domain/repositories/auth_repository.dart';
@@ -218,7 +217,7 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       await _client.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: null,
+        redirectTo: _emailRedirectTo,
       );
     } on AuthException catch (error) {
       throw AuthFailure(error.message);
@@ -257,50 +256,38 @@ class AuthRepositoryImpl implements AuthRepository {
     }
 
     final safeDisplayName = displayName.trim();
-    final safeEmail = email.trim();
-    final safePhoneNumber = phoneNumber?.trim();
-    final safeBio = bio?.trim();
 
+    // AUTH-004: `display_name`/`anonymous_mode` are written to
+    // `public.users` (the table that actually has these columns live),
+    // not `public.profiles` (which never did — the migration that would
+    // have added them there, `20260822014500_niswah_schema_sync_and_indexes.sql`,
+    // was authored but never applied to production; see
+    // `supabase/migrations_archive/README.md`). `email` is Supabase Auth's
+    // own field and must never be duplicated into a public table.
+    // `phoneNumber`/`bio` have no authoritative server column and no
+    // reachable UI that collects a real value (confirmed: `ProfileFormData`,
+    // the only model carrying them, is never constructed anywhere in the
+    // app) — accepted here for API compatibility, intentionally not
+    // persisted until both a real screen and a real server column exist.
     try {
-      final updates = <String, dynamic>{
-        'display_name': safeDisplayName,
-        'email': safeEmail,
-      };
-
-      if (safePhoneNumber != null && safePhoneNumber.isNotEmpty) {
-        updates['phone_number'] = safePhoneNumber;
-      }
-
-      if (safeBio != null) {
-        updates['bio'] = safeBio;
-      }
-
+      final updates = <String, dynamic>{'display_name': safeDisplayName};
       if (anonymousMode != null) {
         updates['anonymous_mode'] = anonymousMode;
       }
 
       final response = await _client
-          .from('profiles')
+          .from('users')
           .update(updates)
           .eq('id', sessionUser.id)
-          .select()
+          .select('display_name, anonymous_mode')
           .maybeSingle();
 
-      if (response == null) {
-        return AppUser(
-          id: sessionUser.id,
-          email: safeEmail,
-          displayName: safeDisplayName,
-          isAnonymous: sessionUser.isAnonymous,
-        );
-      }
-
-      final profile = UserProfile.fromJson(response);
       return AppUser(
-        id: profile.id,
-        email: profile.email.isEmpty ? safeEmail : profile.email,
-        displayName: profile.displayName ?? safeDisplayName,
-        isAnonymous: profile.isAnonymous,
+        id: sessionUser.id,
+        email: sessionUser.email ?? email.trim(),
+        displayName: (response?['display_name'] as String?) ?? safeDisplayName,
+        isAnonymous:
+            response?['anonymous_mode'] as bool? ?? anonymousMode ?? false,
       );
     } on AuthException catch (error) {
       throw AuthFailure(error.message);
@@ -382,28 +369,34 @@ class AuthRepositoryImpl implements AuthRepository {
       return null;
     }
 
-    final response = await _client
-        .from('profiles')
-        .select()
-        .eq('id', sessionUser.id)
-        .maybeSingle();
+    // AUTH-004: read from `public.users`, the table that actually carries
+    // `display_name`/`anonymous_mode` in production — see the matching
+    // note on `updateProfile` above.
+    final fallbackName = sessionUser.userMetadata?['full_name'] as String?;
+    try {
+      final response = await _client
+          .from('users')
+          .select('display_name, anonymous_mode')
+          .eq('id', sessionUser.id)
+          .maybeSingle();
 
-    if (response == null) {
+      final storedName = response?['display_name'] as String?;
       return AppUser(
         id: sessionUser.id,
         email: sessionUser.email ?? '',
-        displayName: sessionUser.userMetadata?['full_name'] as String?,
+        displayName: (storedName != null && storedName.trim().isNotEmpty)
+            ? storedName
+            : fallbackName,
+        isAnonymous: response?['anonymous_mode'] as bool? ?? false,
+      );
+    } catch (_) {
+      return AppUser(
+        id: sessionUser.id,
+        email: sessionUser.email ?? '',
+        displayName: fallbackName,
         isAnonymous: sessionUser.isAnonymous,
       );
     }
-
-    final profile = UserProfile.fromJson(response);
-    return AppUser(
-      id: profile.id,
-      email: profile.email,
-      displayName: profile.displayName,
-      isAnonymous: profile.isAnonymous,
-    );
   }
 
   @override

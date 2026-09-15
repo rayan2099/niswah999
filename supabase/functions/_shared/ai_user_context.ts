@@ -88,6 +88,15 @@ export interface UserAiContext {
   fiqh: {
     madhhab: string | null;
     madhhabSource: 'client_supplied' | 'not_provided';
+    /**
+     * Fiqh Remediation Wave 1 (AUTH-005/AUTH-010, Section F): distinguishes
+     * UNKNOWN ("I don't know my Madhhab" — explicit) from UNSET (never
+     * answered) from SELECTED (a real madhhab) — never collapsed into one
+     * another. 'not_provided' covers an older client build that predates
+     * this field; treated identically to 'unset' by every prompt (never a
+     * reason to assume a madhhab).
+     */
+    madhhabState: 'unset' | 'unknown' | 'selected' | 'not_provided';
     classification: string | null;
     classificationSource: 'client_computed' | 'not_provided';
     uncertainty: string;
@@ -216,6 +225,8 @@ export async function buildUserAiContext(
   userClient: SupabaseClient,
   options: {
     clientMadhhab?: string | null;
+    /** Fiqh Remediation Wave 1, Section F — 'unset' | 'unknown' | 'selected'. */
+    clientMadhhabState?: string | null;
     clientFiqhState?: string | null;
     notesLimit?: number;
     wellbeingLimit?: number;
@@ -329,6 +340,12 @@ export async function buildUserAiContext(
     fiqh: {
       madhhab: options.clientMadhhab ?? null,
       madhhabSource: options.clientMadhhab ? 'client_supplied' : 'not_provided',
+      madhhabState:
+        options.clientMadhhabState === 'unset' ||
+        options.clientMadhhabState === 'unknown' ||
+        options.clientMadhhabState === 'selected'
+          ? options.clientMadhhabState
+          : 'not_provided',
       classification: options.clientFiqhState ?? null,
       classificationSource: options.clientFiqhState ? 'client_computed' : 'not_provided',
       uncertainty: fiqhUncertainty,
@@ -405,7 +422,21 @@ export function formatContextBlock(context: UserAiContext, scope: ContextScope):
   };
 
   const addFiqh = () => {
+    // Fiqh Remediation Wave 1, Section F: madhhab_state is always present
+    // and always read before selected_madhhab — a model reading top-down
+    // sees "unknown"/"unset" before it ever sees a null madhhab value, so
+    // it cannot mistake "no value" for "not yet fetched."
+    lines.push(`madhhab_state: ${context.fiqh.madhhabState}`);
     lines.push(`selected_madhhab: ${context.fiqh.madhhab ?? 'not_provided'}`);
+    if (context.fiqh.madhhabState === 'unknown') {
+      lines.push(
+        'madhhab_unknown_note: the user explicitly said she does not know her madhhab — do not assume one, and do not treat this as a missing value to fill in.',
+      );
+    } else if (context.fiqh.madhhabState === 'unset' || context.fiqh.madhhabState === 'not_provided') {
+      lines.push(
+        'madhhab_unset_note: the user has not yet answered which madhhab she follows — do not assume one.',
+      );
+    }
     lines.push(
       `deterministic_fiqh_classification: ${context.fiqh.classification ?? 'not_provided'} (source: ${context.fiqh.classificationSource})`,
     );
