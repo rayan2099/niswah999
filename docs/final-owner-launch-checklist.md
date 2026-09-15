@@ -401,7 +401,18 @@ Report PASS/FAIL for each of the 4 items — if anything fails, note exactly whi
 
 ---
 
-## Loading Indicator Handoff (new, 2026-09-15, Global Loading/Spinner Remediation wave) — `UI-001`, `E2` DONE, `E4` NEEDS YOU
+## Loading Indicator Handoff — ✅ VERIFIED_CLOSED, 2026-09-15 (owner-reported live acceptance)
+
+**You reported all 4 retest items PASS** on the build at commit `211ee76d535f3090cf6c250c5d6faeea672d2e2a`: the Create Account loading indicator clearly visible; rendered as an actual animated indicator, not a dot/speck; button dimensions remained stable while loading; and an additional loading state (profile save) also tested successfully. That is this finding's own complete closure bar — nothing further is needed. **`UI-001` = `VERIFIED_CLOSED / E4`.**
+
+**Historical note, kept on record rather than smoothed over**: the original tiny-dot/collapsed-spinner mechanism was never conclusively reproduced against the audited source code (see below) — the canonical loading component and its representative migrations passed both this session's own automated verification and now your live acceptance, which is what actually closes this finding.
+
+**The remaining ~15 already-correctly-sized, not-yet-migrated loading-indicator sites** (community, private messaging, notifications, data export, resource library, dream interpreter) remain a tracked, **non-blocking** cleanup task — recommended for visual consistency, not required, since none of them showed the defect.
+
+<details>
+<summary>Original handoff text (2026-09-15, before your retest) — kept for the record</summary>
+
+### `UI-001`, `E2` DONE, `E4` NEEDS YOU
 
 **What you reported**: loading spinners inside buttons (most concretely, the Create Account button) sometimes showed only a tiny white speck instead of a clearly visible spinner.
 
@@ -415,6 +426,8 @@ Report PASS/FAIL for each of the 4 items — if anything fails, note exactly whi
 2. **One more place, for confidence it's not just that one screen**: In Profile, if you have a pregnancy-tracking setup step available, tap its save/activate button and confirm the same — a clearly visible, animated spinner, not a speck. (If that's not reachable in your current state, any other Save-style button works just as well — the goal is simply to confirm it's not just the one button that got fixed.)
 
 Report PASS/FAIL for each — if you still see the tiny-speck behavior anywhere, please note exactly which button and, if possible, whether the app was just freshly reinstalled or had been open for a while beforehand (that detail would help pin down whether this is a stale-build issue). If both pass, `UI-001` closes as `VERIFIED_CLOSED / E4`.
+
+</details>
 
 ---
 

@@ -8,6 +8,8 @@
 
 **Update, later the same day (Fiqh Remediation Wave 1)** — both Madhhab blockers below are now actually fixed in the code and the database, not just planned: the "I don't know" option is real and working, and your madhhab now genuinely survives a reinstall instead of quietly resetting. This was tested thoroughly in an automated way (39 new checks covering the whole new flow in both languages, plus 10 more proving the "never silently becomes Hanbali" guarantee, plus a real test write against your actual production database). What's still needed is you trying it yourself on a real phone — see the new acceptance script waiting for you in the owner checklist. Both items move from 🔴 to 🟡 below, not yet 🟢, until that happens.
 
+**Update, 2026-09-15 — the loading-spinner issue you reported (tiny white dot instead of a visible spinner, worst on the Create Account button) is fixed and confirmed on your own device.** You tested the build and reported: the Create Account spinner is now clearly visible; it's a real animated spinner, not a dot; the button doesn't change size while loading; and a second loading state (profile save) also worked correctly. **Closed** (tracked as `UI-001`). One honest note kept on record, not smoothed over: this session could never actually reproduce the original tiny-dot problem in its own testing — every place in the code that shows a spinner was already sized correctly when checked directly. The fix went ahead anyway (one standard, consistent way of showing a loading spinner everywhere, replacing several different one-off versions), and your test is what actually confirms it works — not a guess that the investigation found the exact cause. A number of older-style spinners elsewhere in the app (community, messaging, notifications) were checked and are already fine — switching them to the new standard one is a nice-to-have for later, not something blocking anything.
+
 ---
 
 ## The headline finding
@@ -29,6 +31,7 @@ You were right to ask for this check. The Madhhab example you found is real, and
 - **The "you got signed in twice" bug** (`AUTH-008`) — you retested on a freshly reinstalled iOS build and reported: no second Sign In/Sign Up during onboarding, Sign Out returns to Sign In, and signing back in goes straight to the dashboard. **Closed.** The full history of this bug (including the earlier retest that still showed it failing) is kept on record, not deleted, in case it's ever useful — but the current status is fixed and confirmed.
 - **The "onboarding asks for your language twice" bug** (`AUTH-009`) — your retest confirmed language is selected before sign-in and never asked again afterward. **Closed.**
 - **The Arabic onboarding switching languages mid-flow** (`AUTH-007`) — your retest confirmed Arabic onboarding now stays in Arabic throughout. **Closed.**
+- **The loading spinner collapsing into a tiny white dot** (`UI-001`) — your device test confirmed the Create Account spinner (and a second, separate loading state) now render as a clearly visible, animated spinner, with the button staying the same size throughout. **Closed.** The original mechanism was never pinned down with certainty (disclosed above, not hidden), but the fix and your confirmation both stand regardless.
 
 ### 🟡 Fixed today, waiting on your real-device test (moved from 🔴, Fiqh Remediation Wave 1)
 
