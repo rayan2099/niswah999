@@ -5836,5 +5836,5 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 22. **Full regression result**: `flutter analyze` clean; `flutter test` 475/485, 10 pre-existing golden-image failures (identical to established baseline), zero new failures.
 23. **Current finding status**: `UI-001` `OPEN` — `E2_AUTOMATED_VERIFIED`, owner E4 retest required for closure.
 24. **Exact minimum owner retest**: the 2-step script in `docs/final-owner-launch-checklist.md`'s Loading Indicator Handoff (Create Account spinner + one other Save-style button).
-25. **Final commit SHA**: recorded in the addendum commit immediately following this wave's substantive commit.
-26. **Local == upstream verification**: confirmed after push — see the addendum commit for the exact SHA comparison.
+25. **Final commit SHA**: `f2dec987d9fcc7c8a57cf5260de459c0fa315075` (`fix: introduce canonical loading indicator, close UI-001 investigation`).
+26. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `f2dec987d9fcc7c8a57cf5260de459c0fa315075` after push.
