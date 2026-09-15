@@ -5,6 +5,7 @@ import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/data/countries.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../../core/widgets/niswah_logo.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
 import '../../data/repositories/auth_repository_impl.dart';
@@ -73,26 +74,25 @@ class _SignInScreenState extends State<SignInScreen> {
     await proceed();
   }
 
-  Future<void> _showAuthSheet({required bool isPhone}) => _requireConsent(
-    () async {
-      final success = await showModalBottomSheet<bool>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.white,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-        ),
-        builder: (_) => _AuthSheet(isPhone: isPhone),
-      );
-
-      if (success == true && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_tr('Welcome back!', 'أهلاً بعودتكِ!'))),
+  Future<void> _showAuthSheet({required bool isPhone}) =>
+      _requireConsent(() async {
+        final success = await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.white,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+          builder: (_) => _AuthSheet(isPhone: isPhone),
         );
-        _onAuthenticated();
-      }
-    },
-  );
+
+        if (success == true && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_tr('Welcome back!', 'أهلاً بعودتكِ!'))),
+          );
+          _onAuthenticated();
+        }
+      });
 
   Future<void> _signInWithGoogle() => _requireConsent(_signInWithGoogleImpl);
 
@@ -906,30 +906,14 @@ class _AuthSheetState extends State<_AuthSheet> {
       ),
     ],
     const SizedBox(height: 22),
-    SizedBox(
-      height: 54,
-      child: FilledButton(
-        onPressed: _loading ? null : _verifyOtp,
-        style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFFE11D48),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        child: _loading
-            ? SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  color: Colors.white,
-                  semanticsLabel: _tr('Loading', 'جارٍ التحميل'),
-                ),
-              )
-            : Text(
-                _tr('Verify', 'تأكيد'),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
+    NiswahLoadingButton(
+      loading: _loading,
+      onPressed: _verifyOtp,
+      label: _tr('Verify', 'تأكيد'),
+      loadingSemanticsLabel: _tr('Loading', 'جارٍ التحميل'),
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFFE11D48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     ),
     const SizedBox(height: 14),
@@ -970,9 +954,9 @@ class _AuthSheetState extends State<_AuthSheet> {
     Text(
       _tr(
         'We sent a confirmation link to ${_pendingEmail ?? ''}. '
-        'Click it, then come back and sign in.',
+            'Click it, then come back and sign in.',
         'أرسلنا رابط تأكيد إلى ${_pendingEmail ?? ''}. '
-        'اضغطي عليه ثم عودي لتسجيل الدخول.',
+            'اضغطي عليه ثم عودي لتسجيل الدخول.',
       ),
       textAlign: TextAlign.center,
       style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
@@ -1013,13 +997,10 @@ class _AuthSheetState extends State<_AuthSheet> {
       child: TextButton(
         onPressed: _loading ? null : _resendEmailConfirmation,
         child: _loading
-            ? SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  semanticsLabel: _tr('Loading', 'جارٍ التحميل'),
-                ),
+            ? NiswahLoadingIndicator(
+                size: NiswahLoadingSize.small,
+                contrast: NiswahLoadingContrast.dark,
+                semanticsLabel: _tr('Loading', 'جارٍ التحميل'),
               )
             : Text(_tr('Resend email', 'إعادة إرسال البريد')),
       ),
@@ -1176,32 +1157,18 @@ class _AuthSheetState extends State<_AuthSheet> {
       ),
     ],
     const SizedBox(height: 22),
-    SizedBox(
-      height: 54,
-      child: FilledButton(
-        onPressed: _loading ? null : _submit,
-        style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFFE11D48),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        child: _loading
-            ? SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  color: Colors.white,
-                  semanticsLabel: _tr('Loading', 'جارٍ التحميل'),
-                ),
-              )
-            : Text(
-                _isSignUp
-                    ? _tr('Create Account', 'إنشاء حساب')
-                    : _tr('Sign In', 'تسجيل الدخول'),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
+    NiswahLoadingButton(
+      loading: _loading,
+      onPressed: _submit,
+      label: _isSignUp
+          ? _tr('Create Account', 'إنشاء حساب')
+          : _tr('Sign In', 'تسجيل الدخول'),
+      loadingSemanticsLabel: _isSignUp
+          ? _tr('Creating account', 'جارٍ إنشاء الحساب')
+          : _tr('Signing in', 'جارٍ تسجيل الدخول'),
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFFE11D48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     ),
   ];

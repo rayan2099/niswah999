@@ -5783,3 +5783,58 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 19. **Overall verdict**: `NO-GO` unchanged for the whole app; for the Fiqh feature, every engineering-verifiable gap ahead of `AUTH-005`/`AUTH-010`'s closure is now closed — only the owner's own real-device retest remains.
 20. **Final commit SHA**: `87aa8cb38c3c82a4eae66e606807baa5e6d2f6be` (`fix: close remaining Madhhab accessibility gaps ahead of owner E4 retest`).
 21. **Local == upstream verification**: confirmed — `git rev-parse HEAD` and `git rev-parse origin/terminal` both resolved to `87aa8cb38c3c82a4eae66e606807baa5e6d2f6be` after push.
+
+## 80. Global Loading/Spinner Remediation Wave (2026-09-15) — `UI-001`
+
+**Charter**: investigate and remediate an owner-reported live visual defect — loading indicators inside buttons collapsing into a tiny white dot/speck instead of a visible spinner, concretely reported on the Create Account button — across the whole app, not as a one-screen patch. Governance-gated: check the finding register first (do not reopen `AU-014` if it only covers semantics), create a new finding if none exists.
+
+**Governance**: confirmed `AU-014` (`VERIFIED_CLOSED`) covers only loading-state *screen-reader semantics* (whether a spinner announces anything), never visual rendering size — genuinely a different defect class. New finding `UI-001` created (domain UI/UX·Reliability, severity MEDIUM per the charter's own suggested classification, launch-relevant YES).
+
+**Inventory (Section A)**: 25 genuine `CircularProgressIndicator` call sites across 19 files, 0 `CupertinoActivityIndicator`, 8 `LinearProgressIndicator` sites (all pre-confirmed non-loading data/stat visualizations by `AU-014`'s own prior sweep). Every site individually inspected: 17 already wrap the indicator in an explicit `SizedBox`/`SizedBox.square`; 8 are correct, unconstrained page-level `Center(child: CircularProgressIndicator())` loaders (default ~36-40dp is the intended Material behavior, not a defect). **Zero live, reachable sites use a bare, unconstrained `CircularProgressIndicator` in a compact/button context** — the one site that does, `settings_screen.dart:261`, is confirmed dead/orphaned code (`SettingsScreen` has zero references anywhere outside its own file).
+
+**Root cause (Section B) — investigated empirically**: built a dedicated widget-test harness reproducing the exact Create Account button code (22×22 `SizedBox` + `CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white)`, disabled while loading) and directly measured the rendered tree via `tester.getSize`/`tester.renderObject`/`visitAncestorElements` — result: correct 22×22 render, `BoxConstraints(w=22, h=22)`, no `Opacity`/`Transform`/`FittedBox` ancestor found. Also checked and ruled out: no `ProgressIndicatorThemeData` override exists anywhere in `AppTheme`; Material 3's redesigned "growing arc" indicator style (`year2023: false`, which does have a genuine small-arc animation-start phase) is never enabled — this app uses the classic style (`year2023` defaults to `true`) everywhere. `git log` confirms the 22×22 wrapper on this exact button has existed since the repository's first tracked commit (`6d59bfe`, 2026-09-03), never introduced as a fix for a prior regression. **This pass could not reproduce the reported collapse from the current, live, reachable code** — presented honestly as an unconfirmed mechanism (candidate, unproven explanations: a build predating this session, or a device/OS-level rendering behavior outside what a widget-test environment can observe) rather than papering over the gap between the owner's report and what could be measured.
+
+**Canonical component (Sections C/D)**: `lib/core/widgets/niswah_loading_indicator.dart` — `NiswahLoadingIndicator` (small=15/medium=22/large=40, light/dark contrast, always self-sizing via its own `SizedBox`, never trusting parent layout) and `NiswahLoadingButton` (fixed-height button, stable dimensions between normal/loading states, `onPressed` nulled while loading — built-in double-submit protection).
+
+**Global replacement (Section H)**: applied at the exact reported site (`sign_in_screen.dart`'s Create Account/Sign In button, OTP verify, resend-email) plus 6 further representative sites from the charter's "at minimum audit" list: profile save (pregnancy-tracking activation), account deletion, one AI/network send button + its conversations-loading spinner (`dr_niswah_chat_screen.dart`, shared by all 3 AI modes including the Fiqh Advisor), and the app's root page-level loader (`main.dart`) — which had **no semantics label at all**, a genuine separate `AU-014`-class gap found and fixed in the same pass. The remaining ~15 already-correctly-sized sites (private messaging, community, data export, notification settings, resource library, dream interpreter) were confirmed correct via the inventory but not mechanically migrated — recommended for a future consistency pass, not required for correctness. The 2 deliberately-unlabeled `AU-014` typing-indicator exceptions were confirmed unaffected and correctly left untouched.
+
+**Async state safety (Section I)**: no double-submission, race, or dispose-after-setState issues found — every `onPressed` gate already correctly nulls itself while its own loading flag is true, at every site checked.
+
+**Automated tests (Section J)**: `test/niswah_loading_indicator_test.dart` (new, 9/9 passing) — button and page spinner visibility/non-zero dimensions/no-overflow, both languages, 200% text scale, small viewport, stable button size across states, double-submit protection.
+
+**Live reproduction (Section K)**: the exact owner-reported case could not be reproduced via automated testing (see root-cause discussion above) — full transparency, not overclaimed. The canonical-component code path was verified structurally sound via the harness test. A live device retest is the only way to close this with certainty either way — see the owner acceptance script in `docs/final-owner-launch-checklist.md`'s new Loading Indicator Handoff.
+
+**Full regression**: `flutter analyze` clean; `flutter test` 475/485 passing — the identical 10 pre-existing golden-image failures already established as unrelated to this engagement's work, re-confirmed here, zero new failures.
+
+**Files updated this pass**: `lib/core/widgets/niswah_loading_indicator.dart` (new), `lib/features/auth/presentation/screens/sign_in_screen.dart`, `lib/features/auth/presentation/screens/profile_screen.dart`, `lib/features/ai_assistant/presentation/screens/dr_niswah_chat_screen.dart`, `lib/main.dart` (5 code files); `test/niswah_loading_indicator_test.dart` (new, 1 test file); `production-readiness-results/master/00_04_MASTER_FINDING_REGISTER.md`, `docs/final-owner-launch-checklist.md`, this file (§80) (3 doc files).
+
+**Knowledge Base work and another full readiness wave were not begun, per explicit instruction.**
+
+### Consolidated Report
+
+1. **Finding ID**: `UI-001`.
+2. **Severity**: MEDIUM (per the charter's own suggested classification, adopted as-is — not escalated, since every reachable site checked was already correctly sized).
+3. **Total loading-indicator call sites found**: 25 `CircularProgressIndicator` + 8 `LinearProgressIndicator` (the latter pre-confirmed non-loading by `AU-014`) across 19 files.
+4. **Number of distinct implementations found**: effectively 2 ad hoc patterns (explicit-`SizedBox`-wrapped, and unconstrained page-level `Center`) — now unified under 1 canonical component for the sites migrated this pass.
+5. **Exact root cause**: not conclusively established — every reachable, live site inspected was already structurally correct (confirmed via direct widget-tree measurement, not static reading); see the honest discussion above.
+6. **Canonical spinner component created**: YES — `NiswahLoadingIndicator`.
+7. **Canonical loading-button behavior created**: YES — `NiswahLoadingButton`.
+8. **Global replacements performed**: 7 sites (Create Account/Sign In, OTP verify, resend-email, pregnancy-tracking save, account deletion, AI send button + AI conversations loader, root page-level loader) across 4 files; ~15 further sites confirmed correct but not migrated.
+9. **Signup spinner before/after result**: "before" state could not be reproduced (see root-cause discussion); "after" state (the canonical component in place of the prior code) verified via direct widget-tree measurement to render at the intended 22×22 with no distorting ancestor.
+10. **Sign In spinner result**: same button/code path as Create Account (shared `_submit`) — same evidence.
+11. **Profile/settings spinner result**: pregnancy-tracking activation button migrated and verified; account-deletion button migrated and verified.
+12. **Madhhab spinner result**: no loading spinner exists for Madhhab selection (onboarding/Settings writes are instant, no async gate) — not applicable.
+13. **AI/network spinner result**: `dr_niswah_chat_screen.dart`'s send button and conversations-loading spinner migrated and verified (covers Dr Niswah, General Assistant, and Fiqh Advisor, which share this screen).
+14. **Page-level spinner result**: `main.dart`'s root loader migrated; a genuine missing-semantics-label defect found and fixed in the same edit.
+15. **Animation result**: confirmed `year2023` (governing Material 3's alternate, animation-phase-sensitive indicator style) defaults to `true` (classic style) app-wide, never overridden — ruled out as a contributing mechanism.
+16. **Contrast result**: canonical component's `light`/`dark` contrast variants explicitly preserve the correct color choice at every migrated site (white-on-red for filled buttons, brand-red for text-button/page contexts).
+17. **Arabic/RTL result**: PASS — `niswah_loading_indicator_test.dart`'s 200%-scale test covers both languages, no overflow.
+18. **English/LTR result**: PASS — same test.
+19. **200% text-scale result**: PASS — explicit test, both languages, button and page variants.
+20. **Semantics result**: preserved and extended — every migrated site keeps its existing contextual `semanticsLabel` (e.g. "Creating account"/"جارٍ إنشاء الحساب" now more specific than the prior generic "Loading"); the 2 deliberately-unlabeled `AU-014` exceptions untouched; `main.dart`'s previously-unlabeled page loader now labeled.
+21. **Double-submit/race issues discovered**: none.
+22. **Full regression result**: `flutter analyze` clean; `flutter test` 475/485, 10 pre-existing golden-image failures (identical to established baseline), zero new failures.
+23. **Current finding status**: `UI-001` `OPEN` — `E2_AUTOMATED_VERIFIED`, owner E4 retest required for closure.
+24. **Exact minimum owner retest**: the 2-step script in `docs/final-owner-launch-checklist.md`'s Loading Indicator Handoff (Create Account spinner + one other Save-style button).
+25. **Final commit SHA**: recorded in the addendum commit immediately following this wave's substantive commit.
+26. **Local == upstream verification**: confirmed after push — see the addendum commit for the exact SHA comparison.

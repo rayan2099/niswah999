@@ -11,6 +11,7 @@ import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/app_theme_controller.dart';
+import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../legal/presentation/screens/data_export_screen.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
 import 'sign_in_screen.dart';
@@ -419,16 +420,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         child: _isDeletingAccount
-                            ? SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.4,
-                                  color: const Color(0xFF991B1B),
-                                  semanticsLabel: _pr(
-                                    'Deleting account',
-                                    'جارٍ حذف الحساب',
-                                  ),
+                            ? NiswahLoadingIndicator(
+                                size: NiswahLoadingSize.small,
+                                color: const Color(0xFF991B1B),
+                                semanticsLabel: _pr(
+                                  'Deleting account',
+                                  'جارٍ حذف الحساب',
                                 ),
                               )
                             : Text(
@@ -1210,36 +1207,18 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
                   ),
                 ],
                 const SizedBox(height: 20),
-                FilledButton(
+                NiswahLoadingButton(
                   key: const Key('pregnancy-setup-activate'),
-                  onPressed: _isSaving ? null : _activate,
+                  loading: _isSaving,
+                  onPressed: _activate,
+                  label: _pr('Activate Pregnancy Tracking', 'تفعيل تتبع الحمل'),
+                  loadingSemanticsLabel: _pr('Saving', 'جارٍ الحفظ'),
                   style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(54),
                     backgroundColor: AppColors.haid,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  child: _isSaving
-                      ? SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            color: Colors.white,
-                            semanticsLabel: _pr('Saving', 'جارٍ الحفظ'),
-                          ),
-                        )
-                      : Text(
-                          _pr(
-                            'Activate Pregnancy Tracking',
-                            'تفعيل تتبع الحمل',
-                          ),
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
                 ),
                 const SizedBox(height: 10),
                 TextButton(

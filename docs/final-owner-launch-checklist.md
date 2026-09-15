@@ -401,6 +401,23 @@ Report PASS/FAIL for each of the 4 items — if anything fails, note exactly whi
 
 ---
 
+## Loading Indicator Handoff (new, 2026-09-15, Global Loading/Spinner Remediation wave) — `UI-001`, `E2` DONE, `E4` NEEDS YOU
+
+**What you reported**: loading spinners inside buttons (most concretely, the Create Account button) sometimes showed only a tiny white speck instead of a clearly visible spinner.
+
+**What this session found**: every place in the app's current code that shows a loading spinner inside a button was checked one by one — all of them already had the correct explicit size set (the one place that didn't have this was a leftover, disconnected piece of old code nobody can actually reach in the app today). A test was built that renders the exact Create Account button's code and measures it directly, the same way a ruler would — it came back as the correct size, not a speck, with nothing else in the surrounding code that could be shrinking it. Being fully honest: this session could not reproduce the tiny-speck problem you saw, on the code as it exists today, in the testing environment available here — this could mean an older copy of the app was on your device when you saw it, or it could be something specific to how a real phone renders it that a test on this machine simply can't detect. Either way, it's more useful to fix the underlying pattern than to keep guessing.
+
+**What was fixed regardless**: a single, standard "how a loading spinner looks" component was built and is now used on the Create Account/Sign In button, the pregnancy-tracking save button, the account-deletion button, the AI chat send button (this one covers Dr Niswah, the General Assistant, and the Fiqh Advisor, since they share the same screen), and the very first loading screen you see when opening the app — which, as a bonus, was found to have no accessible label at all for screen-reader users, now fixed too. This new component always specifies its own exact size, so nothing outside it can accidentally shrink it down. A number of other loading spinners elsewhere in the app (community, messaging, notifications, data export) were checked and confirmed already correctly sized — left as they are for now, since they're not broken, though they could be switched to the same standard component later for consistency.
+
+**Your retest, once you have a moment** (about 2 minutes):
+
+1. **The exact case you reported**: Start creating a new account (or delete-and-reinstall to get a fresh signup). Tap Create Account. Confirm you see a clearly visible, animated spinning circle inside the button — not a tiny dot, not a static speck — for as long as the button is processing.
+2. **One more place, for confidence it's not just that one screen**: In Profile, if you have a pregnancy-tracking setup step available, tap its save/activate button and confirm the same — a clearly visible, animated spinner, not a speck. (If that's not reachable in your current state, any other Save-style button works just as well — the goal is simply to confirm it's not just the one button that got fixed.)
+
+Report PASS/FAIL for each — if you still see the tiny-speck behavior anywhere, please note exactly which button and, if possible, whether the app was just freshly reinstalled or had been open for a while beforehand (that detail would help pin down whether this is a stale-build issue). If both pass, `UI-001` closes as `VERIFIED_CLOSED / E4`.
+
+---
+
 # Release decision model
 
 **NO-GO**: any of — no verified production data backup exists (`BR-001` unresolved), an exposed credential remains unrotated (both `cli_login_postgres` and the Gemini key are now rotated/revoked and verified — this gate has cleared), a critical safety/recovery/consent control is confirmed broken (none currently — all such findings are closed or narrowed to non-safety gaps).

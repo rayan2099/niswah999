@@ -19,6 +19,7 @@ import 'core/storage/local_sensitive_data_cleanup.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
 import 'core/widgets/floating_nav_bar.dart';
+import 'core/widgets/niswah_loading_indicator.dart';
 import 'features/notifications/domain/services/notification_refresh_coordinator.dart';
 import 'features/ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
 import 'features/auth/presentation/screens/profile_screen.dart';
@@ -82,14 +83,8 @@ Future<void> _runApp() async {
   // through AppErrorReporter.report() — wiring this hook here, rather than
   // adding Sentry calls at each of those sites, is what makes all of them
   // reach Sentry without any of them changing.
-  AppErrorReporter.onReport = (
-    error,
-    stack, {
-    context,
-    feature,
-    retryAttempt,
-    recordId,
-  }) {
+  AppErrorReporter
+      .onReport = (error, stack, {context, feature, retryAttempt, recordId}) {
     if (AppEnvironment.sentryDsn.isEmpty) return;
     unawaited(
       Sentry.captureException(
@@ -343,7 +338,18 @@ class NiswahApp extends StatelessWidget {
 
     final onboardingCompleted = auth.onboardingCompleted;
     if (onboardingCompleted == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        body: Center(
+          child: NiswahLoadingIndicator(
+            size: NiswahLoadingSize.large,
+            contrast: NiswahLoadingContrast.dark,
+            semanticsLabel: AppLocaleController.instance.text(
+              'Loading',
+              'جارٍ التحميل',
+            ),
+          ),
+        ),
+      );
     }
 
     if (!onboardingCompleted) {
