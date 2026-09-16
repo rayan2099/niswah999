@@ -13,6 +13,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/app_theme_controller.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../legal/presentation/screens/data_export_screen.dart';
+import '../../../madhhab_resolution/presentation/madhhab_resolution_screen.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
 import 'sign_in_screen.dart';
 import '../../../private_messaging/presentation/screens/conversations_screen.dart';
@@ -253,6 +254,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const SizedBox(height: 30),
                       _SectionTitle(_pr('Fiqh Madhhab', 'المذهب الفقهي')),
                       const SizedBox(height: 10),
+                      // Madhhab Resolution Gate wave (2026-09-16), Section
+                      // 16: "غير محدد حالياً" must be permanently exposed
+                      // while not yet SELECTED, with a guided-help action
+                      // reusing the SAME canonical resolver as the
+                      // Log-my-Haidh gate. The existing direct-edit grid
+                      // below (unchanged — already lets her pick any school,
+                      // including its own "I don't know" option, and change
+                      // her mind freely between them, per the pre-existing,
+                      // already-tested Fiqh Remediation Wave 1 semantics)
+                      // stays always visible and is not replaced by this
+                      // wave — this block only adds the missing guided path
+                      // alongside it, never a second, separate decision
+                      // mechanism.
+                      if (!MadhhabController.instance.isSelected)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _MadhhabUnresolvedBanner(
+                            onHelpMeChoose: () => showMadhhabResolutionFlow(
+                              context,
+                              entryContext: MadhhabResolutionContext.settings,
+                              start: MadhhabResolutionStart.guided,
+                            ),
+                          ),
+                        ),
                       _MadhhabGrid(
                         // Fiqh Remediation Wave 1 (Section K): reflects
                         // the real three-state model — 'unknown' when the
@@ -1507,6 +1532,52 @@ class _LocationCard extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Madhhab Resolution Gate wave (2026-09-16), Section 16: shown instead of
+/// the direct-edit grid whenever the user has not yet reached
+/// [MadhhabSelectionState.selected] (covers both UNSET and UNKNOWN — the
+/// charter's own wording, "if UNKNOWN," is read as "not yet resolved,"
+/// since UNSET is the same underlying "nothing to show her" situation).
+/// Madhhab Resolution Gate wave (2026-09-16), Section 16: the "غير محدد
+/// حالياً" status the charter requires be permanently exposed while not
+/// SELECTED, plus one action into the guided resolver — shown *alongside*
+/// the always-visible `_MadhhabGrid` below (which already lets her pick a
+/// school, or "I don't know", directly), not instead of it. No "Choose
+/// Madhhab" button here: the grid immediately below already is that
+/// action, so a second copy of it would be a redundant, competing control
+/// for the same choice.
+class _MadhhabUnresolvedBanner extends StatelessWidget {
+  const _MadhhabUnresolvedBanner({required this.onHelpMeChoose});
+  final VoidCallback onHelpMeChoose;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: AppColors.shadowColor),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            _pr('Not yet determined', 'غير محدد حالياً'),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        TextButton(
+          onPressed: onHelpMeChoose,
+          child: Text(_pr('Help me choose', 'ساعديني في الاختيار')),
         ),
       ],
     ),

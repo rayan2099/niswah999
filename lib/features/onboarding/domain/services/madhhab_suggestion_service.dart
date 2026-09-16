@@ -16,6 +16,9 @@ class MadhhabSuggestion {
     required this.confidence,
     this.likelyMadhahib = const [],
     this.regionNote,
+    this.mappingId,
+    this.evidenceSourceIds = const [],
+    this.reviewerStatus,
   });
 
   final MadhhabSuggestionConfidence confidence;
@@ -30,6 +33,23 @@ class MadhhabSuggestion {
   /// statement of the user's own madhhab.
   final String? regionNote;
 
+  /// Traces back to `geographic_madhhab_mapping.json`'s own `mapping_id` —
+  /// lets a future scholar-review pass (or a support/debugging need) find
+  /// exactly which entry produced a given suggestion. `null` for
+  /// [MadhhabSuggestionConfidence.unresolved].
+  final String? mappingId;
+
+  /// Mirrors the source JSON's `evidence_source_ids` — may be empty even
+  /// for a resolved suggestion (several seed entries have none yet); never
+  /// fabricated when absent.
+  final List<String> evidenceSourceIds;
+
+  /// Mirrors the source JSON's `reviewer_status` (e.g. `'NOT_REVIEWED'`) —
+  /// surfaced so a future UI/report can honestly disclose that no
+  /// suggestion in this dataset has been scholar-reviewed yet, without
+  /// needing to re-derive that from the JSON file directly.
+  final String? reviewerStatus;
+
   bool get isResolved => confidence != MadhhabSuggestionConfidence.unresolved;
 
   static const unresolved = MadhhabSuggestion(
@@ -39,16 +59,25 @@ class MadhhabSuggestion {
 
 class _MappingEntry {
   const _MappingEntry({
+    required this.mappingId,
     required this.country,
     this.region,
     required this.madhahib,
     required this.confidence,
+    this.evidenceSourceIds = const [],
   });
 
+  final String mappingId;
   final String country;
   final String? region;
   final List<Madhhab> madhahib;
   final MadhhabSuggestionConfidence confidence;
+  final List<String> evidenceSourceIds;
+
+  // Every seed entry in geographic_madhhab_mapping.json is currently
+  // 'NOT_REVIEWED' without exception — no entry has been scholar-reviewed
+  // yet, so there is nothing to make settable per-entry until that changes.
+  String get reviewerStatus => 'NOT_REVIEWED';
 }
 
 /// Suggests a likely madhhab (or madhahib) from residence signals, per the
@@ -69,6 +98,20 @@ class _MappingEntry {
 class MadhhabSuggestionService {
   const MadhhabSuggestionService();
 
+  /// Mirrors `geographic_madhhab_mapping.json`'s own `_meta.generated` —
+  /// bump this alongside that file whenever the dataset changes, so a
+  /// future scholar-review pass (or a support report) can always name
+  /// which version of the mapping produced a given suggestion.
+  static const datasetVersion = '2026-09-09';
+
+  /// Every country name this service can resolve *something* for (medium
+  /// confidence or higher — the only tier that ever resolves) — exposed so
+  /// callers/tests/an inventory report can enumerate real coverage without
+  /// re-deriving it from `suggest()`'s own control flow. Not a claim that
+  /// every listed country resolves to exactly one madhhab — see `suggest`.
+  static List<String> get supportedCountries =>
+      _mapping.map((entry) => entry.country).toSet().toList(growable: false);
+
   // Mirrors production-readiness-results/fiqh-engine/geographic_madhhab_mapping.json
   // (mappings with confidence "medium" or higher only — "low" entries are
   // intentionally omitted here since this service always resolves "low" to
@@ -76,55 +119,69 @@ class MadhhabSuggestionService {
   // low-confidence entries kept there for reviewer visibility).
   static const List<_MappingEntry> _mapping = [
     _MappingEntry(
+      mappingId: 'GEO-001',
       country: 'Egypt',
       madhahib: [Madhhab.shafii, Madhhab.hanafi, Madhhab.maliki],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceSourceIds: ['SRC-INST-001'],
     ),
     _MappingEntry(
+      mappingId: 'GEO-002',
       country: 'Saudi Arabia',
       madhahib: [Madhhab.hanbali],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceSourceIds: ['SRC-INST-002'],
     ),
     _MappingEntry(
+      mappingId: 'GEO-003',
       country: 'Turkey',
       madhahib: [Madhhab.hanafi],
       confidence: MadhhabSuggestionConfidence.medium,
     ),
     _MappingEntry(
+      mappingId: 'GEO-004',
       country: 'Pakistan',
       madhahib: [Madhhab.hanafi],
       confidence: MadhhabSuggestionConfidence.medium,
     ),
     _MappingEntry(
+      mappingId: 'GEO-005b',
       country: 'India',
       region: 'Kerala',
       madhahib: [Madhhab.shafii],
       confidence: MadhhabSuggestionConfidence.medium,
     ),
     _MappingEntry(
+      mappingId: 'GEO-006',
       country: 'Morocco',
       madhahib: [Madhhab.maliki],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceSourceIds: ['SRC-INST-001'],
     ),
     _MappingEntry(
+      mappingId: 'GEO-007',
       country: 'Tunisia',
       madhahib: [Madhhab.maliki],
       confidence: MadhhabSuggestionConfidence.medium,
     ),
     _MappingEntry(
+      mappingId: 'GEO-008',
       country: 'Algeria',
       madhahib: [Madhhab.maliki],
       confidence: MadhhabSuggestionConfidence.medium,
     ),
     _MappingEntry(
+      mappingId: 'GEO-009',
       country: 'Indonesia',
       madhahib: [Madhhab.shafii],
       confidence: MadhhabSuggestionConfidence.medium,
     ),
     _MappingEntry(
+      mappingId: 'GEO-010',
       country: 'Malaysia',
       madhahib: [Madhhab.shafii],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceSourceIds: ['JUR-MY-001'],
     ),
   ];
 
@@ -139,11 +196,12 @@ class MadhhabSuggestionService {
     String? explicitCity,
     String? phonePrefixCountry,
   }) {
-    final country = (explicitCountry != null && explicitCountry.trim().isNotEmpty)
+    final country =
+        (explicitCountry != null && explicitCountry.trim().isNotEmpty)
         ? explicitCountry.trim()
         : (phonePrefixCountry != null && phonePrefixCountry.trim().isNotEmpty)
-            ? phonePrefixCountry.trim()
-            : null;
+        ? phonePrefixCountry.trim()
+        : null;
     if (country == null) return MadhhabSuggestion.unresolved;
 
     final city = explicitCity?.trim();
@@ -160,6 +218,9 @@ class MadhhabSuggestionService {
             likelyMadhahib: entry.madhahib,
             regionNote:
                 'This madhhab is commonly followed in ${entry.region}, ${entry.country}.',
+            mappingId: entry.mappingId,
+            evidenceSourceIds: entry.evidenceSourceIds,
+            reviewerStatus: entry.reviewerStatus,
           );
         }
       }
@@ -171,6 +232,9 @@ class MadhhabSuggestionService {
           confidence: entry.confidence,
           likelyMadhahib: entry.madhahib,
           regionNote: 'This madhhab is commonly followed in ${entry.country}.',
+          mappingId: entry.mappingId,
+          evidenceSourceIds: entry.evidenceSourceIds,
+          reviewerStatus: entry.reviewerStatus,
         );
       }
     }

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
+import '../../../madhhab_resolution/presentation/madhhab_resolution_screen.dart';
 import '../../domain/entities/cycle_log.dart';
 import '../../domain/services/cycle_calculation_service.dart';
 import '../../domain/services/cycle_symptom_decoder.dart';
@@ -13,6 +15,23 @@ String _cl(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
 enum CycleLogSheetMode { period, symptomsOnly }
 
+/// Madhhab Resolution Gate wave (2026-09-16), completing `AUTH-010`: the
+/// single canonical entry point every "Log my Haidh"/"سجّلي حيضك" action in
+/// the app already funnels through — 6 call sites across `dashboard_screen.
+/// dart`, `insights_screen.dart`, and `cycle_tracking_screen.dart`, all
+/// calling this one function, none constructing `_CycleLogSheet` directly.
+/// Gating here means no screen can bypass the Madhhab check through an
+/// alternate button/route (the charter's own Section 1 requirement) without
+/// having to touch any of those 6 call sites individually.
+///
+/// The gate applies only to [CycleLogSheetMode.period] — real blood/flow
+/// entry, which feeds the Fiqh haid/istihadah classification engine and is
+/// therefore genuinely Madhhab-dependent. [CycleLogSheetMode.symptomsOnly]
+/// (non-bleeding wellbeing symptoms — mood, cramps, etc.) is left
+/// ungated: this is exactly the "raw health data, no Fiqh classification"
+/// distinction the charter's Section 15 asks to preserve if it already
+/// exists — it does, in this existing enum, not something this wave had to
+/// invent.
 Future<void> showCycleLogSheet(
   BuildContext context, {
   required CycleTrackingViewModel viewModel,
@@ -20,20 +39,35 @@ Future<void> showCycleLogSheet(
   CycleLogSheetMode mode = CycleLogSheetMode.period,
   DateTime? date,
   FlowLevel? initialFlow,
-}) => showModalBottomSheet<void>(
-  context: context,
-  isScrollControlled: true,
-  useSafeArea: true,
-  backgroundColor: Colors.transparent,
-  barrierColor: Colors.black.withValues(alpha: .34),
-  builder: (_) => _CycleLogSheet(
-    viewModel: viewModel,
-    existingLog: existingLog,
-    mode: mode,
-    date: date ?? DateTime.now(),
-    initialFlow: initialFlow,
-  ),
-);
+}) async {
+  if (mode == CycleLogSheetMode.period &&
+      !MadhhabController.instance.isSelected) {
+    final resolved = await showMadhhabResolutionFlow(
+      context,
+      entryContext: MadhhabResolutionContext.haidhLogging,
+    );
+    // Only a genuine SELECTED outcome continues automatically into Haidh
+    // logging (Section 14) — dismissing the flow, backing out, or an
+    // explicit "still not sure" (which persists UNKNOWN, never SELECTED)
+    // must never open the log sheet regardless.
+    if (!resolved || !context.mounted) return;
+  }
+
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: .34),
+    builder: (_) => _CycleLogSheet(
+      viewModel: viewModel,
+      existingLog: existingLog,
+      mode: mode,
+      date: date ?? DateTime.now(),
+      initialFlow: initialFlow,
+    ),
+  );
+}
 
 class _CycleLogSheet extends StatefulWidget {
   const _CycleLogSheet({

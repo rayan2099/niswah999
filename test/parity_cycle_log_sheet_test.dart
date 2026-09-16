@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/core/preferences/madhhab_controller.dart';
+import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
+    show Madhhab;
 import 'package:niswah/main.dart';
 
 import 'support/parity_test_harness.dart';
@@ -9,6 +12,15 @@ void main() {
     tester,
   ) async {
     await ParityTestHarness.pump(tester, arabic: true);
+    // Madhhab Resolution Gate wave (2026-09-16): the log sheet's default
+    // (period) mode now gates on a SELECTED Madhhab — selecting one here
+    // matches a real already-onboarded user and keeps this test's own
+    // pre-existing (unrelated) golden-image comparison the thing that
+    // actually gets exercised. Must come *after* the harness's own pump()
+    // — that call is what installs the SharedPreferences mock this
+    // selection needs to persist against; calling it any earlier hits a
+    // real (nonexistent in tests) platform channel and hangs.
+    await MadhhabController.instance.selectMadhhab(Madhhab.hanafi);
     await tester.tap(find.byKey(const Key('today-cycle-log')));
     await tester.pumpAndSettle();
     expect(find.text('تسجيل اليوم'), findsWidgets);

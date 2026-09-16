@@ -6,9 +6,11 @@ Produced by the Final Pre-Owner-Action Readiness Consolidation wave, 2026-09-07.
 
 ---
 
-## 🔴 Read this first, 2026-09-15 (updated later the same day) — the delivery gap is resolved, but your very next retest found a new, serious problem (`AUTH-012`)
+## 🟡 Read this first, 2026-09-16 (updated) — the spinner fix is merged; the Madhhab helper you found too weak has been rebuilt
 
-**Update, same day (later still)**: you reviewed and merged the pull request — `main` is now fully current with everything in this document. Every "needs your retest" item below is now meaningful for the first time. Your very next retest, on a clean rebuild from that now-current `main`, found a real, serious problem: **the app opened to a spinner that never stopped** — no Sign In, no Onboarding, no Dashboard. This is tracked as a new finding, `AUTH-012`, classified as a **whole-app launch blocker** (unlike the Fiqh-specific items below, this can strand any returning user, not just block a specific feature). It's been found and fixed the same day — see the new **Startup Recovery Handoff** section below for the full explanation and your retest script. **Please retest it on the same phone/simulator that's currently stuck, without wiping or reinstalling it first** — the whole point is confirming the same conditions that caused this are now handled correctly, not just avoided by starting fresh.
+**Update, 2026-09-16**: you merged the pull request fixing the never-ending-spinner problem (`AUTH-012`) — it's live on your current `main` now. You then tested the "I don't know my Madhhab" helper and found it too weak (a single free-text country question, often returning "no suggestion" with nowhere to go). That's rebuilt — see the new **Madhhab Resolution Handoff** section below for the full explanation and your retest script, alongside the still-open `AUTH-012` retest right below it.
+
+**Update, 2026-09-15 (later still)**: you reviewed and merged the pull request — `main` is now fully current with everything in this document. Every "needs your retest" item below is now meaningful for the first time. Your very next retest, on a clean rebuild from that now-current `main`, found a real, serious problem: **the app opened to a spinner that never stopped** — no Sign In, no Onboarding, no Dashboard. This is tracked as a new finding, `AUTH-012`, classified as a **whole-app launch blocker** (unlike the Fiqh-specific items below, this can strand any returning user, not just block a specific feature). It's been found and fixed the same day — see the **Startup Recovery Handoff** section below for the full explanation and your retest script. **Please retest it on the same phone/simulator that's currently stuck, without wiping or reinstalling it first** — the whole point is confirming the same conditions that caused this are now handled correctly, not just avoided by starting fresh.
 
 **Update, same day (earlier)**: the delivery gap described below has been closed — `main` (GitHub's copy) is now fully current with `terminal`'s work, following your merge of the pull request.
 
@@ -387,6 +389,27 @@ Full evidence: `production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md
 **Current behavior, confirmed and unchanged across every wave that checked it**: when Google's Search-grounding quota/billing condition triggers, the app fails safely — no silent ungrounded religious answer is ever produced; the degraded state is visible and handled, not hidden.
 
 **Classification: CONDITIONAL-GO limitation, not a launch blocker.** The native finding's own risk model is specifically about the *danger of an ungrounded fiqh answer appearing grounded* — that risk is structurally closed by the fail-safe behavior, independent of whether the underlying Google Cloud quota is ever resolved. Resolving the quota/billing condition improves *service quality* (fewer degraded responses), not *safety* (which is already assured). **Do not require billing spend to reach GO** — this is accurately a deferred service-quality item, appropriately owner-discretionary, not gating.
+
+---
+
+## Madhhab Resolution Handoff (new, 2026-09-16, Madhhab Resolution Gate wave) — `AUTH-010` completion, `E2` DONE, `E4` NEEDS YOU
+
+**What you reported**: the "I don't know my Madhhab" helper only ever asked "which country do you live in?" as free text, and often came back with "no suggestion available for this region," with nothing further to do from there.
+
+**What this session found and fixed**: the helper's own design was too thin — one question, free-typed, based on where you currently live. That's a genuinely weak signal: where you live today (say, if you've moved abroad) often isn't where your religious upbringing actually came from, and typos in a free-text field made "no suggestion" more common than it needed to be. Rebuilt with a real, two-part approach: it first asks where you learned most of your religious practice, and only if that doesn't resolve, asks what your family mostly follows — both from a real searchable list of every country in the world, not free text. Your current location is deliberately never used to guess a school at all (a place like Canada or the UAE has genuinely mixed Muslim communities, and even a place like Saudi Arabia isn't safe to auto-assume just from residence) — it only ever asks about upbringing and family. Nothing has changed about the core promise: a suggestion is always just a suggestion, and only your own explicit "yes, use this one" makes any school official.
+
+**A second, permanent change**: from now on, if your Madhhab isn't yet resolved (either never answered, or you said "I don't know"), tapping "Log my Haidh" anywhere in the app opens this helper first, automatically — not just once during setup. Once you do resolve it, this never asks again on future taps. Settings also got the same helper, reachable from a small "Help me choose" link next to your Madhhab section there.
+
+**What this session could not do**: test on a real device — no phone/simulator access from this environment. Verified with 19 new automated checks covering every path (a real pick, the guided helper's suggestion-and-confirm flow, an unsupported country honestly saying "not enough information," Settings, and switching accounts), plus the full existing test suite re-run with no regressions.
+
+**Your retest, once you have a moment** (about 3 minutes):
+
+1. **If your Madhhab isn't set yet** (or you're willing to test with a fresh account): tap "Log my Haidh." Confirm the helper opens automatically before anything else, with two options — "I know my Madhhab" and "I don't know — help me."
+2. **Try "I know my Madhhab"**: pick a school, confirm the "use this school?" question appears, tap yes — confirm you're taken straight into Haidh logging afterward.
+3. **Try "I don't know — help me"** (on a different account, or after resetting your choice in Settings): answer the first question with a country — if it gives a suggestion, confirm it's phrased as a suggestion ("may be closest to..."), never a flat statement, and confirm tapping "Still not sure" instead of accepting leaves your Madhhab unresolved rather than picking one for you.
+4. **Settings**: while unresolved, confirm you see "Not yet determined" with a "Help me choose" link, and that tapping it opens the same helper.
+
+Report PASS/FAIL for each — if you ever see a school assigned without you explicitly confirming it, that's an immediate FAIL regardless of anything else. If all steps pass, this closes as `VERIFIED_CLOSED / E4` alongside `AUTH-010`.
 
 ---
 
