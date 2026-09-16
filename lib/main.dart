@@ -22,6 +22,7 @@ import 'core/widgets/floating_nav_bar.dart';
 import 'core/widgets/niswah_loading_indicator.dart';
 import 'features/notifications/domain/services/notification_refresh_coordinator.dart';
 import 'features/ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
+import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/presentation/screens/profile_screen.dart';
 import 'features/auth/presentation/screens/sign_in_screen.dart';
 import 'features/community/presentation/screens/community_board_screen.dart';
@@ -219,6 +220,97 @@ class _StartupErrorApp extends StatelessWidget {
   }
 }
 
+/// AUTH-012: shown instead of an indefinite spinner whenever an
+/// authenticated session's onboarding-status check fails for any reason
+/// (missing `public.users` row, RLS denial, network/timeout, a stale
+/// session referencing a deleted account). Offers a real recovery path —
+/// retry re-runs the same check the app would have tried on its own;
+/// sign out is the honest way forward for a session this device can never
+/// resolve on its own (e.g. one referencing an account that no longer
+/// exists), rather than silently fabricating a routing decision.
+class _AuthGateErrorScreen extends StatefulWidget {
+  const _AuthGateErrorScreen();
+
+  @override
+  State<_AuthGateErrorScreen> createState() => _AuthGateErrorScreenState();
+}
+
+class _AuthGateErrorScreenState extends State<_AuthGateErrorScreen> {
+  bool _signingOut = false;
+
+  Future<void> _retry() => AuthController.instance.refreshOnboardingStatus();
+
+  Future<void> _signOut() async {
+    setState(() => _signingOut = true);
+    try {
+      await AuthRepositoryImpl().signOut();
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: '_AuthGateErrorScreen.signOut',
+        feature: 'auth',
+      );
+    } finally {
+      if (mounted) setState(() => _signingOut = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final arabic = AppLocaleController.instance.isArabic;
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline_rounded, size: 48),
+                const SizedBox(height: 16),
+                Text(
+                  arabic
+                      ? 'تعذر تحميل حسابك'
+                      : "We couldn't load your account.",
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  arabic
+                      ? 'تحققي من اتصالك وحاولي مرة أخرى.'
+                      : 'Check your connection and try again.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _signingOut ? null : _retry,
+                  child: Text(arabic ? 'إعادة المحاولة' : 'Retry'),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _signingOut ? null : _signOut,
+                  child: _signingOut
+                      ? NiswahLoadingIndicator(
+                          size: NiswahLoadingSize.small,
+                          contrast: NiswahLoadingContrast.dark,
+                        )
+                      : Text(arabic ? 'تسجيل الخروج' : 'Sign out'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class NiswahApp extends StatelessWidget {
   const NiswahApp({super.key, this.initialTabIndex = 0});
 
@@ -336,23 +428,34 @@ class NiswahApp extends StatelessWidget {
       return const SignInScreen();
     }
 
-    final onboardingCompleted = auth.onboardingCompleted;
-    if (onboardingCompleted == null) {
-      return Scaffold(
-        body: Center(
-          child: NiswahLoadingIndicator(
-            size: NiswahLoadingSize.large,
-            contrast: NiswahLoadingContrast.dark,
-            semanticsLabel: AppLocaleController.instance.text(
-              'Loading',
-              'جارٍ التحميل',
+    // AUTH-012 (Startup Auth-Gate Infinite-Spinner Investigation): each of
+    // these 4 states is now real and distinguishable — in particular,
+    // `error` is never collapsed into `loading`, so a backend failure
+    // (missing public.users row, RLS denial, network/timeout, a stale
+    // session referencing a deleted account) always reaches a real,
+    // recoverable screen instead of an indefinite spinner.
+    switch (auth.onboardingStatus) {
+      case OnboardingStatus.loading:
+        return Scaffold(
+          body: Center(
+            child: NiswahLoadingIndicator(
+              size: NiswahLoadingSize.large,
+              contrast: NiswahLoadingContrast.dark,
+              semanticsLabel: AppLocaleController.instance.text(
+                'Loading',
+                'جارٍ التحميل',
+              ),
             ),
           ),
-        ),
-      );
+        );
+      case OnboardingStatus.error:
+        return const _AuthGateErrorScreen();
+      case OnboardingStatus.incomplete:
+      case OnboardingStatus.complete:
+        break;
     }
 
-    if (!onboardingCompleted) {
+    if (auth.onboardingStatus == OnboardingStatus.incomplete) {
       return OnboardingScreen(
         // AUTH-008/AUTH-009: onboarding itself has no login step and no
         // language step any more (this branch already proves
