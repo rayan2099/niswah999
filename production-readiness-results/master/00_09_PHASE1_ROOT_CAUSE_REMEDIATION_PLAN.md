@@ -6148,6 +6148,6 @@ Full detail: `WAVE_1_AUTH_IDENTITY_SESSION_ONBOARDING.md`, "AUTH-001 Production 
 29. **AUTH-010 current status**: `REMEDIATED — E2_AUTOMATED_VERIFIED` (unchanged tier — this wave completes the assistance-flow robustness gap the owner identified within the same finding, per explicit reconciliation instruction; owner E4 retest still required for closure).
 30. **Architecture gap preventing safe raw logging while UNKNOWN**: none found — the raw-logging/Fiqh-classification separation already existed (`CycleLogSheetMode.symptomsOnly` vs `.period`), confirmed via direct code read; the gate reuses it rather than needing to invent it.
 31. **PR status**: recorded in this wave's own addendum commit immediately following, once opened — following the same `terminal` → PR → green CI → owner-merge discipline as every prior wave.
-32. **Final commit SHA**: recorded in the same addendum.
+32. **Final commit SHA**: `2da06295a316ea6ff0a6c671d7d7eb26f622b5c6` (`fix: replace weak country-only Madhhab assistance with a guided resolver`).
 33. **Main contains SHA**: NO at commit time — pending the owner's own PR review/merge, per standing release-branch discipline; recorded once resolved.
 34. **Exact owner E4 test**: the 4-step script in `docs/final-owner-launch-checklist.md`'s new Madhhab Resolution Handoff section.
