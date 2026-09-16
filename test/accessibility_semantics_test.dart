@@ -187,6 +187,16 @@ void main() {
   });
 
   group('5. Cycle-tracking: log-entry sheet semantics', () {
+    // Madhhab Resolution Gate wave (2026-09-16): showCycleLogSheet's default
+    // CycleLogSheetMode.period now gates on a SELECTED Madhhab (AUTH-010).
+    // This group tests the log sheet's own semantics, not the gate, so it
+    // selects one up front — exactly what a real already-onboarded user
+    // opening this sheet would have.
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      await MadhhabController.instance.selectMadhhab(Madhhab.hanafi);
+    });
+
     testWidgets(
       'the close control and a symptom-severity chip both have accessible '
       'names, and the severity chip announces its current level',
