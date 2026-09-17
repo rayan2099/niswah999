@@ -15,13 +15,14 @@ import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
+import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
 import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
-import '../../../cycle_tracking/presentation/models/cycle_log_form_data.dart';
 import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
 import '../../../dream_interpreter/presentation/screens/dream_interpreter_screen.dart';
 import '../../../notifications/presentation/screens/notification_feed_screen.dart';
 import '../../../prayer_tracking/domain/entities/prayer_entry.dart' as prayer;
@@ -367,12 +368,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ] else if (!calculation.hasSufficientHistory ||
                               !calculation.hasPlausibleAverage) ...[
                             _InsufficientCycleDataCard(
-                              onLog: () => showCycleLogSheet(
-                                context,
-                                viewModel: _viewModel,
-                                existingLog: _todayLog(),
-                                initialFlow: FlowLevel.medium,
-                              ),
+                              onLog: () => _startBleeding(),
                             ),
                             const SizedBox(height: 16),
                           ] else ...[
@@ -394,13 +390,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             const SizedBox(height: 24),
                             _QuickActions(
                               isCurrentlyBleeding: isCurrentlyBleeding,
-                              onStart: () => showCycleLogSheet(
-                                context,
-                                viewModel: _viewModel,
-                                existingLog: _todayLog(),
-                                initialFlow: FlowLevel.medium,
-                              ),
-                              onEnd: () => _endHaid(cycleDay),
+                              onStart: () => _startBleeding(),
+                              onEnd: () => _endBleeding(),
                             ),
                           ],
                           if (PregnancyStatusController
@@ -591,42 +582,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _endHaid(int cycleDay) async {
-    try {
-      await _viewModel.saveLog(
-        CycleLogFormData(
-          date: AppClock.now(),
-          flow: FlowLevel.none,
-          cycleDay: cycleDay.clamp(1, 40),
-        ),
-      );
-      final status = _viewModel.lastSaveSyncStatus;
-      if (mounted && status != null && status != SyncStatus.synced) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              status == SyncStatus.pending
-                  ? _l(
-                      'Saved on this device. It will back up to your account automatically the next time you\'re online.',
-                      'تم الحفظ على هذا الجهاز. سيتم النسخ الاحتياطي إلى حسابك تلقائياً عند عودة الاتصال.',
-                    )
-                  : _l(
-                      'Saved on this device, but could not be backed up to your account. Please try again later.',
-                      'تم الحفظ على هذا الجهاز، لكن تعذر النسخ الاحتياطي إلى حسابك. يُرجى المحاولة لاحقاً.',
-                    ),
-            ),
-          ),
-        );
-      }
-    } catch (_) {
+  /// Menstrual Data Integrity charter, Commit D — Section 6/7: the single
+  /// writer for a new bleeding episode is now `bleeding_episodes`/
+  /// `bleeding_observations` (via [showStartBleedingSheet]), never a
+  /// direct `cycle_entries` write from this screen. `cycle_entries` is
+  /// updated only as [CycleEntriesProjection]'s one-directional mirror,
+  /// which the sheet itself triggers — so the dashboard reloading here is
+  /// exactly the honest "prove what succeeded" step Section 7 requires,
+  /// not a second, independent save.
+  Future<void> _startBleeding() async {
+    final started = await showStartBleedingSheet(context);
+    if (started) {
+      await _viewModel.loadLogs();
+    }
+  }
+
+  /// Section 6/48: ending an episode needs its real id — fetched fresh
+  /// rather than cached on this screen, since nothing here has tracked it
+  /// so far (the dashboard's "isCurrentlyBleeding" signal still comes from
+  /// the legacy `cycle_entries` derivation, which the projection keeps in
+  /// sync, but does not itself carry an episode id).
+  Future<void> _endBleeding() async {
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final activeEpisode = await BleedingEpisodeRepositoryImpl()
+        .getActiveEpisode(userId);
+    if (activeEpisode?.id == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _l('Unable to save your cycle log.', 'تعذر حفظ سجل الدورة.'),
+            _l(
+              'Could not find your active period to end it.',
+              'تعذر العثور على دورتكِ النشطة لإنهائها.',
+            ),
           ),
         ),
       );
+      return;
+    }
+
+    if (!mounted) return;
+    final ended = await showEndBleedingSheet(
+      context,
+      episodeId: activeEpisode!.id!,
+    );
+    if (ended) {
+      await _viewModel.loadLogs();
     }
   }
 }
