@@ -1,12 +1,14 @@
 # Menstrual Data Integrity & Active Bleeding Journey — Canonical Contract
 
 Status: **living architecture contract**. Established by the Menstrual Data
-Integrity & Active Bleeding Journey charter (2026-09-17). Commits A and C
-below are implemented and merged into this branch; the rest of this
-document describes the target architecture for the commits that follow.
-Future agents must treat this as the canonical reference — do not
-reinvent the taxonomy, episode model, or provenance rules described here
-without updating this document in the same change.
+Integrity & Active Bleeding Journey charter (2026-09-17). Commits A, C, a
+hostile-self-review fix pass, B, and a Commit D slice (below) are
+implemented on `feat/menstrual-data-integrity` (pushed to origin, PR #4,
+draft, unmerged); the rest of this document describes the target
+architecture for the commits that follow. Future agents must treat this
+as the canonical reference — do not reinvent the taxonomy, episode model,
+or provenance rules described here without updating this document in the
+same change.
 
 ## Central doctrine (verbatim, non-negotiable)
 
@@ -50,26 +52,38 @@ practical"):
 
 - **Canonical, forward-looking track**: `bleeding_episodes` and
   `bleeding_observations` (migration
-  `supabase/migrations/20260917090000_bleeding_episode_model.sql`). Every
-  *new* write to the menstrual-data model should target these tables.
-  `cycle_baselines` holds the separate, never-historical estimate class.
+  `supabase/migrations/20260917090000_bleeding_episode_model.sql`, plus
+  the `start_bleeding_episode` atomic-start RPC in
+  `20260917100000_start_bleeding_episode_rpc.sql`). Every *new* write to
+  the menstrual-data model targets these tables — onboarding
+  (`BleedingEpisodeRepositoryImpl.createEpisode`) and the dashboard's
+  Start/End Bleeding actions (`startEpisode`/`endEpisode`, via
+  `lib/.../presentation/widgets/start_bleeding_sheet.dart`) are both live
+  today. `cycle_baselines` holds the separate, never-historical estimate
+  class.
 - **Existing, compatibility track**: `cycle_entries` — untouched schema,
   still read by every existing consumer (`CycleCalculationService`,
   `CycleStatusEngine`, the dashboard ring, `client_fiqh_state_provider`,
-  notifications, data export). A new `data_provenance` column
+  notifications, data export). A `data_provenance` column
   (`legacy_unverified` | `user_observed` | `user_reported_historical`)
   lets a consumer distinguish a row with no corresponding
   `bleeding_observations` backing (`legacy_unverified`) from one written
-  through a provenance-aware path, without requiring every consumer to
-  migrate in the same pass.
+  through a provenance-aware path.
 
-**Not yet built** (tracked as follow-up, not silently skipped): a
-one-directional projection that mirrors every new `bleeding_observations`
-write into a `cycle_entries` row, so `CycleCalculationService` and the
-dashboard immediately reflect episodes created after onboarding (today,
-onboarding's `BleedingEpisodeRepositoryImpl` writes only to the new
-tables — see §7's Known Gaps). Until that projection exists, the two
-tracks are not yet kept in sync automatically.
+**Now built**: `CycleEntriesProjection`
+(`lib/features/cycle_tracking/data/repositories/cycle_entries_projection.dart`)
+is the one-directional bridge — every concrete-flow observation created
+through `BleedingEpisodeRepositoryImpl` (episode start, episode end's own
+`flow: none` closing observation) is mirrored into a real `cycle_entries`
+row with an honestly-derived `cycleDay`
+(`CycleCalculationService.computeCycleDayForNewEntry`), tagged
+`user_observed`/`user_reported_historical` as appropriate. An `uncertain`
+("I'm not sure") observation is deliberately never projected — there is
+no factual flow value to represent, and inventing one would itself be
+the fabrication the charter forbids. This is what lets the still-
+unmigrated `CycleCalculationService`/dashboard-ring engine correctly
+reflect a new episode's start *and* end without those consumers having
+been rewritten in this pass.
 
 ## 3. Episode lifecycle
 
@@ -133,18 +147,25 @@ provenance is otherwise proven. No destructive reclassification, deletion,
 or "trust everything" migration was performed or is planned — the column
 is additive and the data is preserved exactly as-is.
 
-## 6. What's implemented today (Commits A & C)
+## 6. What's implemented today (Commits A, C, B, and a Commit D slice)
 
 - **Commit A** — `supabase/migrations/20260917090000_bleeding_episode_model.sql`:
   `bleeding_episodes`, `bleeding_observations`, `cycle_baselines` tables,
   full RLS, constraints, indexes; `cycle_entries.data_provenance` column
-  (additive, backfilled `legacy_unverified`). Verified: applies cleanly
-  against the canonical baseline, schema-contract checks all pass,
-  idempotent on re-run (E3 — local reconstruction, not production).
-  `CycleLog.fromJson` now throws `CycleLogParseException` on an
-  invalid/missing `date` or `flow` instead of silently defaulting to
-  `DateTime.now()`/`FlowLevel.light`; `SecureLocalStore.decodeJsonListSafely`
-  and the repository's remote-row parsing quarantine one bad record
+  (additive, backfilled `legacy_unverified`). A hostile self-review pass
+  (still Commit A, separate commit) then found and fixed: the original
+  RLS policies had no `FOR` clause (defaults to `FOR ALL`), silently
+  permitting UPDATE/DELETE on the supposedly-immutable
+  `bleeding_observations` — split into SELECT/INSERT-only policies,
+  verified inside real transactions; no trigger tied an observation's
+  `user_id` to its episode's true owner — added a `BEFORE INSERT`
+  trigger, verified it rejects a cross-account attempt; `end_precision`/
+  `end_source` had no relationship to `end_date` — added a consistency
+  `CHECK`; no self-reference guard on `superseded_by`/`supersedes_id`;
+  `updated_at` had no trigger to bump it on a real UPDATE — reused the
+  existing `public.set_updated_at()`. `CycleLog.fromJson` now throws
+  `CycleLogParseException` on an invalid/missing `date` or `flow` instead
+  of silently defaulting; list-decoding quarantines one bad record
   instead of discarding an entire list.
 - **Commit C** — `lib/features/onboarding/presentation/screens/onboarding_screen.dart`:
   removed the fabricated-daily-logs behavior entirely. A real calendar
@@ -152,57 +173,82 @@ is additive and the data is preserved exactly as-is.
   on the raw duration question is gone; a new active/ended/uncertain
   question replaces the assumption that a reported start implies a fixed-
   length period starting that day. A reported start (+ end, if given)
-  becomes one `bleeding_episodes` row via `BleedingEpisodeRepositoryImpl`;
-  the usual-duration/usual-cycle-length questions are optional estimates
-  stored via `CycleBaselineRepositoryImpl` into `cycle_baselines`, never as
-  observed history.
+  becomes one `bleeding_episodes` row; the usual-duration/usual-cycle-
+  length questions are optional estimates in `cycle_baselines`. A
+  double-tap guard on the completion button was added during the hostile
+  review (an ended/uncertain episode has no DB uniqueness guard the way
+  an active one does).
+- **Commit B** — `start_bleeding_episode` RPC + `BleedingEpisodeRepositoryImpl`
+  (`startEpisode`/`endEpisode`/`markEpisodeUncertain`/`addObservation`/
+  `getObservationsForEpisode`) + `CycleEntriesProjection`: the canonical
+  write path, and the one-directional compatibility bridge described in
+  §2. The RPC's atomicity and double-tap safety were verified directly
+  against a real local Postgres reconstruction — a genuine double-tap
+  (two separate RPC calls) leaves exactly one episode and one observation,
+  never an orphan of either.
+- **Commit D (start/end lifecycle slice only)** —
+  `lib/features/cycle_tracking/presentation/widgets/start_bleeding_sheet.dart`,
+  wired into the dashboard's `_InsufficientCycleDataCard` (first-ever
+  bleeding) and `_QuickActions` (Start/End buttons), replacing the old
+  direct `cycle_entries` writes (`_endHaid` removed). Asks only Section
+  6's two factual questions; a failed save reports honestly rather than
+  silently succeeding. **Not yet built**: the daily check-in journey,
+  backfill, and correction UX — see §7.
 
-Evidence level for both: **E2 (automated: unit + widget tests, `flutter
-analyze`, `dart format`)** and **E3 (integration: the migration was
-verified against a real local Postgres reconstruction of the canonical
-baseline + full migration chain, schema-contract-passing)**. Neither
-commit has real owner/device (E4) verification — that remains outstanding
-and is owner-only per the charter's own evidence-tier rule.
+Evidence level throughout: **E2 (automated: unit + widget tests, `flutter
+analyze`, `dart format` — 553 passing / 10 failing, the 10 confirmed
+identical against clean `main`)** and **E3 (integration: every migration
+and the RPC's atomicity were verified against a real local Postgres
+reconstruction of the canonical baseline + full migration chain, inside
+real transactions with real RLS role/JWT simulation)**. No commit has
+real owner/device (E4) verification — that remains outstanding and is
+owner-only per the charter's own evidence-tier rule.
 
 ## 7. Known gaps / explicitly deferred (not silently dropped)
 
-The charter's full scope (Commits B, D–H) was not attempted in this pass.
 Recorded here so a future agent does not have to rediscover the shape of
 the remaining work:
 
-- **Commit B** (repositories/sync/revisions/legacy compatibility): no
-  local-first/offline path exists yet for `bleeding_episodes`/
-  `bleeding_observations` (they are server-only — see
-  `BleedingEpisodeRepositoryImpl`'s doc comment); no code yet reads them
-  back into the dashboard/calculation pipeline; the `cycle_entries`
-  projection described in §2 does not exist yet.
-- **Commit D** (active bleeding state machine + daily check-in UX): no
-  "Bleeding started/stopped" action wired to the new episode model yet
-  (the dashboard's existing `_endHaid` still targets `cycle_entries`
-  only); no daily check-in journey; Section 15's "no response is not
-  data" notification-silence handling is not yet built against this
-  model.
+- **Commit D (remainder)**: no daily check-in journey (Sections 8–11 —
+  "are you still bleeding today?" while an episode is active); no
+  backfill UX distinguishing `observed_date` from `reported_at`; no
+  correction/revision UI (the DB model and `addObservation`'s
+  `supersedesId` support it, but nothing in the UI creates one yet); no
+  conflict handling for offline concurrent corrections (Section 13); no
+  local-first/offline path for `bleeding_episodes`/`bleeding_observations`
+  (server-only — see `BleedingEpisodeRepositoryImpl`'s doc comment).
 - **Commit E** (notification journey): `NotificationRefreshCoordinator`'s
   existing per-type/idempotent-reschedule pattern (IDs 101–104) is
   confirmed directly extensible for a new `NotificationType.activeBleeding`
-  (planned ID 105), but that type does not exist yet.
+  (planned ID 105), but that type does not exist yet — no active-bleeding
+  reminder, no consent prompt, no tap-routing, no event log.
+  `showEndBleedingSheet`'s success path does not yet cancel any reminder
+  because none is scheduled yet.
 - **Commit F** (ring/calendar observed-vs-predicted): the dashboard's
   `_InsufficientCycleDataCard` all-or-nothing behavior (Section 25) is
   unchanged — an active-today episode with insufficient history for
-  predictions still shows the same empty-ring card, not a factual "Day 1"
-  state.
+  predictions still shows the same empty-ring card (though it is now
+  reachable via a truthful Start-Bleeding flow rather than the old direct
+  log sheet), not a factual "Day 1" state. No calendar UI reads
+  `bleeding_observations` directly yet.
 - **Commit G** (Fiqh integration boundary + invalidation): no
   provenance/invalidation model yet ties a cached Fiqh assessment to a
   specific observation version + Madhhab + ruleset version (Section 31).
   `MadhhabRuleEvaluator` itself is already architecturally correct
   (confirmed by direct code reading) — this gap is about tracking when a
   cached *result* goes stale, not about the evaluator's own logic.
-- **Commit H** (full test matrices, Sections 52–57): only targeted unit/
-  widget tests for the two implemented commits exist; the charter's much
-  larger named scenario matrices (timezone/DST/leap-day, concurrent
-  offline corrections, property/fuzz testing) were not built.
-- The four required end-to-end proof chains (Section 68) are not
-  producible yet — they depend on Commit D existing at all.
+- **Commit H** (full test matrices, Sections 52–57): targeted unit/widget
+  tests exist for every implemented piece (entities, repository
+  null-client paths, the projection, the sheets, the RPC verified live
+  against Postgres); the charter's much larger named scenario matrices
+  (timezone/DST/leap-day, concurrent offline corrections, property/fuzz
+  testing) were not built.
+- Proof chains 2–4 (daily check-in, episode closure -> reminder
+  cancellation, correction -> invalidation) are not producible yet — they
+  depend on Commit D's remainder and Commits E/G. Proof chain 1 (start
+  bleeding -> persistence -> factual dashboard state -> ...) is real as
+  far as persistence and dashboard-reload go; the "-> reminder" leg
+  depends on Commit E, which does not exist yet.
 
 ## 8. STOP conditions that did not trigger
 
