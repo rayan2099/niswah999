@@ -74,7 +74,21 @@ BEGIN
           OR (status IN ('active', 'uncertain') AND end_date IS NULL)
         ),
       CONSTRAINT bleeding_episodes_end_after_start_check
-        CHECK (end_date IS NULL OR end_date >= start_date)
+        CHECK (end_date IS NULL OR end_date >= start_date),
+      -- Hostile self-review fix (2026-09-17): end_precision/end_source
+      -- previously had no tie to end_date at all — a row could carry a
+      -- dangling end_precision with no real end_date, or an ended episode
+      -- with no precision/source recorded for its own end. They must now
+      -- be present exactly when there is a real end to describe.
+      CONSTRAINT bleeding_episodes_end_metadata_consistency_check
+        CHECK (
+          (end_date IS NULL AND end_precision IS NULL AND end_source IS NULL)
+          OR (end_date IS NOT NULL AND end_precision IS NOT NULL AND end_source IS NOT NULL)
+        ),
+      -- A row must never claim to supersede itself — cheap to rule out at
+      -- the constraint level even though no code path sets this yet.
+      CONSTRAINT bleeding_episodes_no_self_supersede_check
+        CHECK (superseded_by IS NULL OR superseded_by <> id)
     );
 
     -- One active episode per user (Section 38: never silently allow two
@@ -88,19 +102,55 @@ BEGIN
 
     ALTER TABLE public.bleeding_episodes ENABLE ROW LEVEL SECURITY;
 
+    -- Hostile self-review fix (2026-09-17): a single blanket `USING/WITH
+    -- CHECK` policy with no `FOR` clause defaults to `FOR ALL` in Postgres
+    -- — correct for `cycle_entries` (an already-mutable flat log) but
+    -- wrong here. Episodes DO need to transition over time (active ->
+    -- ended, a corrected end date — Commit D), so SELECT/INSERT/UPDATE are
+    -- legitimate; DELETE is deliberately withheld from the regular
+    -- authenticated policy — episode history must not be destructible by
+    -- a direct table call (account-deletion cascade runs as a privileged
+    -- role and is unaffected by this).
     IF NOT EXISTS (
       SELECT 1 FROM pg_policies
       WHERE schemaname = 'public' AND tablename = 'bleeding_episodes'
-        AND policyname = 'bleeding_episodes_own'
+        AND policyname = 'bleeding_episodes_select_own'
     ) THEN
-      CREATE POLICY bleeding_episodes_own ON public.bleeding_episodes
-        USING (public.can_access_user(user_id))
+      CREATE POLICY bleeding_episodes_select_own ON public.bleeding_episodes
+        FOR SELECT USING (public.can_access_user(user_id));
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'bleeding_episodes'
+        AND policyname = 'bleeding_episodes_insert_own'
+    ) THEN
+      CREATE POLICY bleeding_episodes_insert_own ON public.bleeding_episodes
+        FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'bleeding_episodes'
+        AND policyname = 'bleeding_episodes_update_own'
+    ) THEN
+      CREATE POLICY bleeding_episodes_update_own ON public.bleeding_episodes
+        FOR UPDATE USING (public.can_access_user(user_id))
         WITH CHECK (auth.uid() = user_id);
     END IF;
 
-    GRANT ALL ON TABLE public.bleeding_episodes TO anon;
-    GRANT ALL ON TABLE public.bleeding_episodes TO authenticated;
+    GRANT SELECT, INSERT, UPDATE ON TABLE public.bleeding_episodes TO anon;
+    GRANT SELECT, INSERT, UPDATE ON TABLE public.bleeding_episodes TO authenticated;
     GRANT ALL ON TABLE public.bleeding_episodes TO service_role;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger
+      WHERE tgname = 'bleeding_episodes_set_updated_at'
+    ) THEN
+      CREATE TRIGGER bleeding_episodes_set_updated_at
+        BEFORE UPDATE ON public.bleeding_episodes
+        FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+    END IF;
 
     -- 2. bleeding_observations — one immutable fact per row. A correction
     --    never overwrites a row in place (Section 17); it inserts a new
@@ -131,7 +181,11 @@ BEGIN
       CONSTRAINT bleeding_observations_flow_check
         CHECK (flow IN ('uncertain', 'none', 'spotting', 'light', 'medium', 'heavy')),
       CONSTRAINT bleeding_observations_source_check
-        CHECK (source IN ('user_observed', 'user_reported_historical'))
+        CHECK (source IN ('user_observed', 'user_reported_historical')),
+      -- Hostile self-review fix (2026-09-17): a row must never claim to
+      -- supersede itself.
+      CONSTRAINT bleeding_observations_no_self_supersede_check
+        CHECK (supersedes_id IS NULL OR supersedes_id <> id)
       -- No-future-observation is enforced at the application layer, not
       -- here: Postgres CHECK constraints must be immutable and cannot call
       -- now(), and "future" depends on the reporter's own timezone column
@@ -152,19 +206,66 @@ BEGIN
 
     ALTER TABLE public.bleeding_observations ENABLE ROW LEVEL SECURITY;
 
+    -- Hostile self-review fix (2026-09-17): the original single blanket
+    -- policy defaulted to `FOR ALL`, meaning the owning user could UPDATE
+    -- or DELETE an existing observation directly — exactly the destructive
+    -- in-place mutation the revision-chain design (Section 17: corrections
+    -- are a new row with `supersedes_id`, never an edit of the old one)
+    -- exists to prevent. Observations are now genuinely insert-only for
+    -- the regular authenticated policy: no UPDATE, no DELETE, at the
+    -- database level, not just by application convention.
     IF NOT EXISTS (
       SELECT 1 FROM pg_policies
       WHERE schemaname = 'public' AND tablename = 'bleeding_observations'
-        AND policyname = 'bleeding_observations_own'
+        AND policyname = 'bleeding_observations_select_own'
     ) THEN
-      CREATE POLICY bleeding_observations_own ON public.bleeding_observations
-        USING (public.can_access_user(user_id))
-        WITH CHECK (auth.uid() = user_id);
+      CREATE POLICY bleeding_observations_select_own ON public.bleeding_observations
+        FOR SELECT USING (public.can_access_user(user_id));
     END IF;
 
-    GRANT ALL ON TABLE public.bleeding_observations TO anon;
-    GRANT ALL ON TABLE public.bleeding_observations TO authenticated;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'bleeding_observations'
+        AND policyname = 'bleeding_observations_insert_own'
+    ) THEN
+      CREATE POLICY bleeding_observations_insert_own ON public.bleeding_observations
+        FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+
+    GRANT SELECT, INSERT ON TABLE public.bleeding_observations TO anon;
+    GRANT SELECT, INSERT ON TABLE public.bleeding_observations TO authenticated;
     GRANT ALL ON TABLE public.bleeding_observations TO service_role;
+
+    -- Hostile self-review fix (2026-09-17): nothing previously verified
+    -- that an observation's user_id actually matches the user_id of the
+    -- episode it claims to belong to — a user could reference another
+    -- user's episode_id (if known/guessed) while stamping their own
+    -- user_id, since RLS only checks the observation's own user_id column,
+    -- not the relationship. A CHECK constraint cannot express a cross-row
+    -- lookup, so this is enforced with a trigger instead.
+    CREATE OR REPLACE FUNCTION public.bleeding_observations_check_episode_owner()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $trigger$
+    BEGIN
+      IF NEW.user_id <> (
+        SELECT user_id FROM public.bleeding_episodes WHERE id = NEW.episode_id
+      ) THEN
+        RAISE EXCEPTION
+          'bleeding_observations.user_id must match its episode''s owner';
+      END IF;
+      RETURN NEW;
+    END;
+    $trigger$;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger
+      WHERE tgname = 'bleeding_observations_check_episode_owner_trigger'
+    ) THEN
+      CREATE TRIGGER bleeding_observations_check_episode_owner_trigger
+        BEFORE INSERT ON public.bleeding_observations
+        FOR EACH ROW EXECUTE FUNCTION public.bleeding_observations_check_episode_owner();
+    END IF;
 
     -- 3. cycle_baselines — a user's stated USUAL duration/cycle length.
     --    Class 3 of the taxonomy (USER_REPORTED_ESTIMATE): never itself an
@@ -200,6 +301,15 @@ BEGIN
     GRANT ALL ON TABLE public.cycle_baselines TO anon;
     GRANT ALL ON TABLE public.cycle_baselines TO authenticated;
     GRANT ALL ON TABLE public.cycle_baselines TO service_role;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger
+      WHERE tgname = 'cycle_baselines_set_updated_at'
+    ) THEN
+      CREATE TRIGGER cycle_baselines_set_updated_at
+        BEFORE UPDATE ON public.cycle_baselines
+        FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+    END IF;
 
     -- 4. Nothing in this migration ever deletes or rewrites a row in
     --    `cycle_entries` (Section 34/64: additive, reversible, no lost

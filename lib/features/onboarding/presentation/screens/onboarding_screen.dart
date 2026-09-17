@@ -130,6 +130,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   double _cycleLengthValue = 28;
   bool _cycleLengthAnswered = false;
   bool _anonymous = false;
+  // Hostile self-review fix (2026-09-17): _completeOnboarding is async and
+  // its own Welcome-screen button had no disabled/in-flight state — a
+  // rapid double-tap (or a slow first request plus an impatient retry)
+  // could fire it twice concurrently. An active-episode duplicate is
+  // caught by the DB's one-active-episode constraint, but an ended/
+  // uncertain episode has no such uniqueness guard and would happily
+  // accept two identical rows. Guards the whole completion path instead.
+  bool _completingOnboarding = false;
 
   @override
   void initState() {
@@ -314,7 +322,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onAnonymous: (v) => _setAnonymousMode(v),
       onNext: _next,
     ),
-    _ => _Welcome(onComplete: () => _completeOnboarding()),
+    _ => _Welcome(
+      isBusy: _completingOnboarding,
+      onComplete: _completingOnboarding ? null : () => _completeOnboarding(),
+    ),
   };
 
   /// Section 9: replaces the removed 31-day grid + fixed-Haid-length
@@ -541,6 +552,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// already authenticated (main.dart's root router requires it), so a
   /// real user id is always available whenever there is anything to save.
   Future<void> _completeOnboarding() async {
+    if (_completingOnboarding) return;
+    setState(() => _completingOnboarding = true);
+
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId != null) {
       final periodDate = _periodDate;
@@ -1599,8 +1613,12 @@ class _Privacy extends StatelessWidget {
 }
 
 class _Welcome extends StatelessWidget {
-  const _Welcome({required this.onComplete});
-  final VoidCallback onComplete;
+  const _Welcome({required this.onComplete, this.isBusy = false});
+  final VoidCallback? onComplete;
+  // Hostile self-review fix (2026-09-17): completion writes a real
+  // episode/baseline — a disabled, in-flight state prevents a rapid
+  // double-tap from firing the async completion twice.
+  final bool isBusy;
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
@@ -1660,11 +1678,21 @@ class _Welcome extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 28),
-      _Continue(
-        label: _tr('Get Started', 'ابدئي'),
-        onPressed: onComplete,
-        strong: true,
-      ),
+      isBusy
+          ? const SizedBox(
+              height: 54,
+              child: Center(
+                child: NiswahLoadingIndicator(
+                  size: NiswahLoadingSize.small,
+                  contrast: NiswahLoadingContrast.dark,
+                ),
+              ),
+            )
+          : _Continue(
+              label: _tr('Get Started', 'ابدئي'),
+              onPressed: onComplete,
+              strong: true,
+            ),
     ],
   );
 }

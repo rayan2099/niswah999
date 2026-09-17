@@ -203,7 +203,14 @@ void main() {
 
         expect(find.text('Get Started'), findsOneWidget);
         await tester.tap(find.text('Get Started'));
-        await tester.pumpAndSettle();
+        // Not pumpAndSettle: completion now shows a perpetually-animating
+        // busy indicator while in flight (double-tap guard, hostile
+        // self-review fix), which never itself "settles"; `onFinished` is
+        // a no-op in this test (nothing unmounts the screen), so a couple
+        // of bounded pumps — enough for the fast, session-less completion
+        // path to resolve — is correct here, not a full settle.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
 
         // The old defect: onboarding used to write one cycle_entries row
         // per day of an assumed period length, none of which were ever
@@ -218,6 +225,42 @@ void main() {
           reason:
               'no cycle_entries row may ever be fabricated from onboarding '
               'answers again',
+        );
+      },
+    );
+
+    testWidgets(
+      'double-tapping "Get Started" completes onboarding exactly once — '
+      'a rapid second tap while completion is already in flight must be a '
+      'no-op, not a second write',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        AppLocaleController.instance.setArabic(false);
+        var finishedCount = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(
+              onFinished: () => finishedCount++,
+              initialStep: 9,
+            ),
+          ),
+        );
+
+        expect(find.text('Get Started'), findsOneWidget);
+        // Both taps land before any pump processes the first one's
+        // setState — the closest a widget test can get to a genuine
+        // simultaneous double-tap.
+        await tester.tap(find.text('Get Started'));
+        await tester.tap(find.text('Get Started'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(
+          finishedCount,
+          1,
+          reason:
+              'a rapid double-tap must complete onboarding exactly once, '
+              'never twice',
         );
       },
     );
