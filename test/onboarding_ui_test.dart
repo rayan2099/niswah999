@@ -9,7 +9,6 @@ import 'package:niswah/core/preferences/marital_status_controller.dart';
 import 'package:niswah/core/preferences/prayer_location_controller.dart';
 import 'package:niswah/features/auth/presentation/screens/sign_in_screen.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
-import 'package:niswah/features/cycle_tracking/domain/services/cycle_calculation_service.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import 'package:niswah/features/onboarding/presentation/screens/onboarding_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -154,58 +153,137 @@ void main() {
     expect(MadhhabController.instance.state, MadhhabSelectionState.selected);
   });
 
-  testWidgets(
-    'finishing onboarding with a reported last period seeds a real cycle '
-    'log instead of discarding the answer',
-    (tester) async {
-      SharedPreferences.setMockInitialValues({});
-      AppLocaleController.instance.setArabic(false);
-      await tester.pumpWidget(
-        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 5)),
-      );
+  group('Menstrual Data Integrity charter — truthful Last-Period step '
+      '(Commit C)', () {
+    testWidgets(
+      'reporting a real last-period start and "still happening" never '
+      'fabricates a single cycle_entries row — the exact behavior the '
+      'charter\'s central doctrine forbids',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 5),
+          ),
+        );
 
-      expect(find.text('When did your last period start?'), findsOneWidget);
-      final dayCells = find.descendant(
-        of: find.byType(GridView),
-        matching: find.byType(InkWell),
-      );
-      await tester.tap(dayCells.last); // selects today
-      await tester.pump();
-      await tester.ensureVisible(find.text('Continue'));
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
+        expect(find.text('When did your last period start?'), findsOneWidget);
+        await tester.tap(find.text('Select the date'));
+        await tester.pumpAndSettle();
+        // The Material date picker's initial date is already "today" —
+        // confirming it as-is is enough to select a real calendar date.
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('How long is your period?'), findsOneWidget);
-      await tester.ensureVisible(find.text('Continue'));
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
+        expect(find.text('Is it still happening?'), findsOneWidget);
+        await tester.tap(find.text('Yes, still going'));
+        await tester.pumpAndSettle();
 
-      // Step 7 is now anonymous-mode only — the fake Face ID/PIN chooser
-      // must be gone.
-      expect(find.text('Face ID / Touch ID'), findsNothing);
-      expect(find.text('PIN code'), findsNothing);
-      await tester.ensureVisible(find.text('Continue'));
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
+        expect(
+          find.text('How long does your period usually last?'),
+          findsOneWidget,
+        );
+        await tester.ensureVisible(find.text('I’m not sure'));
+        await tester.tap(find.text('I’m not sure'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Get Started'), findsOneWidget);
-      await tester.tap(find.text('Get Started'));
-      await tester.pumpAndSettle();
+        expect(find.text('How long is your usual cycle?'), findsOneWidget);
+        await tester.ensureVisible(find.text('I’m not sure'));
+        await tester.tap(find.text('I’m not sure'));
+        await tester.pumpAndSettle();
 
-      final logs = await CycleTrackingRepositoryImpl().getCycleLogs();
-      expect(logs, isNotEmpty);
-      expect(logs.every((log) => log.userId == 'local-user'), isTrue);
-      // Default period length (5 days), never touched in this flow.
-      expect(logs.length, 5);
-      expect(logs.map((log) => log.cycleDay).toSet(), {1, 2, 3, 4, 5});
+        expect(find.text('Anonymous Mode'), findsOneWidget);
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
 
-      // A single reported start is still only one Haid start — onboarding
-      // can never fabricate the second one the app genuinely needs.
-      final calculation = const CycleCalculationService().calculate(logs);
-      expect(calculation.haidStarts, hasLength(1));
-      expect(calculation.hasSufficientHistory, isFalse);
-    },
-  );
+        expect(find.text('Get Started'), findsOneWidget);
+        await tester.tap(find.text('Get Started'));
+        await tester.pumpAndSettle();
+
+        // The old defect: onboarding used to write one cycle_entries row
+        // per day of an assumed period length, none of which were ever
+        // actually reported. It must now write nothing at all through
+        // this local-fallback path (no Supabase session in this test), and
+        // in production a real session writes only to bleeding_episodes /
+        // cycle_baselines instead — never a fabricated flow-level log.
+        final logs = await CycleTrackingRepositoryImpl().getCycleLogs();
+        expect(
+          logs,
+          isEmpty,
+          reason:
+              'no cycle_entries row may ever be fabricated from onboarding '
+              'answers again',
+        );
+      },
+    );
+
+    testWidgets(
+      'the still-happening question offers Yes / No / not sure, and No '
+      'asks for a real end date rather than assuming one',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 5),
+          ),
+        );
+
+        await tester.tap(find.text('Select the date'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Is it still happening?'), findsOneWidget);
+        await tester.tap(find.text('No, it has stopped'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('When did it stop?'), findsOneWidget);
+        expect(find.text('Continue'), findsOneWidget);
+        // Continue must start disabled — no end date has been chosen yet,
+        // so nothing may be assumed.
+        final continueButton = tester.widget<FilledButton>(
+          find.ancestor(
+            of: find.text('Continue'),
+            matching: find.byType(FilledButton),
+          ),
+        );
+        expect(continueButton.onPressed, isNull);
+      },
+    );
+
+    testWidgets(
+      'tapping "I\'m not sure" on the start date skips straight past the '
+      'still-happening question — no episode is implied from an unknown '
+      'start',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 5),
+          ),
+        );
+
+        await tester.ensureVisible(find.text('I’m not sure'));
+        await tester.tap(find.text('I’m not sure'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('How long does your period usually last?'),
+          findsOneWidget,
+        );
+      },
+    );
+  });
 
   // AUTH-009: onboarding's own Language step was removed — pre-auth
   // language selection (the toggle already on SignInScreen, or
@@ -356,9 +434,10 @@ void main() {
       3: 'Are you married?',
       4: 'Where are you located?',
       5: 'When did your last period start?',
-      6: 'How long is your period?',
-      7: 'Anonymous Mode',
-      8: 'You’re all set!',
+      6: 'How long does your period usually last?',
+      7: 'How long is your usual cycle?',
+      8: 'Anonymous Mode',
+      9: 'You’re all set!',
     };
 
     for (final entry in stepContent.entries) {
@@ -426,9 +505,10 @@ void main() {
       3: 'هل أنتِ متزوجة؟',
       4: 'أين تسكنين؟',
       5: 'متى بدأ آخر حيض لديكِ؟',
-      6: 'كم تستمر مدة الحيض؟',
-      7: 'الوضع المجهول',
-      8: 'كل شيء جاهز!',
+      6: 'كم تستمر مدة حيضكِ عادةً؟',
+      7: 'كم تستمر دورتكِ عادةً؟',
+      8: 'الوضع المجهول',
+      9: 'كل شيء جاهز!',
     };
     final englishMarkerForStep = <int, String>{
       1: 'YOUR CYCLE. YOUR FAITH. YOUR SPACE.',
@@ -436,9 +516,10 @@ void main() {
       3: 'Are you married?',
       4: 'Where are you located?',
       5: 'When did your last period start?',
-      6: 'How long is your period?',
-      7: 'Anonymous Mode',
-      8: 'You’re all set!',
+      6: 'How long does your period usually last?',
+      7: 'How long is your usual cycle?',
+      8: 'Anonymous Mode',
+      9: 'You’re all set!',
     };
 
     for (final entry in arabicStepContent.entries) {
@@ -546,7 +627,7 @@ void main() {
   group('AUTH-008/AUTH-009 — full state-machine sweep, forward and '
       'backward', () {
     testWidgets(
-      'walking every step forward from 1 to 8 never shows SignInScreen or '
+      'walking every step forward from 1 to 9 never shows SignInScreen or '
       'a language screen, and step order strictly increases (no cycle)',
       (tester) async {
         AppLocaleController.instance.setArabic(false);
@@ -601,30 +682,41 @@ void main() {
         await tester.tap(find.text('I’m not sure'));
         await tester.pumpAndSettle();
 
-        // Step 6: period length.
+        // Step 6: usual period duration (estimate) — skip.
         expect(find.byType(SignInScreen), findsNothing);
-        expect(find.text('How long is your period?'), findsOneWidget);
+        expect(
+          find.text('How long does your period usually last?'),
+          findsOneWidget,
+        );
         visited.add(6);
         await tester.ensureVisible(find.text('Continue'));
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        // Step 7: privacy/anonymous.
+        // Step 7: usual cycle length (estimate) — skip.
         expect(find.byType(SignInScreen), findsNothing);
-        expect(find.text('Anonymous Mode'), findsOneWidget);
+        expect(find.text('How long is your usual cycle?'), findsOneWidget);
         visited.add(7);
         await tester.ensureVisible(find.text('Continue'));
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        // Step 8: welcome.
+        // Step 8: privacy/anonymous.
+        expect(find.byType(SignInScreen), findsNothing);
+        expect(find.text('Anonymous Mode'), findsOneWidget);
+        visited.add(8);
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        // Step 9: welcome.
         expect(find.byType(SignInScreen), findsNothing);
         expect(find.text('You’re all set!'), findsOneWidget);
-        visited.add(8);
+        visited.add(9);
 
         expect(
           visited,
-          List<int>.generate(8, (i) => i + 1),
+          List<int>.generate(9, (i) => i + 1),
           reason:
               'every step must be visited exactly once, in strictly '
               'increasing order — a repeated or out-of-order entry would '
@@ -638,14 +730,14 @@ void main() {
         'itself has no further Back', (tester) async {
       AppLocaleController.instance.setArabic(false);
       await tester.pumpWidget(
-        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 7)),
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 8)),
       );
       await tester.pumpAndSettle();
       expect(find.text('Anonymous Mode'), findsOneWidget);
 
-      // Step 7 -> 2: repeatedly tap Back (walks 7 -> 6 -> 5 -> 4 -> 3),
+      // Step 8 -> 2: repeatedly tap Back (walks 8 -> 7 -> 6 -> 5 -> 4 -> 3),
       // asserting no SignInScreen and no language screen at any point.
-      for (var i = 0; i < 4; i++) {
+      for (var i = 0; i < 5; i++) {
         expect(find.byType(SignInScreen), findsNothing);
         expect(find.text('Choose your language'), findsNothing);
         await tester.tap(find.byTooltip('Back'));

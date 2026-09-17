@@ -9,11 +9,10 @@ import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
-import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
-import '../../../cycle_tracking/domain/entities/cycle_log.dart';
+import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
+import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
-import '../../../cycle_tracking/presentation/models/cycle_log_form_data.dart';
 import '../../domain/services/madhhab_suggestion_service.dart';
 
 String _tr(String english, String arabic) =>
@@ -56,6 +55,21 @@ enum _MadhhabSubStep {
 /// SnackBar message; this adds a matching on-screen state too).
 enum _LocationStatus { idle, detecting, selected, error }
 
+/// Menstrual Data Integrity charter, Commit C: the Last-Period step's own
+/// small sub-flow — mirrors the Madhhab step's `_MadhhabSubStep` pattern.
+/// [pickStart] shows a real calendar for the most recent bleeding start;
+/// [stillHappening] asks the honest active/ended/uncertain question
+/// (Section 9) instead of assuming a fixed Haid length starting that day;
+/// [pickEnd] only appears after an explicit "No" and asks for a real end
+/// date, never a guess.
+enum _PeriodSubStep { pickStart, stillHappening, pickEnd }
+
+/// The three honest answers to "is it still happening?" (Section 9) — a
+/// 4th, [unanswered], exists only so "no episode should be created yet"
+/// has a real representation distinct from any of the other three; it is
+/// never itself persisted.
+enum _ActiveBleedingAnswer { unanswered, active, ended, uncertain }
+
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
@@ -77,9 +91,10 @@ class OnboardingScreen extends StatefulWidget {
 /// language toggle, or its own sensible default) is the single language
 /// authority; asking again here would be pure duplication:
 /// 1 Splash → 2 Madhhab → 3 Married → 4 Location
-/// → 5 Last Period → 6 Period Length → 7 Privacy → 8 Welcome
+/// → 5 Last Period (active/ended/uncertain) → 6 Usual Duration (estimate)
+/// → 7 Usual Cycle Length (estimate) → 8 Privacy → 9 Welcome
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  static const int _totalSteps = 8;
+  static const int _totalSteps = 9;
 
   late int _step = widget.initialStep.clamp(1, _totalSteps);
   // Derived from the app-wide, SharedPreferences-persisted controller — not
@@ -97,8 +112,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   _LocationStatus _locationStatus = _LocationStatus.idle;
   String? _confirmedLocationLabel;
   String? _locationErrorMessage;
+  _PeriodSubStep _periodSubStep = _PeriodSubStep.pickStart;
   DateTime? _periodDate;
-  double _haidLength = 5;
+  DateTime? _periodEndDate;
+  _ActiveBleedingAnswer _activeBleedingAnswer =
+      _ActiveBleedingAnswer.unanswered;
+  // Section 9: the usual-duration/usual-cycle-length questions are genuine
+  // estimates, never forced. The slider needs *some* finite value to
+  // render its thumb even before she has touched it, so these numbers are
+  // purely a starting visual position — `_haidLengthAnswered`/
+  // `_cycleLengthAnswered` track whether she actually interacted, and only
+  // an interacted value is ever persisted as her stated estimate. Tapping
+  // Continue on an untouched slider is never treated as "her answer was 5"
+  // — it is treated exactly like "I'm not sure".
+  double _haidLengthValue = 5;
+  bool _haidLengthAnswered = false;
+  double _cycleLengthValue = 28;
+  bool _cycleLengthAnswered = false;
   bool _anonymous = false;
 
   @override
@@ -241,33 +271,120 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onUseCurrentLocation: _useDeviceLocation,
       onSkip: _next,
     ),
-    5 => _LastPeriod(
-      selected: _periodDate,
-      onSelect: (v) => setState(() => _periodDate = v),
-      onNext: _periodDate == null ? null : _next,
-      onUnsure: () {
-        setState(() => _periodDate = null);
-        _next();
-      },
-    ),
+    5 => _periodStep(),
     6 => _NumberStep(
-      title: _t('How long is your period?', 'كم تستمر مدة الحيض؟'),
-      description: _madhhab == 'Hanafi' || _madhhab == 'حنفي'
-          ? _t('Hanafi maximum: 10 days', 'الحد الأقصى للحنفية: 10 أيام')
-          : _t('Madhhab maximum: 15 days', 'الحد الأقصى للمذهب: 15 يوماً'),
-      value: _haidLength,
-      min: 2,
-      max: _madhhab == 'Hanafi' || _madhhab == 'حنفي' ? 10 : 15,
-      onChanged: (v) => setState(() => _haidLength = v),
+      title: _t(
+        'How long does your period usually last?',
+        'كم تستمر مدة حيضكِ عادةً؟',
+      ),
+      description: _t(
+        'Just an estimate — it never replaces what you actually report day '
+            'to day.',
+        'مجرد تقدير — لا يحل أبداً محل ما تُبلغين عنه فعلياً يوماً بيوم.',
+      ),
+      value: _haidLengthValue,
+      min: 1,
+      max: 20,
+      onChanged: (v) => setState(() {
+        _haidLengthValue = v;
+        _haidLengthAnswered = true;
+      }),
       onNext: _next,
+      onUnsure: _next,
     ),
-    7 => _Privacy(
+    7 => _NumberStep(
+      title: _t('How long is your usual cycle?', 'كم تستمر دورتكِ عادةً؟'),
+      description: _t(
+        'From the start of one period to the start of the next. Only an '
+            'estimate.',
+        'من بداية حيض إلى بداية الحيض التالي. مجرد تقدير.',
+      ),
+      value: _cycleLengthValue,
+      min: 15,
+      max: 90,
+      onChanged: (v) => setState(() {
+        _cycleLengthValue = v;
+        _cycleLengthAnswered = true;
+      }),
+      onNext: _next,
+      onUnsure: _next,
+    ),
+    8 => _Privacy(
       anonymous: _anonymous,
       onAnonymous: (v) => _setAnonymousMode(v),
       onNext: _next,
     ),
     _ => _Welcome(onComplete: () => _completeOnboarding()),
   };
+
+  /// Section 9: replaces the removed 31-day grid + fixed-Haid-length
+  /// fabrication with a real calendar and an honest active/ended/uncertain
+  /// question — see [_PeriodSubStep].
+  Widget _periodStep() {
+    switch (_periodSubStep) {
+      case _PeriodSubStep.pickStart:
+        return _PeriodPickStart(
+          selected: _periodDate,
+          onPick: (date) => setState(() => _periodDate = date),
+          onContinue: _periodDate == null
+              ? null
+              : () => setState(
+                  () => _periodSubStep = _PeriodSubStep.stillHappening,
+                ),
+          onUnsure: () {
+            setState(() {
+              _periodDate = null;
+              _activeBleedingAnswer = _ActiveBleedingAnswer.unanswered;
+            });
+            _next();
+          },
+        );
+
+      case _PeriodSubStep.stillHappening:
+        return _PeriodStillHappening(
+          startDate: _periodDate!,
+          onYes: () {
+            setState(
+              () => _activeBleedingAnswer = _ActiveBleedingAnswer.active,
+            );
+            _next();
+          },
+          onNo: () => setState(() => _periodSubStep = _PeriodSubStep.pickEnd),
+          onNotSure: () {
+            setState(
+              () => _activeBleedingAnswer = _ActiveBleedingAnswer.uncertain,
+            );
+            _next();
+          },
+          onBack: () =>
+              setState(() => _periodSubStep = _PeriodSubStep.pickStart),
+        );
+
+      case _PeriodSubStep.pickEnd:
+        return _PeriodPickEnd(
+          startDate: _periodDate!,
+          selected: _periodEndDate,
+          onPick: (date) => setState(() => _periodEndDate = date),
+          onContinue: _periodEndDate == null
+              ? null
+              : () {
+                  setState(
+                    () => _activeBleedingAnswer = _ActiveBleedingAnswer.ended,
+                  );
+                  _next();
+                },
+          onUnsure: () {
+            setState(() {
+              _periodEndDate = null;
+              _activeBleedingAnswer = _ActiveBleedingAnswer.uncertain;
+            });
+            _next();
+          },
+          onBack: () =>
+              setState(() => _periodSubStep = _PeriodSubStep.stillHappening),
+        );
+    }
+  }
 
   String _t(String en, String ar) => _arabic ? ar : en;
 
@@ -405,26 +522,72 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _next() => setState(() => _step = (_step + 1).clamp(1, _totalSteps));
 
-  /// Seeds a real cycle log from the last-period date/length answered in
-  /// steps 6-7 (unless the user tapped "I'm not sure"), so onboarding's
-  /// answer actually counts toward the app's cycle history instead of being
-  /// silently discarded. This screen is only ever reached already
-  /// authenticated (main.dart's root router requires it), so a real user id
-  /// is always available.
+  /// Menstrual Data Integrity charter, Commit C: previously fabricated a
+  /// fixed run of daily `cycle_entries` rows (one per day of the Madhhab-
+  /// capped "period length" slider, every day but the last stamped
+  /// `FlowLevel.medium`) — an entirely invented flow-level observation for
+  /// every day between the reported start and an assumed length, none of
+  /// which the user ever actually reported. "Never do this again."
+  ///
+  /// Replaces that with exactly what was actually asked: if a start date
+  /// was given, one `bleeding_episodes` row capturing the real reported
+  /// start (and, only if she said it had ended, the real reported end) —
+  /// no day-by-day flow data is invented, since onboarding never asked for
+  /// any. The usual-duration/usual-cycle-length questions are genuine,
+  /// skippable estimates and are stored as `cycle_baselines`, never as
+  /// observed history. Both writes are best-effort — see
+  /// `AuthRepositoryImpl.markOnboardingCompleted` below for the same,
+  /// already-established honest tradeoff. This screen is only ever reached
+  /// already authenticated (main.dart's root router requires it), so a
+  /// real user id is always available whenever there is anything to save.
   Future<void> _completeOnboarding() async {
-    final periodDate = _periodDate;
-    if (periodDate != null) {
-      final userId =
-          NiswahSupabase.clientOrNull?.auth.currentUser?.id ?? 'local-user';
-      final days = _haidLength.round().clamp(1, 15);
-      final repository = CycleTrackingRepositoryImpl();
-      for (var i = 0; i < days; i++) {
-        final data = CycleLogFormData(
-          date: periodDate.add(Duration(days: i)),
-          flow: i == days - 1 ? FlowLevel.light : FlowLevel.medium,
-          cycleDay: i + 1,
-        );
-        await repository.saveCycleLog(data.toCycleLog(userId: userId));
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId != null) {
+      final periodDate = _periodDate;
+      if (periodDate != null &&
+          _activeBleedingAnswer != _ActiveBleedingAnswer.unanswered) {
+        final ended = _activeBleedingAnswer == _ActiveBleedingAnswer.ended;
+        try {
+          await BleedingEpisodeRepositoryImpl().createEpisode(
+            BleedingEpisode(
+              userId: userId,
+              status: switch (_activeBleedingAnswer) {
+                _ActiveBleedingAnswer.active => EpisodeStatus.active,
+                _ActiveBleedingAnswer.ended => EpisodeStatus.ended,
+                _ActiveBleedingAnswer.uncertain ||
+                _ActiveBleedingAnswer.unanswered => EpisodeStatus.uncertain,
+              },
+              startDate: periodDate,
+              startPrecision: ObservationPrecision.dateOnly,
+              startSource: ObservationSource.userReportedHistorical,
+              endDate: ended ? _periodEndDate : null,
+              endPrecision: ended ? ObservationPrecision.dateOnly : null,
+              endSource: ended
+                  ? ObservationSource.userReportedHistorical
+                  : null,
+            ),
+          );
+        } catch (_) {
+          // Best-effort — already reported internally by the repository.
+        }
+      }
+
+      if (_haidLengthAnswered || _cycleLengthAnswered) {
+        try {
+          await CycleBaselineRepositoryImpl().saveBaseline(
+            CycleBaseline(
+              userId: userId,
+              usualBleedingDurationDays: _haidLengthAnswered
+                  ? _haidLengthValue.round()
+                  : null,
+              usualCycleLengthDays: _cycleLengthAnswered
+                  ? _cycleLengthValue.round()
+                  : null,
+            ),
+          );
+        } catch (_) {
+          // Best-effort — already reported internally by the repository.
+        }
       }
     }
 
@@ -1082,86 +1245,218 @@ class _LocationStatusBanner extends StatelessWidget {
   );
 }
 
-class _LastPeriod extends StatelessWidget {
-  const _LastPeriod({
+/// Formats a date the same short way in both locales (e.g. "Sep 10, 2026")
+/// — deliberately locale-neutral rather than pulling in `intl` for this
+/// single onboarding label.
+String _formatDate(DateTime date) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[date.month - 1]} ${date.day}, ${date.year}';
+}
+
+/// Section 10: a real, OS-standard calendar (`showDatePicker`) in place of
+/// the old fixed 31-day grid — supports month/year navigation, dates
+/// further back than 31 days, leap years, RTL, accessibility, and large
+/// text scale for free. `lastDate: DateTime.now()` prevents ever selecting
+/// a future start date.
+class _PeriodPickStart extends StatelessWidget {
+  const _PeriodPickStart({
     required this.selected,
-    required this.onSelect,
-    required this.onNext,
+    required this.onPick,
+    required this.onContinue,
     required this.onUnsure,
   });
   final DateTime? selected;
-  final ValueChanged<DateTime> onSelect;
-  final VoidCallback? onNext;
+  final ValueChanged<DateTime> onPick;
+  final VoidCallback? onContinue;
   final VoidCallback onUnsure;
-  @override
-  Widget build(BuildContext context) {
-    final days = List.generate(
-      31,
-      (i) => DateTime.now().subtract(Duration(days: 30 - i)),
+
+  Future<void> _openPicker(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selected ?? now,
+      firstDate: DateTime(now.year - 2, now.month, now.day),
+      lastDate: now,
     );
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _Title(
-          _tr('When did your last period start?', 'متى بدأ آخر حيض لديكِ؟'),
-        ),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: const [
-              BoxShadow(color: AppColors.shadowColor, blurRadius: 20),
-            ],
-          ),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: days.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-            ),
-            itemBuilder: (_, i) {
-              final day = days[i];
-              final active =
-                  selected != null && DateUtils.isSameDay(selected, day);
-              return InkWell(
-                onTap: () => onSelect(day),
-                customBorder: const CircleBorder(),
-                child: Container(
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: active
-                        ? const Color(0xFFFDA4AF)
-                        : Colors.transparent,
-                    border: DateUtils.isSameDay(day, DateTime.now())
-                        ? Border.all(color: const Color(0xFFFB7185))
-                        : null,
-                  ),
-                  child: Text(
-                    '${day.day}',
-                    style: TextStyle(
-                      color: active ? Colors.white : AppColors.textPrimary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 24),
-        _Continue(onPressed: onNext),
-        TextButton(
-          onPressed: onUnsure,
-          child: Text(_tr('I’m not sure', 'لست متأكدة')),
-        ),
-      ],
-    );
+    if (picked != null) onPick(picked);
   }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('When did your last period start?', 'متى بدأ آخر حيض لديكِ؟')),
+      const SizedBox(height: 8),
+      Text(
+        _tr(
+          'The real calendar date — however long ago that was.',
+          'التاريخ الفعلي — مهما كان قديماً.',
+        ),
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+      ),
+      const SizedBox(height: 24),
+      OutlinedButton.icon(
+        onPressed: () => _openPicker(context),
+        icon: const Icon(Icons.calendar_month_rounded),
+        label: Text(
+          selected == null
+              ? _tr('Select the date', 'اختاري التاريخ')
+              : _formatDate(selected!),
+        ),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(54),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+      const SizedBox(height: 24),
+      _Continue(onPressed: onContinue),
+      TextButton(
+        onPressed: onUnsure,
+        child: Text(_tr('I’m not sure', 'لست متأكدة')),
+      ),
+    ],
+  );
+}
+
+/// Section 9: replaces the removed fixed-Haid-length fabrication with the
+/// honest question itself — never assumes a currently-bleeding state just
+/// because a start date was reported.
+class _PeriodStillHappening extends StatelessWidget {
+  const _PeriodStillHappening({
+    required this.startDate,
+    required this.onYes,
+    required this.onNo,
+    required this.onNotSure,
+    required this.onBack,
+  });
+  final DateTime startDate;
+  final VoidCallback onYes;
+  final VoidCallback onNo;
+  final VoidCallback onNotSure;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('Is it still happening?', 'هل ما زال مستمراً؟')),
+      const SizedBox(height: 8),
+      Text(
+        _tr(
+          'You told us it started ${_formatDate(startDate)}.',
+          'أخبرتِنا أنه بدأ في ${_formatDate(startDate)}.',
+        ),
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+      ),
+      const SizedBox(height: 28),
+      _Continue(
+        label: _tr('Yes, still going', 'نعم، ما زال مستمراً'),
+        onPressed: onYes,
+        strong: true,
+      ),
+      const SizedBox(height: 10),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton(
+          onPressed: onNo,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(54),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          child: Text(_tr('No, it has stopped', 'لا، لقد توقف')),
+        ),
+      ),
+      const SizedBox(height: 10),
+      TextButton(
+        onPressed: onNotSure,
+        child: Text(_tr('I’m not sure', 'لست متأكدة')),
+      ),
+      TextButton(onPressed: onBack, child: Text(_tr('Back', 'رجوع'))),
+    ],
+  );
+}
+
+/// Section 9's NO branch: a real end-date calendar, never a guess —
+/// `firstDate: startDate` keeps end >= start enforced at the picker level
+/// too (matching the DB's own check constraint).
+class _PeriodPickEnd extends StatelessWidget {
+  const _PeriodPickEnd({
+    required this.startDate,
+    required this.selected,
+    required this.onPick,
+    required this.onContinue,
+    required this.onUnsure,
+    required this.onBack,
+  });
+  final DateTime startDate;
+  final DateTime? selected;
+  final ValueChanged<DateTime> onPick;
+  final VoidCallback? onContinue;
+  final VoidCallback onUnsure;
+  final VoidCallback onBack;
+
+  Future<void> _openPicker(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selected ?? now,
+      firstDate: startDate,
+      lastDate: now,
+    );
+    if (picked != null) onPick(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('When did it stop?', 'متى توقف؟')),
+      const SizedBox(height: 24),
+      OutlinedButton.icon(
+        onPressed: () => _openPicker(context),
+        icon: const Icon(Icons.calendar_month_rounded),
+        label: Text(
+          selected == null
+              ? _tr('Select the date', 'اختاري التاريخ')
+              : _formatDate(selected!),
+        ),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(54),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+      const SizedBox(height: 24),
+      _Continue(onPressed: onContinue),
+      TextButton(
+        onPressed: onUnsure,
+        child: Text(
+          _tr('I’m not sure exactly when', 'لست متأكدة تماماً من الموعد'),
+        ),
+      ),
+      TextButton(onPressed: onBack, child: Text(_tr('Back', 'رجوع'))),
+    ],
+  );
 }
 
 class _NumberStep extends StatelessWidget {
@@ -1173,11 +1468,15 @@ class _NumberStep extends StatelessWidget {
     required this.max,
     required this.onChanged,
     required this.onNext,
+    required this.onUnsure,
   });
   final String title, description;
   final double value, min, max;
   final ValueChanged<double> onChanged;
   final VoidCallback onNext;
+  // Section 9: this whole question is a non-forced estimate — "I'm not
+  // sure" is always available alongside Continue, never hidden behind it.
+  final VoidCallback onUnsure;
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
@@ -1224,6 +1523,10 @@ class _NumberStep extends StatelessWidget {
       ),
       const SizedBox(height: 36),
       _Continue(onPressed: onNext),
+      TextButton(
+        onPressed: onUnsure,
+        child: Text(_tr('I’m not sure', 'لست متأكدة')),
+      ),
     ],
   );
 }
