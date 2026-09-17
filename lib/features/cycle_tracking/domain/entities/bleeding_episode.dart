@@ -213,3 +213,147 @@ class CycleBaseline extends Equatable {
     usualCycleLengthDays,
   ];
 }
+
+/// A single day's flow report on an active episode's daily check-in
+/// (Section 14). Distinct from [FlowLevel] (`lib/.../cycle_log.dart`)
+/// because `uncertain` — "I'm not sure" — is itself a first-class answer
+/// here (Section 15: absence of a response is not an observation, but an
+/// explicit "I don't know" response IS one), not merely the absence of a
+/// flow value.
+enum ObservationFlow {
+  uncertain,
+  none,
+  spotting,
+  light,
+  medium,
+  heavy;
+
+  String get value => switch (this) {
+    ObservationFlow.uncertain => 'uncertain',
+    ObservationFlow.none => 'none',
+    ObservationFlow.spotting => 'spotting',
+    ObservationFlow.light => 'light',
+    ObservationFlow.medium => 'medium',
+    ObservationFlow.heavy => 'heavy',
+  };
+
+  static ObservationFlow parse(String? raw) => switch (raw) {
+    'uncertain' => ObservationFlow.uncertain,
+    'none' => ObservationFlow.none,
+    'spotting' => ObservationFlow.spotting,
+    'light' => ObservationFlow.light,
+    'medium' => ObservationFlow.medium,
+    'heavy' => ObservationFlow.heavy,
+    _ => throw BleedingEpisodeParseException('flow', raw),
+  };
+}
+
+/// One immutable fact about a specific day/moment of an episode
+/// (Section 4). A correction is never an in-place edit — it is a new row
+/// whose [supersedesId] points at the fact it replaces (Section 17); the
+/// database enforces both that a row can't supersede itself and that at
+/// most one row ever supersedes a given id (see the migration).
+class BleedingObservation extends Equatable {
+  const BleedingObservation({
+    this.id,
+    required this.userId,
+    required this.episodeId,
+    required this.observedDate,
+    this.observedTime,
+    required this.precision,
+    required this.flow,
+    required this.source,
+    this.reportedAt,
+    required this.timezone,
+    this.symptoms,
+    this.notes,
+    this.supersedesId,
+  });
+
+  /// Null before insert — the database assigns it.
+  final String? id;
+  final String userId;
+  final String episodeId;
+  final DateTime observedDate;
+  final DateTime? observedTime;
+  final ObservationPrecision precision;
+  final ObservationFlow flow;
+  final ObservationSource source;
+
+  /// Null lets the database's own `default now()` stamp the real insert
+  /// time — never set this to a client-computed "now" that could drift
+  /// from when the row is actually written.
+  final DateTime? reportedAt;
+  final String timezone;
+  final List<String>? symptoms;
+  final String? notes;
+  final String? supersedesId;
+
+  static String _dateOnly(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  Map<String, dynamic> toInsertJson() => {
+    'user_id': userId,
+    'episode_id': episodeId,
+    'observed_date': _dateOnly(observedDate),
+    if (observedTime != null) 'observed_time': observedTime!.toIso8601String(),
+    'precision': precision.value,
+    'flow': flow.value,
+    'source': source.value,
+    'timezone': timezone,
+    if (symptoms != null) 'symptoms': symptoms,
+    if (notes != null) 'notes': notes,
+    if (supersedesId != null) 'supersedes_id': supersedesId,
+  };
+
+  factory BleedingObservation.fromJson(Map<String, dynamic> json) {
+    final rawObservedDate = json['observed_date'] as String?;
+    final observedDate = rawObservedDate == null
+        ? null
+        : DateTime.tryParse(rawObservedDate);
+    if (observedDate == null) {
+      throw BleedingEpisodeParseException('observed_date', rawObservedDate);
+    }
+
+    return BleedingObservation(
+      id: json['id'] as String?,
+      userId: json['user_id'] as String? ?? '',
+      episodeId: json['episode_id'] as String? ?? '',
+      observedDate: observedDate,
+      observedTime: json['observed_time'] == null
+          ? null
+          : DateTime.tryParse(json['observed_time'] as String),
+      precision: ObservationPrecision.parse(json['precision'] as String?),
+      flow: ObservationFlow.parse(json['flow'] as String?),
+      source: ObservationSource.parse(json['source'] as String?),
+      reportedAt: json['reported_at'] == null
+          ? null
+          : DateTime.tryParse(json['reported_at'] as String),
+      timezone: json['timezone'] as String? ?? '',
+      symptoms: (json['symptoms'] as List<dynamic>?)
+          ?.map((item) => item.toString())
+          .toList(),
+      notes: json['notes'] as String?,
+      supersedesId: json['supersedes_id'] as String?,
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    id,
+    userId,
+    episodeId,
+    observedDate,
+    observedTime,
+    precision,
+    flow,
+    source,
+    reportedAt,
+    timezone,
+    symptoms,
+    notes,
+    supersedesId,
+  ];
+}

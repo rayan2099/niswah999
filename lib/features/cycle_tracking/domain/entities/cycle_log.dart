@@ -24,6 +24,39 @@ enum CyclePhase { menstrual, follicular, ovulation, luteal }
 
 enum FlowLevel { none, spotting, light, medium, heavy }
 
+/// `cycle_entries.data_provenance` (menstrual-data-integrity charter,
+/// Commit A migration). [legacyUnverified] is reserved for rows that
+/// existed before this column did — provenance genuinely cannot be
+/// reconstructed for them (Section 33), so it is never assigned by new
+/// application code. Every [CycleLog] built by live application code
+/// (the manual Log-Haidh sheet, the bleeding_observations->cycle_entries
+/// compatibility projection, Section 35) is a real, live, user-driven
+/// action, so [userObserved] is the correct default going forward —
+/// [legacyUnverified] only ever reaches a real row via this column's own
+/// DB-level default on rows that predate it.
+enum CycleEntryProvenance {
+  legacyUnverified,
+  userObserved,
+  userReportedHistorical;
+
+  String get value => switch (this) {
+    CycleEntryProvenance.legacyUnverified => 'legacy_unverified',
+    CycleEntryProvenance.userObserved => 'user_observed',
+    CycleEntryProvenance.userReportedHistorical => 'user_reported_historical',
+  };
+
+  // Metadata about the record, not health data itself — Section 6's
+  // strict-parsing mandate targets health facts (date/flow); an
+  // unrecognized or missing provenance value here is treated the same
+  // conservative way the column's own DB default already treats a
+  // pre-existing row: legacyUnverified, never assumed otherwise.
+  static CycleEntryProvenance parse(String? raw) => switch (raw) {
+    'user_observed' => CycleEntryProvenance.userObserved,
+    'user_reported_historical' => CycleEntryProvenance.userReportedHistorical,
+    _ => CycleEntryProvenance.legacyUnverified,
+  };
+}
+
 class CycleLog extends Equatable {
   const CycleLog({
     required this.id,
@@ -36,6 +69,7 @@ class CycleLog extends Equatable {
     this.syncStatus = SyncStatus.pending,
     this.createdAt,
     this.updatedAt,
+    this.dataProvenance = CycleEntryProvenance.userObserved,
   });
 
   final String id;
@@ -48,6 +82,7 @@ class CycleLog extends Equatable {
   final SyncStatus syncStatus;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final CycleEntryProvenance dataProvenance;
 
   CycleLog copyWith({
     String? id,
@@ -60,6 +95,7 @@ class CycleLog extends Equatable {
     SyncStatus? syncStatus,
     DateTime? createdAt,
     DateTime? updatedAt,
+    CycleEntryProvenance? dataProvenance,
   }) {
     return CycleLog(
       id: id ?? this.id,
@@ -72,6 +108,7 @@ class CycleLog extends Equatable {
       syncStatus: syncStatus ?? this.syncStatus,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      dataProvenance: dataProvenance ?? this.dataProvenance,
     );
   }
 
@@ -89,6 +126,7 @@ class CycleLog extends Equatable {
       'sync_status': syncStatus.name,
       'created_at': (createdAt ?? DateTime.now()).toIso8601String(),
       'updated_at': (updatedAt ?? DateTime.now()).toIso8601String(),
+      'data_provenance': dataProvenance.value,
     };
   }
 
@@ -130,6 +168,14 @@ class CycleLog extends Equatable {
       updatedAt: json['updated_at'] == null
           ? null
           : DateTime.tryParse(json['updated_at'] as String),
+      // A row read back from the database keeps whatever provenance it
+      // actually has — including legacyUnverified for a genuinely old
+      // row — never the constructor's userObserved default, which is
+      // only correct for a *newly constructed* instance representing a
+      // fresh live action, not for reading one back.
+      dataProvenance: CycleEntryProvenance.parse(
+        json['data_provenance'] as String?,
+      ),
     );
   }
 
@@ -145,6 +191,7 @@ class CycleLog extends Equatable {
     syncStatus,
     createdAt,
     updatedAt,
+    dataProvenance,
   ];
 }
 
