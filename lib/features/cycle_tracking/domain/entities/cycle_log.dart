@@ -1,4 +1,24 @@
+import 'package:collection/collection.dart';
 import 'package:equatable/equatable.dart';
+
+/// Thrown by [CycleLog.fromJson] when a record's required health fields
+/// (`date`, `flow`) cannot be honestly parsed — an unparseable date or an
+/// unrecognized flow value is never coerced to a plausible-looking default
+/// (menstrual-data-integrity charter, Section 6: "invalid required health
+/// data must produce ... an honest failure, never a silently-manufactured
+/// valid observation"). Callers must catch this and quarantine the single
+/// record rather than let it corrupt the rest of a batch — see
+/// [SecureLocalStore.decodeJsonListSafely]'s per-item handling.
+class CycleLogParseException implements Exception {
+  const CycleLogParseException(this.field, this.rawValue);
+
+  final String field;
+  final Object? rawValue;
+
+  @override
+  String toString() =>
+      'CycleLogParseException: invalid or missing "$field" ($rawValue)';
+}
 
 enum CyclePhase { menstrual, follicular, ovulation, luteal }
 
@@ -72,15 +92,29 @@ class CycleLog extends Equatable {
     };
   }
 
+  /// Throws [CycleLogParseException] if `date` is missing/unparseable or
+  /// `flow` is missing/unrecognized — never invents `DateTime.now()` or
+  /// `FlowLevel.light` in their place. See [CycleLogParseException].
   factory CycleLog.fromJson(Map<String, dynamic> json) {
+    final rawDate = json['date'] as String?;
+    final parsedDate = rawDate == null ? null : DateTime.tryParse(rawDate);
+    if (parsedDate == null) {
+      throw CycleLogParseException('date', rawDate);
+    }
+
+    final rawFlow = json['flow'] as String?;
+    final parsedFlow = rawFlow == null
+        ? null
+        : FlowLevel.values.firstWhereOrNull((value) => value.name == rawFlow);
+    if (parsedFlow == null) {
+      throw CycleLogParseException('flow', rawFlow);
+    }
+
     return CycleLog(
       id: json['id'] as String? ?? '',
       userId: json['user_id'] as String? ?? '',
-      date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
-      flow: FlowLevel.values.firstWhere(
-        (value) => value.name == (json['flow'] as String? ?? 'light'),
-        orElse: () => FlowLevel.light,
-      ),
+      date: parsedDate,
+      flow: parsedFlow,
       notes: json['notes'] as String?,
       cycleDay: json['cycle_day'] as int? ?? 1,
       symptoms: (json['symptoms'] as List<dynamic>? ?? const [])
