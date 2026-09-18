@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
@@ -21,6 +22,26 @@ class ActiveEpisodeAlreadyExistsException implements Exception {
 
   @override
   String toString() => 'ActiveEpisodeAlreadyExistsException';
+}
+
+/// Commit D7 — thrown by [BleedingEpisodeRepositoryImpl.correctObservation]
+/// specifically when [supersedesId] is no longer the current tip of its
+/// revision chain: another correction (a different device, an earlier
+/// reconciliation) already superseded it first. This is never a generic
+/// failure — it is `correct_observation`'s own `ERRCODE = 'NW409'`,
+/// recognized here so the caller can show a real conflict-resolution UI
+/// ("Current saved value: X / Your offline change: Y") instead of a
+/// scary error or, worse, a silent last-write-wins. [supersedesId] is the
+/// target the caller originally tried to correct — resolve "what is the
+/// current value now" via [BleedingEpisodeRepositoryImpl.effectiveObservationId]
+/// (a fresh call, deliberately not parsed out of the exception message).
+class CorrectionConflictException implements Exception {
+  const CorrectionConflictException(this.supersedesId);
+
+  final String supersedesId;
+
+  @override
+  String toString() => 'CorrectionConflictException($supersedesId)';
 }
 
 /// Writes/reads the first-class `bleeding_episodes` / `bleeding_observations`
@@ -227,16 +248,23 @@ class BleedingEpisodeRepositoryImpl {
   /// (`lifecycle_status` stays `open`, so the one-open-per-user slot
   /// stays occupied — a second, genuinely concurrent episode still
   /// cannot start) and never fabricates a positive bleeding observation.
+  ///
+  /// Hardening 5: calls the `set_continuation_uncertain` RPC — a direct
+  /// client UPDATE on `bleeding_episodes` is no longer possible at all
+  /// (every client-facing grant on that table was revoked).
   Future<BleedingEpisode?> markEpisodeUncertain(String episodeId) async {
     final client = _client;
     if (client == null) return null;
 
     try {
+      await client.rpc(
+        'set_continuation_uncertain',
+        params: {'p_episode_id': episodeId},
+      );
       final response = await client
           .from('bleeding_episodes')
-          .update({'continuation_certainty': 'uncertain'})
-          .eq('id', episodeId)
           .select()
+          .eq('id', episodeId)
           .single();
       return BleedingEpisode.fromJson(response);
     } on PostgrestException catch (error, stack) {
@@ -251,60 +279,93 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
-  /// Adds one immutable observation to an existing episode — a daily
-  /// check-in response, or a correction when [BleedingObservation.supersedesId]
-  /// is set. Never an in-place update: the database itself refuses
-  /// UPDATE/DELETE on this table for the owning user, so a correction
-  /// MUST come through here as a new row.
-  Future<BleedingObservation?> addObservation(
-    BleedingObservation observation,
-  ) async {
+  /// Records one immutable NEW fact against an OPEN episode — Commit D1's
+  /// daily check-in YES answer (today's date) or Commit D4's backfill
+  /// (a past date; `source` is `userReportedHistorical`, classified by
+  /// the same [ObservationSource.classify] every other write path uses).
+  /// Never a correction — [supersedesId] is deliberately not a parameter
+  /// here at all; a correction to an *existing* fact must go through
+  /// [correctObservation] instead, which is a structurally different
+  /// operation (Hardening 2's own stated principle: adding a new event
+  /// and correcting a prior one are kept as two distinct operations, not
+  /// one INSERT path branching on whether a field is set).
+  ///
+  /// Hardening 5: calls the `record_bleeding_observation` RPC — a direct
+  /// client INSERT into `bleeding_observations` is no longer possible at
+  /// all (every client-facing grant on that table was revoked).
+  /// [clientOperationId] must be generated once and reused unchanged on
+  /// every retry of this exact logical action (see
+  /// [PendingBleedingOperationStore] for surviving a process death
+  /// between the server committing and the response arriving).
+  Future<String?> recordObservation({
+    required String clientOperationId,
+    required String episodeId,
+    required DateTime observedDate,
+    required ObservationPrecision precision,
+    required ObservationFlow flow,
+    required ObservationSource source,
+    required int utcOffsetMinutes,
+    DateTime? observedTime,
+    String? timezone,
+    List<String>? symptoms,
+    String? notes,
+  }) async {
     final client = _client;
     if (client == null) return null;
 
     try {
-      final response = await client
-          .from('bleeding_observations')
-          .insert(observation.toInsertJson())
-          .select()
-          .single();
-      return BleedingObservation.fromJson(response);
+      final response = await client.rpc(
+        'record_bleeding_observation',
+        params: {
+          'p_client_operation_id': clientOperationId,
+          'p_episode_id': episodeId,
+          'p_observed_date': _dateOnly(observedDate),
+          'p_precision': precision.value,
+          'p_flow': flow.value,
+          'p_source': source.value,
+          'p_utc_offset_minutes': utcOffsetMinutes,
+          'p_observed_time': observedTime?.toIso8601String(),
+          'p_timezone': timezone,
+          'p_symptoms': symptoms,
+          'p_notes': notes,
+        },
+      );
+      final row = (response as List).single as Map<String, dynamic>;
+      return row['observation_id'] as String?;
     } on PostgrestException catch (error, stack) {
       AppErrorReporter.report(
         error,
         stack,
-        context: 'BleedingEpisodeRepositoryImpl.addObservation',
+        context: 'BleedingEpisodeRepositoryImpl.recordObservation',
         feature: 'cycle_tracking',
-        recordId: observation.episodeId,
-      );
-      return null;
-    } on BleedingEpisodeParseException catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'BleedingEpisodeRepositoryImpl.addObservation',
-        feature: 'cycle_tracking',
-        recordId: observation.episodeId,
+        recordId: episodeId,
       );
       return null;
     }
   }
 
-  /// Hardening 2's explicit controlled correction path — never
-  /// `addObservation` with `supersedesId` set. Unlike a plain INSERT, this
-  /// calls the dedicated `correct_observation` RPC: idempotent
-  /// (`clientOperationId` retried returns the original correction's id,
-  /// never a duplicate), and — critically — episode-state-agnostic. A
-  /// correction targeting an observation that belongs to an *already-
-  /// ended* episode is exactly the case `bleeding_observations_validate_insert`
-  /// would otherwise reject as "a new fact on an ended episode"; this RPC
-  /// is the one exception the trigger actually recognizes, and it is
-  /// deliberately not `SECURITY DEFINER` so RLS and the trigger both still
-  /// apply as independent layers on top of it.
+  /// Hardening 2's explicit controlled correction path — never a direct
+  /// INSERT with `supersedesId` set (Hardening 5 revoked that grant
+  /// entirely; only this SECURITY DEFINER RPC can write a correction now).
+  /// Idempotent (`clientOperationId` retried returns the original
+  /// correction's id, never a duplicate), and — critically —
+  /// episode-state-agnostic: a correction targeting an observation that
+  /// belongs to an *already-ended* episode is exactly the case
+  /// `bleeding_observations_validate_insert` would otherwise reject as "a
+  /// new fact on an ended episode."
   ///
   /// [supersedesId] is the observation being corrected — the RPC resolves
   /// which episode this belongs to *from that row*, so a caller can never
   /// misdirect a correction at the wrong episode.
+  ///
+  /// Commit D7: throws [CorrectionConflictException] — never a generic
+  /// [PostgrestException] — when [supersedesId] is no longer the current
+  /// tip of its revision chain (a concurrent correction from another
+  /// device already superseded it first). The caller must not treat this
+  /// as an ordinary failure: resolve the real current value via
+  /// [effectiveObservationId] and let the user choose to keep the saved
+  /// value or retry rebased onto it (never a silent last-write-win, never
+  /// a silent fork).
   Future<String?> correctObservation({
     required String clientOperationId,
     required String supersedesId,
@@ -341,12 +402,96 @@ class BleedingEpisodeRepositoryImpl {
       final row = (response as List).single as Map<String, dynamic>;
       return row['observation_id'] as String?;
     } on PostgrestException catch (error, stack) {
+      if (error.code == 'NW409') {
+        throw CorrectionConflictException(supersedesId);
+      }
       AppErrorReporter.report(
         error,
         stack,
         context: 'BleedingEpisodeRepositoryImpl.correctObservation',
         feature: 'cycle_tracking',
         recordId: supersedesId,
+      );
+      return null;
+    }
+  }
+
+  /// Commit D5 — the effective-observation resolver: given ANY id in a
+  /// revision chain (the original root or a later correction), returns
+  /// the id of the chain's current tip (the row nothing else supersedes)
+  /// — the value that is actually true right now. Calls the
+  /// `effective_observation_id` SQL function rather than re-implementing
+  /// the recursive walk client-side, so there is exactly one tested
+  /// definition of "current tip" the correction UI, the conflict-
+  /// resolution UI (D7), and any future reader all share.
+  Future<String?> effectiveObservationId(String observationId) async {
+    final client = _client;
+    if (client == null) return null;
+
+    try {
+      final response = await client.rpc(
+        'effective_observation_id',
+        params: {'p_observation_id': observationId},
+      );
+      return response as String?;
+    } on PostgrestException catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'BleedingEpisodeRepositoryImpl.effectiveObservationId',
+        feature: 'cycle_tracking',
+        recordId: observationId,
+      );
+      return null;
+    }
+  }
+
+  /// Commit D5/D6 — the full revision history for one logical fact,
+  /// oldest (the original report) first: walks forward from [rootObservationId]
+  /// following each row's own `supersedes_id` back-reference until no
+  /// further correction is found. A correction-of-correction (D6: v1 ->
+  /// v2 -> v3) returns all three, in order — nothing is ever discarded
+  /// merely because a later correction superseded it. [rootObservationId]
+  /// must be the *original* (never-superseded) observation; passing a
+  /// later revision returns only the remainder of the chain from that
+  /// point forward, which is why the UI should always resolve to the
+  /// true root before calling this (every observation this app creates
+  /// through [recordObservation] is itself always a root, since it never
+  /// accepts a `supersedesId`).
+  Future<List<BleedingObservation>> getRevisionHistory(
+    String rootObservationId,
+  ) async {
+    final all = await getObservationsForEpisode(
+      await _episodeIdFor(rootObservationId) ?? '',
+    );
+    final chain = <BleedingObservation>[];
+    String? currentId = rootObservationId;
+    while (currentId != null) {
+      final match = all.where((o) => o.id == currentId).firstOrNull;
+      if (match == null) break;
+      chain.add(match);
+      currentId = all.where((o) => o.supersedesId == currentId).firstOrNull?.id;
+    }
+    return chain;
+  }
+
+  Future<String?> _episodeIdFor(String observationId) async {
+    final client = _client;
+    if (client == null) return null;
+    try {
+      final response = await client
+          .from('bleeding_observations')
+          .select('episode_id')
+          .eq('id', observationId)
+          .maybeSingle();
+      return response?['episode_id'] as String?;
+    } on PostgrestException catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'BleedingEpisodeRepositoryImpl._episodeIdFor',
+        feature: 'cycle_tracking',
+        recordId: observationId,
       );
       return null;
     }
@@ -635,6 +780,55 @@ class BleedingEpisodeRepositoryImpl {
             } catch (_) {
               // Swallowed deliberately — see comment above.
             }
+          case PendingBleedingOperationType.dailyOrBackfillObservation:
+            final params = operation.params;
+            await recordObservation(
+              clientOperationId: operation.operationId,
+              episodeId: params['episodeId'] as String,
+              observedDate: DateTime.parse(params['observedDate'] as String),
+              precision: ObservationPrecision.parse(
+                params['precision'] as String?,
+              ),
+              flow: ObservationFlow.parse(params['flow'] as String?),
+              source: ObservationSource.parse(params['source'] as String?),
+              utcOffsetMinutes: params['utcOffsetMinutes'] as int,
+              timezone: params['timezone'] as String?,
+              symptoms: (params['symptoms'] as List<dynamic>?)?.cast<String>(),
+              notes: params['notes'] as String?,
+            );
+          case PendingBleedingOperationType.correction:
+            // D7: a conflict here means someone/something else already
+            // superseded this exact target since it was queued — this is
+            // NOT a transient failure to silently retry forever. Left
+            // pending deliberately (falls through to the outer catch
+            // below) so her offline-intended change is never lost; the
+            // correction UI is responsible for noticing a still-pending
+            // correction and offering real conflict resolution the next
+            // time she opens it, rather than this reconciler silently
+            // picking a winner.
+            final params = operation.params;
+            await correctObservation(
+              clientOperationId: operation.operationId,
+              supersedesId: params['supersedesId'] as String,
+              observedDate: DateTime.parse(params['observedDate'] as String),
+              precision: ObservationPrecision.parse(
+                params['precision'] as String?,
+              ),
+              flow: ObservationFlow.parse(params['flow'] as String?),
+              source: ObservationSource.parse(params['source'] as String?),
+              utcOffsetMinutes: params['utcOffsetMinutes'] as int,
+              timezone: params['timezone'] as String?,
+              symptoms: (params['symptoms'] as List<dynamic>?)?.cast<String>(),
+              notes: params['notes'] as String?,
+            );
+          case PendingBleedingOperationType.baselineEstimate:
+            final params = operation.params;
+            await CycleBaselineRepositoryImpl(client: _client).saveBaseline(
+              clientOperationId: operation.operationId,
+              usualBleedingDurationDays:
+                  params['usualBleedingDurationDays'] as int?,
+              usualCycleLengthDays: params['usualCycleLengthDays'] as int?,
+            );
         }
         await PendingBleedingOperationStore.clearPending(operation.operationId);
       } catch (error, stack) {
@@ -666,24 +860,38 @@ class CycleBaselineRepositoryImpl {
   /// Always a new row — a changed estimate never overwrites the old one
   /// (Blocker 9: reproducibility requires the old value to remain
   /// recoverable for anything that may have used it).
-  Future<CycleBaseline?> saveBaseline(CycleBaseline baseline) async {
+  ///
+  /// Hardening 5: calls the `save_baseline_estimate` RPC — a direct
+  /// client INSERT into `cycle_baselines` is no longer possible at all
+  /// (every client-facing grant on that table was revoked). Idempotent:
+  /// [clientOperationId] retried returns the original row's id rather
+  /// than creating a second version.
+  Future<String?> saveBaseline({
+    required String clientOperationId,
+    int? usualBleedingDurationDays,
+    int? usualCycleLengthDays,
+  }) async {
     final client = _client;
     if (client == null) return null;
 
     try {
-      final response = await client
-          .from('cycle_baselines')
-          .insert(baseline.toInsertJson())
-          .select()
-          .single();
-      return CycleBaseline.fromJson(response);
+      final response = await client.rpc(
+        'save_baseline_estimate',
+        params: {
+          'p_client_operation_id': clientOperationId,
+          'p_usual_bleeding_duration_days': usualBleedingDurationDays,
+          'p_usual_cycle_length_days': usualCycleLengthDays,
+        },
+      );
+      final row = (response as List).single as Map<String, dynamic>;
+      return row['baseline_id'] as String?;
     } on PostgrestException catch (error, stack) {
       AppErrorReporter.report(
         error,
         stack,
         context: 'CycleBaselineRepositoryImpl.saveBaseline',
         feature: 'cycle_tracking',
-        recordId: baseline.userId,
+        recordId: clientOperationId,
       );
       return null;
     }

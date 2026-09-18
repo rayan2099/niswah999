@@ -46,6 +46,24 @@
 -- start` applies supabase/migrations/ before the canonical baseline
 -- defines `public.users`, so the guard makes this file a safe no-op there
 -- and a real, idempotent set of DDL statements against production.
+--
+-- PR #4 final implementation wave, Hardening 5 — ONE CANONICAL MUTATION
+-- BOUNDARY: a review found that even after Hardening 2 introduced
+-- `correct_observation` as "the" controlled correction path, an ordinary
+-- authenticated client could still satisfy `bleeding_observations_validate_insert`'s
+-- own rules with a direct table INSERT (any row with `supersedes_id` set
+-- passed the trigger same as a call through the RPC) — the RPC was
+-- never actually the *sole* authority, just the officially-documented
+-- one. All three canonical tables now REVOKE every client-facing
+-- INSERT/UPDATE/DELETE grant entirely (SELECT remains, gated by the
+-- existing RLS policies below); every mutation goes through a
+-- SECURITY DEFINER RPC instead (see the RPC migrations from
+-- 20260917100000 onward). RLS policies for INSERT/UPDATE are left in
+-- place as documentation of intent (and because dropping them entirely
+-- would be a larger, non-additive change with no behavioral benefit once
+-- the grants that would have used them are gone) but are now
+-- structurally unreachable by an ordinary client — only the RPCs, which
+-- bypass RLS as SECURITY DEFINER, can actually write.
 
 DO $$
 BEGIN
@@ -184,28 +202,29 @@ BEGIN
         WITH CHECK (auth.uid() = user_id);
     END IF;
 
-    -- Blocker 8 — start evidence must not be freely mutable. Row-level
-    -- UPDATE permission alone only says *which rows*, not *which
-    -- columns*, a client may change — the row policy above would happily
-    -- let an owner rewrite their own `start_date` in place, silently
-    -- destroying the very evidence a correction is supposed to
-    -- supersede, not overwrite. Postgres column-level privileges are a
-    -- second, independent enforcement layer: REVOKE table-wide UPDATE,
-    -- then GRANT it back only on the columns a legitimate lifecycle
-    -- transition ever touches. `start_date`/`start_precision`/
-    -- `start_time`/`start_source`/`client_operation_id` are consequently
-    -- write-once — no GRANT, no policy, no application code path can
-    -- change them after the row exists, including a direct REST-style
-    -- request that bypasses this app's own Dart layer entirely.
-    REVOKE UPDATE ON public.bleeding_episodes FROM authenticated, anon;
-    GRANT UPDATE (
-      lifecycle_status, continuation_certainty,
-      end_date, end_precision, end_time, end_source, end_client_operation_id,
-      updated_at
-    ) ON public.bleeding_episodes TO authenticated;
+    -- Blocker 8 established column-level UPDATE (start evidence must not
+    -- be freely mutable even where UPDATE was otherwise allowed).
+    -- PR #4 final implementation wave, Hardening 5 — ONE CANONICAL
+    -- MUTATION BOUNDARY: that column-level grant was still a grant. Every
+    -- mutation now goes through a validated, SECURITY DEFINER RPC
+    -- (start/end/onboarding/correction/continuation-uncertain), so an
+    -- ordinary authenticated client has no legitimate reason to issue a
+    -- direct table-level INSERT/UPDATE/DELETE against this table at all
+    -- — not even on the columns a legitimate transition touches. RLS
+    -- policies above remain in force for the RPCs' own internal
+    -- SELECTs/writes are unaffected by these client-facing grants
+    -- (SECURITY DEFINER functions run under the function owner's
+    -- privileges, not the caller's), and remain as documentation of the
+    -- row-level intent even though the column-level grant they'd gate is
+    -- now gone. `anon` never had a legitimate reason to write here in the
+    -- first place — every policy requires `auth.uid() = user_id`, which
+    -- an anonymous session can never satisfy — so its grants are
+    -- withdrawn entirely rather than left as a harmless-in-practice but
+    -- unnecessary surface.
+    REVOKE INSERT, UPDATE, DELETE ON public.bleeding_episodes FROM authenticated;
+    REVOKE ALL ON public.bleeding_episodes FROM anon;
 
-    GRANT SELECT, INSERT ON TABLE public.bleeding_episodes TO anon;
-    GRANT SELECT, INSERT ON TABLE public.bleeding_episodes TO authenticated;
+    GRANT SELECT ON TABLE public.bleeding_episodes TO authenticated;
     GRANT ALL ON TABLE public.bleeding_episodes TO service_role;
 
     IF NOT EXISTS (
@@ -312,8 +331,17 @@ BEGIN
         FOR INSERT WITH CHECK (auth.uid() = user_id);
     END IF;
 
-    GRANT SELECT, INSERT ON TABLE public.bleeding_observations TO anon;
-    GRANT SELECT, INSERT ON TABLE public.bleeding_observations TO authenticated;
+    -- Hardening 5: no direct client INSERT either, even though this
+    -- table was already insert-only for corrections/appends — the same
+    -- "every mutation goes through a validated RPC" boundary applies to
+    -- new facts as much as to updates. `record_bleeding_observation`,
+    -- the start/end RPCs, `record_onboarding_menstrual_history`, and
+    -- `correct_observation` are now the only INSERT paths, all SECURITY
+    -- DEFINER.
+    REVOKE INSERT ON public.bleeding_observations FROM authenticated;
+    REVOKE ALL ON public.bleeding_observations FROM anon;
+
+    GRANT SELECT ON TABLE public.bleeding_observations TO authenticated;
     GRANT ALL ON TABLE public.bleeding_observations TO service_role;
 
     -- Every INSERT into bleeding_observations, from whichever code path —
@@ -508,8 +536,12 @@ BEGIN
         FOR INSERT WITH CHECK (auth.uid() = user_id);
     END IF;
 
-    GRANT SELECT, INSERT ON TABLE public.cycle_baselines TO anon;
-    GRANT SELECT, INSERT ON TABLE public.cycle_baselines TO authenticated;
+    -- Hardening 5: baseline estimates now go through the SECURITY
+    -- DEFINER `save_baseline_estimate` RPC, not a direct client INSERT.
+    REVOKE INSERT ON public.cycle_baselines FROM authenticated;
+    REVOKE ALL ON public.cycle_baselines FROM anon;
+
+    GRANT SELECT ON TABLE public.cycle_baselines TO authenticated;
     GRANT ALL ON TABLE public.cycle_baselines TO service_role;
 
     -- 4. Nothing in this migration ever deletes or rewrites a row in

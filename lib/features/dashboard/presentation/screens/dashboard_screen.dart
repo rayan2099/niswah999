@@ -22,6 +22,7 @@ import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/daily_checkin_sheet.dart';
 import '../../../cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
 import '../../../dream_interpreter/presentation/screens/dream_interpreter_screen.dart';
 import '../../../notifications/presentation/screens/notification_feed_screen.dart';
@@ -392,6 +393,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               isCurrentlyBleeding: isCurrentlyBleeding,
                               onStart: () => _startBleeding(),
                               onEnd: () => _endBleeding(),
+                              onCheckIn: () => _checkInToday(),
+                              onBackfill: () => _backfillObservation(),
                             ),
                           ],
                           if (PregnancyStatusController
@@ -631,6 +634,77 @@ class _DashboardScreenState extends State<DashboardScreen> {
       episodeStartDate: openEpisode.startDate,
     );
     if (ended) {
+      await _viewModel.loadLogs();
+    }
+  }
+
+  /// Commit D1 — the recurring "are you still bleeding today?" check-in,
+  /// fetched against the real open episode the same way [_endBleeding]
+  /// does (never assumed from the legacy Fiqh-state signal alone).
+  Future<void> _checkInToday() async {
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final openEpisode = await BleedingEpisodeRepositoryImpl().getOpenEpisode(
+      userId,
+    );
+    if (openEpisode?.id == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _l(
+              'Could not find your active period to check in on.',
+              'تعذر العثور على دورتكِ النشطة للمتابعة.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    final outcome = await showDailyCheckinSheet(
+      context,
+      episodeId: openEpisode!.id!,
+      episodeStartDate: openEpisode.startDate,
+    );
+    if (outcome != DailyCheckinOutcome.cancelled) {
+      await _viewModel.loadLogs();
+    }
+  }
+
+  /// Commit D4 — "add a missing day," reachable independently of today's
+  /// own check-in.
+  Future<void> _backfillObservation() async {
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final openEpisode = await BleedingEpisodeRepositoryImpl().getOpenEpisode(
+      userId,
+    );
+    if (openEpisode?.id == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _l(
+              'Could not find your active period.',
+              'تعذر العثور على دورتكِ النشطة.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    final saved = await showBackfillObservationSheet(
+      context,
+      episodeId: openEpisode!.id!,
+      episodeStartDate: openEpisode.startDate,
+    );
+    if (saved) {
       await _viewModel.loadLogs();
     }
   }
@@ -1868,6 +1942,8 @@ class _QuickActions extends StatelessWidget {
     required this.isCurrentlyBleeding,
     required this.onStart,
     required this.onEnd,
+    this.onCheckIn,
+    this.onBackfill,
   });
 
   /// Whether the fiqh state counts as "currently bleeding" — haid,
@@ -1877,8 +1953,51 @@ class _QuickActions extends StatelessWidget {
   final VoidCallback onStart;
   final VoidCallback onEnd;
 
+  /// Commit D1 — the recurring daily check-in, only meaningful while an
+  /// episode is actually open. Null (and therefore not rendered) whenever
+  /// there is no open canonical episode to check in against, even if
+  /// [isCurrentlyBleeding] (the legacy Fiqh-state signal) is somehow true.
+  final VoidCallback? onCheckIn;
+
+  /// Commit D4 — "I forgot to log a day," reachable any time an episode
+  /// is open, independent of today's own check-in state.
+  final VoidCallback? onBackfill;
+
   @override
   Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (isCurrentlyBleeding && onCheckIn != null) ...[
+          FilledButton.icon(
+            onPressed: onCheckIn,
+            icon: const Icon(Icons.today_outlined, size: 18),
+            label: Text(_l('Daily check-in', 'المتابعة اليومية')),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              backgroundColor: AppColors.haid,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        _startEndRow(context),
+        if (isCurrentlyBleeding && onBackfill != null) ...[
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: onBackfill,
+            icon: const Icon(Icons.history_edu_outlined, size: 16),
+            label: Text(_l('Add a missing day', 'إضافة يوم فائت')),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _startEndRow(BuildContext context) {
     return Row(
       children: [
         Expanded(

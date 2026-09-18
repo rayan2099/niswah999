@@ -30,9 +30,18 @@
 -- bound, which a malformed or stale client could bypass entirely by
 -- calling this RPC directly.
 --
--- Deliberately NOT `SECURITY DEFINER`: runs as the calling `authenticated`
--- role so both tables' ordinary RLS policies still apply as a second,
--- independent layer of defense.
+-- PR #4 final implementation wave, Hardening 5: now `SECURITY DEFINER`
+-- with an explicit `SET search_path` — the schema migration revokes
+-- every client-facing INSERT/UPDATE/DELETE grant on both tables this
+-- function writes to, so an ordinary `authenticated`-role INSERT would
+-- otherwise fail even from inside this function. RLS is bypassed once
+-- SECURITY DEFINER (the function owner has BYPASSRLS), so it is no
+-- longer a safety net here — every write below already used `v_user_id
+-- := auth.uid()` exclusively (never a caller-supplied user id) and only
+-- ever queries/inserts rows scoped to that same id, so ownership was
+-- already self-contained and did not actually depend on RLS to be safe.
+-- `EXECUTE` is revoked from `PUBLIC` (Postgres's default grant on
+-- function creation) and re-granted only to `authenticated`.
 
 DO $$
 BEGIN
@@ -58,6 +67,8 @@ BEGIN
     )
     RETURNS TABLE (episode_id uuid, observation_id uuid)
     LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path TO 'public'
     AS $function$
     DECLARE
       v_user_id uuid := auth.uid();
@@ -115,6 +126,10 @@ BEGIN
     END;
     $function$;
 
+    REVOKE ALL ON FUNCTION public.start_bleeding_episode(
+      uuid, date, text, timestamptz, text, text, timestamptz, text, text,
+      text, integer, jsonb, text
+    ) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.start_bleeding_episode(
       uuid, date, text, timestamptz, text, text, timestamptz, text, text,
       text, integer, jsonb, text

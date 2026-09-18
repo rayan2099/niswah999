@@ -51,17 +51,15 @@ void main() {
       expect(result, isNull);
     });
 
-    test('addObservation returns null rather than throwing', () async {
-      final result = await repository.addObservation(
-        BleedingObservation(
-          userId: 'user-1',
-          episodeId: 'episode-1',
-          observedDate: DateTime(2026, 9, 17),
-          precision: ObservationPrecision.dateOnly,
-          flow: ObservationFlow.medium,
-          source: ObservationSource.userObserved,
-          utcOffsetMinutes: 0,
-        ),
+    test('recordObservation returns null rather than throwing', () async {
+      final result = await repository.recordObservation(
+        clientOperationId: 'daily-op-1',
+        episodeId: 'episode-1',
+        observedDate: DateTime(2026, 9, 17),
+        precision: ObservationPrecision.dateOnly,
+        flow: ObservationFlow.medium,
+        source: ObservationSource.userObserved,
+        utcOffsetMinutes: 0,
       );
       expect(result, isNull);
     });
@@ -79,6 +77,19 @@ void main() {
           utcOffsetMinutes: 0,
         );
         expect(result, isNull);
+      },
+    );
+
+    test('effectiveObservationId returns null rather than throwing', () async {
+      final result = await repository.effectiveObservationId('observation-1');
+      expect(result, isNull);
+    });
+
+    test(
+      'getRevisionHistory returns an empty list rather than throwing',
+      () async {
+        final result = await repository.getRevisionHistory('observation-1');
+        expect(result, isEmpty);
       },
     );
 
@@ -148,7 +159,8 @@ void main() {
 
     test('saveBaseline returns null rather than throwing', () async {
       final result = await repository.saveBaseline(
-        const CycleBaseline(userId: 'user-1', usualBleedingDurationDays: 6),
+        clientOperationId: 'baseline-op-1',
+        usualBleedingDurationDays: 6,
       );
       expect(result, isNull);
     });

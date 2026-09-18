@@ -22,9 +22,14 @@
 -- start/end reported through onboarding is still validated at the
 -- canonical write boundary, not merely by the date picker.
 --
--- Deliberately NOT SECURITY DEFINER: runs as the calling `authenticated`
--- role so every table's own RLS/column-grant rules still apply as a
--- second, independent layer.
+-- PR #4 final implementation wave, Hardening 5: now `SECURITY DEFINER`
+-- with an explicit `SET search_path` — the schema migration revokes
+-- every client-facing INSERT grant on the tables this function writes
+-- to. Ownership was already self-contained before this change (every
+-- INSERT here uses `v_user_id := auth.uid()` exclusively, never a
+-- caller-supplied id), so bypassing RLS changes nothing about its
+-- safety. `EXECUTE` is revoked from `PUBLIC` and re-granted only to
+-- `authenticated`.
 
 DO $$
 BEGIN
@@ -49,6 +54,8 @@ BEGIN
     )
     RETURNS TABLE (episode_id uuid, baseline_id uuid)
     LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path TO 'public'
     AS $function$
     DECLARE
       v_user_id uuid := auth.uid();
@@ -124,6 +131,10 @@ BEGIN
     END;
     $function$;
 
+    REVOKE ALL ON FUNCTION public.record_onboarding_menstrual_history(
+      uuid, integer, date, text, text, text, text, date, text, text,
+      integer, integer
+    ) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.record_onboarding_menstrual_history(
       uuid, integer, date, text, text, text, text, date, text, text,
       integer, integer

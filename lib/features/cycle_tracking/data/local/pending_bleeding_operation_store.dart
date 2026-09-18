@@ -45,6 +45,13 @@ enum PendingBleedingOperationType {
   // *entire* widget tree, including the screen that would otherwise
   // generate a fresh (and now duplicate-risking) operation id on retry.
   onboardingHistory,
+  // PR #4 final implementation wave, Commit D8/D9: the daily check-in
+  // YES answer and a historical backfill are the same underlying RPC
+  // (record_bleeding_observation) — one pending-operation type covers
+  // both, exactly mirroring how the RPC itself does.
+  dailyOrBackfillObservation,
+  correction,
+  baselineEstimate,
 }
 
 class PendingBleedingOperation {

@@ -19,8 +19,24 @@
 -- same `client_operation_id` returns the original correction's id rather
 -- than creating a second one.
 --
--- Deliberately NOT SECURITY DEFINER — runs as the calling `authenticated`
--- role, so RLS and the validation trigger both still apply in full.
+-- PR #4 final implementation wave, Hardening 5: now `SECURITY DEFINER`
+-- with an explicit `SET search_path` (the schema migration revokes the
+-- client-facing INSERT grant this function relies on). Ownership was
+-- already self-contained — the target lookup below is filtered by
+-- `user_id = v_user_id` (never RLS visibility), so bypassing RLS changes
+-- nothing about its safety. `EXECUTE` is revoked from `PUBLIC` and
+-- re-granted only to `authenticated`.
+--
+-- Commit D7 — concurrent correction conflict: two devices can each start
+-- from the same v1 and both attempt to supersede it while offline from
+-- each other. `bleeding_observations_supersedes_once` already prevents
+-- both from landing (a fork), but the loser must see a typed,
+-- recognizable conflict — not a raw unique-violation, and never a
+-- silent last-write-wins. Checked explicitly (not left to the unique
+-- index alone) so the failure mode is a clean, documented `RAISE
+-- EXCEPTION ... USING ERRCODE = 'NW409'` a client can pattern-match on
+-- via `PostgrestException.code`, rather than parsing a Postgres
+-- constraint-violation message string.
 
 DO $$
 BEGIN
@@ -44,11 +60,14 @@ BEGIN
     )
     RETURNS TABLE (observation_id uuid)
     LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path TO 'public'
     AS $function$
     DECLARE
       v_user_id uuid := auth.uid();
       v_episode_id uuid;
       v_existing_id uuid;
+      v_already_superseded_by uuid;
       v_new_id uuid;
     BEGIN
       IF v_user_id IS NULL THEN
@@ -80,10 +99,31 @@ BEGIN
           p_supersedes_id;
       END IF;
 
+      -- D7 — concurrent correction conflict, checked explicitly rather
+      -- than left to the unique index alone: if some other correction
+      -- already superseded this exact target (a race between two
+      -- devices, or a stale local view of the chain), `p_supersedes_id`
+      -- is no longer the current tip — the caller's intended change must
+      -- not silently fork or silently lose. A distinguishable ERRCODE
+      -- lets the client recognize this specific case and show a real
+      -- conflict-resolution UI rather than a generic failure.
+      SELECT id INTO v_already_superseded_by
+      FROM public.bleeding_observations
+      WHERE supersedes_id = p_supersedes_id;
+
+      IF v_already_superseded_by IS NOT NULL THEN
+        RAISE EXCEPTION
+          'observation % is no longer the current revision — it was '
+          'already superseded by %', p_supersedes_id, v_already_superseded_by
+          USING ERRCODE = 'NW409';
+      END IF;
+
       -- The rest (no fork/cycle, no future date, same-user/same-episode
       -- re-confirmed) is enforced by bleeding_observations_validate_insert
-      -- and bleeding_observations_supersedes_once — this INSERT is
-      -- deliberately not a SECURITY DEFINER bypass of either.
+      -- and bleeding_observations_supersedes_once as independent layers
+      -- underneath this explicit check — this function bypasses RLS
+      -- (SECURITY DEFINER) but not the trigger, which still runs on
+      -- every INSERT regardless of role.
       INSERT INTO public.bleeding_observations (
         user_id, episode_id, observed_date, observed_time, precision, flow,
         source, timezone, utc_offset_minutes, symptoms, notes,
@@ -98,10 +138,51 @@ BEGIN
     END;
     $function$;
 
+    REVOKE ALL ON FUNCTION public.correct_observation(
+      uuid, uuid, date, text, text, text, integer, timestamptz, text,
+      jsonb, text
+    ) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.correct_observation(
       uuid, uuid, date, text, text, text, integer, timestamptz, text,
       jsonb, text
     ) TO authenticated;
+
+    -- Commit D5 — effective-observation resolver: given ANY observation
+    -- id in a revision chain (the original root or a later correction),
+    -- returns the id of the chain's current tip (the row nothing else
+    -- supersedes) — "the effective value" the UI/Fiqh layer must read,
+    -- while the full chain itself remains available via a plain SELECT
+    -- ordered by the chain (see getObservationsForEpisode /
+    -- get_revision_history). STABLE, not VOLATILE: pure function of
+    -- already-committed data, safe to call repeatedly/inline in a query.
+    -- SECURITY DEFINER for the same reason as the RPCs above (SELECT is
+    -- still granted to `authenticated`, but a plain client-side
+    -- recursive CTE across `bleeding_observations` would otherwise stay
+    -- correctly RLS-scoped to the caller's own rows anyway — this
+    -- exists as a single shared, tested definition of "current tip"
+    -- rather than duplicating the recursive walk in every caller, not
+    -- to bypass any check).
+    CREATE OR REPLACE FUNCTION public.effective_observation_id(p_observation_id uuid)
+    RETURNS uuid
+    LANGUAGE sql
+    STABLE
+    SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $tip$
+      WITH RECURSIVE chain AS (
+        SELECT id, supersedes_id, 0 AS depth
+        FROM public.bleeding_observations
+        WHERE id = p_observation_id
+        UNION ALL
+        SELECT bo.id, bo.supersedes_id, c.depth + 1
+        FROM public.bleeding_observations bo
+        JOIN chain c ON bo.supersedes_id = c.id
+      )
+      SELECT id FROM chain ORDER BY depth DESC LIMIT 1;
+    $tip$;
+
+    REVOKE ALL ON FUNCTION public.effective_observation_id(uuid) FROM PUBLIC, anon;
+    GRANT EXECUTE ON FUNCTION public.effective_observation_id(uuid) TO authenticated;
 
   END IF;
 END $$;

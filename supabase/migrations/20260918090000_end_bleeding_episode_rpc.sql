@@ -34,9 +34,20 @@
 -- episode now rejects every new fact, unconditionally, and only ever
 -- accepts a genuine correction (`supersedes_id` set).
 --
--- Deliberately NOT `SECURITY DEFINER` — runs as the calling
--- `authenticated` role, so RLS and the column-level UPDATE grants from
--- the schema migration (Blocker 8) still apply.
+-- PR #4 final implementation wave, Hardening 5: now `SECURITY DEFINER`
+-- with an explicit `SET search_path` — the schema migration revokes
+-- every client-facing INSERT/UPDATE/DELETE grant on both tables this
+-- function writes to (Blocker 8's column-level UPDATE grant included),
+-- so an ordinary `authenticated`-role UPDATE/INSERT would otherwise fail
+-- from inside this function. RLS is bypassed once SECURITY DEFINER (the
+-- function owner has BYPASSRLS), so the explicit `v_episode_user_id <>
+-- v_user_id` ownership check below is now the *only* thing rejecting a
+-- cross-account attempt — it already did not depend on RLS to be
+-- correct (RLS would have hidden another user's row entirely, which is
+-- exactly why the ownership-mismatch and does-not-exist messages below
+-- are now unified: distinguishing them would leak whether an episode id
+-- that isn't the caller's own actually exists). `EXECUTE` is revoked
+-- from `PUBLIC` and re-granted only to `authenticated`.
 
 DO $$
 BEGIN
@@ -59,6 +70,8 @@ BEGIN
     )
     RETURNS TABLE (episode_id uuid, closing_observation_id uuid)
     LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path TO 'public'
     AS $function$
     DECLARE
       v_user_id uuid := auth.uid();
@@ -89,11 +102,10 @@ BEGIN
       WHERE id = p_episode_id
       FOR UPDATE;
 
-      IF v_episode_user_id IS NULL THEN
-        RAISE EXCEPTION 'episode % does not exist', p_episode_id;
-      END IF;
-      IF v_episode_user_id <> v_user_id THEN
-        RAISE EXCEPTION 'episode % does not belong to the calling user', p_episode_id;
+      IF v_episode_user_id IS NULL OR v_episode_user_id <> v_user_id THEN
+        RAISE EXCEPTION
+          'episode % does not exist or does not belong to the calling user',
+          p_episode_id;
       END IF;
       IF v_episode_status <> 'open' THEN
         RAISE EXCEPTION 'episode % is not open', p_episode_id;
@@ -136,6 +148,9 @@ BEGIN
     END;
     $function$;
 
+    REVOKE ALL ON FUNCTION public.end_bleeding_episode(
+      uuid, uuid, date, text, text, timestamptz, text, text, text, integer
+    ) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.end_bleeding_episode(
       uuid, uuid, date, text, text, timestamptz, text, text, text, integer
     ) TO authenticated;
