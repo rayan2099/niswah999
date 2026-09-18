@@ -18,6 +18,7 @@ import 'core/services/notification_service.dart';
 import 'core/storage/local_sensitive_data_cleanup.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
+import 'core/utils/device_timezone.dart';
 import 'core/widgets/floating_nav_bar.dart';
 import 'core/widgets/niswah_loading_indicator.dart';
 import 'features/notifications/domain/services/notification_refresh_coordinator.dart';
@@ -533,6 +534,13 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // Hardening 3: the device's timezone may genuinely have changed
+      // while the app was backgrounded (travel, or a manual change) —
+      // DeviceTimezone must never answer with a value cached from before
+      // the app went to the background. Invalidated before
+      // _refreshNotifications so any reminder recomputation it triggers
+      // already sees the real current zone, never a stale one.
+      DeviceTimezone.invalidateCache();
       _refreshNotifications();
       // App-resume retry trigger — see the app-start trigger in initState
       // for why this exists and what it does/doesn't guarantee.

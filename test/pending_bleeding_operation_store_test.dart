@@ -108,6 +108,39 @@ void main() {
       final loaded = await PendingBleedingOperationStore.loadPending();
       expect(loaded, isEmpty);
     });
+
+    group('getPendingByType (Hardening 1)', () {
+      test('returns the pending operation of the requested type', () async {
+        await PendingBleedingOperationStore.savePending(
+          PendingBleedingOperation(
+            operationId: 'onboarding-op-1',
+            type: PendingBleedingOperationType.onboardingHistory,
+            params: const {'utcOffsetMinutes': 180},
+            createdAt: DateTime(2026, 9, 18),
+          ),
+        );
+        await PendingBleedingOperationStore.savePending(
+          PendingBleedingOperation(
+            operationId: 'start-op-1',
+            type: PendingBleedingOperationType.startEpisode,
+            params: const {},
+            createdAt: DateTime(2026, 9, 18),
+          ),
+        );
+
+        final found = await PendingBleedingOperationStore.getPendingByType(
+          PendingBleedingOperationType.onboardingHistory,
+        );
+        expect(found?.operationId, 'onboarding-op-1');
+      });
+
+      test('returns null when no operation of that type is pending', () async {
+        final found = await PendingBleedingOperationStore.getPendingByType(
+          PendingBleedingOperationType.onboardingHistory,
+        );
+        expect(found, isNull);
+      });
+    });
   });
 
   group('BleedingEpisodeRepositoryImpl.reconcilePendingOperations', () {
@@ -151,5 +184,52 @@ void main() {
       final stillPending = await PendingBleedingOperationStore.loadPending();
       expect(stillPending, isEmpty);
     });
+
+    test(
+      'Hardening 1: attempts to replay a pending onboardingHistory '
+      'operation and leaves it pending when there is no session to '
+      'replay it against (a real device/process-kill round trip is E4 — '
+      'the server-side idempotent replay of record_onboarding_menstrual_'
+      'history was verified directly against local Postgres; see the '
+      'commit message and docs/menstrual-data-integrity-contract.md)',
+      () async {
+        await PendingBleedingOperationStore.savePending(
+          PendingBleedingOperation(
+            operationId: 'onboarding-op-1',
+            type: PendingBleedingOperationType.onboardingHistory,
+            params: {
+              'utcOffsetMinutes': 180,
+              'episode': {
+                'lifecycleStatus': 'open',
+                'continuationCertainty': 'confirmed',
+                'startDate': DateTime(2026, 9, 15).toIso8601String(),
+                'startPrecision': 'date_only',
+                'startSource': 'user_reported_historical',
+              },
+              'baseline': {
+                'usualBleedingDurationDays': 6,
+                'usualCycleLengthDays': 28,
+              },
+            },
+            createdAt: DateTime(2026, 9, 18),
+          ),
+        );
+
+        await BleedingEpisodeRepositoryImpl(client: null)
+            .reconcilePendingOperations();
+
+        final stillPending = await PendingBleedingOperationStore.loadPending();
+        expect(
+          stillPending,
+          hasLength(1),
+          reason:
+              'no session means the replay itself cannot succeed — it '
+              'must stay pending for the next reconciliation attempt, '
+              'never be silently dropped nor treated as if it had '
+              'succeeded',
+        );
+        expect(stillPending.single.operationId, 'onboarding-op-1');
+      },
+    );
   });
 }

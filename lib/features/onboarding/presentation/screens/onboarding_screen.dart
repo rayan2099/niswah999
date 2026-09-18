@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -11,6 +13,7 @@ import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
+import '../../../cycle_tracking/data/local/pending_bleeding_operation_store.dart';
 import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
@@ -156,7 +159,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // exactly what lets record_onboarding_menstrual_history recognize a
   // retry as the *same* logical action (response lost, app killed
   // mid-request, a genuine double-tap) instead of a new submission.
-  final String _onboardingOperationId = const Uuid().v4();
+  //
+  // Hardening 1: a widget-state field alone only survives a retry *while
+  // this screen instance stays alive* — it does not survive the process
+  // itself being killed after the RPC already reached and committed on
+  // the server but before the response came back. A fresh app launch
+  // would otherwise build a brand-new OnboardingScreen with a brand-new
+  // id, indistinguishable from a genuinely new submission. So this is no
+  // longer unconditionally fresh: initState checks
+  // PendingBleedingOperationStore for an onboardingHistory operation left
+  // over from exactly that failure and reuses its id instead, via
+  // _resolveOnboardingOperationId below.
+  String _onboardingOperationId = const Uuid().v4();
 
   @override
   void initState() {
@@ -166,6 +180,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // otherwise re-selecting anything (or the step just looking unanswered)
     // silently overwrites their real answer via setMarried below.
     _isMarried = MaritalStatusController.instance.isMarried;
+    unawaited(_resolveOnboardingOperationId());
+  }
+
+  /// Hardening 1: if the previous attempt's request reached the server (or
+  /// may have) but this screen never lived to see the response — the
+  /// process was killed in between — a pending onboardingHistory operation
+  /// is still sitting in [PendingBleedingOperationStore]. Reusing its id
+  /// means a later _completeOnboarding call here can never create a
+  /// *second* logical submission: record_onboarding_menstrual_history's own
+  /// idempotency check recognizes the same client_operation_id and returns
+  /// the original episode_id/baseline_id instead of inserting again,
+  /// regardless of whatever she re-answers on this fresh instance of the
+  /// screen. (The independent, UI-free path — reconciling a pending
+  /// operation without her ever reopening onboarding at all — is
+  /// [BleedingEpisodeRepositoryImpl.reconcilePendingOperations], wired into
+  /// app start/resume in main.dart.)
+  Future<void> _resolveOnboardingOperationId() async {
+    final pending = await PendingBleedingOperationStore.getPendingByType(
+      PendingBleedingOperationType.onboardingHistory,
+    );
+    if (pending == null || !mounted) return;
+    setState(() {
+      _onboardingOperationId = pending.operationId;
+    });
   }
 
   @override
@@ -647,6 +685,57 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           );
         }
 
+        final baseline = hasBaseline
+            ? CycleBaseline(
+                userId: userId,
+                usualBleedingDurationDays: _haidLengthValue,
+                usualCycleLengthDays: _cycleLengthValue,
+              )
+            : null;
+
+        // Hardening 1: persisted *before* the RPC is ever sent — the same
+        // pattern as the Start/End Bleeding sheets (PendingBleedingOperationStore).
+        // If the process dies between the server committing and this app
+        // ever seeing the response, this record is what lets a future
+        // reconciliation (either this same screen's own initState reusing
+        // the id, or reconcilePendingOperations running independently at
+        // app start/resume) recognize and complete the *same* logical
+        // submission instead of risking a second one.
+        await PendingBleedingOperationStore.savePending(
+          PendingBleedingOperation(
+            operationId: _onboardingOperationId,
+            type: PendingBleedingOperationType.onboardingHistory,
+            params: {
+              'utcOffsetMinutes': utcOffsetMinutes,
+              if (episode != null)
+                'episode': {
+                  'lifecycleStatus': episode.lifecycleStatus.value,
+                  if (episode.continuationCertainty != null)
+                    'continuationCertainty':
+                        episode.continuationCertainty!.value,
+                  'startDate': episode.startDate.toIso8601String(),
+                  'startPrecision': episode.startPrecision.value,
+                  'startSource': episode.startSource.value,
+                  if (episode.endDate != null)
+                    'endDate': episode.endDate!.toIso8601String(),
+                  if (episode.endPrecision != null)
+                    'endPrecision': episode.endPrecision!.value,
+                  if (episode.endSource != null)
+                    'endSource': episode.endSource!.value,
+                },
+              if (baseline != null)
+                'baseline': {
+                  if (baseline.usualBleedingDurationDays != null)
+                    'usualBleedingDurationDays':
+                        baseline.usualBleedingDurationDays,
+                  if (baseline.usualCycleLengthDays != null)
+                    'usualCycleLengthDays': baseline.usualCycleLengthDays,
+                },
+            },
+            createdAt: DateTime.now(),
+          ),
+        );
+
         // PR #4 completion wave, Fix A: one atomic, idempotent RPC for
         // everything she answered — either all of it saves, or none of
         // it does. A retry (same _onboardingOperationId) can never
@@ -657,13 +746,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             clientOperationId: _onboardingOperationId,
             utcOffsetMinutes: utcOffsetMinutes,
             episode: episode,
-            baseline: hasBaseline
-                ? CycleBaseline(
-                    userId: userId,
-                    usualBleedingDurationDays: _haidLengthValue,
-                    usualCycleLengthDays: _cycleLengthValue,
-                  )
-                : null,
+            baseline: baseline,
+          );
+          await PendingBleedingOperationStore.clearPending(
+            _onboardingOperationId,
           );
         } catch (_) {
           if (!mounted) return;

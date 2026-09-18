@@ -22,6 +22,13 @@ import 'support/device_timezone_test_support.dart';
 /// Real device behavior (does the plugin actually return "Asia/Riyadh" on
 /// a real iOS/Android device) is E4 and is not claimed here.
 void main() {
+  setUp(() {
+    // Hardening 3: DeviceTimezone's cache is a static, so it otherwise
+    // leaks across tests within this file — every test starts from a
+    // known-empty cache regardless of execution order.
+    DeviceTimezone.invalidateCache();
+  });
+
   testWidgets(
     'currentId() degrades to null rather than hanging or throwing when '
     'the platform channel is unavailable',
@@ -40,4 +47,53 @@ void main() {
       expect(id, 'Asia/Riyadh');
     },
   );
+
+  group('Hardening 3 — the cache must not be permanent', () {
+    testWidgets(
+      'without invalidateCache or forceRefresh, a changed platform value '
+      'is NOT reflected (proves a cache genuinely exists)',
+      (tester) async {
+        mockDeviceTimezoneForTest('Asia/Riyadh');
+        expect(await DeviceTimezone.currentId(), 'Asia/Riyadh');
+
+        // Simulates travel: the device's real zone has changed, but
+        // nothing has told DeviceTimezone to look again yet.
+        mockDeviceTimezoneForTest('America/Vancouver');
+        expect(
+          await DeviceTimezone.currentId(),
+          'Asia/Riyadh',
+          reason:
+              'the stale cached value is still returned until '
+              'something explicitly invalidates or bypasses it',
+        );
+      },
+    );
+
+    testWidgets('invalidateCache() makes the next currentId() call genuinely '
+        're-query the platform — the exact mechanism app-resume relies on '
+        'to detect a travel/manual timezone change', (tester) async {
+      mockDeviceTimezoneForTest('Asia/Riyadh');
+      expect(await DeviceTimezone.currentId(), 'Asia/Riyadh');
+
+      mockDeviceTimezoneForTest('America/Vancouver');
+      DeviceTimezone.invalidateCache();
+
+      expect(await DeviceTimezone.currentId(), 'America/Vancouver');
+    });
+
+    testWidgets(
+      'forceRefresh: true bypasses the cache without needing a separate '
+      'invalidateCache() call first',
+      (tester) async {
+        mockDeviceTimezoneForTest('Asia/Riyadh');
+        expect(await DeviceTimezone.currentId(), 'Asia/Riyadh');
+
+        mockDeviceTimezoneForTest('America/Vancouver');
+        expect(
+          await DeviceTimezone.currentId(forceRefresh: true),
+          'America/Vancouver',
+        );
+      },
+    );
+  });
 }

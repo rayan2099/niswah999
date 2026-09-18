@@ -25,9 +25,27 @@ import '../../../../core/storage/secure_local_store.dart';
 /// replaying a call that already succeeded is always safe — it returns
 /// the original result rather than erroring or duplicating.
 ///
-/// Never persists free-text health content (notes/symptoms) — only the
-/// structural fields needed to replay the call.
-enum PendingBleedingOperationType { startEpisode, endEpisode }
+/// Today's operation types (start/end/onboarding history) never persist
+/// free-text health content (notes/symptoms) — only the structural fields
+/// needed to replay the call. Hardening 4: as Commit D adds operation
+/// types whose own replay genuinely cannot be lossless without a field
+/// like `notes`/`symptoms` (a correction, say), storing it here — and
+/// only here, never in SharedPreferences/debug logs/Sentry/analytics — is
+/// acceptable precisely because [SecureLocalStore] is encrypted and
+/// already per-user scoped; still minimize what's kept to what a retry
+/// genuinely cannot reconstruct otherwise.
+enum PendingBleedingOperationType {
+  startEpisode,
+  endEpisode,
+  // PR #4 completion wave, Hardening 1: onboarding's completion is the
+  // same class of failure as start/end — its RPC can commit on the
+  // server before the app ever sees the response, and unlike start/end
+  // (whose operation id is only ever generated once the user is already
+  // mid-action on a live screen), a killed process loses onboarding's
+  // *entire* widget tree, including the screen that would otherwise
+  // generate a fresh (and now duplicate-risking) operation id on retry.
+  onboardingHistory,
+}
 
 class PendingBleedingOperation {
   const PendingBleedingOperation({
@@ -94,6 +112,20 @@ class PendingBleedingOperationStore {
       _category,
       jsonEncode(updated.values.map((op) => op.toJson()).toList()),
     );
+  }
+
+  /// The one pending operation of [type], if any — onboarding's
+  /// completion is a single logical action per account, so "is there
+  /// already a pending one to resume" is a more natural question than
+  /// working with the full list (Hardening 1).
+  static Future<PendingBleedingOperation?> getPendingByType(
+    PendingBleedingOperationType type,
+  ) async {
+    final existing = await loadPending();
+    for (final op in existing) {
+      if (op.type == type) return op;
+    }
+    return null;
   }
 
   static Future<void> clearPending(String operationId) async {

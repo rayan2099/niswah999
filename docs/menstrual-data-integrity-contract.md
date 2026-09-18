@@ -2,13 +2,14 @@
 
 Status: **living architecture contract**. Established by the Menstrual Data
 Integrity & Active Bleeding Journey charter (2026-09-17). Commits A, C, a
-hostile-self-review fix pass, B, a Commit D slice, and a PR #4 hardening
-pass (below) are implemented on `feat/menstrual-data-integrity` (pushed
-to origin, PR #4, draft, unmerged); the rest of this document describes
-the target architecture for the commits that follow. Future agents must
-treat this as the canonical reference — do not reinvent the taxonomy,
-episode model, or provenance rules described here without updating this
-document in the same change.
+hostile-self-review fix pass, B, a Commit D slice, a PR #4 hardening
+pass, completion-wave Fixes A–D, and new Hardenings 1–4 (below) are
+implemented on `feat/menstrual-data-integrity` (pushed to origin, PR #4,
+draft, unmerged); the rest of this document describes the target
+architecture for the commits that follow. Future agents must treat this
+as the canonical reference — do not reinvent the taxonomy, episode
+model, or provenance rules described here without updating this document
+in the same change.
 
 ## PR #4 hardening pass — blocker status (2026-09-18)
 
@@ -68,6 +69,20 @@ surfaced by `start_bleeding_sheet_test.dart` timing out once the sheets
 started calling `DeviceTimezone.currentId()`. Fixed with
 `mockDeviceTimezoneForTest` (mirroring the existing
 `resetSecureLocalStoreForTest` pattern).
+
+## PR #4 completion wave — new hardenings 1–4 (2026-09-18)
+
+CI run #62 confirmed native Android + iOS compile evidence for
+`flutter_timezone`, closing Fix B's own open question. Before continuing
+into the rest of Commit D and Commits E–H, four further structural gaps
+were required to be closed.
+
+| Hardening | Status |
+|---|---|
+| 1 — Onboarding idempotency must survive process death | **FIXED** — `PendingBleedingOperationStore` gained an `onboardingHistory` operation type; the onboarding screen persists its operation id + full replayable episode/baseline params *before* calling `record_onboarding_menstrual_history`, clears on success, and its own `initState` reuses (via the new `getPendingByType`) any operation id left over from a killed process instead of generating a fresh one. `reconcilePendingOperations` gained the matching replay branch, and — unlike the start/end branches — also marks onboarding completed on a successful replay, so a woman is never routed back through onboarding to re-answer data that already safely saved. Verified live against local Postgres: `record_onboarding_menstrual_history`'s own idempotent replay across all 6 required variants (ended historical episode, open+confirmed, open+uncertain, baseline-only, episode-only, both together) plus two explicit replay-with-different-params-still-returns-original-ids proofs, each confirming exactly one row per `client_operation_id`. What is **not** and cannot be proven here: a real device process-kill (E4) |
+| 2 — Ended episodes must accept zero new observations | **FIXED** — the previous `flow='none' AND observed_date=end_date` exception in `bleeding_observations_validate_insert` was a real structural loophole (an owning caller could insert extra flow:none rows onto an ended episode) and has been removed entirely; an ended episode now rejects every new fact unconditionally except a genuine correction (`supersedes_id IS NOT NULL`). `end_bleeding_episode` was reordered to insert its own closing observation *before* flipping `lifecycle_status` to `ended`, so no exception was ever needed for its own write. A new, dedicated `correct_observation` RPC (not `SECURITY DEFINER`, so RLS/the validation trigger both still apply) is the only way to add a revision to an already-ended episode; it resolves the target episode from the observation being corrected rather than a caller-supplied parameter, so a correction can never be misdirected even by a malicious caller. Verified live: a direct extra `flow:none` insert on an ended episode is rejected; an arbitrary non-`none` observation on an ended episode is rejected; `correct_observation` succeeds against an already-ended episode's own closing observation; retrying the same `client_operation_id` returns the identical `observation_id`; a cross-account `supersedes_id` is rejected; `end_bleeding_episode`'s own atomicity and idempotent replay still hold after the reordering (fresh start+end → exactly one episode + one closing observation; replay → identical result) |
+| 3 — Timezone must refresh | **FIXED** — `DeviceTimezone`'s cache is no longer permanent: `invalidateCache()` clears it (wired into `main.dart`'s app-resume handler, so a travel/manual zone change is detected the next time the app is foregrounded), and `currentId({forceRefresh: true})` lets a future timezone-sensitive scheduling path (Commit E) bypass the cache outright without depending on resume having already fired. `timezone_id_at_observation`/`utc_offset_minutes_at_observation` on already-recorded observations are untouched by any of this — this only ever affects the value used for *new* writes and *future* reminder computation. Verified: cache genuinely holds a stale value until invalidated/force-refreshed; `invalidateCache()` and `forceRefresh` each independently make the next call see a changed platform value |
+| 4 — Pending operation model must expand with the product | **CONFIRMED, not newly built** — the per-user `SecureLocalStore` scoping is unchanged; the enum-based `PendingBleedingOperationType` pattern already proved itself extensible without disruption (start, end, and now onboarding history share one store/reconciliation loop). Daily-observation/backfill/correction pending-operation support is intentionally **not** added yet — no UI exists yet to generate those operations (see Commit D below) — but the pattern is already proven to extend cleanly when it does. Audited: `AppErrorReporter.report` calls in this repository only ever pass the opaque `operation.operationId`, never `operation.params` itself — no replay payload reaches Sentry/analytics/logs today |
 
 ## Central doctrine (verbatim, non-negotiable)
 
@@ -204,6 +219,23 @@ marking uncertain silently vacate the one-active-episode slot):
   check constraints, and "future" depends on the reporter's own
   `timezone` column on the same row. Any code that inserts into this
   table must validate this before insert.
+- **An ended episode accepts zero new facts (Hardening 2).** Earlier
+  drafts carved out a narrow exception (`flow='none' AND
+  observed_date=end_date`) so `end_bleeding_episode` could insert its own
+  closing observation after marking the episode ended — this was a real
+  structural loophole (any owning caller could exploit the same
+  exception to add extra rows to an already-ended episode). Fixed two
+  ways together: `end_bleeding_episode` now inserts its closing
+  observation *while the episode is still open*, before flipping
+  `lifecycle_status`, so the exception was never actually needed; and the
+  trigger's rule is now unconditional — `lifecycle_status = 'ended'`
+  rejects every new row *unless* it carries a `supersedes_id` (a genuine
+  correction). Corrections to an ended episode's history go through the
+  dedicated `correct_observation` RPC, which resolves the target episode
+  from the observation being corrected (never a caller-supplied
+  parameter) — adding a new fact to an ended episode and correcting one
+  that already exists are deliberately kept as two different operations,
+  not one INSERT path with a growing set of exceptions.
 
 ## 5. Legacy data policy (critical)
 

@@ -67,6 +67,22 @@ void main() {
     });
 
     test(
+      'correctObservation returns null rather than throwing (Hardening 2)',
+      () async {
+        final result = await repository.correctObservation(
+          clientOperationId: 'correction-op-1',
+          supersedesId: 'observation-1',
+          observedDate: DateTime(2026, 9, 17),
+          precision: ObservationPrecision.dateOnly,
+          flow: ObservationFlow.none,
+          source: ObservationSource.userReportedHistorical,
+          utcOffsetMinutes: 0,
+        );
+        expect(result, isNull);
+      },
+    );
+
+    test(
       'getObservationsForEpisode returns an empty list rather than throwing',
       () async {
         final result = await repository.getObservationsForEpisode('episode-1');

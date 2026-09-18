@@ -22,6 +22,18 @@
 -- transaction, so a concurrent end/correction request against the same
 -- episode serializes behind this one rather than racing it.
 --
+-- PR #4 completion wave, Hardening 2: the closing observation is now
+-- inserted *before* the episode transitions to `ended` (previously the
+-- reverse order, which required the observation-validation trigger to
+-- carry a special-cased exception recognizing this one insert by shape —
+-- `flow = 'none' AND observed_date = end_date` — a real structural
+-- loophole, since any owning caller could satisfy that same shape
+-- directly against an already-ended episode. With this ordering, the
+-- INSERT runs while the episode is still genuinely `open`, so the
+-- trigger's ended-episode rule needs no exception at all: an ended
+-- episode now rejects every new fact, unconditionally, and only ever
+-- accepts a genuine correction (`supersedes_id` set).
+--
 -- Deliberately NOT `SECURITY DEFINER` — runs as the calling
 -- `authenticated` role, so RLS and the column-level UPDATE grants from
 -- the schema migration (Blocker 8) still apply.
@@ -99,6 +111,18 @@ BEGIN
           p_end_date, v_local_today;
       END IF;
 
+      -- Insert the closing observation FIRST, while the episode is still
+      -- genuinely 'open' — the validation trigger's ended-episode rule
+      -- never even applies to this statement, no exception needed.
+      INSERT INTO public.bleeding_observations (
+        user_id, episode_id, observed_date, observed_time, precision, flow,
+        source, timezone, utc_offset_minutes, client_operation_id
+      ) VALUES (
+        v_user_id, p_episode_id, p_end_date, p_observed_time, p_precision,
+        'none', p_source, p_timezone, p_utc_offset_minutes, p_client_operation_id
+      ) RETURNING id INTO v_closing_observation_id;
+
+      -- Only now does the episode actually close.
       UPDATE public.bleeding_episodes
       SET lifecycle_status = 'ended',
           continuation_certainty = NULL,
@@ -107,14 +131,6 @@ BEGIN
           end_source = p_end_source,
           end_client_operation_id = p_client_operation_id
       WHERE id = p_episode_id;
-
-      INSERT INTO public.bleeding_observations (
-        user_id, episode_id, observed_date, observed_time, precision, flow,
-        source, timezone, utc_offset_minutes, client_operation_id
-      ) VALUES (
-        v_user_id, p_episode_id, p_end_date, p_observed_time, p_precision,
-        'none', p_source, p_timezone, p_utc_offset_minutes, p_client_operation_id
-      ) RETURNING id INTO v_closing_observation_id;
 
       RETURN QUERY SELECT p_episode_id, v_closing_observation_id;
     END;

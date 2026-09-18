@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../local/pending_bleeding_operation_store.dart';
 
@@ -289,6 +290,68 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
+  /// Hardening 2's explicit controlled correction path — never
+  /// `addObservation` with `supersedesId` set. Unlike a plain INSERT, this
+  /// calls the dedicated `correct_observation` RPC: idempotent
+  /// (`clientOperationId` retried returns the original correction's id,
+  /// never a duplicate), and — critically — episode-state-agnostic. A
+  /// correction targeting an observation that belongs to an *already-
+  /// ended* episode is exactly the case `bleeding_observations_validate_insert`
+  /// would otherwise reject as "a new fact on an ended episode"; this RPC
+  /// is the one exception the trigger actually recognizes, and it is
+  /// deliberately not `SECURITY DEFINER` so RLS and the trigger both still
+  /// apply as independent layers on top of it.
+  ///
+  /// [supersedesId] is the observation being corrected — the RPC resolves
+  /// which episode this belongs to *from that row*, so a caller can never
+  /// misdirect a correction at the wrong episode.
+  Future<String?> correctObservation({
+    required String clientOperationId,
+    required String supersedesId,
+    required DateTime observedDate,
+    required ObservationPrecision precision,
+    required ObservationFlow flow,
+    required ObservationSource source,
+    required int utcOffsetMinutes,
+    DateTime? observedTime,
+    String? timezone,
+    List<String>? symptoms,
+    String? notes,
+  }) async {
+    final client = _client;
+    if (client == null) return null;
+
+    try {
+      final response = await client.rpc(
+        'correct_observation',
+        params: {
+          'p_client_operation_id': clientOperationId,
+          'p_supersedes_id': supersedesId,
+          'p_observed_date': _dateOnly(observedDate),
+          'p_precision': precision.value,
+          'p_flow': flow.value,
+          'p_source': source.value,
+          'p_utc_offset_minutes': utcOffsetMinutes,
+          'p_observed_time': observedTime?.toIso8601String(),
+          'p_timezone': timezone,
+          'p_symptoms': symptoms,
+          'p_notes': notes,
+        },
+      );
+      final row = (response as List).single as Map<String, dynamic>;
+      return row['observation_id'] as String?;
+    } on PostgrestException catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'BleedingEpisodeRepositoryImpl.correctObservation',
+        feature: 'cycle_tracking',
+        recordId: supersedesId,
+      );
+      return null;
+    }
+  }
+
   /// Every observation for an episode, oldest first — the raw evidence
   /// behind a day's summary (Section 39: same-day multiple observations
   /// must all remain visible, never collapsed into one fabricated value).
@@ -491,6 +554,87 @@ class BleedingEpisodeRepositoryImpl {
               timezone: params['timezone'] as String?,
               utcOffsetMinutes: params['utcOffsetMinutes'] as int,
             );
+          case PendingBleedingOperationType.onboardingHistory:
+            // Hardening 1: the onboarding screen persisted this *before*
+            // ever calling record_onboarding_menstrual_history — reaching
+            // here means either the request never left the device, or it
+            // reached the server but the response never made it back
+            // (process death is exactly the failure this store exists
+            // for). Either way, replaying with the same operationId is
+            // safe: the RPC's own idempotency check returns the original
+            // episode_id/baseline_id on a genuine retry instead of
+            // duplicating anything.
+            final userId = _client?.auth.currentUser?.id;
+            if (userId == null) {
+              throw StateError(
+                'No Supabase session — cannot reconcile onboarding history yet.',
+              );
+            }
+            final params = operation.params;
+            final episodeJson = params['episode'] as Map<String, dynamic>?;
+            final baselineJson = params['baseline'] as Map<String, dynamic>?;
+            await recordOnboardingHistory(
+              clientOperationId: operation.operationId,
+              utcOffsetMinutes: params['utcOffsetMinutes'] as int,
+              episode: episodeJson == null
+                  ? null
+                  : BleedingEpisode(
+                      userId: userId,
+                      lifecycleStatus: LifecycleStatus.parse(
+                        episodeJson['lifecycleStatus'] as String?,
+                      ),
+                      continuationCertainty:
+                          episodeJson['continuationCertainty'] == null
+                          ? null
+                          : ContinuationCertainty.parse(
+                              episodeJson['continuationCertainty'] as String?,
+                            ),
+                      startDate: DateTime.parse(
+                        episodeJson['startDate'] as String,
+                      ),
+                      startPrecision: ObservationPrecision.parse(
+                        episodeJson['startPrecision'] as String?,
+                      ),
+                      startSource: ObservationSource.parse(
+                        episodeJson['startSource'] as String?,
+                      ),
+                      endDate: episodeJson['endDate'] == null
+                          ? null
+                          : DateTime.parse(episodeJson['endDate'] as String),
+                      endPrecision: episodeJson['endPrecision'] == null
+                          ? null
+                          : ObservationPrecision.parse(
+                              episodeJson['endPrecision'] as String?,
+                            ),
+                      endSource: episodeJson['endSource'] == null
+                          ? null
+                          : ObservationSource.parse(
+                              episodeJson['endSource'] as String?,
+                            ),
+                    ),
+              baseline: baselineJson == null
+                  ? null
+                  : CycleBaseline(
+                      userId: userId,
+                      usualBleedingDurationDays:
+                          baselineJson['usualBleedingDurationDays'] as int?,
+                      usualCycleLengthDays:
+                          baselineJson['usualCycleLengthDays'] as int?,
+                    ),
+            );
+            // The historical data is now durably saved server-side — she
+            // must never be routed back through onboarding to re-answer
+            // (and risk a second, semantically-duplicate submission)
+            // merely because this reconciliation ran after the process
+            // died before her own _finishOnboarding ever completed.
+            // Best-effort, matching _finishOnboarding's own established
+            // tradeoff: a failure here just means she may see onboarding
+            // once more, not that anything was lost or duplicated.
+            try {
+              await AuthRepositoryImpl().markOnboardingCompleted();
+            } catch (_) {
+              // Swallowed deliberately — see comment above.
+            }
         }
         await PendingBleedingOperationStore.clearPending(operation.operationId);
       } catch (error, stack) {

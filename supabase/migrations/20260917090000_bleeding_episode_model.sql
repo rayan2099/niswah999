@@ -337,13 +337,22 @@ BEGIN
     --    user's episode from the caller made a genuine cross-account
     --    attempt evaluate `NEW.user_id <> NULL` (NULL, not TRUE) and
     --    silently succeed. Confirmed and reproduced before this fix.
-    -- 2. Episode open/ended compatibility — a *new* fact (a daily
-    --    check-in, a correction, a backfill) may only be added to an OPEN
-    --    episode. The one narrow exception is the closing observation
-    --    `end_bleeding_episode` itself inserts in the same transaction
-    --    right after marking the episode ended — recognized precisely as
-    --    `flow = 'none' AND observed_date = <the episode's own end_date>`,
-    --    never by trusting the caller's identity.
+    -- 2. Episode open/ended compatibility — PR #4 completion wave,
+    --    Hardening 2: an ended episode accepts ZERO new facts, with no
+    --    exception. The earlier version special-cased `end_bleeding_episode`'s
+    --    own closing observation (`flow = 'none' AND observed_date =
+    --    end_date`) — a real structural loophole, since any owning caller
+    --    could satisfy that same shape directly. `end_bleeding_episode`
+    --    now inserts its closing observation *before* transitioning the
+    --    episode to ended (see that migration), so it never needs an
+    --    exception here at all: the episode is still genuinely `open` at
+    --    the moment that INSERT runs. What an ended episode *does* still
+    --    accept is a genuine correction — `NEW.supersedes_id IS NOT NULL`,
+    --    itself validated below to reference a real prior fact belonging
+    --    to this same user and episode. A correction of history is not
+    --    the same operation as adding a new event, and must remain
+    --    possible after an episode closes; a brand-new, unrelated fact
+    --    must not.
     -- 3. No future observations — offset-based, mirroring the RPCs' own
     --    boundary check, so a plain INSERT (not routed through an RPC)
     --    cannot bypass it.
@@ -360,13 +369,12 @@ BEGIN
     DECLARE
       v_episode_user_id uuid;
       v_episode_status text;
-      v_episode_end_date date;
       v_local_today date;
       v_supersedes_user_id uuid;
       v_supersedes_episode_id uuid;
     BEGIN
-      SELECT user_id, lifecycle_status, end_date
-        INTO v_episode_user_id, v_episode_status, v_episode_end_date
+      SELECT user_id, lifecycle_status
+        INTO v_episode_user_id, v_episode_status
       FROM public.bleeding_episodes
       WHERE id = NEW.episode_id;
 
@@ -379,11 +387,10 @@ BEGIN
           'bleeding_observations.user_id must match its episode''s owner';
       END IF;
 
-      IF v_episode_status = 'ended'
-        AND NOT (NEW.flow = 'none' AND NEW.observed_date = v_episode_end_date)
-      THEN
+      IF v_episode_status = 'ended' AND NEW.supersedes_id IS NULL THEN
         RAISE EXCEPTION
-          'cannot add a new observation to an ended episode (%)', NEW.episode_id;
+          'cannot add a new fact to an ended episode (%) — only a '
+          'correction (supersedes_id) is permitted', NEW.episode_id;
       END IF;
 
       v_local_today := ((now() AT TIME ZONE 'UTC')
