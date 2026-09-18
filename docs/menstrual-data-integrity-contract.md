@@ -84,6 +84,147 @@ were required to be closed.
 | 3 — Timezone must refresh | **FIXED** — `DeviceTimezone`'s cache is no longer permanent: `invalidateCache()` clears it (wired into `main.dart`'s app-resume handler, so a travel/manual zone change is detected the next time the app is foregrounded), and `currentId({forceRefresh: true})` lets a future timezone-sensitive scheduling path (Commit E) bypass the cache outright without depending on resume having already fired. `timezone_id_at_observation`/`utc_offset_minutes_at_observation` on already-recorded observations are untouched by any of this — this only ever affects the value used for *new* writes and *future* reminder computation. Verified: cache genuinely holds a stale value until invalidated/force-refreshed; `invalidateCache()` and `forceRefresh` each independently make the next call see a changed platform value |
 | 4 — Pending operation model must expand with the product | **CONFIRMED, not newly built** — the per-user `SecureLocalStore` scoping is unchanged; the enum-based `PendingBleedingOperationType` pattern already proved itself extensible without disruption (start, end, and now onboarding history share one store/reconciliation loop). Daily-observation/backfill/correction pending-operation support is intentionally **not** added yet — no UI exists yet to generate those operations (see Commit D below) — but the pattern is already proven to extend cleanly when it does. Audited: `AppErrorReporter.report` calls in this repository only ever pass the opaque `operation.operationId`, never `operation.params` itself — no replay payload reaches Sentry/analytics/logs today |
 
+## PR #4 final implementation wave — Hardening 5 + Commits D/E/F/G (2026-09-19)
+
+A review found `correct_observation` was never actually the *sole*
+correction authority: an ordinary authenticated client could still
+satisfy `bleeding_observations_validate_insert`'s rules with a direct
+table INSERT (any row with `supersedes_id` set passed the trigger the
+same as a call through the RPC). Hardening 5 closed this and became the
+foundation everything below is built on.
+
+### Hardening 5 — one canonical mutation boundary
+
+**FIXED.** `bleeding_episodes`/`bleeding_observations`/`cycle_baselines`
+revoke every client-facing INSERT/UPDATE/DELETE grant entirely (SELECT
+remains); every mutation now goes through a `SECURITY DEFINER` RPC.
+`anon` had every grant revoked outright. Converted to `SECURITY DEFINER`
++ explicit `SET search_path`: `start_bleeding_episode`,
+`end_bleeding_episode`, `record_onboarding_menstrual_history`,
+`correct_observation` — each already derived ownership exclusively from
+`auth.uid()`, never a caller-supplied user id, so bypassing RLS changed
+nothing about their safety. New RPCs completing the required mutation
+list: `record_bleeding_observation` (daily check-in + backfill — the
+same underlying operation, distinguished only by which date/source the
+caller passes), `set_continuation_uncertain`, `save_baseline_estimate`.
+
+**A genuine defect was found and fixed during this pass**: `REVOKE ALL
+ON FUNCTION ... FROM PUBLIC` alone did not actually block `anon` from
+executing any of these functions — Supabase's own canonical baseline
+runs `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT
+ALL ON FUNCTIONS TO anon`, which grants directly to the named role, not
+via `PUBLIC`. Fixed by revoking from `anon` explicitly on every RPC;
+verified live via `has_function_privilege('anon', ...)`. The identical
+pattern exists in a pre-existing, already-deployed function
+(`check_and_increment_ai_rate_limit`) — flagged, not touched, since
+fixing it safely requires understanding what currently depends on
+`anon` access to it (plausibly legitimate: pre-auth rate limiting).
+
+Commit D7 (concurrent correction conflict) is implemented inside
+`correct_observation`: it explicitly checks whether its target is still
+the current revision-chain tip before inserting, raising a
+distinguishable `ERRCODE = 'NW409'` (not a raw unique-violation) when
+another correction already superseded it first. A new
+`effective_observation_id` SQL function (one tested recursive-CTE
+definition of "current tip") backs both this check and the revision-
+history resolver.
+
+Verified live against a full local Postgres reconstruction: direct
+authenticated INSERT/UPDATE on any of the 3 tables rejected (including
+the exact `supersedes_id` loophole); `anon` rejected outright, including
+calling any RPC at all; every new/converted RPC succeeds as its owning
+authenticated user; cross-account `end_bleeding_episode` rejected (the
+does-not-exist / does-not-belong-to-caller messages are now unified to
+avoid leaking whether an episode id that isn't the caller's own actually
+exists); `record_bleeding_observation` rejects a non-open episode; the
+D7 conflict correctly triggers on a second correction targeting the same
+observation; `effective_observation_id` resolves a 3-deep correction
+chain to its true tip; idempotent re-application of all touched/new
+migration files confirmed; schema contract clean throughout.
+
+### Commit D — complete active bleeding journey
+
+| Item | Status |
+|---|---|
+| D1 — daily check-in (YES/NO/I'm not sure) | **BUILT** — `daily_checkin_sheet.dart`, wired into the dashboard's Quick Actions. YES calls `record_bleeding_observation`; NO calls the existing atomic `end_bleeding_episode`; I'M NOT SURE calls the new `set_continuation_uncertain` RPC. |
+| D2 — same-day multiple observations | **PROVEN live** — 3 same-day `record_bleeding_observation` calls (spotting 08:00, medium 14:00, light 21:00) verified against local Postgres: all 3 rows persist distinctly with their real `observed_time`s, none collapsed. |
+| D3 — missed check-in prompt | **BUILT** — `_MissedCheckinBanner` on the dashboard detects a real gap (at least one full local day since the open episode's most recent observation) and offers "Add it," never forces one; declining leaves the gap. |
+| D4 — backfill | **BUILT** — `showBackfillObservationSheet`, reachable from Quick Actions and from the missed-check-in banner (pre-filled to the detected date). `observed_date`/`reported_at` kept genuinely distinct; `source` classified `user_reported_historical`. |
+| D5 — correction (UI + RPC + revision chain + history read + effective-observation resolver) | **BUILT** — `correction_sheet.dart`; `correct_observation` RPC; `bleeding_observations_supersedes_once` (pre-existing); `getRevisionHistory`/`effectiveObservationId` repository methods calling the new `effective_observation_id` SQL function. Not yet wired into a calendar (Commit F has no month-grid UI to attach a "tap historical date" entry point to — see Commit F's own status). |
+| D6 — correction-of-correction | **SUPPORTED BY DESIGN, not UI-exercised this wave** — `correct_observation` accepts any prior observation id as `supersedes_id` including an existing correction; `effective_observation_id`'s recursive-CTE walk was verified live against a real 3-deep chain (v1→v2→v3). The correction sheet itself always targets whatever `target` it's given, so calling it again with v2 as the target correctly produces v3 — proven at the RPC/resolver level, not yet driven end-to-end through two sequential UI taps in one test. |
+| D7 — concurrent correction conflict | **BUILT** — `correct_observation`'s explicit tip-check (`ERRCODE = 'NW409'`) verified live; `CorrectionConflictException` on the Dart side; `correction_sheet.dart`'s conflict UI ("Current saved value" / "Your offline change" / Keep saved / Use my change — rebased onto the current tip, never a fork from the stale original). |
+| D8 — local-first/outbox | **PARTIAL** — `PendingBleedingOperationStore` extended with `dailyOrBackfillObservation`/`correction`/`baselineEstimate` types, wired into every new sheet before its RPC call, with matching `reconcilePendingOperations` replay branches. **Not built**: the three user-facing SAVED+SYNCED / SAVED ON DEVICE-SYNCING / SYNC NEEDS ATTENTION states — no UI surface currently shows sync status at all (this predates this wave; disclosed, not fabricated). |
+| D9 — process-death replay | **PROVEN at the RPC level, PARTIAL for full device replay** — reconciliation branches exist and are tested (leaves pending when replay cannot succeed, for every one of the 3 new operation types); a genuine defect was found and fixed in the same pass (see below). Live-Postgres idempotent-replay proof now exists for every write RPC in this model: `record_onboarding_menstrual_history`, `start_bleeding_episode`, `end_bleeding_episode`, `correct_observation`, and `record_bleeding_observation` (same `client_operation_id` retried with different field values still returns the original `observation_id`, exactly one row). Real device process-kill remains E4. |
+
+**A genuine, separate defect was found and fixed while wiring D9**:
+`endEpisode`/`recordObservation`/`correctObservation`/`saveBaseline` all
+return `null` on failure (including an ordinary RPC error already caught
+and reported internally) rather than throwing — but
+`reconcilePendingOperations`'s switch statement did not check the
+return value before falling through to `clearPending`, meaning a
+genuine RPC failure during reconciliation would have been silently
+treated as success and the pending operation dropped, losing the
+retry entirely. Fixed by checking each nullable result and throwing a
+`StateError` on `null`, routing it into the same "leave pending" path
+every other failure in that loop already uses. This affected the
+pre-existing `endEpisode` case too, not only the 3 new ones added this
+wave.
+
+### Commit E — active bleeding notification journey
+
+| Item | Status |
+|---|---|
+| E1 — eligibility | **BUILT** — `ActiveBleedingReminderScheduler.isEligible`: open (confirmed or uncertain) is eligible, ended is not, no episode is not. Pure, unit-tested. |
+| E2 — consent | **BUILT** — a contextual dialog after a new episode starts ("Would you like Niswah to remind you..."), gated by a persisted "already asked" flag so declining is honored permanently, never re-asked. Default preference is OFF (unlike every other notification type in this app). Reuses the existing generic notification-settings screen for the always-available toggle. |
+| E3 — privacy | **BUILT** — default copy is "Niswah / Time for your daily check-in." — no flow, Madhhab, symptoms, or notes in the payload or the notification body. Unit-tested that the copy never contains "bleeding"/"flow"/"haid"/"fiqh". |
+| E4 — timezone | **BUILT, recomputation verified; real-device DST NOT PROVEN (E4-hardware)** — the reminder is recomputed from scratch on every `NotificationRefreshCoordinator.refresh()` call (app start/resume), which already runs right after `DeviceTimezone.invalidateCache()` on resume (Hardening 3) — nothing here caches a stale offset across calls. |
+| E5 — logical reminder identity | **BUILT** — a stable, explicitly-owned FNV-1a hash of `userId:episodeId:localDay` (deliberately not `String.hashCode`, which the language spec does not guarantee stable across SDK versions/reinstalls). Unit-tested: stable for repeat calls, differs per day/episode/user. |
+| E6 — reminder satisfaction | **BUILT** — `planDailyCheckin` returns null once today already has an observation; the coordinator then explicitly cancels today's own id (covers the case where the reminder already fired before the check-in happened). A second manual observation later the same day remains fully allowed at the write-path level (Commit D2). |
+| E7 — tap routing | **BUILT, real-device tap NOT PROVEN (E4-hardware)** — an opaque JSON payload (`type`/`userId`/`episodeId`/`localDate`) captured via `onDidReceiveNotificationResponse` and `getNotificationAppLaunchDetails` (terminated-launch case); consumed once the dashboard is reached (the one place guaranteed to know who is actually signed in) — a payload for a different or no signed-in user is silently discarded, never acted on; an episode that has since ended is not reopened. |
+| E8 — event audit | **PARTIAL** — "scheduled" events are logged via the existing `NotificationLogController` (dedup'd by id, matching the pattern already used for cycle/pregnancy/wellbeing). **Not built**: separate "cancelled"/"opened"/"responded" event records. |
+| E9 — end/reopen/signout | **PARTIAL** — ending an episode (from either the daily check-in's NO branch or the End Bleeding sheet) cancels that day's reminder id; signing out calls a new `NotificationService.cancelAll()`, wired into `AuthController`'s existing sign-out branch (the same place that already resets per-account Madhhab state) — covers every notification type, not just this one. **N/A**: "correction that legitimately reopens episode: recompute reminder" — the current data model has no concept of reopening an ended episode via a correction (corrections only ever touch `bleeding_observations`, never flip `bleeding_episodes.lifecycle_status` back to open), so this specific sub-item does not apply to the architecture as built. |
+
+### Commit F — canonical dashboard/ring/calendar
+
+The owner-reported failure this commit must make structurally
+impossible — "saved, but no visible ring/state" — was traced to its
+real cause: the dashboard's `isCurrentlyBleeding` signal and its
+"insufficient history" card both derived *exclusively* from
+`cycle_entries` (via `CycleTrackingViewModel`/`CycleCalculationService`),
+which only ever learns about a canonical write through
+`CycleEntriesProjection`'s best-effort mirror. If that mirror failed,
+the dashboard would show nothing was wrong — the canonical row would
+exist and be perfectly correct, just invisible.
+
+| Item | Status |
+|---|---|
+| F1 — canonical factual read model | **FIXED for the ring's own state signal** — a new `CanonicalBleedingStatusResolver` reads `bleeding_episodes` directly (never `cycle_entries`, never the projection) and its result is unioned into `isCurrentlyBleeding` (can only ever add a true case the legacy signal missed, never remove one it had right) and used to select which card renders. Quick Actions (start/end/daily-check-in/backfill) and the missed-check-in banner are now reachable the moment a canonical open episode exists, regardless of legacy prediction-sufficiency — previously they were gated behind "sufficient history for a prediction," meaning a first-time user could never reach the daily check-in button at all. The *prediction* math itself (average cycle length, next-period forecast) still comes from the legacy engine — Fiqh conclusions are a separate layer above raw facts (Commit G's own G4 principle), not something this pass rewrites. |
+| F2 — projection failure test | **PROVEN at the resolver level** — `canonical_bleeding_status_resolver_test.dart` documents and proves that `resolveFromEpisodes` has no code path connecting it to `cycle_entries`/the projection at all: a projection failure structurally cannot affect its result, because there is nothing to affect. A full dashboard-widget-level "deliberately break the projection, then check the rendered tree" integration test was not additionally built — the resolver being provably projection-independent is the actual guarantee; a widget-level re-proof would be testing the same fact through more indirection, not a materially stronger one. |
+| F3 — explicit ring states | **BUILT** — `RingFactualState`: `noHistory` / `factualOpenEpisode` / `factualCompletedHistory` / `predictionEligibleHistory`, unit-tested (including that an open episode always wins over any completed count). |
+| F4 — first observation | **BUILT** — `_FactualOpenEpisodeCard`: "Bleeding recorded / Day N of this record / Learning your cycle." — shown immediately, never gated on a second cycle. |
+| F5 — first completed episode | **BUILT** — `_FactualCompletedHistoryCard`: shows that real history exists without fabricating an average, next-period, or fertile window; explicit copy that a second start is needed to learn the pattern. |
+| F6 — prediction input policy | **PARTIAL, inherited** — `RingFactualState.predictionEligibleHistory` requires 2+ real canonical episodes before falling through to the legacy `_CycleOverview`/prediction UI at all. The finer-grained policy the charter asks for (explicitly distinguishing `USER_OBSERVED`/`USER_REPORTED_HISTORICAL`/`USER_REPORTED_ESTIMATE`/`LEGACY_UNVERIFIED` eligibility, and relabeling an estimate-derived output as "Based on the estimate you gave us" rather than "Your average") is **not built** — the legacy `CycleCalculationService` this still falls back to for the actual prediction math was not rewritten in this pass. |
+| F7 — observed vs. predicted visual semantics | **NOT BUILT** — no new accessible, non-color-only visual distinction was added between observed/historical/estimated/predicted/legacy-unverified content this wave. |
+| F8 — calendar actions | **NOT BUILT** — no calendar/month-grid screen exists in this app to attach "tap a historical date" actions to; building one was out of scope for this wave's remaining time. The underlying actions it would need (view observations, add backfill, correct, inspect revision history) all already exist as standalone, working entry points (`correction_sheet.dart`, `showBackfillObservationSheet`, `getObservationsForEpisode`, `getRevisionHistory`) — only the calendar surface to launch them from a specific date is missing. |
+
+### Commit G — Fiqh evidence boundary (architecture/invalidation only — no Knowledge Base work performed)
+
+Reviewed against the existing Fiqh pipeline (`CycleStatusEngine`,
+`CycleCalculationService`, `MadhhabRuleEvaluator`) rather than rebuilt —
+most of what this commit requires turned out to already hold by
+construction from prior waves, verified rather than assumed:
+
+| Item | Status |
+|---|---|
+| G1 — UNKNOWN Madhhab never blocks raw tracking | **VERIFIED, already true** — grepped every tracking write path added this wave (`start_bleeding_sheet.dart`, `daily_checkin_sheet.dart`, `correction_sheet.dart`, `bleeding_episode_repository_impl.dart`) and none reference `MadhhabController`/Madhhab at all; none of the SQL RPCs take a Madhhab parameter or condition any check on it. `CanonicalBleedingStatusResolver` (Commit F's ring signal) and `ActiveBleedingReminderScheduler` (Commit E's reminder eligibility) likewise take no Madhhab input — structurally incapable of gating on it. Daily reminders and the ring's factual states are therefore already unconditional on Madhhab; only the separate Fiqh *conclusion* (haid/tahara/istihadah label) depends on it, exactly as required. |
+| G2 — assessment provenance | **N/A TODAY, documented as a forward contract** — there is no persisted or cached Fiqh assessment anywhere in this codebase; `CycleStatusEngine.evaluate()` is a pure function recomputed fresh on every dashboard build, never written to a table or local store. Provenance (user/episode/effective-revision-set/Madhhab/ruleset-version/evaluated_at/precision) has nothing to attach to today. **Binding requirement for whoever adds the first such cache** (e.g. an AI-generated report, a performance optimization): it MUST carry those fields from the day it is introduced — this is now the documented contract, not a retrofit to do later. |
+| G3 — invalidation | **N/A TODAY, trivially satisfied** — with no cache, there is nothing to go stale; recomputing fresh on every access is the strongest possible form of "always reflects the latest evidence." The 6 listed invalidation triggers (observation added/corrected, backfill, episode end, episode correction/reopen, Madhhab change, ruleset version change) apply the moment a cache is introduced. |
+| G4 — no raw evidence mutation | **VERIFIED** — grepped `cycle_status_engine.dart`, `cycle_calculation_service.dart`, `madhhab_rule_evaluator.dart` for `.insert(`/`.update(`/`.upsert(`/`.delete(`/`.rpc(`: zero matches. These are read-and-compute-only; Fiqh interpretation sits above evidence exactly as required, verified rather than assumed. |
+| G5 — insufficient evidence -> unresolved, not guessed | **VERIFIED, already true (a prior wave's work)** — `FiqhCycleState.madhhabUnresolved`/`insufficientHistory` already exist and are "returned instead of guessing" per the engine's own doc comment; not rebuilt, not touched. |
+
+No new religious rulings were introduced. No Knowledge Base work was
+started.
+
 ## Central doctrine (verbatim, non-negotiable)
 
 ```

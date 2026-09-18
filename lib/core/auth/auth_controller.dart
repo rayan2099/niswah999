@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../errors/app_error_reporter.dart';
 import '../network/supabase_client.dart';
 import '../preferences/madhhab_controller.dart';
+import '../services/notification_service.dart';
 
 /// Startup Auth-Gate Infinite-Spinner Investigation (AUTH-012): the
 /// server-side onboarding-status check this controller performs must never
@@ -244,6 +245,12 @@ class AuthController extends ChangeNotifier {
         // sign-out, so a different account signing in next can never
         // briefly observe it before its own load() below completes.
         MadhhabController.instance.resetInMemory();
+        // Commit E9 — every scheduled reminder (the active-bleeding one
+        // especially, whose very identity is scoped to a specific
+        // user+episode) belongs to the account that just signed out; a
+        // different account signing in on this same device must never
+        // see or have suppressed by them a reminder that isn't theirs.
+        unawaited(NotificationService.instance.cancelAll());
       }
       if (signedIn != wasAuthenticated) {
         _isAuthenticated = signedIn;

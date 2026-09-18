@@ -3,10 +3,12 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/services/notification_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
+import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_entries_projection.dart';
@@ -411,6 +413,22 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
         } catch (_) {
           // Reported internally by the projection's own repository calls.
         }
+      }
+
+      // Commit E9 — see daily_checkin_sheet.dart's identical note: ending
+      // an episode from this sheet must cancel its reminder exactly the
+      // same way ending it from the daily check-in flow does.
+      final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+      if (signedInUserId != null) {
+        await NotificationService.instance.cancel(
+          ActiveBleedingReminderScheduler.reminderId(
+            userId: signedInUserId,
+            episodeId: widget.episodeId,
+            localDay: BleedingEpisodeRepositoryImpl.localToday(
+              utcOffsetMinutes,
+            ),
+          ),
+        );
       }
     }
 

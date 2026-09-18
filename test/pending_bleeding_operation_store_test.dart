@@ -231,5 +231,79 @@ void main() {
         expect(stillPending.single.operationId, 'onboarding-op-1');
       },
     );
+
+    test('Commit D9: attempts to replay a pending dailyOrBackfillObservation '
+        'operation and leaves it pending when there is no session', () async {
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'daily-op-1',
+          type: PendingBleedingOperationType.dailyOrBackfillObservation,
+          params: {
+            'episodeId': 'episode-1',
+            'observedDate': DateTime(2026, 9, 17).toIso8601String(),
+            'precision': 'date_only',
+            'flow': 'medium',
+            'source': 'user_observed',
+            'utcOffsetMinutes': 180,
+          },
+          createdAt: DateTime(2026, 9, 17),
+        ),
+      );
+
+      await BleedingEpisodeRepositoryImpl(client: null)
+          .reconcilePendingOperations();
+
+      final stillPending = await PendingBleedingOperationStore.loadPending();
+      expect(stillPending, hasLength(1));
+      expect(stillPending.single.operationId, 'daily-op-1');
+    });
+
+    test('Commit D9: attempts to replay a pending correction operation and '
+        'leaves it pending when there is no session — the exact behavior '
+        'that also protects a genuine D7 conflict from being silently '
+        'dropped (see correction_sheet.dart\'s own conflict handling, '
+        'verified live against local Postgres for the RPC side)', () async {
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'correction-op-1',
+          type: PendingBleedingOperationType.correction,
+          params: {
+            'supersedesId': 'observation-1',
+            'observedDate': DateTime(2026, 9, 17).toIso8601String(),
+            'precision': 'date_only',
+            'flow': 'spotting',
+            'source': 'user_observed',
+            'utcOffsetMinutes': 180,
+          },
+          createdAt: DateTime(2026, 9, 17),
+        ),
+      );
+
+      await BleedingEpisodeRepositoryImpl(client: null)
+          .reconcilePendingOperations();
+
+      final stillPending = await PendingBleedingOperationStore.loadPending();
+      expect(stillPending, hasLength(1));
+      expect(stillPending.single.operationId, 'correction-op-1');
+    });
+
+    test('Commit D9: attempts to replay a pending baselineEstimate operation '
+        'and leaves it pending when there is no session', () async {
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'baseline-op-2',
+          type: PendingBleedingOperationType.baselineEstimate,
+          params: {'usualBleedingDurationDays': 6, 'usualCycleLengthDays': 28},
+          createdAt: DateTime(2026, 9, 17),
+        ),
+      );
+
+      await BleedingEpisodeRepositoryImpl(client: null)
+          .reconcilePendingOperations();
+
+      final stillPending = await PendingBleedingOperationStore.loadPending();
+      expect(stillPending, hasLength(1));
+      expect(stillPending.single.operationId, 'baseline-op-2');
+    });
   });
 }

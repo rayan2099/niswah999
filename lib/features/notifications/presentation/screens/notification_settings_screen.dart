@@ -134,6 +134,10 @@ class _NotificationSettingsScreenState
         'Daily wellbeing check-in',
         'تذكير الحالة النفسية اليومي',
       ),
+      NotificationType.activeBleeding => _ns(
+        'Daily check-in while tracking a period',
+        'تذكير المتابعة اليومية أثناء تتبع الحيض',
+      ),
     };
   }
 }

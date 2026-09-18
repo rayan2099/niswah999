@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/network/supabase_client.dart';
+import '../../../../core/services/notification_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
+import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_entries_projection.dart';
@@ -231,6 +234,21 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       }
     } catch (_) {
       // Reported internally by the projection's own repository calls.
+    }
+
+    // Commit E9 — ending the episode cancels today's own active-bleeding
+    // reminder id (the same stable id the coordinator would have
+    // scheduled it under); no reminder should keep asking about an
+    // episode that no longer exists as open.
+    final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (signedInUserId != null) {
+      await NotificationService.instance.cancel(
+        ActiveBleedingReminderScheduler.reminderId(
+          userId: signedInUserId,
+          episodeId: widget.episodeId,
+          localDay: BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes),
+        ),
+      );
     }
 
     if (!mounted) return;

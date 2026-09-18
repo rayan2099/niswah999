@@ -647,6 +647,49 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
+  /// Commit F — every canonical episode for a user, most recent first.
+  /// Used by [CanonicalBleedingStatusResolver] to count real completed
+  /// episodes directly (Section F5/F6: one completed episode is not
+  /// enough for a cycle-to-cycle prediction) without depending on the
+  /// legacy `cycle_entries` projection at all.
+  Future<List<BleedingEpisode>> getEpisodesForUser(String userId) async {
+    final client = _client;
+    if (client == null) return const [];
+
+    try {
+      final response = await client
+          .from('bleeding_episodes')
+          .select()
+          .eq('user_id', userId)
+          .order('start_date', ascending: false);
+      final rows = response as List<dynamic>;
+      final episodes = <BleedingEpisode>[];
+      for (final row in rows) {
+        try {
+          episodes.add(BleedingEpisode.fromJson(row as Map<String, dynamic>));
+        } on BleedingEpisodeParseException catch (error, stack) {
+          AppErrorReporter.report(
+            error,
+            stack,
+            context: 'BleedingEpisodeRepositoryImpl.getEpisodesForUser',
+            feature: 'cycle_tracking',
+            recordId: (row as Map<String, dynamic>)['id'] as String?,
+          );
+        }
+      }
+      return episodes;
+    } on PostgrestException catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'BleedingEpisodeRepositoryImpl.getEpisodesForUser',
+        feature: 'cycle_tracking',
+        recordId: userId,
+      );
+      return const [];
+    }
+  }
+
   /// PR #4 completion wave, Fix D: replays every still-[PendingBleedingOperationStore]
   /// operation through the exact same idempotent RPC it was originally
   /// headed for — safe because both `start_bleeding_episode` and
@@ -686,7 +729,7 @@ class BleedingEpisodeRepositoryImpl {
             );
           case PendingBleedingOperationType.endEpisode:
             final params = operation.params;
-            await endEpisode(
+            final endResult = await endEpisode(
               clientOperationId: operation.operationId,
               episodeId: params['episodeId'] as String,
               endDate: DateTime.parse(params['endDate'] as String),
@@ -699,6 +742,18 @@ class BleedingEpisodeRepositoryImpl {
               timezone: params['timezone'] as String?,
               utcOffsetMinutes: params['utcOffsetMinutes'] as int,
             );
+            // A genuine finding: endEpisode returns null (rather than
+            // throwing) on both "no session" and an ordinary RPC
+            // failure it already caught and reported internally — this
+            // switch must not silently treat that as success and clear
+            // the pending operation regardless. Throwing here is what
+            // routes both cases into the shared "leave pending" path
+            // below, exactly like every other case in this switch.
+            if (endResult == null) {
+              throw StateError(
+                'endEpisode reconciliation did not complete — leaving pending.',
+              );
+            }
           case PendingBleedingOperationType.onboardingHistory:
             // Hardening 1: the onboarding screen persisted this *before*
             // ever calling record_onboarding_menstrual_history — reaching
@@ -782,7 +837,7 @@ class BleedingEpisodeRepositoryImpl {
             }
           case PendingBleedingOperationType.dailyOrBackfillObservation:
             final params = operation.params;
-            await recordObservation(
+            final observationResult = await recordObservation(
               clientOperationId: operation.operationId,
               episodeId: params['episodeId'] as String,
               observedDate: DateTime.parse(params['observedDate'] as String),
@@ -796,6 +851,12 @@ class BleedingEpisodeRepositoryImpl {
               symptoms: (params['symptoms'] as List<dynamic>?)?.cast<String>(),
               notes: params['notes'] as String?,
             );
+            if (observationResult == null) {
+              throw StateError(
+                'recordObservation reconciliation did not complete — '
+                'leaving pending.',
+              );
+            }
           case PendingBleedingOperationType.correction:
             // D7: a conflict here means someone/something else already
             // superseded this exact target since it was queued — this is
@@ -807,7 +868,12 @@ class BleedingEpisodeRepositoryImpl {
             // time she opens it, rather than this reconciler silently
             // picking a winner.
             final params = operation.params;
-            await correctObservation(
+            // A CorrectionConflictException (D7) propagates straight out
+            // of this call to the outer catch below — never caught here
+            // — which is exactly the desired behavior: a genuine
+            // conflict must leave the operation pending for a human to
+            // resolve, not be silently retried or dropped.
+            final correctionResult = await correctObservation(
               clientOperationId: operation.operationId,
               supersedesId: params['supersedesId'] as String,
               observedDate: DateTime.parse(params['observedDate'] as String),
@@ -821,14 +887,27 @@ class BleedingEpisodeRepositoryImpl {
               symptoms: (params['symptoms'] as List<dynamic>?)?.cast<String>(),
               notes: params['notes'] as String?,
             );
+            if (correctionResult == null) {
+              throw StateError(
+                'correctObservation reconciliation did not complete — '
+                'leaving pending.',
+              );
+            }
           case PendingBleedingOperationType.baselineEstimate:
             final params = operation.params;
-            await CycleBaselineRepositoryImpl(client: _client).saveBaseline(
-              clientOperationId: operation.operationId,
-              usualBleedingDurationDays:
-                  params['usualBleedingDurationDays'] as int?,
-              usualCycleLengthDays: params['usualCycleLengthDays'] as int?,
-            );
+            final baselineResult =
+                await CycleBaselineRepositoryImpl(client: _client).saveBaseline(
+                  clientOperationId: operation.operationId,
+                  usualBleedingDurationDays:
+                      params['usualBleedingDurationDays'] as int?,
+                  usualCycleLengthDays: params['usualCycleLengthDays'] as int?,
+                );
+            if (baselineResult == null) {
+              throw StateError(
+                'saveBaseline reconciliation did not complete — leaving '
+                'pending.',
+              );
+            }
         }
         await PendingBleedingOperationStore.clearPending(operation.operationId);
       } catch (error, stack) {

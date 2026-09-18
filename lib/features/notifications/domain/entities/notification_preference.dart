@@ -1,6 +1,18 @@
 import 'package:equatable/equatable.dart';
 
-enum NotificationType { prayer, cycle, pregnancy, wellbeing }
+enum NotificationType {
+  prayer,
+  cycle,
+  pregnancy,
+  wellbeing,
+  // Menstrual Data Integrity charter, Commit E — ACTIVE_BLEEDING_CHECKIN.
+  // Deliberately its own type, never folded into [cycle] (which is a
+  // *prediction* reminder — "your period may be approaching"): this one
+  // only ever fires while a real episode is open, asking a factual
+  // question, and must never be conflated with a Fiqh conclusion or a
+  // forecast.
+  activeBleeding,
+}
 
 class NotificationPreference extends Equatable {
   const NotificationPreference({

@@ -23,6 +23,14 @@ class NotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
+  // Commit E7 — tap routing. A tapped notification's payload (if any) is
+  // captured here rather than acted on immediately: at tap time there is
+  // no guarantee the app's own auth/routing state is ready yet
+  // (especially the terminated-launch case), so the payload waits for a
+  // deliberate `consumePendingTapPayload()` call once the app is ready to
+  // safely decide "does this belong to whoever is signed in right now."
+  String? _pendingTapPayload;
+
   /// Registers the plugin and creates the Android channel. No permission
   /// prompt here — call once from app startup.
   Future<void> initialize() async {
@@ -45,7 +53,22 @@ class NotificationService {
         android: androidSettings,
         iOS: iosSettings,
       ),
+      onDidReceiveNotificationResponse: (details) {
+        final payload = details.payload;
+        if (payload != null) _pendingTapPayload = payload;
+      },
     );
+
+    // The terminated-launch case (E7: "terminated-launch code path where
+    // automated infrastructure permits") — the app process was not
+    // running at all when she tapped, so `onDidReceiveNotificationResponse`
+    // above never fires for this specific launch; the plugin surfaces the
+    // same payload through this separate API instead.
+    final launchDetails = await _plugin.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp ?? false) {
+      final payload = launchDetails?.notificationResponse?.payload;
+      if (payload != null) _pendingTapPayload = payload;
+    }
 
     final androidPlugin = _plugin
         .resolvePlatformSpecificImplementation<
@@ -101,7 +124,9 @@ class NotificationService {
   }) async {
     if (!_initialized) {
       AppErrorReporter.report(
-        StateError('NotificationService.showNow called before initialize() succeeded'),
+        StateError(
+          'NotificationService.showNow called before initialize() succeeded',
+        ),
         StackTrace.current,
         context: 'NotificationService.showNow',
       );
@@ -115,22 +140,31 @@ class NotificationService {
         notificationDetails: _details(),
       );
     } catch (error, stack) {
-      AppErrorReporter.report(error, stack, context: 'NotificationService.showNow');
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.showNow',
+      );
     }
   }
 
   /// One-shot, fires at [when] even if the app isn't running. Scheduling
   /// again with the same [id] replaces any previous notification under
   /// that id (callers use a fixed id per notification "slot").
+  /// [payload] (Commit E7) is opaque data returned on tap — never
+  /// sensitive content itself (Commit E3), just enough to route.
   Future<void> scheduleAt({
     required int id,
     required String title,
     required String body,
     required DateTime when,
+    String? payload,
   }) async {
     if (!_initialized) {
       AppErrorReporter.report(
-        StateError('NotificationService.scheduleAt called before initialize() succeeded'),
+        StateError(
+          'NotificationService.scheduleAt called before initialize() succeeded',
+        ),
         StackTrace.current,
         context: 'NotificationService.scheduleAt',
       );
@@ -143,10 +177,15 @@ class NotificationService {
         body: body,
         scheduledDate: tz.TZDateTime.from(when, tz.local),
         notificationDetails: _details(),
+        payload: payload,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       );
     } catch (error, stack) {
-      AppErrorReporter.report(error, stack, context: 'NotificationService.scheduleAt');
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.scheduleAt',
+      );
     }
   }
 
@@ -161,7 +200,9 @@ class NotificationService {
   }) async {
     if (!_initialized) {
       AppErrorReporter.report(
-        StateError('NotificationService.scheduleDaily called before initialize() succeeded'),
+        StateError(
+          'NotificationService.scheduleDaily called before initialize() succeeded',
+        ),
         StackTrace.current,
         context: 'NotificationService.scheduleDaily',
       );
@@ -192,8 +233,24 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.time,
       );
     } catch (error, stack) {
-      AppErrorReporter.report(error, stack, context: 'NotificationService.scheduleDaily');
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.scheduleDaily',
+      );
     }
+  }
+
+  /// Commit E7 — returns and clears whatever tap payload is currently
+  /// pending, or null if none. Consuming (not merely peeking) means a
+  /// payload that turns out to belong to a different account than the
+  /// one currently signed in is discarded outright rather than being
+  /// re-checked against a later, different sign-in — "if wrong user,
+  /// cancel/ignore safely" (E7) applies to a stale payload too.
+  String? consumePendingTapPayload() {
+    final payload = _pendingTapPayload;
+    _pendingTapPayload = null;
+    return payload;
   }
 
   Future<void> cancel(int id) async {
@@ -201,7 +258,32 @@ class NotificationService {
     try {
       await _plugin.cancel(id: id);
     } catch (error, stack) {
-      AppErrorReporter.report(error, stack, context: 'NotificationService.cancel');
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.cancel',
+      );
+    }
+  }
+
+  /// Commit E9 — account signout/switch: every reminder scheduled belongs
+  /// to whoever was signed in when it was computed (the active-bleeding
+  /// one especially so, since its very identity — Commit E5 — is scoped
+  /// to a specific user+episode). Signing out must not leave any of them
+  /// live for a next, different account on the same device to see. Also
+  /// discards any still-pending tap payload — a stale one is never
+  /// re-checked against a later, different sign-in.
+  Future<void> cancelAll() async {
+    _pendingTapPayload = null;
+    if (!_initialized) return;
+    try {
+      await _plugin.cancelAll();
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.cancelAll',
+      );
     }
   }
 
