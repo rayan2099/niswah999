@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:niswah/core/storage/secure_local_store.dart';
 import 'package:niswah/features/cycle_tracking/data/local/pending_bleeding_operation_store.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 
@@ -19,6 +20,79 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     resetSecureLocalStoreForTest();
   });
+
+  tearDown(() {
+    SecureLocalStore.debugUserIdOverride = null;
+  });
+
+  group(
+    'Commit H — account switch with pending operations (per-user isolation)',
+    () {
+      test("User B signing in on the same device never sees User A's "
+          'still-pending operation — SecureLocalStore is scoped per user, '
+          'so an account switch structurally cannot leak it, not merely by '
+          'convention', () async {
+        SecureLocalStore.debugUserIdOverride = 'user-A';
+        await PendingBleedingOperationStore.savePending(
+          PendingBleedingOperation(
+            operationId: 'user-a-op-1',
+            type: PendingBleedingOperationType.startEpisode,
+            params: const {'flow': 'medium'},
+            createdAt: DateTime(2026, 9, 18),
+          ),
+        );
+        expect(await PendingBleedingOperationStore.loadPending(), hasLength(1));
+
+        // Account switch.
+        SecureLocalStore.debugUserIdOverride = 'user-B';
+        expect(
+          await PendingBleedingOperationStore.loadPending(),
+          isEmpty,
+          reason:
+              "User B's own store is a genuinely different key — User "
+              "A's pending operation is invisible, not merely filtered",
+        );
+
+        // Switching back to User A: their own pending operation is
+        // still there, untouched by User B ever having been active.
+        SecureLocalStore.debugUserIdOverride = 'user-A';
+        final userAAgain = await PendingBleedingOperationStore.loadPending();
+        expect(userAAgain, hasLength(1));
+        expect(userAAgain.single.operationId, 'user-a-op-1');
+      });
+
+      test('User B can save their own pending operation independently while '
+          "User A's remains untouched", () async {
+        SecureLocalStore.debugUserIdOverride = 'user-A';
+        await PendingBleedingOperationStore.savePending(
+          PendingBleedingOperation(
+            operationId: 'user-a-op-1',
+            type: PendingBleedingOperationType.startEpisode,
+            params: const {},
+            createdAt: DateTime(2026, 9, 18),
+          ),
+        );
+
+        SecureLocalStore.debugUserIdOverride = 'user-B';
+        await PendingBleedingOperationStore.savePending(
+          PendingBleedingOperation(
+            operationId: 'user-b-op-1',
+            type: PendingBleedingOperationType.endEpisode,
+            params: const {},
+            createdAt: DateTime(2026, 9, 18),
+          ),
+        );
+        final userB = await PendingBleedingOperationStore.loadPending();
+        expect(userB, hasLength(1));
+        expect(userB.single.operationId, 'user-b-op-1');
+
+        SecureLocalStore.debugUserIdOverride = 'user-A';
+        final userA = await PendingBleedingOperationStore.loadPending();
+        expect(userA, hasLength(1));
+        expect(userA.single.operationId, 'user-a-op-1');
+      });
+    },
+  );
 
   group('PendingBleedingOperationStore', () {
     test('a saved pending operation round-trips exactly', () async {
