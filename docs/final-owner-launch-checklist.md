@@ -6,6 +6,12 @@ Produced by the Final Pre-Owner-Action Readiness Consolidation wave, 2026-09-07.
 
 ---
 
+## ⚪ Not yet an action item, 2026-09-19 — Menstrual Data Integrity work is still on a draft, unmerged PR
+
+The period-tracking rebuild described in the launch confidence dashboard (`docs/founder-launch-confidence-dashboard.md`'s 2026-09-19 update) lives entirely on PR #4 (`feat/menstrual-data-integrity`), which is deliberately kept in **draft** and has **not been merged**. There is nothing for you to do or retest yet — no owner action, no retest script, no CI/production change. When you're ready to review it for merge, `docs/menstrual-data-integrity-contract.md` is the full technical reference, and this section will be replaced with a real retest script at that point, following the same pattern as every other handoff in this document.
+
+---
+
 ## 🟡 Read this first, 2026-09-16 (updated) — the spinner fix is merged; the Madhhab helper you found too weak has been rebuilt
 
 **Update, 2026-09-16**: you merged the pull request fixing the never-ending-spinner problem (`AUTH-012`) — it's live on your current `main` now. You then tested the "I don't know my Madhhab" helper and found it too weak (a single free-text country question, often returning "no suggestion" with nowhere to go). That's rebuilt — see the new **Madhhab Resolution Handoff** section below for the full explanation and your retest script, alongside the still-open `AUTH-012` retest right below it.
