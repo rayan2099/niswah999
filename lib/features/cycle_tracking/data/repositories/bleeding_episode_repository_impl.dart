@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../domain/entities/bleeding_episode.dart';
+import '../local/pending_bleeding_operation_store.dart';
 
 /// Thrown by [BleedingEpisodeRepositoryImpl.startEpisode] specifically
 /// when the user already has an open episode — the database's
@@ -334,44 +335,71 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
-  /// A plain, direct INSERT — used only by onboarding, which reports a
-  /// past episode (already started, possibly already ended) rather than
-  /// performing the live atomic start/end actions the RPCs above exist
-  /// for. Best-effort: returns null (reported, not thrown) on failure so
-  /// a network hiccup doesn't crash onboarding outright — but see
-  /// `OnboardingScreen._completeOnboarding`'s own handling of a null
-  /// result, which must not silently discard what the user reported
-  /// (Blocker 3 — no silent data loss).
-  Future<BleedingEpisode?> createEpisode(BleedingEpisode episode) async {
+  /// PR #4 completion wave, Fix A: onboarding's one canonical persistence
+  /// operation — replaces two separate calls (createEpisode, then
+  /// saveBaseline) whose partial-failure window (episode succeeds,
+  /// baseline fails, she taps Retry) could duplicate an ended historical
+  /// episode, conflict against an already-open one, or show a false
+  /// "failed" state for data that had actually already saved. One RPC,
+  /// one transaction: either everything submitted is saved, or nothing
+  /// is — no partial state is ever observable. [clientOperationId] must
+  /// be generated once by the caller and reused unchanged on every retry
+  /// of this exact logical action; the RPC recognizes a repeat and
+  /// returns the original result instead of erroring or duplicating.
+  ///
+  /// [episode] and [baseline] are each independently optional — pass
+  /// null for whichever she didn't answer ("I'm not sure"). Returns the
+  /// ids of whatever was actually recorded (matching, on a retry, exactly
+  /// what was recorded the first time). Throws on a genuine failure —
+  /// unlike the old best-effort createEpisode/saveBaseline, onboarding
+  /// completion must know honestly whether this succeeded (Blocker 3).
+  Future<({String? episodeId, String? baselineId})> recordOnboardingHistory({
+    required String clientOperationId,
+    required int utcOffsetMinutes,
+    BleedingEpisode? episode,
+    CycleBaseline? baseline,
+  }) async {
     final client = _client;
-    if (client == null) return null;
-
-    try {
-      final response = await client
-          .from('bleeding_episodes')
-          .insert(episode.toInsertJson())
-          .select()
-          .single();
-      return BleedingEpisode.fromJson(response);
-    } on PostgrestException catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'BleedingEpisodeRepositoryImpl.createEpisode',
-        feature: 'cycle_tracking',
-        recordId: episode.userId,
+    if (client == null) {
+      throw StateError(
+        'No Supabase session — cannot record onboarding history.',
       );
-      return null;
-    } on BleedingEpisodeParseException catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'BleedingEpisodeRepositoryImpl.createEpisode',
-        feature: 'cycle_tracking',
-        recordId: episode.userId,
-      );
-      return null;
     }
+
+    final response = await client.rpc(
+      'record_onboarding_menstrual_history',
+      params: {
+        'p_client_operation_id': clientOperationId,
+        'p_utc_offset_minutes': utcOffsetMinutes,
+        if (episode != null) ...{
+          'p_start_date': _dateOnly(episode.startDate),
+          'p_start_precision': episode.startPrecision.value,
+          'p_start_source': episode.startSource.value,
+          'p_lifecycle_status': episode.lifecycleStatus.value,
+          if (episode.continuationCertainty != null)
+            'p_continuation_certainty': episode.continuationCertainty!.value,
+          if (episode.endDate != null)
+            'p_end_date': _dateOnly(episode.endDate!),
+          if (episode.endPrecision != null)
+            'p_end_precision': episode.endPrecision!.value,
+          if (episode.endSource != null)
+            'p_end_source': episode.endSource!.value,
+        },
+        if (baseline != null) ...{
+          if (baseline.usualBleedingDurationDays != null)
+            'p_usual_bleeding_duration_days':
+                baseline.usualBleedingDurationDays,
+          if (baseline.usualCycleLengthDays != null)
+            'p_usual_cycle_length_days': baseline.usualCycleLengthDays,
+        },
+      },
+    );
+
+    final row = (response as List).single as Map<String, dynamic>;
+    return (
+      episodeId: row['episode_id'] as String?,
+      baselineId: row['baseline_id'] as String?,
+    );
   }
 
   /// The user's currently open episode (bleeding may be ongoing, or its
@@ -408,6 +436,75 @@ class BleedingEpisodeRepositoryImpl {
         recordId: userId,
       );
       return null;
+    }
+  }
+
+  /// PR #4 completion wave, Fix D: replays every still-[PendingBleedingOperationStore]
+  /// operation through the exact same idempotent RPC it was originally
+  /// headed for — safe because both `start_bleeding_episode` and
+  /// `end_bleeding_episode` are themselves idempotent (see their own doc
+  /// comments): replaying a call that already reached the server and
+  /// committed returns the original result rather than erroring or
+  /// duplicating; replaying one that never reached the server completes
+  /// it for the first time. Intended to run at app start (a killed
+  /// process is the exact failure mode this exists for), but safe to call
+  /// at any point — a call with nothing pending is a no-op.
+  ///
+  /// Deliberately does not attempt the `cycle_entries` projection here —
+  /// that mirror is best-effort/non-authoritative by design (see the
+  /// contract doc's Blocker 12 note); a canonical write recovered by this
+  /// method is still fully durable without it, and the next real app-open
+  /// through the dashboard already re-derives from canonical data going
+  /// forward once Commit F lands.
+  Future<void> reconcilePendingOperations() async {
+    final pending = await PendingBleedingOperationStore.loadPending();
+    for (final operation in pending) {
+      try {
+        switch (operation.type) {
+          case PendingBleedingOperationType.startEpisode:
+            final params = operation.params;
+            await startEpisode(
+              clientOperationId: operation.operationId,
+              startDate: DateTime.parse(params['startDate'] as String),
+              startPrecision: ObservationPrecision.parse(
+                params['startPrecision'] as String?,
+              ),
+              flow: ObservationFlow.parse(params['flow'] as String?),
+              observationPrecision: ObservationPrecision.parse(
+                params['observationPrecision'] as String?,
+              ),
+              timezone: params['timezone'] as String?,
+              utcOffsetMinutes: params['utcOffsetMinutes'] as int,
+            );
+          case PendingBleedingOperationType.endEpisode:
+            final params = operation.params;
+            await endEpisode(
+              clientOperationId: operation.operationId,
+              episodeId: params['episodeId'] as String,
+              endDate: DateTime.parse(params['endDate'] as String),
+              endPrecision: ObservationPrecision.parse(
+                params['endPrecision'] as String?,
+              ),
+              observationPrecision: ObservationPrecision.parse(
+                params['observationPrecision'] as String?,
+              ),
+              timezone: params['timezone'] as String?,
+              utcOffsetMinutes: params['utcOffsetMinutes'] as int,
+            );
+        }
+        await PendingBleedingOperationStore.clearPending(operation.operationId);
+      } catch (error, stack) {
+        // Left pending — the next reconciliation attempt (next app start)
+        // will retry it. Reported so a persistently-failing reconcile is
+        // observable rather than silently retried forever.
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'BleedingEpisodeRepositoryImpl.reconcilePendingOperations',
+          feature: 'cycle_tracking',
+          recordId: operation.operationId,
+        );
+      }
     }
   }
 }

@@ -6,6 +6,7 @@ import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
+import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_entries_projection.dart';
 import '../../domain/entities/bleeding_episode.dart';
@@ -93,6 +94,27 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
       final timezone = now.timeZoneName;
       final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
+      // PR #4 completion wave, Fix D: persisted *before* the RPC is sent
+      // — if the process dies between the server committing this and the
+      // response reaching this sheet, the next app start's reconciliation
+      // replays this exact operation id rather than a fresh one, which
+      // would otherwise look like a genuinely new request.
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: _clientOperationId,
+          type: PendingBleedingOperationType.startEpisode,
+          params: {
+            'startDate': startDate.toIso8601String(),
+            'startPrecision': ObservationPrecision.dateOnly.value,
+            'flow': flow.value,
+            'observationPrecision': ObservationPrecision.dateOnly.value,
+            'timezone': timezone,
+            'utcOffsetMinutes': utcOffsetMinutes,
+          },
+          createdAt: now,
+        ),
+      );
+
       final result = await BleedingEpisodeRepositoryImpl().startEpisode(
         clientOperationId: _clientOperationId,
         startDate: startDate,
@@ -102,6 +124,7 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
         timezone: timezone,
         utcOffsetMinutes: utcOffsetMinutes,
       );
+      await PendingBleedingOperationStore.clearPending(_clientOperationId);
 
       // Best-effort: the canonical episode/observation are already saved
       // at this point (Section 7's "prove what succeeded") — a projection
@@ -119,6 +142,11 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on ActiveEpisodeAlreadyExistsException {
+      // This specific operation can never succeed under these params —
+      // a *different* operation genuinely holds the one-open-episode
+      // slot — so leaving it pending would only make reconciliation
+      // retry a call doomed to repeat this same conflict.
+      await PendingBleedingOperationStore.clearPending(_clientOperationId);
       if (!mounted) return;
       setState(() {
         _saving = false;
@@ -128,6 +156,9 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
         );
       });
     } catch (_) {
+      // Left pending on any other failure (network, etc.) — either she
+      // retries here (same operation id, same sheet), or, if the app
+      // dies before that, the next start-up's reconciliation replays it.
       if (!mounted) return;
       setState(() {
         _saving = false;
@@ -322,6 +353,25 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
     final timezone = now.timeZoneName;
     final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
+    // PR #4 completion wave, Fix D: persisted before the RPC is sent —
+    // see the Start sheet's own note on why (app-kill recovery via the
+    // next start-up's reconciliation).
+    await PendingBleedingOperationStore.savePending(
+      PendingBleedingOperation(
+        operationId: _clientOperationId,
+        type: PendingBleedingOperationType.endEpisode,
+        params: {
+          'episodeId': widget.episodeId,
+          'endDate': endDate.toIso8601String(),
+          'endPrecision': ObservationPrecision.dateOnly.value,
+          'observationPrecision': ObservationPrecision.dateOnly.value,
+          'timezone': timezone,
+          'utcOffsetMinutes': utcOffsetMinutes,
+        },
+        createdAt: now,
+      ),
+    );
+
     // Atomic: the episode's state transition and its closing (flow: none)
     // observation are created together by the RPC — never a separate
     // client-issued INSERT that could leave the episode ended with no
@@ -338,6 +388,7 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
     );
 
     if (result != null) {
+      await PendingBleedingOperationStore.clearPending(_clientOperationId);
       // Gives the still-in-use legacy CycleCalculationService/dashboard
       // engine (which reads cycle_entries, not this table) the "ended"
       // signal it needs via the same projection every other observation

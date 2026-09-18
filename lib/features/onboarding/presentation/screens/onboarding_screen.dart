@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/localization/app_locale_controller.dart';
@@ -150,6 +151,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // and surfaces an honest, actionable error (retry, or an explicit
   // choice to skip) on the Welcome screen instead.
   String? _onboardingSaveError;
+  // PR #4 completion wave, Fix A: generated once for this screen instance
+  // and reused unchanged on every retry of _completeOnboarding — this is
+  // exactly what lets record_onboarding_menstrual_history recognize a
+  // retry as the *same* logical action (response lost, app killed
+  // mid-request, a genuine double-tap) instead of a new submission.
+  final String _onboardingOperationId = const Uuid().v4();
 
   @override
   void initState() {
@@ -585,31 +592,37 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId != null) {
       final periodDate = _periodDate;
-      if (periodDate != null &&
-          _activeBleedingAnswer != _ActiveBleedingAnswer.unanswered) {
-        final ended = _activeBleedingAnswer == _ActiveBleedingAnswer.ended;
-        // PR #4 hardening, Blocker 4: provenance follows which date was
-        // actually reported, not which screen reported it — a real
-        // "today" answer through onboarding is exactly as live as one
-        // through the dashboard's Start Bleeding sheet.
-        final utcOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
-        final localToday = BleedingEpisodeRepositoryImpl.localToday(
-          utcOffsetMinutes,
-        );
-        final startSource = ObservationSource.classify(
-          reportedDate: periodDate,
-          localToday: localToday,
-        );
-        final periodEndDate = _periodEndDate;
-        final endSource = (ended && periodEndDate != null)
-            ? ObservationSource.classify(
-                reportedDate: periodEndDate,
-                localToday: localToday,
-              )
-            : null;
+      final hasEpisode =
+          periodDate != null &&
+          _activeBleedingAnswer != _ActiveBleedingAnswer.unanswered;
+      final hasBaseline = _haidLengthValue != null || _cycleLengthValue != null;
 
-        final saved = await BleedingEpisodeRepositoryImpl().createEpisode(
-          BleedingEpisode(
+      if (hasEpisode || hasBaseline) {
+        final utcOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+
+        BleedingEpisode? episode;
+        if (hasEpisode) {
+          final ended = _activeBleedingAnswer == _ActiveBleedingAnswer.ended;
+          // PR #4 hardening, Blocker 4: provenance follows which date was
+          // actually reported, not which screen reported it — a real
+          // "today" answer through onboarding is exactly as live as one
+          // through the dashboard's Start Bleeding sheet.
+          final localToday = BleedingEpisodeRepositoryImpl.localToday(
+            utcOffsetMinutes,
+          );
+          final startSource = ObservationSource.classify(
+            reportedDate: periodDate,
+            localToday: localToday,
+          );
+          final periodEndDate = _periodEndDate;
+          final endSource = (ended && periodEndDate != null)
+              ? ObservationSource.classify(
+                  reportedDate: periodEndDate,
+                  localToday: localToday,
+                )
+              : null;
+
+          episode = BleedingEpisode(
             userId: userId,
             lifecycleStatus: ended
                 ? LifecycleStatus.ended
@@ -631,42 +644,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             endDate: ended ? periodEndDate : null,
             endPrecision: ended ? ObservationPrecision.dateOnly : null,
             endSource: endSource,
-          ),
-        );
-
-        if (saved == null) {
-          if (!mounted) return;
-          setState(() {
-            _completingOnboarding = false;
-            _onboardingSaveError = _t(
-              "We couldn't save the period information you entered. "
-                  'Your answers are still here — you can try again.',
-              'تعذر حفظ معلومات الدورة التي أدخلتِها. إجاباتكِ ما زالت '
-                  'محفوظة هنا — يمكنكِ المحاولة مجدداً.',
-            );
-          });
-          return;
+          );
         }
-      }
 
-      if (_haidLengthValue != null || _cycleLengthValue != null) {
-        final saved = await CycleBaselineRepositoryImpl().saveBaseline(
-          CycleBaseline(
-            userId: userId,
-            usualBleedingDurationDays: _haidLengthValue,
-            usualCycleLengthDays: _cycleLengthValue,
-          ),
-        );
-
-        if (saved == null) {
+        // PR #4 completion wave, Fix A: one atomic, idempotent RPC for
+        // everything she answered — either all of it saves, or none of
+        // it does. A retry (same _onboardingOperationId) can never
+        // duplicate an already-saved episode/baseline or leave one saved
+        // while the other silently vanished.
+        try {
+          await BleedingEpisodeRepositoryImpl().recordOnboardingHistory(
+            clientOperationId: _onboardingOperationId,
+            utcOffsetMinutes: utcOffsetMinutes,
+            episode: episode,
+            baseline: hasBaseline
+                ? CycleBaseline(
+                    userId: userId,
+                    usualBleedingDurationDays: _haidLengthValue,
+                    usualCycleLengthDays: _cycleLengthValue,
+                  )
+                : null,
+          );
+        } catch (_) {
           if (!mounted) return;
           setState(() {
             _completingOnboarding = false;
             _onboardingSaveError = _t(
-              "We couldn't save your cycle estimate. Your answers are "
-                  'still here — you can try again.',
-              'تعذر حفظ تقدير دورتكِ. إجاباتكِ ما زالت محفوظة هنا — يمكنكِ '
-                  'المحاولة مجدداً.',
+              "We couldn't save the information you entered. Your "
+                  'answers are still here — you can try again.',
+              'تعذر حفظ المعلومات التي أدخلتِها. إجاباتكِ ما زالت محفوظة '
+                  'هنا — يمكنكِ المحاولة مجدداً.',
             );
           });
           return;

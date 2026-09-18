@@ -316,52 +316,123 @@ BEGIN
     GRANT SELECT, INSERT ON TABLE public.bleeding_observations TO authenticated;
     GRANT ALL ON TABLE public.bleeding_observations TO service_role;
 
-    -- Nothing verifies on its own that an observation's user_id actually
-    -- matches the user_id of the episode it claims to belong to — a user
-    -- could reference another user's episode_id (if known/guessed) while
-    -- stamping their own user_id, since RLS only checks the observation's
-    -- own user_id column, not the relationship. A CHECK constraint cannot
-    -- express a cross-row lookup, so this is enforced with a trigger.
+    -- Every INSERT into bleeding_observations, from whichever code path —
+    -- addObservation (daily check-ins, corrections, backfill), the
+    -- start/end RPCs, or a direct REST-style call this Dart layer never
+    -- wrote — passes through this single validation point (PR #4
+    -- completion wave, Fix C: "no direct client method may bypass
+    -- invariants enforced by another canonical path"). SECURITY DEFINER
+    -- (explicit search_path, matching `create_user_profile()`) so its own
+    -- lookups always see the true row regardless of who is asking — the
+    -- ownership check below depends on this; see its own note for the
+    -- exact cross-account defect this closes.
     --
-    -- PR #4 hardening pass (2026-09-18) — genuine defect found by testing
-    -- this as a real `authenticated` role rather than the Postgres
-    -- superuser used while first verifying this trigger: as a plain
-    -- trigger function (no SECURITY DEFINER), its own internal SELECT was
-    -- itself subject to `bleeding_episodes_select_own`'s RLS policy —
-    -- which correctly hides another user's episode row from the calling
-    -- user. That made the subquery return NULL for a genuine cross-account
-    -- attempt, and `NEW.user_id <> NULL` is NULL (not TRUE) under SQL's
-    -- three-valued logic, so the RAISE EXCEPTION branch was never reached
-    -- and the cross-account insert silently succeeded — confirmed and
-    -- reproduced before this fix. SECURITY DEFINER (with an explicit
-    -- search_path, matching this repo's existing `create_user_profile()`
-    -- pattern) makes this check's own lookup bypass RLS, so it always
-    -- sees the row's true owner regardless of who is asking — which is
-    -- the entire point of a cross-account check.
-    CREATE OR REPLACE FUNCTION public.bleeding_observations_check_episode_owner()
+    -- Checks, in order:
+    -- 1. Ownership — an observation's user_id must match its episode's
+    --    true owner. Nothing else verifies this; RLS only checks the
+    --    observation's own user_id column, not the relationship. Originally
+    --    written as a plain (non-DEFINER) trigger, which meant its own
+    --    internal SELECT was itself subject to
+    --    `bleeding_episodes_select_own`'s RLS policy — hiding another
+    --    user's episode from the caller made a genuine cross-account
+    --    attempt evaluate `NEW.user_id <> NULL` (NULL, not TRUE) and
+    --    silently succeed. Confirmed and reproduced before this fix.
+    -- 2. Episode open/ended compatibility — a *new* fact (a daily
+    --    check-in, a correction, a backfill) may only be added to an OPEN
+    --    episode. The one narrow exception is the closing observation
+    --    `end_bleeding_episode` itself inserts in the same transaction
+    --    right after marking the episode ended — recognized precisely as
+    --    `flow = 'none' AND observed_date = <the episode's own end_date>`,
+    --    never by trusting the caller's identity.
+    -- 3. No future observations — offset-based, mirroring the RPCs' own
+    --    boundary check, so a plain INSERT (not routed through an RPC)
+    --    cannot bypass it.
+    -- 4. Correction-target validation — supersedes_id must reference an
+    --    observation belonging to the same user AND the same episode;
+    --    `bleeding_observations_supersedes_once` (a partial unique index)
+    --    already prevents a fork/cycle at the chain-structure level.
+    CREATE OR REPLACE FUNCTION public.bleeding_observations_validate_insert()
     RETURNS trigger
     LANGUAGE plpgsql
     SECURITY DEFINER
     SET search_path TO 'public'
     AS $trigger$
+    DECLARE
+      v_episode_user_id uuid;
+      v_episode_status text;
+      v_episode_end_date date;
+      v_local_today date;
+      v_supersedes_user_id uuid;
+      v_supersedes_episode_id uuid;
     BEGIN
-      IF NEW.user_id <> (
-        SELECT user_id FROM public.bleeding_episodes WHERE id = NEW.episode_id
-      ) THEN
+      SELECT user_id, lifecycle_status, end_date
+        INTO v_episode_user_id, v_episode_status, v_episode_end_date
+      FROM public.bleeding_episodes
+      WHERE id = NEW.episode_id;
+
+      IF v_episode_user_id IS NULL THEN
+        RAISE EXCEPTION 'episode % does not exist', NEW.episode_id;
+      END IF;
+
+      IF NEW.user_id <> v_episode_user_id THEN
         RAISE EXCEPTION
           'bleeding_observations.user_id must match its episode''s owner';
       END IF;
+
+      IF v_episode_status = 'ended'
+        AND NOT (NEW.flow = 'none' AND NEW.observed_date = v_episode_end_date)
+      THEN
+        RAISE EXCEPTION
+          'cannot add a new observation to an ended episode (%)', NEW.episode_id;
+      END IF;
+
+      v_local_today := ((now() AT TIME ZONE 'UTC')
+        + make_interval(mins => NEW.utc_offset_minutes))::date;
+      IF NEW.observed_date > v_local_today THEN
+        RAISE EXCEPTION
+          'observed_date cannot be in the future (got %, local today is %)',
+          NEW.observed_date, v_local_today;
+      END IF;
+
+      IF NEW.supersedes_id IS NOT NULL THEN
+        SELECT user_id, episode_id INTO v_supersedes_user_id, v_supersedes_episode_id
+        FROM public.bleeding_observations
+        WHERE id = NEW.supersedes_id;
+
+        IF v_supersedes_user_id IS NULL THEN
+          RAISE EXCEPTION 'supersedes_id % does not exist', NEW.supersedes_id;
+        END IF;
+        IF v_supersedes_user_id <> NEW.user_id THEN
+          RAISE EXCEPTION
+            'a correction must belong to the same user as the observation it supersedes';
+        END IF;
+        IF v_supersedes_episode_id <> NEW.episode_id THEN
+          RAISE EXCEPTION
+            'a correction must belong to the same episode as the observation it supersedes';
+        END IF;
+      END IF;
+
       RETURN NEW;
     END;
     $trigger$;
 
+    -- Replaces the earlier, narrower
+    -- bleeding_observations_check_episode_owner_trigger — same slot, wider
+    -- function. DROP+CREATE (not achievable via a mere function
+    -- CREATE OR REPLACE, since the trigger itself still points at the old
+    -- function name) is safe here precisely because nothing has ever run
+    -- this migration against a real environment.
+    DROP TRIGGER IF EXISTS bleeding_observations_check_episode_owner_trigger
+      ON public.bleeding_observations;
+    DROP FUNCTION IF EXISTS public.bleeding_observations_check_episode_owner();
+
     IF NOT EXISTS (
       SELECT 1 FROM pg_trigger
-      WHERE tgname = 'bleeding_observations_check_episode_owner_trigger'
+      WHERE tgname = 'bleeding_observations_validate_insert_trigger'
     ) THEN
-      CREATE TRIGGER bleeding_observations_check_episode_owner_trigger
+      CREATE TRIGGER bleeding_observations_validate_insert_trigger
         BEFORE INSERT ON public.bleeding_observations
-        FOR EACH ROW EXECUTE FUNCTION public.bleeding_observations_check_episode_owner();
+        FOR EACH ROW EXECUTE FUNCTION public.bleeding_observations_validate_insert();
     END IF;
 
     -- 3. cycle_baselines — a user's stated USUAL duration/cycle length.
@@ -382,6 +453,12 @@ BEGIN
       usual_cycle_length_days integer,
       reported_at timestamptz NOT NULL DEFAULT now(),
       created_at timestamptz NOT NULL DEFAULT now(),
+      -- PR #4 completion wave, Fix A: lets
+      -- record_onboarding_menstrual_history recognize a retried operation
+      -- and return the original row instead of inserting a duplicate
+      -- baseline version — the same idempotency pattern already used by
+      -- bleeding_episodes/bleeding_observations.
+      client_operation_id uuid,
       -- Blocker 6 — these are technical/storage-abuse bounds only, never
       -- a clinical-normality assumption: a user reporting an unusual but
       -- real duration/cycle length must never be rejected for falling
@@ -396,6 +473,10 @@ BEGIN
 
     CREATE INDEX IF NOT EXISTS cycle_baselines_user_reported_idx
       ON public.cycle_baselines (user_id, reported_at DESC);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS cycle_baselines_client_operation_id_unique
+      ON public.cycle_baselines (client_operation_id)
+      WHERE client_operation_id IS NOT NULL;
 
     ALTER TABLE public.cycle_baselines ENABLE ROW LEVEL SECURITY;
 

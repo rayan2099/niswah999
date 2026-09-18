@@ -79,19 +79,26 @@ void main() {
       expect(result, isNull);
     });
 
-    test('createEpisode returns null rather than throwing', () async {
-      final result = await repository.createEpisode(
-        BleedingEpisode(
-          userId: 'user-1',
-          lifecycleStatus: LifecycleStatus.open,
-          continuationCertainty: ContinuationCertainty.confirmed,
-          startDate: DateTime(2026, 9, 17),
-          startPrecision: ObservationPrecision.dateOnly,
-          startSource: ObservationSource.userReportedHistorical,
-        ),
-      );
-      expect(result, isNull);
-    });
+    test(
+      'recordOnboardingHistory throws a StateError, not a null-pointer crash',
+      () {
+        expect(
+          () => repository.recordOnboardingHistory(
+            clientOperationId: 'op-3',
+            utcOffsetMinutes: 0,
+            episode: BleedingEpisode(
+              userId: 'user-1',
+              lifecycleStatus: LifecycleStatus.open,
+              continuationCertainty: ContinuationCertainty.confirmed,
+              startDate: DateTime(2026, 9, 17),
+              startPrecision: ObservationPrecision.dateOnly,
+              startSource: ObservationSource.userReportedHistorical,
+            ),
+          ),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
   });
 
   group(

@@ -26,6 +26,7 @@ import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/presentation/screens/profile_screen.dart';
 import 'features/auth/presentation/screens/sign_in_screen.dart';
 import 'features/community/presentation/screens/community_board_screen.dart';
+import 'features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'features/cycle_tracking/presentation/screens/cycle_tracking_screen.dart';
 import 'features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import 'features/dashboard/presentation/screens/dashboard_screen.dart';
@@ -514,6 +515,12 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
       // copy (RR-001). A bounded, one-pass sweep per trigger — not a
       // timer/loop — so this can never spin indefinitely.
       unawaited(_cycleViewModel.retryPendingSync());
+      // Menstrual Data Integrity charter, PR #4 completion wave, Fix D:
+      // replays any bleeding_episodes start/end operation that reached
+      // the server and committed but never got the chance to tell the
+      // app so (the process was killed first) — the same app-start
+      // trigger that already recovers the legacy cycle_entries model.
+      unawaited(BleedingEpisodeRepositoryImpl().reconcilePendingOperations());
     });
   }
 
@@ -530,6 +537,7 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
       // App-resume retry trigger — see the app-start trigger in initState
       // for why this exists and what it does/doesn't guarantee.
       unawaited(_cycleViewModel.retryPendingSync());
+      unawaited(BleedingEpisodeRepositoryImpl().reconcilePendingOperations());
     }
   }
 
