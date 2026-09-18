@@ -2,13 +2,48 @@
 
 Status: **living architecture contract**. Established by the Menstrual Data
 Integrity & Active Bleeding Journey charter (2026-09-17). Commits A, C, a
-hostile-self-review fix pass, B, and a Commit D slice (below) are
-implemented on `feat/menstrual-data-integrity` (pushed to origin, PR #4,
-draft, unmerged); the rest of this document describes the target
-architecture for the commits that follow. Future agents must treat this
-as the canonical reference — do not reinvent the taxonomy, episode model,
-or provenance rules described here without updating this document in the
-same change.
+hostile-self-review fix pass, B, a Commit D slice, and a PR #4 hardening
+pass (below) are implemented on `feat/menstrual-data-integrity` (pushed
+to origin, PR #4, draft, unmerged); the rest of this document describes
+the target architecture for the commits that follow. Future agents must
+treat this as the canonical reference — do not reinvent the taxonomy,
+episode model, or provenance rules described here without updating this
+document in the same change.
+
+## PR #4 hardening pass — blocker status (2026-09-18)
+
+A critical review found the schema/repository from Commits A/B, though
+individually tested, had real architectural gaps once examined as a
+whole. Each item below was fixed and verified live against a real local
+Postgres reconstruction (inside real transactions, with authenticated-
+role/JWT simulation, not superuser) unless noted otherwise. See
+`69d7bfc`'s own commit message for the full technical detail of each.
+
+| # | Blocker | Status |
+|---|---|---|
+| 1 | True idempotency (`client_operation_id`, not mere unique-violation) | **FIXED** — verified: 5 identical retries → 1 row each; different key while open → correct conflict |
+| 2 | Atomic episode end (+ closing observation) | **FIXED** — new `end_bleeding_episode` RPC, own idempotency, verified live |
+| 3 | Onboarding must not silently lose data on save failure | **FIXED** (explicit recoverable error + retry — the alternative the review itself offered, not the "preferred" local-first/outbox architecture, which remains open) |
+| 4 | Provenance must reflect which date was reported, not which screen | **FIXED** — `ObservationSource.classify`, used everywhere a source is set |
+| 5 | "Uncertain" must not vacate the one-open-episode slot | **FIXED** — `LifecycleStatus`/`ContinuationCertainty` split, verified live |
+| 6 | No unsupported biological hard caps | **FIXED** — DB bounds widened to storage-only (1–365/1–1000), date pickers widened to 100 years, Slider replaced with numeric input |
+| 7 | Real timezone identity | **PARTIAL** — `utc_offset_minutes` is now the only field any canonical date math uses (closes the correctness gap); true IANA capture would need a new platform plugin this pass could not verify against a real native build — left open, not claimed done |
+| 8 | Episode start facts must not be freely mutable | **FIXED** — column-level `REVOKE`/`GRANT`, verified: direct `start_date` UPDATE returns "permission denied" |
+| 9 | Baseline estimates need reproducibility | **FIXED** — append-only history, insert-only RLS |
+| 10 | Future-date validation at the canonical write boundary | **FIXED for start/end** (the two RPCs); **not extended** to the plain `addObservation`/`createEpisode` INSERT paths (daily check-ins, onboarding), which remain client-validated only — disclosed gap, not silently assumed covered |
+| 11 | End-date UI must know the episode start | **FIXED** — `episodeStartDate` threaded through, unreachable choices disabled not hidden, verified by a widget test |
+| 12 | Canonical save must not depend on best-effort projection | **NOT FIXED as a durable outbox** — per the review's own explicit allowance, the PR stays draft and no claim is made that the user-visible save journey is complete until Commit F migrates the dashboard onto canonical data directly |
+
+**A genuine security defect was found and fixed during this pass**, not
+merely re-confirmed: `bleeding_observations_check_episode_owner`'s own
+internal lookup was itself subject to RLS, which correctly hides another
+user's episode from the caller — meaning a real cross-account attempt
+evaluated `NEW.user_id <> NULL` (NULL, not TRUE) and silently succeeded.
+This was only caught because this pass tested as a real `authenticated`
+role rather than the Postgres superuser used to first verify the trigger
+in the earlier hostile-review pass. Fixed with `SECURITY DEFINER` +
+explicit `search_path`; re-verified live that the same attack now fails
+while a legitimate same-owner insert still succeeds.
 
 ## Central doctrine (verbatim, non-negotiable)
 
@@ -87,20 +122,37 @@ been rewritten in this pass.
 
 ## 3. Episode lifecycle
 
-`bleeding_episodes.status`: `active` | `ended` | `uncertain`.
+Two orthogonal axes (PR #4 hardening, Blocker 5 — replacing an earlier
+three-way `active`/`ended`/`uncertain` that conflated them, which let
+marking uncertain silently vacate the one-active-episode slot):
 
-- **Never auto-ended** just because an expected duration elapsed — only
-  an explicit end-date report changes `active`/`uncertain` to `ended`.
-- **One active episode per user**, enforced at the database level
-  (`bleeding_episodes_one_active_per_user`, a partial unique index on
-  `user_id WHERE status = 'active'`) — not just an application check.
-- `uncertain` is a first-class terminal state for "I don't know whether
-  it has ended," distinct from both `active` and `ended` — never forced
-  into either.
+- `bleeding_episodes.lifecycle_status`: `open` | `ended`. **Never
+  auto-ended** just because an expected duration elapsed — only an
+  explicit end (via `end_bleeding_episode`) closes it.
+- `bleeding_episodes.continuation_certainty`: `confirmed` | `uncertain`,
+  meaningful only while `open` (`NULL` once `ended`). "I'm not sure if
+  it has ended" marks this `uncertain` — it never itself closes the
+  episode.
+- **One OPEN episode per user**, enforced at the database level
+  (`bleeding_episodes_one_open_per_user`, a partial unique index on
+  `user_id WHERE lifecycle_status = 'open'`) — covers both `confirmed`
+  and `uncertain` continuation, so marking uncertain can never let a
+  second, genuinely concurrent episode start.
 - `start_date`/`end_date` are always the honest, factual calendar dates
   reported. The Fiqh evaluation layer (`MadhhabRuleEvaluator`) already
   consumes a raw duration without ever truncating or rewriting it — this
   model does not change that contract, it feeds it more honestly.
+- `start_date`/`start_precision`/`start_source` are **immutable after
+  creation** — enforced by column-level `REVOKE`/`GRANT`, not merely
+  application discipline. All lifecycle transitions go through the
+  `end_bleeding_episode` RPC or a plain UPDATE of only the columns that
+  remain grantable (`lifecycle_status`, `continuation_certainty`, the
+  `end_*` columns).
+- Starting and ending are each atomic (episode + its first/closing
+  observation, in one transaction) and independently idempotent via a
+  client-generated `client_operation_id`/`end_client_operation_id` — a
+  retried call returns the original result rather than erroring or
+  duplicating.
 
 ## 4. Observation model
 
