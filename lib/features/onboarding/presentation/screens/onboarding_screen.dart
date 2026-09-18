@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/localization/app_locale_controller.dart';
@@ -17,6 +18,14 @@ import '../../domain/services/madhhab_suggestion_service.dart';
 
 String _tr(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
+
+/// PR #4 hardening, Blocker 6: no medically-motivated bound on how long
+/// ago a real bleeding start can be reported — a technical bound is still
+/// required by `showDatePicker`'s own API, so this is deliberately
+/// generous rather than the previous 2-year window, which contradicted
+/// this same step's own "however long ago that was" copy.
+DateTime _earliestReportableDate(DateTime now) =>
+    DateTime(now.year - 100, now.month, now.day);
 
 /// Matches the order of both the English and Arabic choice lists in the
 /// Madhhab step below. The 5th choice ("I don't know my Madhhab") is
@@ -118,17 +127,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   _ActiveBleedingAnswer _activeBleedingAnswer =
       _ActiveBleedingAnswer.unanswered;
   // Section 9: the usual-duration/usual-cycle-length questions are genuine
-  // estimates, never forced. The slider needs *some* finite value to
-  // render its thumb even before she has touched it, so these numbers are
-  // purely a starting visual position — `_haidLengthAnswered`/
-  // `_cycleLengthAnswered` track whether she actually interacted, and only
-  // an interacted value is ever persisted as her stated estimate. Tapping
-  // Continue on an untouched slider is never treated as "her answer was 5"
-  // — it is treated exactly like "I'm not sure".
-  double _haidLengthValue = 5;
-  bool _haidLengthAnswered = false;
-  double _cycleLengthValue = 28;
-  bool _cycleLengthAnswered = false;
+  // estimates, never forced. Null means genuinely unanswered — never a
+  // silent default (PR #4 hardening, Blocker 6: previously a Slider
+  // needed *some* value to render its thumb even before she touched it,
+  // which meant a hard min/max that could reject a real but unusual
+  // answer; a plain numeric field has no such problem and simply starts
+  // empty).
+  int? _haidLengthValue;
+  int? _cycleLengthValue;
   bool _anonymous = false;
   // Hostile self-review fix (2026-09-17): _completeOnboarding is async and
   // its own Welcome-screen button had no disabled/in-flight state — a
@@ -138,6 +144,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // uncertain episode has no such uniqueness guard and would happily
   // accept two identical rows. Guards the whole completion path instead.
   bool _completingOnboarding = false;
+  // PR #4 hardening, Blocker 3: a real save failure for menstrual data she
+  // explicitly supplied must never be silently swallowed while onboarding
+  // still completes as if it were recorded. Non-null blocks completion
+  // and surfaces an honest, actionable error (retry, or an explicit
+  // choice to skip) on the Welcome screen instead.
+  String? _onboardingSaveError;
 
   @override
   void initState() {
@@ -280,7 +292,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onSkip: _next,
     ),
     5 => _periodStep(),
-    6 => _NumberStep(
+    6 => _NumberInputStep(
       title: _t(
         'How long does your period usually last?',
         'كم تستمر مدة حيضكِ عادةً؟',
@@ -290,32 +302,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             'to day.',
         'مجرد تقدير — لا يحل أبداً محل ما تُبلغين عنه فعلياً يوماً بيوم.',
       ),
-      value: _haidLengthValue,
-      min: 1,
-      max: 20,
-      onChanged: (v) => setState(() {
-        _haidLengthValue = v;
-        _haidLengthAnswered = true;
-      }),
+      initialValue: _haidLengthValue,
+      onChanged: (v) => setState(() => _haidLengthValue = v),
       onNext: _next,
-      onUnsure: _next,
+      onUnsure: () {
+        setState(() => _haidLengthValue = null);
+        _next();
+      },
     ),
-    7 => _NumberStep(
+    7 => _NumberInputStep(
       title: _t('How long is your usual cycle?', 'كم تستمر دورتكِ عادةً؟'),
       description: _t(
         'From the start of one period to the start of the next. Only an '
             'estimate.',
         'من بداية حيض إلى بداية الحيض التالي. مجرد تقدير.',
       ),
-      value: _cycleLengthValue,
-      min: 15,
-      max: 90,
-      onChanged: (v) => setState(() {
-        _cycleLengthValue = v;
-        _cycleLengthAnswered = true;
-      }),
+      initialValue: _cycleLengthValue,
+      onChanged: (v) => setState(() => _cycleLengthValue = v),
       onNext: _next,
-      onUnsure: _next,
+      onUnsure: () {
+        setState(() => _cycleLengthValue = null);
+        _next();
+      },
     ),
     8 => _Privacy(
       anonymous: _anonymous,
@@ -324,7 +332,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     ),
     _ => _Welcome(
       isBusy: _completingOnboarding,
+      saveError: _onboardingSaveError,
       onComplete: _completingOnboarding ? null : () => _completeOnboarding(),
+      onSkipSaving: _completingOnboarding
+          ? null
+          : () => _skipSavingAndContinue(),
     ),
   };
 
@@ -551,9 +563,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// already-established honest tradeoff. This screen is only ever reached
   /// already authenticated (main.dart's root router requires it), so a
   /// real user id is always available whenever there is anything to save.
+  /// PR #4 hardening, Blocker 3: the previous version caught an
+  /// episode/baseline save failure and silently completed onboarding
+  /// anyway — a user who explicitly reported real menstrual history could
+  /// finish believing it was recorded when Niswah had actually lost it.
+  /// A genuine failure here now blocks completion outright and surfaces
+  /// an honest, actionable error (see `_Welcome`'s error state) with a
+  /// real retry — `_completingOnboarding`'s guard and the stable
+  /// `_periodDate`/`_haidLengthValue`/`_cycleLengthValue` state make a
+  /// retry safe to just call this method again unchanged. Only
+  /// `markOnboardingCompleted` below remains best-effort, matching its
+  /// own long-standing rationale (a flag write failing must not trap her
+  /// on the Welcome screen after everything else genuinely saved).
   Future<void> _completeOnboarding() async {
     if (_completingOnboarding) return;
-    setState(() => _completingOnboarding = true);
+    setState(() {
+      _completingOnboarding = true;
+      _onboardingSaveError = null;
+    });
 
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId != null) {
@@ -561,50 +588,107 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       if (periodDate != null &&
           _activeBleedingAnswer != _ActiveBleedingAnswer.unanswered) {
         final ended = _activeBleedingAnswer == _ActiveBleedingAnswer.ended;
-        try {
-          await BleedingEpisodeRepositoryImpl().createEpisode(
-            BleedingEpisode(
-              userId: userId,
-              status: switch (_activeBleedingAnswer) {
-                _ActiveBleedingAnswer.active => EpisodeStatus.active,
-                _ActiveBleedingAnswer.ended => EpisodeStatus.ended,
-                _ActiveBleedingAnswer.uncertain ||
-                _ActiveBleedingAnswer.unanswered => EpisodeStatus.uncertain,
-              },
-              startDate: periodDate,
-              startPrecision: ObservationPrecision.dateOnly,
-              startSource: ObservationSource.userReportedHistorical,
-              endDate: ended ? _periodEndDate : null,
-              endPrecision: ended ? ObservationPrecision.dateOnly : null,
-              endSource: ended
-                  ? ObservationSource.userReportedHistorical
-                  : null,
-            ),
-          );
-        } catch (_) {
-          // Best-effort — already reported internally by the repository.
+        // PR #4 hardening, Blocker 4: provenance follows which date was
+        // actually reported, not which screen reported it — a real
+        // "today" answer through onboarding is exactly as live as one
+        // through the dashboard's Start Bleeding sheet.
+        final utcOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+        final localToday = BleedingEpisodeRepositoryImpl.localToday(
+          utcOffsetMinutes,
+        );
+        final startSource = ObservationSource.classify(
+          reportedDate: periodDate,
+          localToday: localToday,
+        );
+        final periodEndDate = _periodEndDate;
+        final endSource = (ended && periodEndDate != null)
+            ? ObservationSource.classify(
+                reportedDate: periodEndDate,
+                localToday: localToday,
+              )
+            : null;
+
+        final saved = await BleedingEpisodeRepositoryImpl().createEpisode(
+          BleedingEpisode(
+            userId: userId,
+            lifecycleStatus: ended
+                ? LifecycleStatus.ended
+                : LifecycleStatus.open,
+            continuationCertainty: ended
+                ? null
+                : switch (_activeBleedingAnswer) {
+                    _ActiveBleedingAnswer.active =>
+                      ContinuationCertainty.confirmed,
+                    _ActiveBleedingAnswer.uncertain =>
+                      ContinuationCertainty.uncertain,
+                    _ActiveBleedingAnswer.ended ||
+                    _ActiveBleedingAnswer.unanswered =>
+                      ContinuationCertainty.confirmed,
+                  },
+            startDate: periodDate,
+            startPrecision: ObservationPrecision.dateOnly,
+            startSource: startSource,
+            endDate: ended ? periodEndDate : null,
+            endPrecision: ended ? ObservationPrecision.dateOnly : null,
+            endSource: endSource,
+          ),
+        );
+
+        if (saved == null) {
+          if (!mounted) return;
+          setState(() {
+            _completingOnboarding = false;
+            _onboardingSaveError = _t(
+              "We couldn't save the period information you entered. "
+                  'Your answers are still here — you can try again.',
+              'تعذر حفظ معلومات الدورة التي أدخلتِها. إجاباتكِ ما زالت '
+                  'محفوظة هنا — يمكنكِ المحاولة مجدداً.',
+            );
+          });
+          return;
         }
       }
 
-      if (_haidLengthAnswered || _cycleLengthAnswered) {
-        try {
-          await CycleBaselineRepositoryImpl().saveBaseline(
-            CycleBaseline(
-              userId: userId,
-              usualBleedingDurationDays: _haidLengthAnswered
-                  ? _haidLengthValue.round()
-                  : null,
-              usualCycleLengthDays: _cycleLengthAnswered
-                  ? _cycleLengthValue.round()
-                  : null,
-            ),
-          );
-        } catch (_) {
-          // Best-effort — already reported internally by the repository.
+      if (_haidLengthValue != null || _cycleLengthValue != null) {
+        final saved = await CycleBaselineRepositoryImpl().saveBaseline(
+          CycleBaseline(
+            userId: userId,
+            usualBleedingDurationDays: _haidLengthValue,
+            usualCycleLengthDays: _cycleLengthValue,
+          ),
+        );
+
+        if (saved == null) {
+          if (!mounted) return;
+          setState(() {
+            _completingOnboarding = false;
+            _onboardingSaveError = _t(
+              "We couldn't save your cycle estimate. Your answers are "
+                  'still here — you can try again.',
+              'تعذر حفظ تقدير دورتكِ. إجاباتكِ ما زالت محفوظة هنا — يمكنكِ '
+                  'المحاولة مجدداً.',
+            );
+          });
+          return;
         }
       }
     }
 
+    await _finishOnboarding();
+  }
+
+  /// The user's own explicit choice to proceed without the save that just
+  /// failed — never automatic, never silent (Blocker 3 requires *a*
+  /// honest path forward, not that she can never leave this screen).
+  Future<void> _skipSavingAndContinue() async {
+    setState(() {
+      _completingOnboarding = true;
+      _onboardingSaveError = null;
+    });
+    await _finishOnboarding();
+  }
+
+  Future<void> _finishOnboarding() async {
     // AUTH-002: the durable, server-side completion flag — the ONLY
     // signal the root router trusts to decide onboarding is done. Written
     // here, and only here, at the real end of the flow. Best-effort: a
@@ -1302,7 +1386,7 @@ class _PeriodPickStart extends StatelessWidget {
     final picked = await showDatePicker(
       context: context,
       initialDate: selected ?? now,
-      firstDate: DateTime(now.year - 2, now.month, now.day),
+      firstDate: _earliestReportableDate(now),
       lastDate: now,
     );
     if (picked != null) onPick(picked);
@@ -1473,72 +1557,78 @@ class _PeriodPickEnd extends StatelessWidget {
   );
 }
 
-class _NumberStep extends StatelessWidget {
-  const _NumberStep({
+/// PR #4 hardening, Blocker 6: replaces the old Slider-based `_NumberStep`,
+/// whose hard min/max ("2-10/15 days", "15-90 days") could reject a real
+/// but unusual answer — a technical/UX bound, not a medical judgment this
+/// wave is authorized to make. A plain numeric field has no such ceiling;
+/// "I'm not sure" remains always available and never forced.
+class _NumberInputStep extends StatefulWidget {
+  const _NumberInputStep({
     required this.title,
     required this.description,
-    required this.value,
-    required this.min,
-    required this.max,
+    required this.initialValue,
     required this.onChanged,
     required this.onNext,
     required this.onUnsure,
   });
   final String title, description;
-  final double value, min, max;
-  final ValueChanged<double> onChanged;
+  final int? initialValue;
+  final ValueChanged<int?> onChanged;
   final VoidCallback onNext;
-  // Section 9: this whole question is a non-forced estimate — "I'm not
-  // sure" is always available alongside Continue, never hidden behind it.
   final VoidCallback onUnsure;
+
+  @override
+  State<_NumberInputStep> createState() => _NumberInputStepState();
+}
+
+class _NumberInputStepState extends State<_NumberInputStep> {
+  late final _controller = TextEditingController(
+    text: widget.initialValue?.toString() ?? '',
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
-      _Title(title),
+      _Title(widget.title),
       const SizedBox(height: 8),
       Text(
-        description,
+        widget.description,
+        textAlign: TextAlign.center,
         style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
       ),
-      const SizedBox(height: 45),
-      Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: '${value.round()}',
-              style: const TextStyle(
-                fontSize: 68,
-                color: Color(0xFFFB7185),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            TextSpan(
-              text: _tr(' days', ' أيام'),
-              style: TextStyle(fontSize: 20, color: const Color(0x66BE123C)),
-            ),
-          ],
+      const SizedBox(height: 32),
+      TextField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.center,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        style: const TextStyle(
+          fontSize: 40,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFFFB7185),
         ),
-        style: TextStyle(fontFamily: AppTypography.serifFamily),
-      ),
-      const SizedBox(height: 24),
-      Slider(
-        value: value.clamp(min, max),
-        min: min,
-        max: max,
-        divisions: (max - min).round(),
-        activeColor: const Color(0xFFFB7185),
-        inactiveColor: const Color(0xFFFFF1F2),
-        onChanged: onChanged,
-      ),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [Text('${min.round()}'), Text('${max.round()}')],
+        decoration: InputDecoration(
+          suffixText: _tr(' days', ' أيام'),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        onChanged: (text) => widget.onChanged(int.tryParse(text)),
       ),
       const SizedBox(height: 36),
-      _Continue(onPressed: onNext),
+      _Continue(onPressed: widget.onNext),
       TextButton(
-        onPressed: onUnsure,
+        onPressed: widget.onUnsure,
         child: Text(_tr('I’m not sure', 'لست متأكدة')),
       ),
     ],
@@ -1613,12 +1703,22 @@ class _Privacy extends StatelessWidget {
 }
 
 class _Welcome extends StatelessWidget {
-  const _Welcome({required this.onComplete, this.isBusy = false});
+  const _Welcome({
+    required this.onComplete,
+    this.isBusy = false,
+    this.saveError,
+    this.onSkipSaving,
+  });
   final VoidCallback? onComplete;
   // Hostile self-review fix (2026-09-17): completion writes a real
   // episode/baseline — a disabled, in-flight state prevents a rapid
   // double-tap from firing the async completion twice.
   final bool isBusy;
+  // PR #4 hardening, Blocker 3: non-null when a real save genuinely
+  // failed — completion is blocked until she either retries successfully
+  // or explicitly chooses [onSkipSaving]; never silently discarded.
+  final String? saveError;
+  final VoidCallback? onSkipSaving;
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
@@ -1677,6 +1777,26 @@ class _Welcome extends StatelessWidget {
           ],
         ),
       ),
+      if (saveError != null) ...[
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF1F2),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFFECDD3)),
+          ),
+          child: Text(
+            saveError!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF9F1239),
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+        ),
+      ],
       const SizedBox(height: 28),
       isBusy
           ? const SizedBox(
@@ -1689,10 +1809,19 @@ class _Welcome extends StatelessWidget {
               ),
             )
           : _Continue(
-              label: _tr('Get Started', 'ابدئي'),
+              label: saveError != null
+                  ? _tr('Try again', 'المحاولة مجدداً')
+                  : _tr('Get Started', 'ابدئي'),
               onPressed: onComplete,
               strong: true,
             ),
+      if (saveError != null && onSkipSaving != null)
+        TextButton(
+          onPressed: onSkipSaving,
+          child: Text(
+            _tr('Continue without saving this', 'المتابعة دون حفظ هذا'),
+          ),
+        ),
     ],
   );
 }

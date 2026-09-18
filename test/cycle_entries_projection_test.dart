@@ -33,6 +33,7 @@ void main() {
     flow: flow,
     source: ObservationSource.userObserved,
     timezone: 'UTC',
+    utcOffsetMinutes: 0,
   );
 
   test(
@@ -81,6 +82,7 @@ void main() {
         flow: ObservationFlow.light,
         source: ObservationSource.userReportedHistorical,
         timezone: 'UTC',
+        utcOffsetMinutes: 0,
       ),
     );
 

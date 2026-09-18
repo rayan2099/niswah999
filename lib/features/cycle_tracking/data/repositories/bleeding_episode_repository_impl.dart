@@ -5,12 +5,15 @@ import '../../../../core/network/supabase_client.dart';
 import '../../domain/entities/bleeding_episode.dart';
 
 /// Thrown by [BleedingEpisodeRepositoryImpl.startEpisode] specifically
-/// when the user already has an active episode — the database's
-/// `bleeding_episodes_one_active_per_user` constraint is what actually
-/// prevents the duplicate (Commit A); this exception just gives the
-/// caller (Commit D's "Start bleeding" UI) a typed way to tell "you're
-/// already tracking one" apart from a genuine failure, so a double-tap or
-/// retry never surfaces as a scary error.
+/// when the user already has an open episode — the database's
+/// `bleeding_episodes_one_open_per_user` constraint is what actually
+/// prevents the duplicate; this exception just gives the caller (the
+/// Start Bleeding UI) a typed way to tell "you're already tracking one"
+/// apart from a genuine failure, so a double-tap or retry never surfaces
+/// as a scary error. Note this is distinct from a *retry of the same*
+/// start — see [BleedingEpisodeRepositoryImpl.startEpisode]'s own
+/// idempotency handling, which returns the original result instead of
+/// throwing at all for that case.
 class ActiveEpisodeAlreadyExistsException implements Exception {
   const ActiveEpisodeAlreadyExistsException();
 
@@ -19,38 +22,56 @@ class ActiveEpisodeAlreadyExistsException implements Exception {
 }
 
 /// Writes/reads the first-class `bleeding_episodes` / `bleeding_observations`
-/// / `cycle_baselines` model (menstrual-data-integrity charter, Commit A/B
-/// schema). Deliberately server-only for this initial slice — every
-/// caller today (onboarding, the dashboard's Start/End Bleeding actions)
-/// is only ever reached already-authenticated, so a real session always
-/// exists; a local-first/offline path mirroring
-/// [CycleTrackingRepositoryImpl] is follow-up work once a consumer needs
-/// to read this data offline.
+/// / `cycle_baselines` model (menstrual-data-integrity charter). Deliberately
+/// server-only for this initial slice — every caller today (onboarding, the
+/// dashboard's Start/End Bleeding actions) is only ever reached
+/// already-authenticated, so a real session always exists; a
+/// local-first/offline path mirroring [CycleTrackingRepositoryImpl] is
+/// follow-up work once a consumer needs to read this data offline.
 class BleedingEpisodeRepositoryImpl {
   BleedingEpisodeRepositoryImpl({SupabaseClient? client})
     : _client = client ?? NiswahSupabase.clientOrNull;
 
   final SupabaseClient? _client;
 
-  /// Atomically creates an ACTIVE episode + its first observation via the
-  /// `start_bleeding_episode` RPC (Commit B) — never two separate writes
-  /// that could partially fail. Throws
-  /// [ActiveEpisodeAlreadyExistsException] if the user already has an
-  /// active episode (the DB's own one-active-episode constraint is the
-  /// real enforcement; this only classifies that specific, expected
-  /// conflict for the caller). Any other failure is reported and
-  /// rethrown — unlike onboarding's best-effort writes, a live "Start
-  /// bleeding" tap must tell the user honestly if it did not save
-  /// (Section 7: no false success).
+  /// The reporter's own local "today," derived from a UTC offset — never
+  /// guessed, never dependent on a named timezone being recognized. Used
+  /// to classify provenance (Blocker 4: reporting today is
+  /// [ObservationSource.userObserved]; reporting any other date is
+  /// [ObservationSource.userReportedHistorical]) consistently with what
+  /// the canonical RPC itself uses for future-date rejection.
+  static DateTime localToday(int utcOffsetMinutes) {
+    final nowUtc = DateTime.now().toUtc();
+    final local = nowUtc.add(Duration(minutes: utcOffsetMinutes));
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  /// Atomically creates an OPEN episode + its first observation via the
+  /// `start_bleeding_episode` RPC — never two separate writes that could
+  /// partially fail. [clientOperationId] must be generated once by the
+  /// caller and reused unchanged on any retry of this exact logical
+  /// action (double-tap, a lost response, an app restart before the
+  /// result was seen) — the RPC returns the original episode/observation
+  /// instead of erroring or duplicating when it recognizes a repeat.
+  ///
+  /// Throws [ActiveEpisodeAlreadyExistsException] if the user already has
+  /// a *different*, genuinely open episode (the DB's one-open-per-user
+  /// constraint is the real enforcement; this only classifies that
+  /// specific, expected conflict for the caller). Any other failure is
+  /// reported and rethrown — unlike onboarding's best-effort writes, a
+  /// live "Start bleeding" tap must tell the user honestly if it did not
+  /// save (Section 7: no false success).
   Future<({BleedingEpisode episode, BleedingObservation observation})>
   startEpisode({
+    required String clientOperationId,
     required DateTime startDate,
     required ObservationPrecision startPrecision,
     DateTime? startTime,
     required ObservationFlow flow,
     DateTime? observedTime,
     required ObservationPrecision observationPrecision,
-    required String timezone,
+    String? timezone,
+    required int utcOffsetMinutes,
     List<String>? symptoms,
     String? notes,
   }) async {
@@ -61,17 +82,26 @@ class BleedingEpisodeRepositoryImpl {
       );
     }
 
+    final source = ObservationSource.classify(
+      reportedDate: startDate,
+      localToday: localToday(utcOffsetMinutes),
+    );
+
     try {
       final response = await client.rpc(
         'start_bleeding_episode',
         params: {
+          'p_client_operation_id': clientOperationId,
           'p_start_date': _dateOnly(startDate),
           'p_start_precision': startPrecision.value,
           'p_start_time': startTime?.toIso8601String(),
+          'p_start_source': source.value,
           'p_flow': flow.value,
           'p_observed_time': observedTime?.toIso8601String(),
           'p_precision': observationPrecision.value,
+          'p_source': source.value,
           'p_timezone': timezone,
+          'p_utc_offset_minutes': utcOffsetMinutes,
           'p_symptoms': symptoms,
           'p_notes': notes,
         },
@@ -85,10 +115,12 @@ class BleedingEpisodeRepositoryImpl {
         episode: BleedingEpisode(
           id: episodeId,
           userId: client.auth.currentUser!.id,
-          status: EpisodeStatus.active,
+          lifecycleStatus: LifecycleStatus.open,
+          continuationCertainty: ContinuationCertainty.confirmed,
           startDate: startDate,
           startPrecision: startPrecision,
-          startSource: ObservationSource.userObserved,
+          startSource: source,
+          clientOperationId: clientOperationId,
         ),
         observation: BleedingObservation(
           id: observationId,
@@ -98,10 +130,12 @@ class BleedingEpisodeRepositoryImpl {
           observedTime: observedTime,
           precision: observationPrecision,
           flow: flow,
-          source: ObservationSource.userObserved,
+          source: source,
           timezone: timezone,
+          utcOffsetMinutes: utcOffsetMinutes,
           symptoms: symptoms,
           notes: notes,
+          clientOperationId: clientOperationId,
         ),
       );
     } on PostgrestException catch (error, stack) {
@@ -123,32 +157,57 @@ class BleedingEpisodeRepositoryImpl {
       '${date.month.toString().padLeft(2, '0')}-'
       '${date.day.toString().padLeft(2, '0')}';
 
-  /// Ends an active episode with a real, user-reported end date — never
-  /// inferred from elapsed time (Section 3 of the episode-lifecycle
-  /// contract). A plain single-table UPDATE is already atomic; no RPC is
-  /// needed the way starting an episode needed one.
-  Future<BleedingEpisode?> endEpisode({
+  /// Atomically ends an open episode AND records its closing (`flow:
+  /// none`) observation via the `end_bleeding_episode` RPC — a real,
+  /// user-reported end date, never inferred from elapsed time. The
+  /// original two-step (UPDATE the episode, then separately INSERT a
+  /// closing observation) could leave an episode marked ended with no
+  /// factual record of its own closure if the second step failed; this
+  /// RPC makes both happen in one transaction, the same way starting an
+  /// episode already did. [clientOperationId] gives this its own
+  /// idempotency, independent of the start operation's key — a retried
+  /// "end" call returns the original closing observation rather than
+  /// erroring or double-closing.
+  Future<({String episodeId, String closingObservationId})?> endEpisode({
+    required String clientOperationId,
     required String episodeId,
     required DateTime endDate,
     required ObservationPrecision endPrecision,
-    required ObservationSource endSource,
+    DateTime? observedTime,
+    required ObservationPrecision observationPrecision,
+    String? timezone,
+    required int utcOffsetMinutes,
   }) async {
     final client = _client;
     if (client == null) return null;
 
+    final source = ObservationSource.classify(
+      reportedDate: endDate,
+      localToday: localToday(utcOffsetMinutes),
+    );
+
     try {
-      final response = await client
-          .from('bleeding_episodes')
-          .update({
-            'status': 'ended',
-            'end_date': _dateOnly(endDate),
-            'end_precision': endPrecision.value,
-            'end_source': endSource.value,
-          })
-          .eq('id', episodeId)
-          .select()
-          .single();
-      return BleedingEpisode.fromJson(response);
+      final response = await client.rpc(
+        'end_bleeding_episode',
+        params: {
+          'p_client_operation_id': clientOperationId,
+          'p_episode_id': episodeId,
+          'p_end_date': _dateOnly(endDate),
+          'p_end_precision': endPrecision.value,
+          'p_end_source': source.value,
+          'p_observed_time': observedTime?.toIso8601String(),
+          'p_precision': observationPrecision.value,
+          'p_source': source.value,
+          'p_timezone': timezone,
+          'p_utc_offset_minutes': utcOffsetMinutes,
+        },
+      );
+
+      final row = (response as List).single as Map<String, dynamic>;
+      return (
+        episodeId: row['episode_id'] as String,
+        closingObservationId: row['closing_observation_id'] as String,
+      );
     } on PostgrestException catch (error, stack) {
       AppErrorReporter.report(
         error,
@@ -161,9 +220,11 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
-  /// Marks an active episode's continuation as uncertain — Section 15's
-  /// "I'm not sure" daily check-in answer. Never closes the episode and
-  /// never fabricates a positive bleeding observation.
+  /// Marks an OPEN episode's continuation as uncertain — Section 15's
+  /// "I'm not sure" daily check-in answer. Never closes the episode
+  /// (`lifecycle_status` stays `open`, so the one-open-per-user slot
+  /// stays occupied — a second, genuinely concurrent episode still
+  /// cannot start) and never fabricates a positive bleeding observation.
   Future<BleedingEpisode?> markEpisodeUncertain(String episodeId) async {
     final client = _client;
     if (client == null) return null;
@@ -171,7 +232,7 @@ class BleedingEpisodeRepositoryImpl {
     try {
       final response = await client
           .from('bleeding_episodes')
-          .update({'status': 'uncertain'})
+          .update({'continuation_certainty': 'uncertain'})
           .eq('id', episodeId)
           .select()
           .single();
@@ -191,8 +252,8 @@ class BleedingEpisodeRepositoryImpl {
   /// Adds one immutable observation to an existing episode — a daily
   /// check-in response, or a correction when [BleedingObservation.supersedesId]
   /// is set. Never an in-place update: the database itself refuses
-  /// UPDATE/DELETE on this table for the owning user (Commit A's RLS
-  /// fix), so a correction MUST come through here as a new row.
+  /// UPDATE/DELETE on this table for the owning user, so a correction
+  /// MUST come through here as a new row.
   Future<BleedingObservation?> addObservation(
     BleedingObservation observation,
   ) async {
@@ -273,10 +334,14 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
-  /// Best-effort: returns null (reported, not thrown) on any failure so a
-  /// caller like onboarding completion is never blocked by a network
-  /// hiccup — matching the existing best-effort pattern already used for
-  /// `AuthRepositoryImpl.markOnboardingCompleted`.
+  /// A plain, direct INSERT — used only by onboarding, which reports a
+  /// past episode (already started, possibly already ended) rather than
+  /// performing the live atomic start/end actions the RPCs above exist
+  /// for. Best-effort: returns null (reported, not thrown) on failure so
+  /// a network hiccup doesn't crash onboarding outright — but see
+  /// `OnboardingScreen._completeOnboarding`'s own handling of a null
+  /// result, which must not silently discard what the user reported
+  /// (Blocker 3 — no silent data loss).
   Future<BleedingEpisode?> createEpisode(BleedingEpisode episode) async {
     final client = _client;
     if (client == null) return null;
@@ -309,7 +374,10 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
-  Future<BleedingEpisode?> getActiveEpisode(String userId) async {
+  /// The user's currently open episode (bleeding may be ongoing, or its
+  /// continuation may be uncertain — either way, the one-open-per-user
+  /// slot is occupied), if any.
+  Future<BleedingEpisode?> getOpenEpisode(String userId) async {
     final client = _client;
     if (client == null) return null;
 
@@ -318,7 +386,7 @@ class BleedingEpisodeRepositoryImpl {
           .from('bleeding_episodes')
           .select()
           .eq('user_id', userId)
-          .eq('status', 'active')
+          .eq('lifecycle_status', 'open')
           .maybeSingle();
       if (response == null) return null;
       return BleedingEpisode.fromJson(response);
@@ -326,7 +394,7 @@ class BleedingEpisodeRepositoryImpl {
       AppErrorReporter.report(
         error,
         stack,
-        context: 'BleedingEpisodeRepositoryImpl.getActiveEpisode',
+        context: 'BleedingEpisodeRepositoryImpl.getOpenEpisode',
         feature: 'cycle_tracking',
         recordId: userId,
       );
@@ -335,7 +403,7 @@ class BleedingEpisodeRepositoryImpl {
       AppErrorReporter.report(
         error,
         stack,
-        context: 'BleedingEpisodeRepositoryImpl.getActiveEpisode',
+        context: 'BleedingEpisodeRepositoryImpl.getOpenEpisode',
         feature: 'cycle_tracking',
         recordId: userId,
       );
@@ -344,16 +412,19 @@ class BleedingEpisodeRepositoryImpl {
   }
 }
 
-/// Writes/reads a user's `cycle_baselines` row (their stated usual
-/// duration/cycle length — always USER_REPORTED_ESTIMATE, never observed
-/// history). See [BleedingEpisodeRepositoryImpl]'s doc comment for why
-/// this is server-only in this initial slice.
+/// Writes/reads a user's `cycle_baselines` history (their stated usual
+/// duration/cycle length over time — always USER_REPORTED_ESTIMATE, never
+/// observed history). See [BleedingEpisodeRepositoryImpl]'s doc comment
+/// for why this is server-only in this initial slice.
 class CycleBaselineRepositoryImpl {
   CycleBaselineRepositoryImpl({SupabaseClient? client})
     : _client = client ?? NiswahSupabase.clientOrNull;
 
   final SupabaseClient? _client;
 
+  /// Always a new row — a changed estimate never overwrites the old one
+  /// (Blocker 9: reproducibility requires the old value to remain
+  /// recoverable for anything that may have used it).
   Future<CycleBaseline?> saveBaseline(CycleBaseline baseline) async {
     final client = _client;
     if (client == null) return null;
@@ -361,7 +432,7 @@ class CycleBaselineRepositoryImpl {
     try {
       final response = await client
           .from('cycle_baselines')
-          .upsert(baseline.toUpsertJson(), onConflict: 'user_id')
+          .insert(baseline.toInsertJson())
           .select()
           .single();
       return CycleBaseline.fromJson(response);
@@ -377,6 +448,8 @@ class CycleBaselineRepositoryImpl {
     }
   }
 
+  /// The current baseline — the most recently reported one, since none of
+  /// them are ever overwritten in place.
   Future<CycleBaseline?> getBaseline(String userId) async {
     final client = _client;
     if (client == null) return null;
@@ -386,6 +459,8 @@ class CycleBaselineRepositoryImpl {
           .from('cycle_baselines')
           .select()
           .eq('user_id', userId)
+          .order('reported_at', ascending: false)
+          .limit(1)
           .maybeSingle();
       if (response == null) return null;
       return CycleBaseline.fromJson(response);

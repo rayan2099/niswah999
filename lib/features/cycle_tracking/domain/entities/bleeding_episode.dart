@@ -33,6 +33,36 @@ enum ObservationSource {
     'user_reported_historical' => ObservationSource.userReportedHistorical,
     _ => throw BleedingEpisodeParseException('source', raw),
   };
+
+  /// The one canonical source-classification rule (PR #4 hardening,
+  /// Blocker 4): provenance is derived from *which date the user
+  /// reported*, never from which screen created the row — a screen that
+  /// happens to offer "Today" and "Yesterday" side by side (the Start/End
+  /// Bleeding sheets) must classify each answer independently, not stamp
+  /// every write from that screen as [userObserved] regardless of which
+  /// date was actually chosen. [reportedDate] is the date being recorded;
+  /// [localToday] is the reporter's own local "today" (derived from her
+  /// UTC offset, never guessed) — reporting today's date is
+  /// [userObserved]; reporting any other (necessarily past) date is
+  /// [userReportedHistorical].
+  static ObservationSource classify({
+    required DateTime reportedDate,
+    required DateTime localToday,
+  }) {
+    final normalizedReported = DateTime(
+      reportedDate.year,
+      reportedDate.month,
+      reportedDate.day,
+    );
+    final normalizedToday = DateTime(
+      localToday.year,
+      localToday.month,
+      localToday.day,
+    );
+    return normalizedReported == normalizedToday
+        ? ObservationSource.userObserved
+        : ObservationSource.userReportedHistorical;
+  }
 }
 
 /// How exact a reported date/time actually is (Section 5) — never silently
@@ -56,26 +86,52 @@ enum ObservationPrecision {
   };
 }
 
-/// The episode lifecycle (Section 12): [active] (currently bleeding, no
-/// end reported yet), [ended] (a real end date was reported), [uncertain]
-/// (the user does not know whether it has ended — never silently forced
-/// into either of the other two states).
-enum EpisodeStatus {
-  active,
-  ended,
+/// The episode lifecycle (Section 12; PR #4 hardening, Blocker 5):
+/// [open] (still being tracked — bleeding may be ongoing or its
+/// continuation may be uncertain) or [ended] (a real end date was
+/// reported). Deliberately just these two — see [ContinuationCertainty]
+/// for the orthogonal question of whether continuation is confirmed.
+/// The original three-way active/ended/uncertain conflated those two
+/// questions, which meant marking uncertain silently vacated the
+/// one-active-episode slot (the DB's uniqueness only ever protected
+/// `status = 'active'`) and let a second, genuinely concurrent episode
+/// start while the first was still unresolved. The one-per-user
+/// uniqueness now covers every [open] episode regardless of certainty.
+enum LifecycleStatus {
+  open,
+  ended;
+
+  String get value => switch (this) {
+    LifecycleStatus.open => 'open',
+    LifecycleStatus.ended => 'ended',
+  };
+
+  static LifecycleStatus parse(String? raw) => switch (raw) {
+    'open' => LifecycleStatus.open,
+    'ended' => LifecycleStatus.ended,
+    _ => throw BleedingEpisodeParseException('lifecycle_status', raw),
+  };
+}
+
+/// Whether continuation of an OPEN episode is [confirmed] (she reported
+/// still bleeding) or [uncertain] ("I'm not sure" — Section 9's NOT SURE
+/// branch). Only meaningful while [LifecycleStatus.open]; null once
+/// [LifecycleStatus.ended] since there is nothing left to be uncertain
+/// about. "I'm not sure" never itself closes the episode and never
+/// forces a positive/negative bleeding fact.
+enum ContinuationCertainty {
+  confirmed,
   uncertain;
 
   String get value => switch (this) {
-    EpisodeStatus.active => 'active',
-    EpisodeStatus.ended => 'ended',
-    EpisodeStatus.uncertain => 'uncertain',
+    ContinuationCertainty.confirmed => 'confirmed',
+    ContinuationCertainty.uncertain => 'uncertain',
   };
 
-  static EpisodeStatus parse(String? raw) => switch (raw) {
-    'active' => EpisodeStatus.active,
-    'ended' => EpisodeStatus.ended,
-    'uncertain' => EpisodeStatus.uncertain,
-    _ => throw BleedingEpisodeParseException('status', raw),
+  static ContinuationCertainty parse(String? raw) => switch (raw) {
+    'confirmed' => ContinuationCertainty.confirmed,
+    'uncertain' => ContinuationCertainty.uncertain,
+    _ => throw BleedingEpisodeParseException('continuation_certainty', raw),
   };
 }
 
@@ -91,28 +147,45 @@ class BleedingEpisode extends Equatable {
   const BleedingEpisode({
     this.id,
     required this.userId,
-    required this.status,
+    required this.lifecycleStatus,
+    this.continuationCertainty,
     required this.startDate,
     required this.startPrecision,
     required this.startSource,
     this.endDate,
     this.endPrecision,
     this.endSource,
+    this.clientOperationId,
+    this.endClientOperationId,
   }) : assert(
-         (status == EpisodeStatus.ended) == (endDate != null),
-         'endDate must be set if and only if status is ended',
+         (lifecycleStatus == LifecycleStatus.ended) == (endDate != null),
+         'endDate must be set if and only if lifecycleStatus is ended',
+       ),
+       assert(
+         (lifecycleStatus == LifecycleStatus.open) ==
+             (continuationCertainty != null),
+         'continuationCertainty must be set if and only if lifecycleStatus is open',
        );
 
   /// Null before the row is inserted — the database assigns it.
   final String? id;
   final String userId;
-  final EpisodeStatus status;
+  final LifecycleStatus lifecycleStatus;
+  final ContinuationCertainty? continuationCertainty;
   final DateTime startDate;
   final ObservationPrecision startPrecision;
   final ObservationSource startSource;
   final DateTime? endDate;
   final ObservationPrecision? endPrecision;
   final ObservationSource? endSource;
+
+  /// The idempotency key the "start" operation was created under — see
+  /// `start_bleeding_episode`'s own doc comment.
+  final String? clientOperationId;
+
+  /// The idempotency key the "end" operation was performed under, once
+  /// ended — see `end_bleeding_episode`.
+  final String? endClientOperationId;
 
   static String _dateOnly(DateTime date) =>
       '${date.year.toString().padLeft(4, '0')}-'
@@ -121,13 +194,18 @@ class BleedingEpisode extends Equatable {
 
   Map<String, dynamic> toInsertJson() => {
     'user_id': userId,
-    'status': status.value,
+    'lifecycle_status': lifecycleStatus.value,
+    if (continuationCertainty != null)
+      'continuation_certainty': continuationCertainty!.value,
     'start_date': _dateOnly(startDate),
     'start_precision': startPrecision.value,
     'start_source': startSource.value,
     if (endDate != null) 'end_date': _dateOnly(endDate!),
     if (endPrecision != null) 'end_precision': endPrecision!.value,
     if (endSource != null) 'end_source': endSource!.value,
+    if (clientOperationId != null) 'client_operation_id': clientOperationId,
+    if (endClientOperationId != null)
+      'end_client_operation_id': endClientOperationId,
   };
 
   /// Throws [BleedingEpisodeParseException] on an unparseable/missing
@@ -149,7 +227,14 @@ class BleedingEpisode extends Equatable {
     return BleedingEpisode(
       id: json['id'] as String?,
       userId: json['user_id'] as String? ?? '',
-      status: EpisodeStatus.parse(json['status'] as String?),
+      lifecycleStatus: LifecycleStatus.parse(
+        json['lifecycle_status'] as String?,
+      ),
+      continuationCertainty: json['continuation_certainty'] == null
+          ? null
+          : ContinuationCertainty.parse(
+              json['continuation_certainty'] as String?,
+            ),
       startDate: startDate,
       startPrecision: ObservationPrecision.parse(
         json['start_precision'] as String?,
@@ -162,6 +247,8 @@ class BleedingEpisode extends Equatable {
       endSource: json['end_source'] == null
           ? null
           : ObservationSource.parse(json['end_source'] as String?),
+      clientOperationId: json['client_operation_id'] as String?,
+      endClientOperationId: json['end_client_operation_id'] as String?,
     );
   }
 
@@ -169,48 +256,74 @@ class BleedingEpisode extends Equatable {
   List<Object?> get props => [
     id,
     userId,
-    status,
+    lifecycleStatus,
+    continuationCertainty,
     startDate,
     startPrecision,
     startSource,
     endDate,
     endPrecision,
     endSource,
+    clientOperationId,
+    endClientOperationId,
   ];
 }
 
 /// A user's stated USUAL bleeding duration / cycle length — data taxonomy
 /// class 3 (USER_REPORTED_ESTIMATE, Section 3). Never itself an
-/// observation and never versioned as history (Section 4): a new answer
-/// simply replaces the old one, one row per user.
+/// observation.
+///
+/// PR #4 hardening, Blocker 9: previously one mutable row per user, which
+/// meant changing her answer made the *old* one unrecoverable — breaking
+/// reproducibility for anything that may have used it (a prediction
+/// computed under the old estimate could no longer be explained). Each
+/// [CycleBaseline] is now its own immutable row in an append-only
+/// history; "the current baseline" is simply the most recently
+/// [reportedAt] one for that user. Still never versioned as *observed*
+/// history — a history of estimates is a fundamentally different taxonomy
+/// class from a history of facts.
 class CycleBaseline extends Equatable {
   const CycleBaseline({
+    this.id,
     required this.userId,
     this.usualBleedingDurationDays,
     this.usualCycleLengthDays,
+    this.reportedAt,
   });
 
+  /// Null before insert — the database assigns it.
+  final String? id;
   final String userId;
   final int? usualBleedingDurationDays;
   final int? usualCycleLengthDays;
 
-  Map<String, dynamic> toUpsertJson() => {
+  /// Null lets the database's own `default now()` stamp the real insert
+  /// time.
+  final DateTime? reportedAt;
+
+  Map<String, dynamic> toInsertJson() => {
     'user_id': userId,
     'usual_bleeding_duration_days': usualBleedingDurationDays,
     'usual_cycle_length_days': usualCycleLengthDays,
   };
 
   factory CycleBaseline.fromJson(Map<String, dynamic> json) => CycleBaseline(
+    id: json['id'] as String?,
     userId: json['user_id'] as String? ?? '',
     usualBleedingDurationDays: json['usual_bleeding_duration_days'] as int?,
     usualCycleLengthDays: json['usual_cycle_length_days'] as int?,
+    reportedAt: json['reported_at'] == null
+        ? null
+        : DateTime.tryParse(json['reported_at'] as String),
   );
 
   @override
   List<Object?> get props => [
+    id,
     userId,
     usualBleedingDurationDays,
     usualCycleLengthDays,
+    reportedAt,
   ];
 }
 
@@ -264,10 +377,12 @@ class BleedingObservation extends Equatable {
     required this.flow,
     required this.source,
     this.reportedAt,
-    required this.timezone,
+    this.timezone,
+    required this.utcOffsetMinutes,
     this.symptoms,
     this.notes,
     this.supersedesId,
+    this.clientOperationId,
   });
 
   /// Null before insert — the database assigns it.
@@ -284,10 +399,28 @@ class BleedingObservation extends Equatable {
   /// time — never set this to a client-computed "now" that could drift
   /// from when the row is actually written.
   final DateTime? reportedAt;
-  final String timezone;
+
+  /// Best-effort metadata only (an IANA identifier when the platform
+  /// genuinely provides one, otherwise a bare abbreviation, otherwise
+  /// null) — PR #4 hardening, Blocker 7: never used in a computation,
+  /// since a name like "AST"/"GMT+3" is ambiguous and would make a
+  /// database-side `AT TIME ZONE` lookup outright error rather than
+  /// degrade gracefully. [utcOffsetMinutes] is the reliable field.
+  final String? timezone;
+
+  /// The exact UTC offset, in minutes, in effect when this was reported —
+  /// always obtainable from the platform (`DateTime.timeZoneOffset`),
+  /// unlike a true IANA identifier. The only field local-date-boundary
+  /// math (future-date rejection, "today" for the daily check-in) is
+  /// ever based on.
+  final int utcOffsetMinutes;
   final List<String>? symptoms;
   final String? notes;
   final String? supersedesId;
+
+  /// The idempotency key the write that created this row was performed
+  /// under, if any — see `start_bleeding_episode`/`end_bleeding_episode`.
+  final String? clientOperationId;
 
   static String _dateOnly(DateTime date) =>
       '${date.year.toString().padLeft(4, '0')}-'
@@ -302,10 +435,12 @@ class BleedingObservation extends Equatable {
     'precision': precision.value,
     'flow': flow.value,
     'source': source.value,
-    'timezone': timezone,
+    if (timezone != null) 'timezone': timezone,
+    'utc_offset_minutes': utcOffsetMinutes,
     if (symptoms != null) 'symptoms': symptoms,
     if (notes != null) 'notes': notes,
     if (supersedesId != null) 'supersedes_id': supersedesId,
+    if (clientOperationId != null) 'client_operation_id': clientOperationId,
   };
 
   factory BleedingObservation.fromJson(Map<String, dynamic> json) {
@@ -315,6 +450,14 @@ class BleedingObservation extends Equatable {
         : DateTime.tryParse(rawObservedDate);
     if (observedDate == null) {
       throw BleedingEpisodeParseException('observed_date', rawObservedDate);
+    }
+
+    final rawOffset = json['utc_offset_minutes'];
+    final utcOffsetMinutes = rawOffset is int
+        ? rawOffset
+        : (rawOffset is String ? int.tryParse(rawOffset) : null);
+    if (utcOffsetMinutes == null) {
+      throw BleedingEpisodeParseException('utc_offset_minutes', rawOffset);
     }
 
     return BleedingObservation(
@@ -331,12 +474,14 @@ class BleedingObservation extends Equatable {
       reportedAt: json['reported_at'] == null
           ? null
           : DateTime.tryParse(json['reported_at'] as String),
-      timezone: json['timezone'] as String? ?? '',
+      timezone: json['timezone'] as String?,
+      utcOffsetMinutes: utcOffsetMinutes,
       symptoms: (json['symptoms'] as List<dynamic>?)
           ?.map((item) => item.toString())
           .toList(),
       notes: json['notes'] as String?,
       supersedesId: json['supersedes_id'] as String?,
+      clientOperationId: json['client_operation_id'] as String?,
     );
   }
 
@@ -352,8 +497,10 @@ class BleedingObservation extends Equatable {
     source,
     reportedAt,
     timezone,
+    utcOffsetMinutes,
     symptoms,
     notes,
     supersedesId,
+    clientOperationId,
   ];
 }

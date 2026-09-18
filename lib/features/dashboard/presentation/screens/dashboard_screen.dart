@@ -606,9 +606,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId == null) return;
 
-    final activeEpisode = await BleedingEpisodeRepositoryImpl()
-        .getActiveEpisode(userId);
-    if (activeEpisode?.id == null) {
+    final openEpisode = await BleedingEpisodeRepositoryImpl().getOpenEpisode(
+      userId,
+    );
+    if (openEpisode?.id == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -626,7 +627,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     final ended = await showEndBleedingSheet(
       context,
-      episodeId: activeEpisode!.id!,
+      episodeId: openEpisode!.id!,
+      episodeStartDate: openEpisode.startDate,
     );
     if (ended) {
       await _viewModel.loadLogs();

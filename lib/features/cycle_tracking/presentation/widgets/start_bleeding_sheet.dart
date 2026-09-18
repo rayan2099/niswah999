@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
@@ -12,13 +13,21 @@ import '../../domain/entities/bleeding_episode.dart';
 String _t(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
 
-/// Menstrual Data Integrity charter, Commit D — Section 6's "Start
-/// Bleeding" UX: only factual questions (when it started, how it is right
-/// now), never a Fiqh conclusion ("Bleeding started," never "Haid
-/// started" — the Fiqh classification is a separate, later layer that may
-/// not even be resolvable yet if the Madhhab is unset). Returns true if a
-/// new episode was actually started, so the caller (the dashboard) knows
-/// to refresh.
+/// PR #4 hardening, Blocker 6: no medically-motivated bound on how long
+/// ago a real bleeding start/end can be reported — a technical bound is
+/// still required by `showDatePicker`'s own API, so this is deliberately
+/// generous (effectively "no meaningful restriction" for any real human
+/// history) rather than the previous 2-year window, which contradicted
+/// this very screen's own "however long ago that was" copy.
+DateTime _earliestReportableDate(DateTime now) =>
+    DateTime(now.year - 100, now.month, now.day);
+
+/// Menstrual Data Integrity charter — Section 6's "Start Bleeding" UX:
+/// only factual questions (when it started, how it is right now), never a
+/// Fiqh conclusion ("Bleeding started," never "Haid started" — the Fiqh
+/// classification is a separate, later layer that may not even be
+/// resolvable yet if the Madhhab is unset). Returns true if a new episode
+/// was actually started, so the caller (the dashboard) knows to refresh.
 Future<bool> showStartBleedingSheet(BuildContext context) async {
   final result = await showModalBottomSheet<bool>(
     context: context,
@@ -40,14 +49,20 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
   bool _saving = false;
   String? _errorMessage;
 
+  // PR #4 hardening, Blocker 1: generated once for this sheet instance and
+  // reused on every retry (a failed attempt, a double-tap before the
+  // first result is seen) — this is exactly what lets the RPC recognize a
+  // retry as the *same* logical action instead of a new one.
+  final String _clientOperationId = const Uuid().v4();
+
   bool get _arabic => AppLocaleController.instance.isArabic;
 
   Future<void> _pickOtherDate() async {
     final now = AppClock.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: now,
-      firstDate: DateTime(now.year - 2, now.month, now.day),
+      initialDate: _startDate ?? now,
+      firstDate: _earliestReportableDate(now),
       lastDate: now,
     );
     if (picked != null) setState(() => _startDate = picked);
@@ -70,24 +85,31 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
       }
 
       final now = AppClock.now();
-      // Dart's core DateTime has no true IANA timezone identifier — only
-      // a platform-dependent abbreviation. Honest limitation, not a
-      // fabrication: this is what the platform actually gives us, stored
-      // as-is rather than invented.
+      // PR #4 hardening, Blocker 7: DateTime.timeZoneName is a
+      // platform-dependent abbreviation ("AST", "GMT+3") — ambiguous,
+      // never used for any computation. timeZoneOffset is always
+      // reliably obtainable and exact for this instant; it is what the
+      // canonical write boundary actually bases local-date math on.
       final timezone = now.timeZoneName;
+      final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
       final result = await BleedingEpisodeRepositoryImpl().startEpisode(
+        clientOperationId: _clientOperationId,
         startDate: startDate,
         startPrecision: ObservationPrecision.dateOnly,
         flow: flow,
         observationPrecision: ObservationPrecision.dateOnly,
         timezone: timezone,
+        utcOffsetMinutes: utcOffsetMinutes,
       );
 
       // Best-effort: the canonical episode/observation are already saved
       // at this point (Section 7's "prove what succeeded") — a projection
       // failure must not make the dashboard claim the whole action
-      // failed when the real save already succeeded.
+      // failed when the real save already succeeded. Full durability
+      // here is Commit F's job once the dashboard reads canonical data
+      // directly; until then this is a best-effort mirror, not the
+      // source of truth (Blocker 12).
       try {
         await CycleEntriesProjection().project(result.observation);
       } catch (_) {
@@ -236,22 +258,33 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
 }
 
 /// Section 6's end-of-episode counterpart: only "when did it stop?" — no
-/// Fiqh conclusion here either.
+/// Fiqh conclusion here either. [episodeStartDate] bounds the date picker
+/// so the user cannot even attempt an impossible date (Blocker 11) — the
+/// canonical `end_bleeding_episode` RPC still re-validates this itself as
+/// defense in depth.
 Future<bool> showEndBleedingSheet(
   BuildContext context, {
   required String episodeId,
+  required DateTime episodeStartDate,
 }) async {
   final result = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => _EndBleedingSheet(episodeId: episodeId),
+    builder: (_) => _EndBleedingSheet(
+      episodeId: episodeId,
+      episodeStartDate: episodeStartDate,
+    ),
   );
   return result ?? false;
 }
 
 class _EndBleedingSheet extends StatefulWidget {
-  const _EndBleedingSheet({required this.episodeId});
+  const _EndBleedingSheet({
+    required this.episodeId,
+    required this.episodeStartDate,
+  });
   final String episodeId;
+  final DateTime episodeStartDate;
   @override
   State<_EndBleedingSheet> createState() => _EndBleedingSheetState();
 }
@@ -261,14 +294,16 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
   bool _saving = false;
   String? _errorMessage;
 
+  final String _clientOperationId = const Uuid().v4();
+
   bool get _arabic => AppLocaleController.instance.isArabic;
 
   Future<void> _pickOtherDate() async {
     final now = AppClock.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: now,
-      firstDate: DateTime(now.year - 2, now.month, now.day),
+      initialDate: _endDate ?? now,
+      firstDate: widget.episodeStartDate,
       lastDate: now,
     );
     if (picked != null) setState(() => _endDate = picked);
@@ -283,41 +318,44 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
       _errorMessage = null;
     });
 
+    final now = AppClock.now();
+    final timezone = now.timeZoneName;
+    final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
+
+    // Atomic: the episode's state transition and its closing (flow: none)
+    // observation are created together by the RPC — never a separate
+    // client-issued INSERT that could leave the episode ended with no
+    // factual record of its own closure.
     final repository = BleedingEpisodeRepositoryImpl();
     final result = await repository.endEpisode(
+      clientOperationId: _clientOperationId,
       episodeId: widget.episodeId,
       endDate: endDate,
       endPrecision: ObservationPrecision.dateOnly,
-      endSource: ObservationSource.userObserved,
+      observationPrecision: ObservationPrecision.dateOnly,
+      timezone: timezone,
+      utcOffsetMinutes: utcOffsetMinutes,
     );
 
     if (result != null) {
-      // "Bleeding stopped on X" is itself a real, factual observation
-      // (flow: none — an explicit "not bleeding," distinct from an
-      // unanswered check-in), not merely metadata on the episode. Also
-      // gives the still-in-use legacy CycleCalculationService/dashboard
+      // Gives the still-in-use legacy CycleCalculationService/dashboard
       // engine (which reads cycle_entries, not this table) the "ended"
       // signal it needs via the same projection every other observation
-      // goes through — never a second, separately-authored write.
-      final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
-      if (userId != null) {
-        final observation = await repository.addObservation(
-          BleedingObservation(
-            userId: userId,
-            episodeId: widget.episodeId,
-            observedDate: endDate,
-            precision: ObservationPrecision.dateOnly,
-            flow: ObservationFlow.none,
-            source: ObservationSource.userObserved,
-            timezone: AppClock.now().timeZoneName,
-          ),
-        );
-        if (observation != null) {
-          try {
-            await CycleEntriesProjection().project(observation);
-          } catch (_) {
-            // Reported internally by the projection's own repository calls.
-          }
+      // goes through — never a second, separately-authored write. The
+      // closing observation already exists (created atomically above);
+      // this only mirrors it, and a failure here does not mean the real
+      // save failed.
+      final observations = await repository.getObservationsForEpisode(
+        widget.episodeId,
+      );
+      final closingObservation = observations
+          .where((o) => o.id == result.closingObservationId)
+          .firstOrNull;
+      if (closingObservation != null) {
+        try {
+          await CycleEntriesProjection().project(closingObservation);
+        } catch (_) {
+          // Reported internally by the projection's own repository calls.
         }
       }
     }
@@ -342,6 +380,7 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
     final now = AppClock.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
+    final yesterdayReachable = !yesterday.isBefore(widget.episodeStartDate);
 
     return Directionality(
       textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
@@ -380,12 +419,17 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
                       _endDate != null && DateUtils.isSameDay(_endDate, today),
                   onSelected: (_) => setState(() => _endDate = today),
                 ),
+                // Blocker 11: never offer a choice the canonical episode
+                // start itself makes impossible — disabled, not hidden,
+                // so the constraint is visible rather than merely absent.
                 ChoiceChip(
                   label: Text(_t('Yesterday', 'أمس')),
                   selected:
                       _endDate != null &&
                       DateUtils.isSameDay(_endDate, yesterday),
-                  onSelected: (_) => setState(() => _endDate = yesterday),
+                  onSelected: yesterdayReachable
+                      ? (_) => setState(() => _endDate = yesterday)
+                      : null,
                 ),
                 ActionChip(
                   label: Text(

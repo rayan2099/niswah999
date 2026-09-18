@@ -138,14 +138,57 @@ void main() {
     AppLocaleController.instance.setArabic(false);
   });
 
+  testWidgets(
+    'showEndBleedingSheet: the "Yesterday" chip is disabled (not merely '
+    'hidden) when yesterday precedes the episode\'s own start date '
+    '(PR #4 hardening, Blocker 11)',
+    (tester) async {
+      final episodeStart = DateTime.now();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => showEndBleedingSheet(
+                context,
+                episodeId: 'episode-1',
+                episodeStartDate: episodeStart,
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final yesterdayChipFinder = find.ancestor(
+        of: find.text('Yesterday'),
+        matching: find.byType(ChoiceChip),
+      );
+      final chip = tester.widget<ChoiceChip>(yesterdayChipFinder);
+      expect(
+        chip.onSelected,
+        isNull,
+        reason:
+            'the episode started today, so "yesterday" is not a reachable '
+            'end date — the picker must not offer it as tappable',
+      );
+    },
+  );
+
   testWidgets('showEndBleedingSheet: with no Supabase session, Save reports an '
       'honest failure', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
           builder: (context) => ElevatedButton(
-            onPressed: () =>
-                showEndBleedingSheet(context, episodeId: 'episode-1'),
+            onPressed: () => showEndBleedingSheet(
+              context,
+              episodeId: 'episode-1',
+              episodeStartDate: DateTime.now().subtract(
+                const Duration(days: 3),
+              ),
+            ),
             child: const Text('open'),
           ),
         ),
