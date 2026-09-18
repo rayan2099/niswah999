@@ -45,6 +45,30 @@ in the earlier hostile-review pass. Fixed with `SECURITY DEFINER` +
 explicit `search_path`; re-verified live that the same attack now fails
 while a legitimate same-owner insert still succeeds.
 
+## PR #4 completion wave — pre-completion fixes A–D (2026-09-18)
+
+Required before continuing into Commits D–H. Each is its own commit
+(`215a4b3` for A/C/D, `6c964f7` for B) with the full technical detail in
+its own message.
+
+| Fix | Status |
+|---|---|
+| A — one atomic, idempotent onboarding operation | **FIXED** — `record_onboarding_menstrual_history` RPC; verified live: episode-only, baseline-only, both together, 5 identical retries → exactly one of each, a CHECK-violating baseline value rolls back the *whole* operation (no orphan episode), future-date rejection, both open and ended variants |
+| C — every canonical write path validated, not just start/end | **FIXED** — one trigger (`bleeding_observations_validate_insert`) covers every INSERT into `bleeding_observations` regardless of code path: ownership, ended-episode rejection (with the one precise closing-observation exception), future-date rejection, and correction-target validation (same user, same episode) — each verified live, including the cross-account and cross-episode cases |
+| D — durable app-kill recovery | **FIXED** — `PendingBleedingOperationStore` persists an operation's id + replayable params *before* either RPC is sent, cleared on success; `reconcilePendingOperations` (wired into `main.dart`'s existing app-start/app-resume triggers) replays anything still pending through the same idempotent RPC. Verified: round-trip, replace-not-duplicate, and a replay that cannot succeed is correctly left pending. What is **not** and cannot be proven here: a real process kill on a real device (E4) |
+| B — real IANA timezone identity | **DART-SIDE FIXED, NATIVE BUILD UNCONFIRMED** — `flutter_timezone` added and wired (`DeviceTimezone.currentId()`), captured for both live sheet actions; `utc_offset_minutes` remains the separate, reliable field all canonical date math is based on. `flutter analyze`/`dart format`/`flutter test` are clean. This session has no way to run a real Android or iOS native build — confirm this branch's own CI "Build Android (debug artifact)" and "Build iOS (no-codesign compile check)" jobs are green before treating Fix B as closed |
+
+A genuine test-infrastructure bug was found and fixed while building Fix
+B: under `testWidgets` (not a plain `test()`), an unmocked
+`MethodChannel` call hangs indefinitely instead of throwing
+`MissingPluginException` quickly. The first version of
+`device_timezone_test.dart` used a plain `test()` and gave a false sense
+the graceful-degradation path was covered; the real gap was only
+surfaced by `start_bleeding_sheet_test.dart` timing out once the sheets
+started calling `DeviceTimezone.currentId()`. Fixed with
+`mockDeviceTimezoneForTest` (mirroring the existing
+`resetSecureLocalStoreForTest` pattern).
+
 ## Central doctrine (verbatim, non-negotiable)
 
 ```
