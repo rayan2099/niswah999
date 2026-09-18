@@ -5,6 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/features/cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
 
+import 'support/device_timezone_test_support.dart';
+import 'support/secure_storage_test_support.dart';
+
 /// Menstrual Data Integrity charter, Commit D: the "Start Bleeding" /
 /// "Bleeding stopped" sheets ask only the two factual questions Section 6
 /// requires — never a Fiqh conclusion, never a forced/assumed flow. A real
@@ -18,6 +21,15 @@ import 'package:niswah/features/cycle_tracking/presentation/widgets/start_bleedi
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // PR #4 completion wave, Fix D: the sheets now persist a pending
+    // operation via SecureLocalStore before every RPC attempt — without
+    // this, that call hits a real platform channel that doesn't exist
+    // under flutter_test, and every test below hangs indefinitely rather
+    // than failing fast.
+    resetSecureLocalStoreForTest();
+    // Fix B: DeviceTimezone.currentId() call — same reasoning, a
+    // different channel (flutter_timezone has no test double of its own).
+    mockDeviceTimezoneForTest();
     AppLocaleController.instance.setArabic(false);
   });
 

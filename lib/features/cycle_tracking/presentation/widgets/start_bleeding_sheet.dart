@@ -5,6 +5,7 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
@@ -86,12 +87,14 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
       }
 
       final now = AppClock.now();
-      // PR #4 hardening, Blocker 7: DateTime.timeZoneName is a
-      // platform-dependent abbreviation ("AST", "GMT+3") — ambiguous,
-      // never used for any computation. timeZoneOffset is always
-      // reliably obtainable and exact for this instant; it is what the
-      // canonical write boundary actually bases local-date math on.
-      final timezone = now.timeZoneName;
+      // PR #4 completion wave, Fix B: a real IANA identifier
+      // ("Asia/Riyadh") when the platform can provide one — never a bare
+      // abbreviation ("AST"), which is ambiguous and was never usable for
+      // future local-time interpretation (only for the historical-offset
+      // math below, which utcOffsetMinutes already covers exactly).
+      // Best-effort: null if genuinely unavailable, matching the schema's
+      // own nullable `timezone` column.
+      final timezone = await DeviceTimezone.currentId();
       final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
       // PR #4 completion wave, Fix D: persisted *before* the RPC is sent
@@ -350,7 +353,7 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
     });
 
     final now = AppClock.now();
-    final timezone = now.timeZoneName;
+    final timezone = await DeviceTimezone.currentId();
     final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
     // PR #4 completion wave, Fix D: persisted before the RPC is sent —
