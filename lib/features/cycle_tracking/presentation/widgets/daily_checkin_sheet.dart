@@ -134,12 +134,16 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
     );
 
     if (observationId == null) {
+      // Closure Blocker 12 — the observation is already safely encrypted
+      // on-device (savePending above already committed before this RPC
+      // was ever sent) and queued for the next reconciliation attempt —
+      // "Could not save" would be a lie here; nothing was lost.
       if (!mounted) return;
       setState(() {
         _saving = false;
         _errorMessage = _t(
-          'Could not save. Please try again.',
-          'تعذر الحفظ. يرجى المحاولة مجدداً.',
+          'Saved on device — syncing.',
+          'تم الحفظ على الجهاز — جارٍ المزامنة.',
         );
       });
       return;
@@ -209,12 +213,14 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
     );
 
     if (result == null) {
+      // Closure Blocker 12 — already safely queued (savePending ran
+      // before this RPC), so this is never "Could not save."
       if (!mounted) return;
       setState(() {
         _saving = false;
         _errorMessage = _t(
-          'Could not save. Please try again.',
-          'تعذر الحفظ. يرجى المحاولة مجدداً.',
+          'Saved on device — syncing.',
+          'تم الحفظ على الجهاز — جارٍ المزامنة.',
         );
       });
       return;
@@ -562,12 +568,14 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
     );
 
     if (observationId == null) {
+      // Closure Blocker 12 — already safely queued (savePending ran
+      // before this RPC), so this is never "Could not save."
       if (!mounted) return;
       setState(() {
         _saving = false;
         _errorMessage = _t(
-          'Could not save. Please try again.',
-          'تعذر الحفظ. يرجى المحاولة مجدداً.',
+          'Saved on device — syncing.',
+          'تم الحفظ على الجهاز — جارٍ المزامنة.',
         );
       });
       return;

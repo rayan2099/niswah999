@@ -81,8 +81,12 @@ void main() {
     },
   );
 
-  testWidgets('with no Supabase session, Save reports an honest failure rather '
-      'than a false success or a crash', (tester) async {
+  testWidgets('Closure Blocker 12: with no Supabase session, Save reports the '
+      'honest "saved on device, syncing" state rather than a false '
+      '"could not save" (the correction was already persisted to the '
+      'pending outbox before the RPC was ever attempted) or a crash', (
+    tester,
+  ) async {
     await pumpCorrectionSheet(tester);
 
     await tester.tap(find.text('Light'));
@@ -92,8 +96,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Could not save. Please try again.'), findsOneWidget);
-    // The sheet must still be open (not popped as if it had succeeded).
+    expect(find.text('Saved on device — syncing.'), findsOneWidget);
+    // The sheet must still be open (not popped as if fully synced).
     expect(find.text('Correct this entry'), findsOneWidget);
   });
 

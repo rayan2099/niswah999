@@ -130,12 +130,14 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
       );
 
       if (observationId == null) {
+        // Closure Blocker 12 — already safely queued (savePending ran
+        // before this RPC), so this is never "Could not save."
         if (!mounted) return;
         setState(() {
           _saving = false;
           _errorMessage = _t(
-            'Could not save. Please try again.',
-            'تعذر الحفظ. يرجى المحاولة مجدداً.',
+            'Saved on device — syncing.',
+            'تم الحفظ على الجهاز — جارٍ المزامنة.',
           );
         });
         return;

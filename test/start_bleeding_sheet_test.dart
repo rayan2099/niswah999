@@ -104,31 +104,31 @@ void main() {
     },
   );
 
-  testWidgets(
-    'with no Supabase session, Save reports an honest failure rather than '
-    'a false success or a crash',
-    (tester) async {
-      await pumpStartSheet(tester);
+  testWidgets('Closure Blocker 12: with no Supabase session, Save reports the '
+      'honest "saved on device, syncing" state rather than a false '
+      '"could not save" or a crash', (tester) async {
+    await pumpStartSheet(tester);
 
-      await tester.tap(find.text('Today'));
-      await tester.tap(find.text('Medium'));
-      await tester.pump();
-      await tester.tap(find.text('Save'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('Today'));
+    await tester.tap(find.text('Medium'));
+    await tester.pump();
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
 
-      expect(tester.takeException(), isNull);
-      expect(
-        find.text('Could not save. Please try again.'),
-        findsOneWidget,
-        reason:
-            'a failed save must say so honestly, never silently succeed '
-            'or throw an unhandled exception',
-      );
-      // The sheet must still be open (not popped as if it had succeeded).
-      expect(find.text('Bleeding started'), findsOneWidget);
-    },
-  );
+    expect(tester.takeException(), isNull);
+    expect(
+      find.text('Saved on device — syncing.'),
+      findsOneWidget,
+      reason:
+          'the operation was already persisted to the pending outbox '
+          'before the RPC was ever attempted — a failed RPC here must '
+          'say so honestly, never claim data was lost nor throw an '
+          'unhandled exception',
+    );
+    // The sheet must still be open (not popped as if fully synced).
+    expect(find.text('Bleeding started'), findsOneWidget);
+  });
 
   testWidgets('Arabic: the sheet renders RTL with the Arabic questions', (
     tester,
@@ -188,35 +188,38 @@ void main() {
     },
   );
 
-  testWidgets('showEndBleedingSheet: with no Supabase session, Save reports an '
-      'honest failure', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => ElevatedButton(
-            onPressed: () => showEndBleedingSheet(
-              context,
-              episodeId: 'episode-1',
-              episodeStartDate: DateTime.now().subtract(
-                const Duration(days: 3),
+  testWidgets(
+    'Closure Blocker 12: showEndBleedingSheet with no Supabase session, '
+    'Save reports the honest "saved on device, syncing" state',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => showEndBleedingSheet(
+                context,
+                episodeId: 'episode-1',
+                episodeStartDate: DateTime.now().subtract(
+                  const Duration(days: 3),
+                ),
               ),
+              child: const Text('open'),
             ),
-            child: const Text('open'),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('When did it stop?'), findsOneWidget);
-    await tester.tap(find.text('Today'));
-    await tester.pump();
-    await tester.tap(find.text('Save'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('When did it stop?'), findsOneWidget);
+      await tester.tap(find.text('Today'));
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-    expect(tester.takeException(), isNull);
-    expect(find.text('Could not save. Please try again.'), findsOneWidget);
-  });
+      expect(tester.takeException(), isNull);
+      expect(find.text('Saved on device — syncing.'), findsOneWidget);
+    },
+  );
 }

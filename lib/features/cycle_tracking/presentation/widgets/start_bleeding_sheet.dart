@@ -161,15 +161,17 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
         );
       });
     } catch (_) {
-      // Left pending on any other failure (network, etc.) — either she
-      // retries here (same operation id, same sheet), or, if the app
-      // dies before that, the next start-up's reconciliation replays it.
+      // Closure Blocker 12 — savePending already committed above, before
+      // this RPC was ever attempted, so this is already safely queued on
+      // device, never "Could not save." Left pending: either she retries
+      // here (same operation id, same sheet), or, if the app dies before
+      // that, the next start-up's reconciliation replays it.
       if (!mounted) return;
       setState(() {
         _saving = false;
         _errorMessage = _t(
-          'Could not save. Please try again.',
-          'تعذر الحفظ. يرجى المحاولة مجدداً.',
+          'Saved on device — syncing.',
+          'تم الحفظ على الجهاز — جارٍ المزامنة.',
         );
       });
     }
@@ -435,11 +437,13 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
 
     if (!mounted) return;
     if (result == null) {
+      // Closure Blocker 12 — already safely queued (savePending ran
+      // before this RPC), so this is never "Could not save."
       setState(() {
         _saving = false;
         _errorMessage = _t(
-          'Could not save. Please try again.',
-          'تعذر الحفظ. يرجى المحاولة مجدداً.',
+          'Saved on device — syncing.',
+          'تم الحفظ على الجهاز — جارٍ المزامنة.',
         );
       });
       return;
