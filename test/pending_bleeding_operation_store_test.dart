@@ -487,4 +487,217 @@ void main() {
       expect(stillPending.single.operationId, 'baseline-op-2');
     });
   });
+
+  group('New critical finding — three honest sync states', () {
+    test('a fresh pending operation (never yet attempted) is savedSyncing', () {
+      final operation = PendingBleedingOperation(
+        operationId: 'op-1',
+        type: PendingBleedingOperationType.startEpisode,
+        params: const {},
+        createdAt: DateTime(2026, 9, 17),
+      );
+      expect(operation.syncState, SyncState.savedSyncing);
+      expect(operation.eligibleForAutomaticRetry, isTrue);
+    });
+
+    test('network/auth/unknown failures stay savedSyncing until the retry '
+        'threshold, then become needsAttention — never dead-lettered, '
+        'still eligible for automatic retry the whole time', () {
+      var operation = PendingBleedingOperation(
+        operationId: 'op-1',
+        type: PendingBleedingOperationType.startEpisode,
+        params: const {},
+        createdAt: DateTime(2026, 9, 17),
+      );
+
+      for (var i = 0; i < 2; i++) {
+        operation = operation.withFailure(
+          PendingOperationFailureCategory.network,
+          attemptedAt: DateTime(2026, 9, 17),
+        );
+        expect(
+          operation.syncState,
+          SyncState.savedSyncing,
+          reason: 'attempt ${i + 1} — still under the threshold',
+        );
+        expect(operation.eligibleForAutomaticRetry, isTrue);
+      }
+
+      operation = operation.withFailure(
+        PendingOperationFailureCategory.network,
+        attemptedAt: DateTime(2026, 9, 17),
+      );
+      expect(operation.syncState, SyncState.needsAttention);
+      expect(
+        operation.eligibleForAutomaticRetry,
+        isTrue,
+        reason:
+            'needsAttention is about visibility, not giving up — '
+            'automatic reconciliation keeps trying',
+      );
+    });
+
+    test('a validation failure is needsAttention immediately, on the very '
+        'first failure, and is never automatically retried again', () {
+      final operation =
+          PendingBleedingOperation(
+            operationId: 'op-1',
+            type: PendingBleedingOperationType.startEpisode,
+            params: const {},
+            createdAt: DateTime(2026, 9, 17),
+          ).withFailure(
+            PendingOperationFailureCategory.validation,
+            attemptedAt: DateTime(2026, 9, 17),
+          );
+
+      expect(operation.syncState, SyncState.needsAttention);
+      expect(operation.eligibleForAutomaticRetry, isFalse);
+    });
+
+    test('a correction conflict is needsAttention immediately and is never '
+        'automatically retried (blind retry would just conflict again)', () {
+      final operation =
+          PendingBleedingOperation(
+            operationId: 'op-1',
+            type: PendingBleedingOperationType.correction,
+            params: const {},
+            createdAt: DateTime(2026, 9, 17),
+          ).withFailure(
+            PendingOperationFailureCategory.correctionConflict,
+            attemptedAt: DateTime(2026, 9, 17),
+          );
+
+      expect(operation.syncState, SyncState.needsAttention);
+      expect(operation.eligibleForAutomaticRetry, isFalse);
+    });
+
+    test('withFailure increments retryCount and stamps lastAttemptAt/'
+        'lastFailureCategory, all of which round-trip through JSON', () {
+      final operation =
+          PendingBleedingOperation(
+            operationId: 'op-1',
+            type: PendingBleedingOperationType.startEpisode,
+            params: const {},
+            createdAt: DateTime(2026, 9, 17),
+          ).withFailure(
+            PendingOperationFailureCategory.network,
+            attemptedAt: DateTime(2026, 9, 18, 10),
+          );
+
+      expect(operation.retryCount, 1);
+      expect(
+        operation.lastFailureCategory,
+        PendingOperationFailureCategory.network,
+      );
+      expect(operation.lastAttemptAt, DateTime(2026, 9, 18, 10));
+
+      final restored = PendingBleedingOperation.tryFromJson(
+        operation.toJson(),
+      )!;
+      expect(restored.retryCount, 1);
+      expect(
+        restored.lastFailureCategory,
+        PendingOperationFailureCategory.network,
+      );
+      expect(restored.lastAttemptAt, DateTime(2026, 9, 18, 10));
+    });
+
+    test('a record persisted before retry-tracking existed (no retry_count/'
+        'category/timestamp fields at all) restores honestly as '
+        'never-failed, not quarantined over an optional field', () {
+      final restored = PendingBleedingOperation.tryFromJson({
+        'operation_id': 'op-1',
+        'type': 'startEpisode',
+        'params': <String, dynamic>{},
+        'created_at': DateTime(2026, 9, 17).toIso8601String(),
+      });
+      expect(restored, isNotNull);
+      expect(restored!.retryCount, 0);
+      expect(restored.lastFailureCategory, isNull);
+      expect(restored.syncState, SyncState.savedSyncing);
+    });
+  });
+
+  group('New critical finding — reconcilePendingOperations retry tracking '
+      '(auth/differentiated failure categories)', () {
+    test('a real reconciliation failure (no session — an auth condition) '
+        'persists retryCount/category back to the store, visible on the '
+        'next load', () async {
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'op-1',
+          type: PendingBleedingOperationType.startEpisode,
+          params: {
+            'startDate': DateTime(2026, 9, 17).toIso8601String(),
+            'startPrecision': 'date_only',
+            'flow': 'medium',
+            'observationPrecision': 'date_only',
+            'timezone': 'UTC',
+            'utcOffsetMinutes': 0,
+          },
+          createdAt: DateTime(2026, 9, 17),
+        ),
+      );
+
+      await BleedingEpisodeRepositoryImpl(client: null)
+          .reconcilePendingOperations();
+
+      final stillPending = await PendingBleedingOperationStore.loadPending();
+      expect(stillPending, hasLength(1));
+      expect(stillPending.single.retryCount, 1);
+      expect(
+        stillPending.single.lastFailureCategory,
+        PendingOperationFailureCategory.auth,
+        reason:
+            'startEpisode throws a StateError mentioning "session" '
+            'when there is no Supabase client at all',
+      );
+    });
+
+    test(
+      'a validation-categorized pending operation is skipped by '
+      'automatic reconciliation (forceAll: false, the default) but '
+      'still attempted when forceAll: true (a deliberate manual retry)',
+      () async {
+        final validationFailed =
+            PendingBleedingOperation(
+              operationId: 'op-1',
+              type: PendingBleedingOperationType.startEpisode,
+              params: {
+                'startDate': DateTime(2026, 9, 17).toIso8601String(),
+                'startPrecision': 'date_only',
+                'flow': 'medium',
+                'observationPrecision': 'date_only',
+                'timezone': 'UTC',
+                'utcOffsetMinutes': 0,
+              },
+              createdAt: DateTime(2026, 9, 17),
+            ).withFailure(
+              PendingOperationFailureCategory.validation,
+              attemptedAt: DateTime(2026, 9, 17),
+            );
+        await PendingBleedingOperationStore.savePending(validationFailed);
+
+        await BleedingEpisodeRepositoryImpl(client: null)
+            .reconcilePendingOperations();
+        var stillPending = await PendingBleedingOperationStore.loadPending();
+        expect(
+          stillPending.single.retryCount,
+          1,
+          reason:
+              'automatic reconciliation must not have touched it — '
+              'retryCount stays exactly where withFailure left it',
+        );
+
+        await BleedingEpisodeRepositoryImpl(client: null)
+            .reconcilePendingOperations(forceAll: true);
+        stillPending = await PendingBleedingOperationStore.loadPending();
+        expect(
+          stillPending.single.retryCount,
+          2,
+          reason: 'forceAll: true genuinely attempted it again',
+        );
+      },
+    );
+  });
 }

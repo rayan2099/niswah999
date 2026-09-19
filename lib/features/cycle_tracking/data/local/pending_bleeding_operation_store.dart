@@ -55,12 +55,75 @@ enum PendingBleedingOperationType {
   baselineEstimate,
 }
 
+/// New critical finding — the three-honest-sync-states closure. Never
+/// conflate a transient, still-being-retried failure with one that
+/// genuinely needs her own intervention, and never differentiate them
+/// on gut feel: this is the durable, structural signal
+/// [PendingBleedingOperation.syncState] is computed from.
+enum PendingOperationFailureCategory {
+  /// No network/backend response at all — the ordinary "she's offline
+  /// or the server hiccuped" case. Always safe to keep auto-retrying.
+  network,
+
+  /// The server rejected the request specifically because her session
+  /// is no longer valid. Auto-retrying with the same stale credentials
+  /// will not help — but signing back in and retrying will, so this is
+  /// still not a dead end, just one that needs her to reauthenticate
+  /// first (handled by this app's existing sign-in flow, not by this
+  /// store inventing its own).
+  auth,
+
+  /// The server rejected the request's own data (a constraint the
+  /// client should have already prevented but didn't) — retrying with
+  /// the *same* data will deterministically fail again. Never
+  /// auto-retried indefinitely; surfaced for her own review instead.
+  validation,
+
+  /// Commit D7's own conflict (`NW409`) — another correction already
+  /// superseded this exact target. Never auto-resolved by picking a
+  /// winner; the existing correction-conflict UI is the real resolution
+  /// path, not blind retrying.
+  correctionConflict,
+
+  /// An error this store's own classification does not recognize —
+  /// treated as conservatively as [network] (still retried) rather than
+  /// guessed into a more specific, possibly wrong, bucket.
+  unknown,
+}
+
+/// New critical finding — the three honest, user-facing sync states.
+/// Never a fourth, silent "failed" state: a locally-preserved
+/// observation is never allowed to simply disappear from her view of
+/// what's saved.
+enum SyncState {
+  /// No pending operation exists for this fact at all — the server has
+  /// already acknowledged it.
+  savedSynced,
+
+  /// Still queued, but every attempt so far is the ordinary, expected
+  /// kind of transient gap (offline, a hiccup) — no reason yet to worry
+  /// her with anything beyond "still syncing."
+  savedSyncing,
+
+  /// Queued, and either it has failed enough consecutive transient
+  /// attempts to stop being "still syncing" as a comforting default, or
+  /// the failure itself is structurally never going to resolve by
+  /// simply trying again (a validation rejection or a correction
+  /// conflict). The data is still safely on the device either way —
+  /// this state is about visibility and an actionable next step, never
+  /// about data loss.
+  needsAttention,
+}
+
 class PendingBleedingOperation {
   const PendingBleedingOperation({
     required this.operationId,
     required this.type,
     required this.params,
     required this.createdAt,
+    this.retryCount = 0,
+    this.lastFailureCategory,
+    this.lastAttemptAt,
   });
 
   final String operationId;
@@ -68,11 +131,83 @@ class PendingBleedingOperation {
   final Map<String, dynamic> params;
   final DateTime createdAt;
 
+  /// New critical finding — how many consecutive reconciliation
+  /// attempts have failed for this exact operation id. Never resets
+  /// except by a fresh, successful attempt (which clears the pending
+  /// operation entirely — there is nothing left to carry a count on).
+  final int retryCount;
+
+  /// The most recent failure's category, or null if this has never
+  /// failed yet (still on its very first attempt) or the last attempt
+  /// actually succeeded (in which case it would already be cleared, not
+  /// sitting here at all).
+  final PendingOperationFailureCategory? lastFailureCategory;
+
+  /// When the most recent (successful-or-not) reconciliation attempt
+  /// was made — structural metadata only, shown to her as "still trying"
+  /// vs. "needs attention," never as health content.
+  final DateTime? lastAttemptAt;
+
+  /// New critical finding — retryCount ≥ this many consecutive failures
+  /// of an otherwise-recoverable category (network/auth/unknown) is
+  /// itself enough to stop calling it "still syncing" and surface it —
+  /// still safely queued, still being retried, but no longer a
+  /// comforting assumption that it'll resolve any moment now.
+  static const _attentionRetryThreshold = 3;
+
+  SyncState get syncState {
+    final category = lastFailureCategory;
+    if (category == null) return SyncState.savedSyncing;
+    if (category == PendingOperationFailureCategory.validation ||
+        category == PendingOperationFailureCategory.correctionConflict) {
+      // New critical finding — never labeled "still syncing": trying
+      // again with unchanged data cannot fix either of these; she needs
+      // to know now, not after a threshold of silently-repeated retries.
+      return SyncState.needsAttention;
+    }
+    return retryCount >= _attentionRetryThreshold
+        ? SyncState.needsAttention
+        : SyncState.savedSyncing;
+  }
+
+  /// New critical finding — "do not retry invalid operations
+  /// indefinitely": a [PendingOperationFailureCategory.validation]
+  /// failure will deterministically repeat with unchanged data, so
+  /// automatic (unattended) reconciliation must not keep attempting it
+  /// forever — only an explicit, informed manual retry should. A
+  /// [PendingOperationFailureCategory.correctionConflict] is likewise
+  /// never auto-resolved by blind retrying (that would just conflict
+  /// again) — the existing correction-conflict UI is its real
+  /// resolution path.
+  bool get eligibleForAutomaticRetry {
+    final category = lastFailureCategory;
+    return category != PendingOperationFailureCategory.validation &&
+        category != PendingOperationFailureCategory.correctionConflict;
+  }
+
+  PendingBleedingOperation withFailure(
+    PendingOperationFailureCategory category, {
+    required DateTime attemptedAt,
+  }) => PendingBleedingOperation(
+    operationId: operationId,
+    type: type,
+    params: params,
+    createdAt: createdAt,
+    retryCount: retryCount + 1,
+    lastFailureCategory: category,
+    lastAttemptAt: attemptedAt,
+  );
+
   Map<String, dynamic> toJson() => {
     'operation_id': operationId,
     'type': type.name,
     'params': params,
     'created_at': createdAt.toIso8601String(),
+    'retry_count': retryCount,
+    if (lastFailureCategory != null)
+      'last_failure_category': lastFailureCategory!.name,
+    if (lastAttemptAt != null)
+      'last_attempt_at': lastAttemptAt!.toIso8601String(),
   };
 
   static PendingBleedingOperation? tryFromJson(Map<String, dynamic> json) {
@@ -93,11 +228,27 @@ class PendingBleedingOperation {
       // block every other pending operation from reconciling.
       return null;
     }
+    // New critical finding — retry-tracking fields are additive and
+    // never required: a record persisted before this finding's own
+    // change (or one otherwise missing them) is still perfectly valid,
+    // defaulting honestly to "never failed yet" rather than being
+    // quarantined over a genuinely optional field.
+    final retryCount = json['retry_count'] as int? ?? 0;
+    final lastFailureCategory = PendingOperationFailureCategory.values
+        .firstWhereOrNull(
+          (value) => value.name == json['last_failure_category'] as String?,
+        );
+    final lastAttemptAt = json['last_attempt_at'] == null
+        ? null
+        : DateTime.tryParse(json['last_attempt_at'] as String);
     return PendingBleedingOperation(
       operationId: operationId,
       type: type,
       params: params,
       createdAt: createdAt,
+      retryCount: retryCount,
+      lastFailureCategory: lastFailureCategory,
+      lastAttemptAt: lastAttemptAt,
     );
   }
 }

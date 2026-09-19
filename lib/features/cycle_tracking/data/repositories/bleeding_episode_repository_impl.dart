@@ -810,9 +810,21 @@ class BleedingEpisodeRepositoryImpl {
   /// method is still fully durable without it, and the next real app-open
   /// through the dashboard already re-derives from canonical data going
   /// forward once Commit F lands.
-  Future<void> reconcilePendingOperations() async {
+  ///
+  /// New critical finding — three honest sync states: [forceAll] (a
+  /// deliberate, informed manual "Retry now" action, never the automatic
+  /// app-start/resume trigger) is the only way an operation whose last
+  /// failure was categorized [PendingOperationFailureCategory.validation]
+  /// or [PendingOperationFailureCategory.correctionConflict] is attempted
+  /// again — automatic reconciliation always skips them
+  /// ([PendingBleedingOperation.eligibleForAutomaticRetry]), since
+  /// retrying either with unchanged data cannot succeed and would only
+  /// ever waste a retry slot silently forever ("do not retry invalid
+  /// operations indefinitely").
+  Future<void> reconcilePendingOperations({bool forceAll = false}) async {
     final pending = await PendingBleedingOperationStore.loadPending();
     for (final operation in pending) {
+      if (!forceAll && !operation.eligibleForAutomaticRetry) continue;
       try {
         switch (operation.type) {
           case PendingBleedingOperationType.startEpisode:
@@ -1022,8 +1034,59 @@ class BleedingEpisodeRepositoryImpl {
           feature: 'cycle_tracking',
           recordId: operation.operationId,
         );
+        // New critical finding — durable retry/category tracking is what
+        // SyncState is computed from; without persisting this, "saved on
+        // device, syncing" could never honestly become "needs attention"
+        // no matter how many times the same operation kept failing.
+        await PendingBleedingOperationStore.savePending(
+          operation.withFailure(
+            _categorizeReconciliationError(error),
+            attemptedAt: DateTime.now(),
+          ),
+        );
       }
     }
+  }
+
+  /// New critical finding — a best-effort, conservative mapping from a
+  /// reconciliation failure to a [PendingOperationFailureCategory].
+  /// Deliberately separate from [_categorizeError] (that one classifies a
+  /// *read* failure into [LoadErrorCategory] for an honest retry message;
+  /// this one classifies a *write* failure to decide whether automatic
+  /// retry is even appropriate at all).
+  static PendingOperationFailureCategory _categorizeReconciliationError(
+    Object error,
+  ) {
+    if (error is CorrectionConflictException) {
+      return PendingOperationFailureCategory.correctionConflict;
+    }
+    if (error is PostgrestException) {
+      final code = error.code;
+      if (code == '42501' || code == 'PGRST301' || code == '401') {
+        return PendingOperationFailureCategory.auth;
+      }
+      if (code == null) return PendingOperationFailureCategory.network;
+      // Postgres constraint violations (23xxx: check/unique/foreign-key/
+      // not-null) and this app's own RPC-level `RAISE EXCEPTION`
+      // validations (P0001, the default SQLSTATE for a plain RAISE with
+      // no explicit USING ERRCODE) are deterministic, data-shaped
+      // rejections — retrying with the exact same data cannot fix them.
+      if (code.startsWith('23') || code == 'P0001') {
+        return PendingOperationFailureCategory.validation;
+      }
+      return PendingOperationFailureCategory.network;
+    }
+    if (error is StateError) {
+      // This same method's own "no session"/"reconciliation did not
+      // complete" sentinels are StateErrors — a missing session is
+      // specifically an auth condition (signing back in resolves it,
+      // unlike a genuine network gap).
+      if (error.message.toLowerCase().contains('session')) {
+        return PendingOperationFailureCategory.auth;
+      }
+      return PendingOperationFailureCategory.network;
+    }
+    return PendingOperationFailureCategory.unknown;
   }
 }
 

@@ -23,6 +23,7 @@ import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
+import '../../../cycle_tracking/data/local/pending_bleeding_operation_store.dart';
 import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/entities/load_result.dart';
@@ -638,6 +639,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       padding: const EdgeInsets.fromLTRB(24, 24, 24, 132),
                       sliver: SliverList.list(
                         children: [
+                          // New critical finding — three honest sync
+                          // states: shown regardless of which
+                          // canonical/prediction branch renders below,
+                          // since a pending operation needing attention
+                          // can coexist with any of them.
+                          _SyncStatusBanner(
+                            key: ValueKey(_missedCheckinRefreshToken),
+                          ),
                           if (PregnancyStatusController
                               .instance
                               .isPregnant) ...[
@@ -2786,6 +2795,155 @@ class _LiveCountdownState extends State<_LiveCountdown> {
 /// leaves the gap; UNKNOWN/UNOBSERVED remains valid data. Fetches its own
 /// data independently (keyed by the parent's refresh token) rather than
 /// threading the open episode through the whole dashboard state tree.
+/// New critical finding — three honest sync states: the visible,
+/// actionable surface for [SyncState.needsAttention]. Absent entirely
+/// while nothing is pending or every pending item is still an ordinary
+/// [SyncState.savedSyncing] — this is deliberately not a general
+/// "here's everything queued" view (that would make ordinary, expected
+/// offline syncing feel alarming); it only ever appears once something
+/// genuinely needs her own attention.
+class _SyncStatusBanner extends StatefulWidget {
+  const _SyncStatusBanner({super.key});
+
+  @override
+  State<_SyncStatusBanner> createState() => _SyncStatusBannerState();
+}
+
+class _SyncStatusBannerState extends State<_SyncStatusBanner> {
+  List<PendingBleedingOperation> _needsAttention = const [];
+  bool _retrying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    final all = await PendingBleedingOperationStore.loadPending();
+    final needsAttention = all
+        .where((op) => op.syncState == SyncState.needsAttention)
+        .toList();
+    if (mounted) setState(() => _needsAttention = needsAttention);
+  }
+
+  Future<void> _retryNow() async {
+    setState(() => _retrying = true);
+    // forceAll: true — a deliberate, informed manual action (unlike the
+    // automatic app-start/resume reconciliation) is the one case where
+    // even a validation/correction-conflict-categorized item is
+    // genuinely retried rather than left skipped.
+    await BleedingEpisodeRepositoryImpl().reconcilePendingOperations(
+      forceAll: true,
+    );
+    await _load();
+    if (mounted) setState(() => _retrying = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_needsAttention.isEmpty) return const SizedBox.shrink();
+
+    // Never a blind "retry" affordance for a category retrying cannot
+    // possibly fix with unchanged data — honest about which recovery
+    // route actually applies, rather than a control that would just
+    // fail again the same way.
+    final anyRetryable = _needsAttention.any(
+      (op) => op.eligibleForAutomaticRetry,
+    );
+    final anyNeedsReview = _needsAttention.any(
+      (op) => !op.eligibleForAutomaticRetry,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7ED),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFFDBA74)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.sync_problem_rounded,
+                  color: Color(0xFF9A6700),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _l('Sync needs attention', 'المزامنة تحتاج إلى انتباه'),
+                    style: const TextStyle(
+                      color: Color(0xFF9A6700),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _l(
+                "${_needsAttention.length} item(s) you already saved on this "
+                    "device haven't finished syncing to your account. "
+                    "Nothing is lost.",
+                'هناك ${_needsAttention.length} عنصر (عناصر) محفوظة بأمان على '
+                    'هذا الجهاز لم تكتمل مزامنتها مع حسابكِ بعد. لا شيء ضائع.',
+              ),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+            if (anyNeedsReview) ...[
+              const SizedBox(height: 6),
+              Text(
+                _l(
+                  'Some of these need your review before they can sync — '
+                      'trying again automatically will not resolve them.',
+                  'بعض هذه العناصر تحتاج إلى مراجعتكِ قبل أن تتمكن من '
+                      'المزامنة — إعادة المحاولة تلقائياً لن تحلّها.',
+                ),
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+            if (anyRetryable) ...[
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _retrying ? null : () => unawaited(_retryNow()),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF9A6700),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: _retrying
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(_l('Retry now', 'إعادة المحاولة الآن')),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MissedCheckinBanner extends StatefulWidget {
   const _MissedCheckinBanner({super.key, required this.onAdd});
 
