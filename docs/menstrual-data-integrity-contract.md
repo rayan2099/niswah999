@@ -509,3 +509,147 @@ were hit in this pass. The reason implementation stopped after Commits A
 and C is scope/time, not a blocking condition — recorded honestly per the
 charter's own quality bar (Section 72): tests passing and a migration
 applying cleanly is not the same as the charter being complete.
+
+## 9. PR #4 Data-Integrity Closure Wave + Final Closure and Adversarial
+## Validation wave (2026-09-19)
+
+Two further charters landed on this same branch after Section 8 above
+was written. Recorded here rather than rewriting the sections above, to
+keep this document's own history honest rather than silently
+retconning earlier status tables.
+
+### Closure Wave — 17 named blockers
+
+PASS (real, tested, several live-verified against a full local Postgres
+reconstruction): typed read-failure model (`LoadResult<T>` — success/
+degraded/unavailable, never conflated with verified-empty); canonical
+episode lifecycle as the sole factual "is she bleeding right now"
+signal (`hasOpenEpisode`, structurally independent of the legacy Fiqh
+display label); `CanonicalFiqhEvidenceAdapter` (canonical, effective,
+post-correction evidence bridged into the legacy `CycleLog` shape,
+never inventing a `FlowLevel` for an `uncertain` day); server-side
+provenance derivation on every canonical write RPC (a client can no
+longer claim `user_observed` for a past date); DB + RPC-level
+precision/timestamp consistency; real IANA timezone application
+(`tz.setLocalLocation`, previously a no-op); a real, persisted,
+user-choosable active-bleeding reminder time; contextual (not
+cold-start) notification consent; background/foreground/terminated
+notification tap routing via a live `NotificationService.onTap` stream;
+correction-conflict resolution that actually clears the stale pending
+outbox entry; `PendingBleedingOperationStore.loadPending` hardened
+against malformed JSON/wrong shape/one-bad-item without losing the
+rest; a structural notification event audit trail (scheduled/
+cancelled/opened/responded) separate from the display feed; trust-based
+prediction eligibility (a degraded read can never become
+`predictionEligibleHistory`); degraded-read propagation into the UI.
+
+PARTIAL/NOT BUILT at the time that wave's own report was delivered:
+the third sync state ("SYNC NEEDS ATTENTION") was not yet built; F7
+(observed/reported/estimated/predicted visual semantics) and F8 (a
+canonical calendar screen) were not started at all — no calendar/
+month-grid UI exists in this app yet to attach date-tap actions to.
+
+A genuine regression was introduced and then found and fixed within
+that same wave: `_canonicalStatus == null` (no session yet, or the
+first canonical fetch simply hadn't resolved) was briefly treated
+identically to a genuine read failure, wrongly showing "couldn't
+verify" instead of the honest empty state — this was also the root
+cause of most of that wave's own `accessibility_text_scaling_test.dart`
+failures.
+
+### Final Closure and Adversarial Validation wave
+
+Four items, each verified against the real baseline commit
+(`1d56a6e`) rather than assumed:
+
+1. **Three honest sync states — COMPLETE.** `PendingBleedingOperation`
+   gained durable `retryCount`/`lastFailureCategory`/`lastAttemptAt`
+   tracking; `SyncState` (`savedSynced`/`savedSyncing`/
+   `needsAttention`) is computed from real, persisted history, never a
+   fourth silent "failed" state. Failure categorization
+   (network/auth/validation/correctionConflict/unknown) determines
+   whether automatic reconciliation keeps retrying forever
+   (network/auth/unknown — genuinely never dead-lettered) or stops
+   after the first failure and waits for a deliberate manual retry
+   (validation/correctionConflict — "do not retry invalid operations
+   indefinitely"). A real dashboard banner (`_SyncStatusBanner`)
+   surfaces `needsAttention` items with a category-honest recovery
+   action — a real "Retry now" where retrying can help, an honest
+   "needs your review" note (no false retry button) where it can't.
+
+2. **Multi-day notification continuity — COMPLETE.**
+   `ActiveBleedingReminderScheduler.planRollingDailyCheckins` plans a
+   bounded (7-day) rolling window of independently-scheduled,
+   independently-cancellable reminders every refresh, reusing the
+   existing per-day logical identity rather than an OS recurring-alarm
+   primitive that can't selectively skip one satisfied day. A single
+   refresh (proven via both a pure-scheduler test and a real
+   `NotificationRefreshCoordinator` integration test using the actual
+   `flutter_local_notifications` platform channel) leaves a full
+   week's genuine, distinct reminder ids scheduled — an episode is
+   never left silent again purely because the app wasn't reopened
+   daily. Bounded deliberately (iOS's own hard, OS-wide 64-pending-
+   notification ceiling, shared across every notification type this
+   app uses) — a continuous absence longer than the window, or a
+   check-in completed on a different device while this one stays
+   offline, is the explicitly disclosed limit of what a client-only
+   scheduler can guarantee; cross-device instantaneous cancellation is
+   never claimed. Also fixed, found while building this: the same-day
+   "catch-up" time used to be `now + 1 minute`, recomputed later on
+   every repeated refresh — now a fixed buffer derived only from the
+   preferred time itself, stable across repeated same-day refreshes.
+
+3. **Canonical-only Fiqh authority — COMPLETE.** `_canonicalFiqhLogs ??
+   _viewModel.logs` was removed outright — the Fiqh ruling now comes
+   exclusively from canonical evidence, never a legacy fallback. A new
+   `_FiqhState.evidenceUnresolved` (with its own retry-capable UI —
+   `_FiqhEvidenceUnresolvedCard` in place of the ring, honest copy in
+   the Salah banner and — the most safety-critical consumer —
+   `_PrayerStatusCard`, which previously would have confidently
+   asserted "Salah is obligatory" from evidence that could not
+   actually be verified) takes priority over every other signal,
+   including her own manual Istihadah toggle, whenever the observations
+   read genuinely fails, is degraded by a quarantined row, or an
+   excluded `uncertain`-flow day (`CanonicalFiqhEvidenceAdapter.
+   excludedUncertainDates`, new) falls within the currently open
+   episode's own date range. One directly caused, honestly disclosed
+   test casualty: `parity_today_stepper_consistency_test.dart`'s
+   "manual istihadah mode still shows a real day count" test relied on
+   legacy-only fixture data with no canonical session at all — now
+   correctly insufficient to compute a day count, exactly as this
+   finding required.
+
+4. **Notification scheduling audit integrity — COMPLETE.**
+   `NotificationService.scheduleAt`/`scheduleDaily` now return a
+   `NotificationSchedulingOutcome` (`accepted`/`failed`/
+   `permissionUnavailable`/`uninitialized`) instead of `void`;
+   `cancel` returns a plain `bool`. `NotificationRefreshCoordinator`
+   only records a "scheduled" audit event (or the display-feed entry)
+   once the OS has actually acknowledged the call, and only records
+   "cancelled" when cancellation genuinely succeeded. Verified against
+   the real `flutter_local_notifications` platform channel (mocked at
+   the method-channel level, not a hand-rolled stand-in): a genuine
+   injected platform rejection returns `failed`; a real Android
+   `areNotificationsEnabled() == false` returns `permissionUnavailable`
+   before ever attempting the call; iOS has no non-prompting permission
+   query in the installed plugin version, so an iOS permission-caused
+   failure is honestly reported as the less-precise `failed` rather
+   than a fabricated distinction.
+
+**Not built in this wave** (disclosed, not silently dropped): F7
+(observed/reported/estimated/predicted/legacy-unverified visual
+semantics) and F8 (a canonical calendar screen) remain exactly as
+un-started as the prior wave left them — both are substantial new-UI
+efforts (F8 in particular needs an entirely new month-grid screen this
+app does not have yet), not something addressable as an incremental
+patch. The broader per-audit-area findings registers under
+`production-readiness-results/`, the traceability matrix, the founder
+launch-confidence dashboard, and the owner launch checklist were not
+updated this wave — only this contract document was, as the one
+directly and specifically governing this charter's own architecture;
+updating the other ~20 documents is disclosed here as a remaining,
+separate task, not claimed done.
+
+All four CI jobs (Analyze & Test, Build Android, Build iOS, BR-002
+migration reproducibility) were green on this wave's own final pushed
+SHA. PR #4 remains draft and unmerged throughout.
