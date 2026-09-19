@@ -64,19 +64,14 @@ class SecureLocalStore {
   static String _scopedKey(String category, String userId) =>
       '${category}__$userId';
 
-  static Future<String?> read(String category) => _secureStorage.read(
-    key: _scopedKey(category, currentUserId()),
-  );
+  static Future<String?> read(String category) =>
+      _secureStorage.read(key: _scopedKey(category, currentUserId()));
 
-  static Future<void> write(String category, String value) =>
-      _secureStorage.write(
-        key: _scopedKey(category, currentUserId()),
-        value: value,
-      );
+  static Future<void> write(String category, String value) => _secureStorage
+      .write(key: _scopedKey(category, currentUserId()), value: value);
 
-  static Future<void> delete(String category) => _secureStorage.delete(
-    key: _scopedKey(category, currentUserId()),
-  );
+  static Future<void> delete(String category) =>
+      _secureStorage.delete(key: _scopedKey(category, currentUserId()));
 
   /// Removes this category's data for the *given* user id, regardless of
   /// who is currently signed in. Used by account-deletion cleanup (Phase F),
@@ -244,11 +239,9 @@ class SecureLocalStore {
     // confusing `_TypeError` in any caller doing `.firstWhere(orElse: () =>
     // T(...))` on the result.
     if (raw == null || raw.isEmpty) return <T>[];
+    final List<dynamic> decoded;
     try {
-      final decoded = jsonDecode(raw) as List<dynamic>;
-      return decoded
-          .map((item) => fromJson(item as Map<String, dynamic>))
-          .toList();
+      decoded = jsonDecode(raw) as List<dynamic>;
     } catch (error, stack) {
       AppErrorReporter.report(
         error,
@@ -258,5 +251,26 @@ class SecureLocalStore {
       );
       return <T>[];
     }
+
+    // Each item is parsed independently and a failure quarantines only that
+    // one record rather than the whole list — a `fromJson` that now throws
+    // on strictly invalid required data (rather than silently fabricating a
+    // plausible-looking default, per the menstrual-data-integrity charter's
+    // strict-parsing requirement) must never cause every *other*, perfectly
+    // valid record sharing this same on-disk blob to vanish with it.
+    final results = <T>[];
+    for (final item in decoded) {
+      try {
+        results.add(fromJson(item as Map<String, dynamic>));
+      } catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'SecureLocalStore.decodeJsonListSafely',
+          feature: category,
+        );
+      }
+    }
+    return results;
   }
 }

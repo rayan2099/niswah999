@@ -310,7 +310,11 @@ class _CalendarDayState extends State<_CalendarDay>
       opacity: widget.inMonth ? 1 : 0.1,
       child: Semantics(
         button: true,
-        label: '${widget.date.day}, ${marker.label}',
+        // F7 — a screen reader must hear this in the user's actual
+        // language, never the enum's internal English constant
+        // regardless of locale (the bug this fixes: Arabic mode was
+        // announcing "Expected Haid" in English).
+        label: '${widget.date.day}, ${marker.localizedLabel}',
         // Without this, the day-number Text rendered below merges in as
         // a redundant trailing fragment of this already-complete label.
         excludeSemantics: true,
@@ -597,4 +601,18 @@ enum _DayMarker {
   final Color fill;
   final Color color;
   final bool outlined;
+
+  /// F7 — the same English/Arabic pairing [_CalendarLegend] already
+  /// shows visually, now also reachable by a screen reader via each
+  /// day cell's own [Semantics] label (previously always English,
+  /// regardless of locale).
+  String get localizedLabel =>
+      AppLocaleController.instance.text(label, switch (this) {
+        _DayMarker.none => 'لا يوجد إدخال',
+        _DayMarker.haid => 'حيض',
+        _DayMarker.expectedHaid => 'حيض متوقع',
+        _DayMarker.tahara => 'طهارة',
+        _DayMarker.fertile => 'خصوبة',
+        _DayMarker.ovulation => 'التبويض',
+      });
 }

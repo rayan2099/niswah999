@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/cycle_calculation_service.dart';
 import 'package:niswah/features/notifications/domain/services/notification_scheduler.dart';
 import 'package:niswah/features/pregnancy_profile/domain/entities/pregnancy_profile.dart';
@@ -86,21 +89,24 @@ void main() {
       expect(plan.bodyAr, contains('2'));
     });
 
-    test('postpartum profile plans nothing here (handled by nifas planner)', () {
-      final profile = PregnancyProfile(
-        id: 'p1',
-        userId: 'u1',
-        isPostpartum: true,
-        postpartumStartDate: DateTime(2026, 1, 1),
-      );
+    test(
+      'postpartum profile plans nothing here (handled by nifas planner)',
+      () {
+        final profile = PregnancyProfile(
+          id: 'p1',
+          userId: 'u1',
+          isPostpartum: true,
+          postpartumStartDate: DateTime(2026, 1, 1),
+        );
 
-      final plan = NotificationScheduler.planPregnancyMilestone(
-        profile: profile,
-        now: DateTime(2026, 1, 10),
-      );
+        final plan = NotificationScheduler.planPregnancyMilestone(
+          profile: profile,
+          now: DateTime(2026, 1, 10),
+        );
 
-      expect(plan, isNull);
-    });
+        expect(plan, isNull);
+      },
+    );
   });
 
   group('NotificationScheduler.planNifasCountdown', () {
@@ -146,6 +152,564 @@ void main() {
       );
 
       expect(plan, isNull);
+    });
+  });
+
+  group('ActiveBleedingReminderScheduler (Commit E1/E5/E6/E7)', () {
+    BleedingEpisode openEpisode({
+      LifecycleStatus lifecycleStatus = LifecycleStatus.open,
+      ContinuationCertainty? continuationCertainty =
+          ContinuationCertainty.confirmed,
+    }) => BleedingEpisode(
+      id: 'episode-1',
+      userId: 'user-1',
+      lifecycleStatus: lifecycleStatus,
+      continuationCertainty: continuationCertainty,
+      startDate: DateTime(2026, 9, 10),
+      startPrecision: ObservationPrecision.dateOnly,
+      startSource: ObservationSource.userObserved,
+      endDate: lifecycleStatus == LifecycleStatus.ended
+          ? DateTime(2026, 9, 12)
+          : null,
+      endPrecision: lifecycleStatus == LifecycleStatus.ended
+          ? ObservationPrecision.dateOnly
+          : null,
+      endSource: lifecycleStatus == LifecycleStatus.ended
+          ? ObservationSource.userObserved
+          : null,
+    );
+
+    group('isEligible (E1)', () {
+      test('an open, confirmed episode is eligible', () {
+        expect(
+          ActiveBleedingReminderScheduler.isEligible(openEpisode()),
+          isTrue,
+        );
+      });
+
+      test('an open, uncertain episode is still eligible', () {
+        expect(
+          ActiveBleedingReminderScheduler.isEligible(
+            openEpisode(continuationCertainty: ContinuationCertainty.uncertain),
+          ),
+          isTrue,
+        );
+      });
+
+      test('an ended episode is never eligible', () {
+        expect(
+          ActiveBleedingReminderScheduler.isEligible(
+            openEpisode(
+              lifecycleStatus: LifecycleStatus.ended,
+              continuationCertainty: null,
+            ),
+          ),
+          isFalse,
+        );
+      });
+
+      test('no episode at all is never eligible', () {
+        expect(ActiveBleedingReminderScheduler.isEligible(null), isFalse);
+      });
+    });
+
+    group('reminderId (E5 — logical identity)', () {
+      test('is stable for the same user+episode+day across calls', () {
+        final first = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          localDay: DateTime(2026, 9, 15),
+        );
+        final second = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          localDay: DateTime(2026, 9, 15),
+        );
+        expect(first, second);
+      });
+
+      test('differs for a different local day', () {
+        final day15 = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          localDay: DateTime(2026, 9, 15),
+        );
+        final day16 = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          localDay: DateTime(2026, 9, 16),
+        );
+        expect(day15, isNot(day16));
+      });
+
+      test('differs for a different episode (same user, same day)', () {
+        final episodeA = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-A',
+          localDay: DateTime(2026, 9, 15),
+        );
+        final episodeB = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-B',
+          localDay: DateTime(2026, 9, 15),
+        );
+        expect(episodeA, isNot(episodeB));
+      });
+
+      test('differs for a different user (same episode id, same day)', () {
+        final userA = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-A',
+          episodeId: 'episode-1',
+          localDay: DateTime(2026, 9, 15),
+        );
+        final userB = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-B',
+          episodeId: 'episode-1',
+          localDay: DateTime(2026, 9, 15),
+        );
+        expect(userA, isNot(userB));
+      });
+
+      test('is always a valid non-negative platform notification id', () {
+        final id = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          localDay: DateTime(2026, 9, 15),
+        );
+        expect(id, greaterThanOrEqualTo(0));
+      });
+    });
+
+    group('planDailyCheckin (E1/E3/E6/E7)', () {
+      test('ineligible episode plans nothing', () {
+        final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(
+            lifecycleStatus: LifecycleStatus.ended,
+            continuationCertainty: null,
+          ),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        expect(plan, isNull);
+      });
+
+      test("E6: today's obligation already satisfied plans nothing, even "
+          'though a second manual observation later that day would still '
+          'be allowed by the write path itself', () {
+        final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 1,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        expect(plan, isNull);
+      });
+
+      test(
+        'plans at the preferred local time when that time is still ahead',
+        () {
+          final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+            episode: openEpisode(),
+            todaysObservationCount: 0,
+            now: DateTime(2026, 9, 15, 10, 0),
+            leadHour: 18,
+            leadMinute: 0,
+          );
+          expect(plan, isNotNull);
+          expect(plan!.fireAt, DateTime(2026, 9, 15, 18, 0));
+        },
+      );
+
+      test('Closure Blocker 7: a genuinely custom preferred time (not the '
+          '18:00 default) is honored exactly — proves this is a real, '
+          'user-choosable preference the scheduler actually reads, not a '
+          'hardcoded constant', () {
+        final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 6, 0),
+          leadHour: 7,
+          leadMinute: 45,
+        );
+        expect(plan, isNotNull);
+        expect(plan!.fireAt, DateTime(2026, 9, 15, 7, 45));
+      });
+
+      test('still plans something today (soon) rather than skipping to '
+          'tomorrow when the preferred time has already passed and '
+          "nothing is recorded yet — a missed reminder time is not the "
+          'same as a satisfied obligation', () {
+        final now = DateTime(2026, 9, 15, 20, 0);
+        final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: now,
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        expect(plan, isNotNull);
+        expect(plan!.fireAt.isAfter(now), isTrue);
+        expect(
+          plan.fireAt.year == now.year &&
+              plan.fireAt.month == now.month &&
+              plan.fireAt.day == now.day,
+          isTrue,
+          reason: 'still today, not deferred to tomorrow',
+        );
+      });
+
+      test(
+        'E3: the default copy never mentions bleeding, flow, or Fiqh terms',
+        () {
+          final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+            episode: openEpisode(),
+            todaysObservationCount: 0,
+            now: DateTime(2026, 9, 15, 10),
+            leadHour: 18,
+            leadMinute: 0,
+          )!;
+          for (final text in [
+            plan.titleEn,
+            plan.bodyEn,
+            plan.titleAr,
+            plan.bodyAr,
+          ]) {
+            expect(text.toLowerCase(), isNot(contains('bleeding')));
+            expect(text.toLowerCase(), isNot(contains('flow')));
+            expect(text.toLowerCase(), isNot(contains('haid')));
+            expect(text.toLowerCase(), isNot(contains('fiqh')));
+          }
+        },
+      );
+
+      test('E7: the payload carries a routable user+episode+day, decodable '
+          'back to exactly those values', () {
+        final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+        )!;
+        final decoded = jsonDecode(plan.payload!) as Map<String, dynamic>;
+        expect(decoded['type'], 'activeBleedingCheckin');
+        expect(decoded['userId'], 'user-1');
+        expect(decoded['episodeId'], 'episode-1');
+        expect(decoded['localDate'], '2026-09-15');
+      });
+    });
+
+    group('New critical finding — repeated-refresh catch-up stability', () {
+      test('the same-day catch-up time is identical across repeated calls '
+          'made at different real moments — it must never keep pushing '
+          'later the way a naive `now + 1 minute` would', () {
+        final firstCallNow = DateTime(2026, 9, 15, 20, 0);
+        final secondCallNow = DateTime(2026, 9, 15, 20, 30);
+
+        final firstPlan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: firstCallNow,
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        final secondPlan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: secondCallNow,
+          leadHour: 18,
+          leadMinute: 0,
+        );
+
+        expect(firstPlan, isNotNull);
+        expect(secondPlan, isNotNull);
+        expect(
+          secondPlan!.fireAt,
+          firstPlan!.fireAt,
+          reason:
+              'a second refresh 30 minutes after the first must not '
+              'have pushed the reminder to a new, later time',
+        );
+      });
+
+      test('once the day is genuinely too far gone even for the fixed '
+          'catch-up buffer, no further same-day reminder is invented', () {
+        final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 23, 30),
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        expect(plan, isNull);
+      });
+    });
+
+    group('New critical finding — planRollingDailyCheckins (multi-day '
+        'continuity)', () {
+      test('plans a bounded window of daysAhead distinct days, each with '
+          'its own logical id, when the app is never reopened to plan '
+          'them one at a time', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 5,
+        );
+
+        expect(plans, hasLength(5));
+        expect(plans.map((p) => p.id).toSet(), hasLength(5));
+        expect(
+          plans.map(
+            (p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day),
+          ),
+          [
+            DateTime(2026, 9, 15),
+            DateTime(2026, 9, 16),
+            DateTime(2026, 9, 17),
+            DateTime(2026, 9, 18),
+            DateTime(2026, 9, 19),
+          ],
+        );
+      });
+
+      test("today's own already-satisfied obligation is the only day "
+          'omitted — every future day is still optimistically planned', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 1,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 3,
+        );
+
+        expect(plans, hasLength(2));
+        expect(
+          plans.map(
+            (p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day),
+          ),
+          [DateTime(2026, 9, 16), DateTime(2026, 9, 17)],
+        );
+      });
+
+      test('an ineligible episode plans nothing at all', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(
+            lifecycleStatus: LifecycleStatus.ended,
+            continuationCertainty: null,
+          ),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        expect(plans, isEmpty);
+      });
+
+      test('a simulated five-day journey with Niswah never reopened after '
+          'the initial scheduling: the very first rolling plan already '
+          'covers all five days, proving continuity does not depend on a '
+          'daily re-open', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 9),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 5,
+        );
+
+        final fireDays = plans
+            .map((p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day))
+            .toList();
+        for (var i = 0; i < 5; i++) {
+          expect(fireDays, contains(DateTime(2026, 9, 15 + i)));
+        }
+      });
+
+      test('a repeat call with an unchanged today-satisfied state produces '
+          'the exact same plan set — safe to call on every refresh without '
+          'drifting or duplicating', () {
+        final first = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 3,
+        );
+        final second = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 12),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 3,
+        );
+
+        expect(
+          second.map((p) => p.id).toList(),
+          first.map((p) => p.id).toList(),
+        );
+        expect(
+          second.map((p) => p.fireAt).toList(),
+          first.map((p) => p.fireAt).toList(),
+        );
+      });
+    });
+
+    group('New critical finding — notification continuity beyond 7 days', () {
+      test('rollingWindowReminderIds returns exactly the same ids '
+          'planRollingDailyCheckins would have scheduled for a full window '
+          '— needed so an episode end can cancel every one of them, not '
+          'only today\'s', () {
+        final ids = ActiveBleedingReminderScheduler.rollingWindowReminderIds(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          today: DateTime(2026, 9, 15),
+        );
+
+        expect(ids, hasLength(7));
+        expect(ids.toSet(), hasLength(7), reason: 'every day distinct');
+        for (var offset = 0; offset < 7; offset++) {
+          expect(
+            ids[offset],
+            ActiveBleedingReminderScheduler.reminderId(
+              userId: 'user-1',
+              episodeId: 'episode-1',
+              localDay: DateTime(2026, 9, 15 + offset),
+            ),
+          );
+        }
+      });
+
+      test('a genuinely 15-day-long episode with the app never reopened: the '
+          'rolling window (7 days) alone does not reach days 8-15 — the '
+          'exact, disclosed gap the recurring fallback exists to cover', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 9),
+          leadHour: 18,
+          leadMinute: 0,
+        );
+
+        final fireDays = plans
+            .map((p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day))
+            .toSet();
+        expect(fireDays, hasLength(7));
+        for (var day = 0; day < 7; day++) {
+          expect(fireDays, contains(DateTime(2026, 9, 15 + day)));
+        }
+        for (var day = 7; day < 15; day++) {
+          expect(
+            fireDays,
+            isNot(contains(DateTime(2026, 9, 15 + day))),
+            reason:
+                'day $day is genuinely beyond the 7-day window a single '
+                'refresh can plan — this is the exact supported horizon, '
+                'not indefinite exact daily tracking',
+          );
+        }
+      });
+
+      test('reminder ids stay distinct and stable across a real DST spring-'
+          'forward boundary (America/Vancouver, 2027-03-14) — identity is '
+          'purely calendar-date-based and never affected by a clock shift', () {
+        // 15 consecutive local calendar days straddling the 2027 US/
+        // Canada DST transition (2027-03-14 02:00 local clocks skip to
+        // 03:00) — reminderId must produce 15 distinct, stable ids
+        // regardless, since it only ever keys off the plain calendar
+        // date, never wall-clock time.
+        final days = List.generate(
+          15,
+          (offset) => DateTime(2027, 3, 8 + offset),
+        );
+        final ids = days
+            .map(
+              (day) => ActiveBleedingReminderScheduler.reminderId(
+                userId: 'user-1',
+                episodeId: 'episode-1',
+                localDay: day,
+              ),
+            )
+            .toList();
+
+        expect(ids.toSet(), hasLength(15));
+        // Recomputing later (simulating a later refresh, well after the
+        // DST boundary has passed) must reproduce the identical ids —
+        // the whole point of a stable logical identity (Commit E5).
+        final recomputed = days
+            .map(
+              (day) => ActiveBleedingReminderScheduler.reminderId(
+                userId: 'user-1',
+                episodeId: 'episode-1',
+                localDay: day,
+              ),
+            )
+            .toList();
+        expect(recomputed, ids);
+      });
+
+      test('recurringFallbackPayloadFor carries no localDate — deliberately, '
+          'since the OS re-delivers the same payload every day and there is '
+          'no single date to honestly bake in ahead of time', () {
+        final payload =
+            ActiveBleedingReminderScheduler.recurringFallbackPayloadFor(
+              userId: 'user-1',
+              episodeId: 'episode-1',
+            );
+        final decoded = jsonDecode(payload) as Map<String, dynamic>;
+
+        expect(
+          decoded['type'],
+          ActiveBleedingReminderScheduler.recurringFallbackType,
+        );
+        expect(decoded['userId'], 'user-1');
+        expect(decoded['episodeId'], 'episode-1');
+        expect(
+          decoded.containsKey('localDate'),
+          isFalse,
+          reason:
+              'no single date is honest to embed in an indefinitely '
+              'recurring payload',
+        );
+      });
+
+      test('iOS pending-notification budget audit: the worst-case total '
+          'across every notification type this app schedules stays '
+          'comfortably under the OS-wide 64-pending ceiling', () {
+        const cycle = 1;
+        const pregnancy = 1;
+        const nifas = 1;
+        const wellbeing = 1;
+        const activeBleedingRolling =
+            ActiveBleedingReminderScheduler.defaultRollingWindowDays;
+        const activeBleedingRecurringFallback = 1;
+
+        const worstCaseTotal =
+            cycle +
+            pregnancy +
+            nifas +
+            wellbeing +
+            activeBleedingRolling +
+            activeBleedingRecurringFallback;
+
+        expect(worstCaseTotal, 12);
+        expect(
+          worstCaseTotal,
+          lessThan(64),
+          reason:
+              'every notification type enabled simultaneously must stay '
+              'well under the shared iOS 64-pending-request ceiling',
+        );
+      });
     });
   });
 }

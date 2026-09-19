@@ -62,6 +62,8 @@ class NotificationSettingsViewModel extends ChangeNotifier {
     required bool enabled,
     required int leadTimeMinutes,
     List<String>? channels,
+    int? preferredHour,
+    int? preferredMinute,
   }) async {
     final current =
         preferences[type] ??
@@ -76,6 +78,8 @@ class NotificationSettingsViewModel extends ChangeNotifier {
       enabled: enabled,
       leadTimeMinutes: leadTimeMinutes,
       channels: channels ?? current.channels,
+      preferredHour: preferredHour ?? current.preferredHour,
+      preferredMinute: preferredMinute ?? current.preferredMinute,
     );
 
     preferences = {...preferences, type: updated};

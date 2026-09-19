@@ -60,13 +60,28 @@ exportSections = [
     idColumn: 'user_id',
   ),
   (key: 'cycle_entries', table: 'cycle_entries', many: true, idColumn: ''),
-  (key: 'prayer_log', table: 'prayer_log', many: true, idColumn: ''),
+  // Menstrual Data Integrity charter, PR #4 final wave — EXPORT/DELETION
+  // audit: the canonical bleeding_episodes/bleeding_observations/
+  // cycle_baselines tables (Commits A/D) were never added here. Deletion
+  // was never a gap (both cascade-delete via the existing auth.users ->
+  // public.users -> these tables ON DELETE CASCADE chain, verified
+  // against the canonical baseline's own FK definitions), but export
+  // was genuinely missing them until now.
   (
-    key: 'community_posts',
-    table: 'community_posts',
+    key: 'bleeding_episodes',
+    table: 'bleeding_episodes',
     many: true,
     idColumn: '',
   ),
+  (
+    key: 'bleeding_observations',
+    table: 'bleeding_observations',
+    many: true,
+    idColumn: '',
+  ),
+  (key: 'cycle_baselines', table: 'cycle_baselines', many: true, idColumn: ''),
+  (key: 'prayer_log', table: 'prayer_log', many: true, idColumn: ''),
+  (key: 'community_posts', table: 'community_posts', many: true, idColumn: ''),
   (key: 'chat_threads', table: 'chat_threads', many: true, idColumn: ''),
   (key: 'chat_messages', table: 'chat_messages', many: true, idColumn: ''),
 ];

@@ -18,6 +18,7 @@ import 'core/services/notification_service.dart';
 import 'core/storage/local_sensitive_data_cleanup.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
+import 'core/utils/device_timezone.dart';
 import 'core/widgets/floating_nav_bar.dart';
 import 'core/widgets/niswah_loading_indicator.dart';
 import 'features/notifications/domain/services/notification_refresh_coordinator.dart';
@@ -26,6 +27,7 @@ import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/presentation/screens/profile_screen.dart';
 import 'features/auth/presentation/screens/sign_in_screen.dart';
 import 'features/community/presentation/screens/community_board_screen.dart';
+import 'features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'features/cycle_tracking/presentation/screens/cycle_tracking_screen.dart';
 import 'features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import 'features/dashboard/presentation/screens/dashboard_screen.dart';
@@ -507,13 +509,19 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     // reachable (i.e. the user is signed in) — mirrors how the reports
     // recompute fresh each time they're opened, applied to scheduling.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _refreshNotifications();
+      unawaited(_refreshNotifications());
       // App-start retry trigger — one of two triggers (with app-resume,
       // below) that make CycleTrackingViewModel.saveLog's "backs up
       // automatically" wording actually true rather than aspirational
       // copy (RR-001). A bounded, one-pass sweep per trigger — not a
       // timer/loop — so this can never spin indefinitely.
       unawaited(_cycleViewModel.retryPendingSync());
+      // Menstrual Data Integrity charter, PR #4 completion wave, Fix D:
+      // replays any bleeding_episodes start/end operation that reached
+      // the server and committed but never got the chance to tell the
+      // app so (the process was killed first) — the same app-start
+      // trigger that already recovers the legacy cycle_entries model.
+      unawaited(BleedingEpisodeRepositoryImpl().reconcilePendingOperations());
     });
   }
 
@@ -526,15 +534,30 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _refreshNotifications();
+      // Hardening 3: the device's timezone may genuinely have changed
+      // while the app was backgrounded (travel, or a manual change) —
+      // DeviceTimezone must never answer with a value cached from before
+      // the app went to the background. Invalidated before
+      // _refreshNotifications so any reminder recomputation it triggers
+      // already sees the real current zone, never a stale one.
+      DeviceTimezone.invalidateCache();
+      unawaited(_refreshNotifications());
       // App-resume retry trigger — see the app-start trigger in initState
       // for why this exists and what it does/doesn't guarantee.
       unawaited(_cycleViewModel.retryPendingSync());
+      unawaited(BleedingEpisodeRepositoryImpl().reconcilePendingOperations());
     }
   }
 
-  void _refreshNotifications() {
-    NotificationRefreshCoordinator.refresh(
+  Future<void> _refreshNotifications() async {
+    // Closure Blocker 6 — `tz.local` itself must be re-applied to the
+    // device's real current zone BEFORE anything below recomputes what
+    // to schedule; refreshing DeviceTimezone's own cache above is not
+    // sufficient by itself, since `NotificationService` only ever reads
+    // the platform's real zone through this call, not through
+    // `DeviceTimezone` directly.
+    await NotificationService.instance.refreshLocalTimezone(forceRefresh: true);
+    await NotificationRefreshCoordinator.refresh(
       userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
     );
   }

@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/localization/app_locale_controller.dart';
@@ -9,15 +13,23 @@ import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
-import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
-import '../../../cycle_tracking/domain/entities/cycle_log.dart';
+import '../../../cycle_tracking/data/local/pending_bleeding_operation_store.dart';
+import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
+import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
-import '../../../cycle_tracking/presentation/models/cycle_log_form_data.dart';
 import '../../domain/services/madhhab_suggestion_service.dart';
 
 String _tr(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
+
+/// PR #4 hardening, Blocker 6: no medically-motivated bound on how long
+/// ago a real bleeding start can be reported — a technical bound is still
+/// required by `showDatePicker`'s own API, so this is deliberately
+/// generous rather than the previous 2-year window, which contradicted
+/// this same step's own "however long ago that was" copy.
+DateTime _earliestReportableDate(DateTime now) =>
+    DateTime(now.year - 100, now.month, now.day);
 
 /// Matches the order of both the English and Arabic choice lists in the
 /// Madhhab step below. The 5th choice ("I don't know my Madhhab") is
@@ -56,6 +68,21 @@ enum _MadhhabSubStep {
 /// SnackBar message; this adds a matching on-screen state too).
 enum _LocationStatus { idle, detecting, selected, error }
 
+/// Menstrual Data Integrity charter, Commit C: the Last-Period step's own
+/// small sub-flow — mirrors the Madhhab step's `_MadhhabSubStep` pattern.
+/// [pickStart] shows a real calendar for the most recent bleeding start;
+/// [stillHappening] asks the honest active/ended/uncertain question
+/// (Section 9) instead of assuming a fixed Haid length starting that day;
+/// [pickEnd] only appears after an explicit "No" and asks for a real end
+/// date, never a guess.
+enum _PeriodSubStep { pickStart, stillHappening, pickEnd }
+
+/// The three honest answers to "is it still happening?" (Section 9) — a
+/// 4th, [unanswered], exists only so "no episode should be created yet"
+/// has a real representation distinct from any of the other three; it is
+/// never itself persisted.
+enum _ActiveBleedingAnswer { unanswered, active, ended, uncertain }
+
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
@@ -77,9 +104,10 @@ class OnboardingScreen extends StatefulWidget {
 /// language toggle, or its own sensible default) is the single language
 /// authority; asking again here would be pure duplication:
 /// 1 Splash → 2 Madhhab → 3 Married → 4 Location
-/// → 5 Last Period → 6 Period Length → 7 Privacy → 8 Welcome
+/// → 5 Last Period (active/ended/uncertain) → 6 Usual Duration (estimate)
+/// → 7 Usual Cycle Length (estimate) → 8 Privacy → 9 Welcome
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  static const int _totalSteps = 8;
+  static const int _totalSteps = 9;
 
   late int _step = widget.initialStep.clamp(1, _totalSteps);
   // Derived from the app-wide, SharedPreferences-persisted controller — not
@@ -97,9 +125,52 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   _LocationStatus _locationStatus = _LocationStatus.idle;
   String? _confirmedLocationLabel;
   String? _locationErrorMessage;
+  _PeriodSubStep _periodSubStep = _PeriodSubStep.pickStart;
   DateTime? _periodDate;
-  double _haidLength = 5;
+  DateTime? _periodEndDate;
+  _ActiveBleedingAnswer _activeBleedingAnswer =
+      _ActiveBleedingAnswer.unanswered;
+  // Section 9: the usual-duration/usual-cycle-length questions are genuine
+  // estimates, never forced. Null means genuinely unanswered — never a
+  // silent default (PR #4 hardening, Blocker 6: previously a Slider
+  // needed *some* value to render its thumb even before she touched it,
+  // which meant a hard min/max that could reject a real but unusual
+  // answer; a plain numeric field has no such problem and simply starts
+  // empty).
+  int? _haidLengthValue;
+  int? _cycleLengthValue;
   bool _anonymous = false;
+  // Hostile self-review fix (2026-09-17): _completeOnboarding is async and
+  // its own Welcome-screen button had no disabled/in-flight state — a
+  // rapid double-tap (or a slow first request plus an impatient retry)
+  // could fire it twice concurrently. An active-episode duplicate is
+  // caught by the DB's one-active-episode constraint, but an ended/
+  // uncertain episode has no such uniqueness guard and would happily
+  // accept two identical rows. Guards the whole completion path instead.
+  bool _completingOnboarding = false;
+  // PR #4 hardening, Blocker 3: a real save failure for menstrual data she
+  // explicitly supplied must never be silently swallowed while onboarding
+  // still completes as if it were recorded. Non-null blocks completion
+  // and surfaces an honest, actionable error (retry, or an explicit
+  // choice to skip) on the Welcome screen instead.
+  String? _onboardingSaveError;
+  // PR #4 completion wave, Fix A: generated once for this screen instance
+  // and reused unchanged on every retry of _completeOnboarding — this is
+  // exactly what lets record_onboarding_menstrual_history recognize a
+  // retry as the *same* logical action (response lost, app killed
+  // mid-request, a genuine double-tap) instead of a new submission.
+  //
+  // Hardening 1: a widget-state field alone only survives a retry *while
+  // this screen instance stays alive* — it does not survive the process
+  // itself being killed after the RPC already reached and committed on
+  // the server but before the response came back. A fresh app launch
+  // would otherwise build a brand-new OnboardingScreen with a brand-new
+  // id, indistinguishable from a genuinely new submission. So this is no
+  // longer unconditionally fresh: initState checks
+  // PendingBleedingOperationStore for an onboardingHistory operation left
+  // over from exactly that failure and reuses its id instead, via
+  // _resolveOnboardingOperationId below.
+  String _onboardingOperationId = const Uuid().v4();
 
   @override
   void initState() {
@@ -109,6 +180,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // otherwise re-selecting anything (or the step just looking unanswered)
     // silently overwrites their real answer via setMarried below.
     _isMarried = MaritalStatusController.instance.isMarried;
+    unawaited(_resolveOnboardingOperationId());
+  }
+
+  /// Hardening 1: if the previous attempt's request reached the server (or
+  /// may have) but this screen never lived to see the response — the
+  /// process was killed in between — a pending onboardingHistory operation
+  /// is still sitting in [PendingBleedingOperationStore]. Reusing its id
+  /// means a later _completeOnboarding call here can never create a
+  /// *second* logical submission: record_onboarding_menstrual_history's own
+  /// idempotency check recognizes the same client_operation_id and returns
+  /// the original episode_id/baseline_id instead of inserting again,
+  /// regardless of whatever she re-answers on this fresh instance of the
+  /// screen. (The independent, UI-free path — reconciling a pending
+  /// operation without her ever reopening onboarding at all — is
+  /// [BleedingEpisodeRepositoryImpl.reconcilePendingOperations], wired into
+  /// app start/resume in main.dart.)
+  Future<void> _resolveOnboardingOperationId() async {
+    final pending = await PendingBleedingOperationStore.getPendingByType(
+      PendingBleedingOperationType.onboardingHistory,
+    );
+    if (pending == null || !mounted) return;
+    setState(() {
+      _onboardingOperationId = pending.operationId;
+    });
   }
 
   @override
@@ -241,33 +336,123 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onUseCurrentLocation: _useDeviceLocation,
       onSkip: _next,
     ),
-    5 => _LastPeriod(
-      selected: _periodDate,
-      onSelect: (v) => setState(() => _periodDate = v),
-      onNext: _periodDate == null ? null : _next,
+    5 => _periodStep(),
+    6 => _NumberInputStep(
+      title: _t(
+        'How long does your period usually last?',
+        'كم تستمر مدة حيضكِ عادةً؟',
+      ),
+      description: _t(
+        'Just an estimate — it never replaces what you actually report day '
+            'to day.',
+        'مجرد تقدير — لا يحل أبداً محل ما تُبلغين عنه فعلياً يوماً بيوم.',
+      ),
+      initialValue: _haidLengthValue,
+      onChanged: (v) => setState(() => _haidLengthValue = v),
+      onNext: _next,
       onUnsure: () {
-        setState(() => _periodDate = null);
+        setState(() => _haidLengthValue = null);
         _next();
       },
     ),
-    6 => _NumberStep(
-      title: _t('How long is your period?', 'كم تستمر مدة الحيض؟'),
-      description: _madhhab == 'Hanafi' || _madhhab == 'حنفي'
-          ? _t('Hanafi maximum: 10 days', 'الحد الأقصى للحنفية: 10 أيام')
-          : _t('Madhhab maximum: 15 days', 'الحد الأقصى للمذهب: 15 يوماً'),
-      value: _haidLength,
-      min: 2,
-      max: _madhhab == 'Hanafi' || _madhhab == 'حنفي' ? 10 : 15,
-      onChanged: (v) => setState(() => _haidLength = v),
+    7 => _NumberInputStep(
+      title: _t('How long is your usual cycle?', 'كم تستمر دورتكِ عادةً؟'),
+      description: _t(
+        'From the start of one period to the start of the next. Only an '
+            'estimate.',
+        'من بداية حيض إلى بداية الحيض التالي. مجرد تقدير.',
+      ),
+      initialValue: _cycleLengthValue,
+      onChanged: (v) => setState(() => _cycleLengthValue = v),
       onNext: _next,
+      onUnsure: () {
+        setState(() => _cycleLengthValue = null);
+        _next();
+      },
     ),
-    7 => _Privacy(
+    8 => _Privacy(
       anonymous: _anonymous,
       onAnonymous: (v) => _setAnonymousMode(v),
       onNext: _next,
     ),
-    _ => _Welcome(onComplete: () => _completeOnboarding()),
+    _ => _Welcome(
+      isBusy: _completingOnboarding,
+      saveError: _onboardingSaveError,
+      onComplete: _completingOnboarding ? null : () => _completeOnboarding(),
+      onSkipSaving: _completingOnboarding
+          ? null
+          : () => _skipSavingAndContinue(),
+    ),
   };
+
+  /// Section 9: replaces the removed 31-day grid + fixed-Haid-length
+  /// fabrication with a real calendar and an honest active/ended/uncertain
+  /// question — see [_PeriodSubStep].
+  Widget _periodStep() {
+    switch (_periodSubStep) {
+      case _PeriodSubStep.pickStart:
+        return _PeriodPickStart(
+          selected: _periodDate,
+          onPick: (date) => setState(() => _periodDate = date),
+          onContinue: _periodDate == null
+              ? null
+              : () => setState(
+                  () => _periodSubStep = _PeriodSubStep.stillHappening,
+                ),
+          onUnsure: () {
+            setState(() {
+              _periodDate = null;
+              _activeBleedingAnswer = _ActiveBleedingAnswer.unanswered;
+            });
+            _next();
+          },
+        );
+
+      case _PeriodSubStep.stillHappening:
+        return _PeriodStillHappening(
+          startDate: _periodDate!,
+          onYes: () {
+            setState(
+              () => _activeBleedingAnswer = _ActiveBleedingAnswer.active,
+            );
+            _next();
+          },
+          onNo: () => setState(() => _periodSubStep = _PeriodSubStep.pickEnd),
+          onNotSure: () {
+            setState(
+              () => _activeBleedingAnswer = _ActiveBleedingAnswer.uncertain,
+            );
+            _next();
+          },
+          onBack: () =>
+              setState(() => _periodSubStep = _PeriodSubStep.pickStart),
+        );
+
+      case _PeriodSubStep.pickEnd:
+        return _PeriodPickEnd(
+          startDate: _periodDate!,
+          selected: _periodEndDate,
+          onPick: (date) => setState(() => _periodEndDate = date),
+          onContinue: _periodEndDate == null
+              ? null
+              : () {
+                  setState(
+                    () => _activeBleedingAnswer = _ActiveBleedingAnswer.ended,
+                  );
+                  _next();
+                },
+          onUnsure: () {
+            setState(() {
+              _periodEndDate = null;
+              _activeBleedingAnswer = _ActiveBleedingAnswer.uncertain;
+            });
+            _next();
+          },
+          onBack: () =>
+              setState(() => _periodSubStep = _PeriodSubStep.stillHappening),
+        );
+    }
+  }
 
   String _t(String en, String ar) => _arabic ? ar : en;
 
@@ -405,29 +590,198 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _next() => setState(() => _step = (_step + 1).clamp(1, _totalSteps));
 
-  /// Seeds a real cycle log from the last-period date/length answered in
-  /// steps 6-7 (unless the user tapped "I'm not sure"), so onboarding's
-  /// answer actually counts toward the app's cycle history instead of being
-  /// silently discarded. This screen is only ever reached already
-  /// authenticated (main.dart's root router requires it), so a real user id
-  /// is always available.
+  /// Menstrual Data Integrity charter, Commit C: previously fabricated a
+  /// fixed run of daily `cycle_entries` rows (one per day of the Madhhab-
+  /// capped "period length" slider, every day but the last stamped
+  /// `FlowLevel.medium`) — an entirely invented flow-level observation for
+  /// every day between the reported start and an assumed length, none of
+  /// which the user ever actually reported. "Never do this again."
+  ///
+  /// Replaces that with exactly what was actually asked: if a start date
+  /// was given, one `bleeding_episodes` row capturing the real reported
+  /// start (and, only if she said it had ended, the real reported end) —
+  /// no day-by-day flow data is invented, since onboarding never asked for
+  /// any. The usual-duration/usual-cycle-length questions are genuine,
+  /// skippable estimates and are stored as `cycle_baselines`, never as
+  /// observed history. Both writes are best-effort — see
+  /// `AuthRepositoryImpl.markOnboardingCompleted` below for the same,
+  /// already-established honest tradeoff. This screen is only ever reached
+  /// already authenticated (main.dart's root router requires it), so a
+  /// real user id is always available whenever there is anything to save.
+  /// PR #4 hardening, Blocker 3: the previous version caught an
+  /// episode/baseline save failure and silently completed onboarding
+  /// anyway — a user who explicitly reported real menstrual history could
+  /// finish believing it was recorded when Niswah had actually lost it.
+  /// A genuine failure here now blocks completion outright and surfaces
+  /// an honest, actionable error (see `_Welcome`'s error state) with a
+  /// real retry — `_completingOnboarding`'s guard and the stable
+  /// `_periodDate`/`_haidLengthValue`/`_cycleLengthValue` state make a
+  /// retry safe to just call this method again unchanged. Only
+  /// `markOnboardingCompleted` below remains best-effort, matching its
+  /// own long-standing rationale (a flag write failing must not trap her
+  /// on the Welcome screen after everything else genuinely saved).
   Future<void> _completeOnboarding() async {
-    final periodDate = _periodDate;
-    if (periodDate != null) {
-      final userId =
-          NiswahSupabase.clientOrNull?.auth.currentUser?.id ?? 'local-user';
-      final days = _haidLength.round().clamp(1, 15);
-      final repository = CycleTrackingRepositoryImpl();
-      for (var i = 0; i < days; i++) {
-        final data = CycleLogFormData(
-          date: periodDate.add(Duration(days: i)),
-          flow: i == days - 1 ? FlowLevel.light : FlowLevel.medium,
-          cycleDay: i + 1,
+    if (_completingOnboarding) return;
+    setState(() {
+      _completingOnboarding = true;
+      _onboardingSaveError = null;
+    });
+
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId != null) {
+      final periodDate = _periodDate;
+      final hasEpisode =
+          periodDate != null &&
+          _activeBleedingAnswer != _ActiveBleedingAnswer.unanswered;
+      final hasBaseline = _haidLengthValue != null || _cycleLengthValue != null;
+
+      if (hasEpisode || hasBaseline) {
+        final utcOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+
+        BleedingEpisode? episode;
+        if (hasEpisode) {
+          final ended = _activeBleedingAnswer == _ActiveBleedingAnswer.ended;
+          // PR #4 hardening, Blocker 4: provenance follows which date was
+          // actually reported, not which screen reported it — a real
+          // "today" answer through onboarding is exactly as live as one
+          // through the dashboard's Start Bleeding sheet.
+          final localToday = BleedingEpisodeRepositoryImpl.localToday(
+            utcOffsetMinutes,
+          );
+          final startSource = ObservationSource.classify(
+            reportedDate: periodDate,
+            localToday: localToday,
+          );
+          final periodEndDate = _periodEndDate;
+          final endSource = (ended && periodEndDate != null)
+              ? ObservationSource.classify(
+                  reportedDate: periodEndDate,
+                  localToday: localToday,
+                )
+              : null;
+
+          episode = BleedingEpisode(
+            userId: userId,
+            lifecycleStatus: ended
+                ? LifecycleStatus.ended
+                : LifecycleStatus.open,
+            continuationCertainty: ended
+                ? null
+                : switch (_activeBleedingAnswer) {
+                    _ActiveBleedingAnswer.active =>
+                      ContinuationCertainty.confirmed,
+                    _ActiveBleedingAnswer.uncertain =>
+                      ContinuationCertainty.uncertain,
+                    _ActiveBleedingAnswer.ended ||
+                    _ActiveBleedingAnswer.unanswered =>
+                      ContinuationCertainty.confirmed,
+                  },
+            startDate: periodDate,
+            startPrecision: ObservationPrecision.dateOnly,
+            startSource: startSource,
+            endDate: ended ? periodEndDate : null,
+            endPrecision: ended ? ObservationPrecision.dateOnly : null,
+            endSource: endSource,
+          );
+        }
+
+        final baseline = hasBaseline
+            ? CycleBaseline(
+                userId: userId,
+                usualBleedingDurationDays: _haidLengthValue,
+                usualCycleLengthDays: _cycleLengthValue,
+              )
+            : null;
+
+        // Hardening 1: persisted *before* the RPC is ever sent — the same
+        // pattern as the Start/End Bleeding sheets (PendingBleedingOperationStore).
+        // If the process dies between the server committing and this app
+        // ever seeing the response, this record is what lets a future
+        // reconciliation (either this same screen's own initState reusing
+        // the id, or reconcilePendingOperations running independently at
+        // app start/resume) recognize and complete the *same* logical
+        // submission instead of risking a second one.
+        await PendingBleedingOperationStore.savePending(
+          PendingBleedingOperation(
+            operationId: _onboardingOperationId,
+            type: PendingBleedingOperationType.onboardingHistory,
+            params: {
+              'utcOffsetMinutes': utcOffsetMinutes,
+              if (episode != null)
+                'episode': {
+                  'lifecycleStatus': episode.lifecycleStatus.value,
+                  if (episode.continuationCertainty != null)
+                    'continuationCertainty':
+                        episode.continuationCertainty!.value,
+                  'startDate': episode.startDate.toIso8601String(),
+                  'startPrecision': episode.startPrecision.value,
+                  'startSource': episode.startSource.value,
+                  if (episode.endDate != null)
+                    'endDate': episode.endDate!.toIso8601String(),
+                  if (episode.endPrecision != null)
+                    'endPrecision': episode.endPrecision!.value,
+                  if (episode.endSource != null)
+                    'endSource': episode.endSource!.value,
+                },
+              if (baseline != null)
+                'baseline': {
+                  if (baseline.usualBleedingDurationDays != null)
+                    'usualBleedingDurationDays':
+                        baseline.usualBleedingDurationDays,
+                  if (baseline.usualCycleLengthDays != null)
+                    'usualCycleLengthDays': baseline.usualCycleLengthDays,
+                },
+            },
+            createdAt: DateTime.now(),
+          ),
         );
-        await repository.saveCycleLog(data.toCycleLog(userId: userId));
+
+        // PR #4 completion wave, Fix A: one atomic, idempotent RPC for
+        // everything she answered — either all of it saves, or none of
+        // it does. A retry (same _onboardingOperationId) can never
+        // duplicate an already-saved episode/baseline or leave one saved
+        // while the other silently vanished.
+        try {
+          await BleedingEpisodeRepositoryImpl().recordOnboardingHistory(
+            clientOperationId: _onboardingOperationId,
+            utcOffsetMinutes: utcOffsetMinutes,
+            episode: episode,
+            baseline: baseline,
+          );
+          await PendingBleedingOperationStore.clearPending(
+            _onboardingOperationId,
+          );
+        } catch (_) {
+          if (!mounted) return;
+          setState(() {
+            _completingOnboarding = false;
+            _onboardingSaveError = _t(
+              "We couldn't save the information you entered. Your "
+                  'answers are still here — you can try again.',
+              'تعذر حفظ المعلومات التي أدخلتِها. إجاباتكِ ما زالت محفوظة '
+                  'هنا — يمكنكِ المحاولة مجدداً.',
+            );
+          });
+          return;
+        }
       }
     }
 
+    await _finishOnboarding();
+  }
+
+  /// The user's own explicit choice to proceed without the save that just
+  /// failed — never automatic, never silent (Blocker 3 requires *a*
+  /// honest path forward, not that she can never leave this screen).
+  Future<void> _skipSavingAndContinue() async {
+    setState(() {
+      _completingOnboarding = true;
+      _onboardingSaveError = null;
+    });
+    await _finishOnboarding();
+  }
+
+  Future<void> _finishOnboarding() async {
     // AUTH-002: the durable, server-side completion flag — the ONLY
     // signal the root router trusts to decide onboarding is done. Written
     // here, and only here, at the real end of the flow. Best-effort: a
@@ -1082,148 +1436,294 @@ class _LocationStatusBanner extends StatelessWidget {
   );
 }
 
-class _LastPeriod extends StatelessWidget {
-  const _LastPeriod({
+/// Formats a date the same short way in both locales (e.g. "Sep 10, 2026")
+/// — deliberately locale-neutral rather than pulling in `intl` for this
+/// single onboarding label.
+String _formatDate(DateTime date) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[date.month - 1]} ${date.day}, ${date.year}';
+}
+
+/// Section 10: a real, OS-standard calendar (`showDatePicker`) in place of
+/// the old fixed 31-day grid — supports month/year navigation, dates
+/// further back than 31 days, leap years, RTL, accessibility, and large
+/// text scale for free. `lastDate: DateTime.now()` prevents ever selecting
+/// a future start date.
+class _PeriodPickStart extends StatelessWidget {
+  const _PeriodPickStart({
     required this.selected,
-    required this.onSelect,
-    required this.onNext,
+    required this.onPick,
+    required this.onContinue,
     required this.onUnsure,
   });
   final DateTime? selected;
-  final ValueChanged<DateTime> onSelect;
-  final VoidCallback? onNext;
+  final ValueChanged<DateTime> onPick;
+  final VoidCallback? onContinue;
   final VoidCallback onUnsure;
-  @override
-  Widget build(BuildContext context) {
-    final days = List.generate(
-      31,
-      (i) => DateTime.now().subtract(Duration(days: 30 - i)),
-    );
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _Title(
-          _tr('When did your last period start?', 'متى بدأ آخر حيض لديكِ؟'),
-        ),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: const [
-              BoxShadow(color: AppColors.shadowColor, blurRadius: 20),
-            ],
-          ),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: days.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-            ),
-            itemBuilder: (_, i) {
-              final day = days[i];
-              final active =
-                  selected != null && DateUtils.isSameDay(selected, day);
-              return InkWell(
-                onTap: () => onSelect(day),
-                customBorder: const CircleBorder(),
-                child: Container(
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: active
-                        ? const Color(0xFFFDA4AF)
-                        : Colors.transparent,
-                    border: DateUtils.isSameDay(day, DateTime.now())
-                        ? Border.all(color: const Color(0xFFFB7185))
-                        : null,
-                  ),
-                  child: Text(
-                    '${day.day}',
-                    style: TextStyle(
-                      color: active ? Colors.white : AppColors.textPrimary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 24),
-        _Continue(onPressed: onNext),
-        TextButton(
-          onPressed: onUnsure,
-          child: Text(_tr('I’m not sure', 'لست متأكدة')),
-        ),
-      ],
-    );
-  }
-}
 
-class _NumberStep extends StatelessWidget {
-  const _NumberStep({
-    required this.title,
-    required this.description,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.onChanged,
-    required this.onNext,
-  });
-  final String title, description;
-  final double value, min, max;
-  final ValueChanged<double> onChanged;
-  final VoidCallback onNext;
+  Future<void> _openPicker(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selected ?? now,
+      firstDate: _earliestReportableDate(now),
+      lastDate: now,
+    );
+    if (picked != null) onPick(picked);
+  }
+
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
-      _Title(title),
+      _Title(_tr('When did your last period start?', 'متى بدأ آخر حيض لديكِ؟')),
       const SizedBox(height: 8),
       Text(
-        description,
+        _tr(
+          'The real calendar date — however long ago that was.',
+          'التاريخ الفعلي — مهما كان قديماً.',
+        ),
+        textAlign: TextAlign.center,
         style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
       ),
-      const SizedBox(height: 45),
-      Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: '${value.round()}',
-              style: const TextStyle(
-                fontSize: 68,
-                color: Color(0xFFFB7185),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            TextSpan(
-              text: _tr(' days', ' أيام'),
-              style: TextStyle(fontSize: 20, color: const Color(0x66BE123C)),
-            ),
-          ],
+      const SizedBox(height: 24),
+      OutlinedButton.icon(
+        onPressed: () => _openPicker(context),
+        icon: const Icon(Icons.calendar_month_rounded),
+        label: Text(
+          selected == null
+              ? _tr('Select the date', 'اختاري التاريخ')
+              : _formatDate(selected!),
         ),
-        style: TextStyle(fontFamily: AppTypography.serifFamily),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(54),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
       ),
       const SizedBox(height: 24),
-      Slider(
-        value: value.clamp(min, max),
-        min: min,
-        max: max,
-        divisions: (max - min).round(),
-        activeColor: const Color(0xFFFB7185),
-        inactiveColor: const Color(0xFFFFF1F2),
-        onChanged: onChanged,
+      _Continue(onPressed: onContinue),
+      TextButton(
+        onPressed: onUnsure,
+        child: Text(_tr('I’m not sure', 'لست متأكدة')),
       ),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [Text('${min.round()}'), Text('${max.round()}')],
+    ],
+  );
+}
+
+/// Section 9: replaces the removed fixed-Haid-length fabrication with the
+/// honest question itself — never assumes a currently-bleeding state just
+/// because a start date was reported.
+class _PeriodStillHappening extends StatelessWidget {
+  const _PeriodStillHappening({
+    required this.startDate,
+    required this.onYes,
+    required this.onNo,
+    required this.onNotSure,
+    required this.onBack,
+  });
+  final DateTime startDate;
+  final VoidCallback onYes;
+  final VoidCallback onNo;
+  final VoidCallback onNotSure;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('Is it still happening?', 'هل ما زال مستمراً؟')),
+      const SizedBox(height: 8),
+      Text(
+        _tr(
+          'You told us it started ${_formatDate(startDate)}.',
+          'أخبرتِنا أنه بدأ في ${_formatDate(startDate)}.',
+        ),
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+      ),
+      const SizedBox(height: 28),
+      _Continue(
+        label: _tr('Yes, still going', 'نعم، ما زال مستمراً'),
+        onPressed: onYes,
+        strong: true,
+      ),
+      const SizedBox(height: 10),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton(
+          onPressed: onNo,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(54),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          child: Text(_tr('No, it has stopped', 'لا، لقد توقف')),
+        ),
+      ),
+      const SizedBox(height: 10),
+      TextButton(
+        onPressed: onNotSure,
+        child: Text(_tr('I’m not sure', 'لست متأكدة')),
+      ),
+      TextButton(onPressed: onBack, child: Text(_tr('Back', 'رجوع'))),
+    ],
+  );
+}
+
+/// Section 9's NO branch: a real end-date calendar, never a guess —
+/// `firstDate: startDate` keeps end >= start enforced at the picker level
+/// too (matching the DB's own check constraint).
+class _PeriodPickEnd extends StatelessWidget {
+  const _PeriodPickEnd({
+    required this.startDate,
+    required this.selected,
+    required this.onPick,
+    required this.onContinue,
+    required this.onUnsure,
+    required this.onBack,
+  });
+  final DateTime startDate;
+  final DateTime? selected;
+  final ValueChanged<DateTime> onPick;
+  final VoidCallback? onContinue;
+  final VoidCallback onUnsure;
+  final VoidCallback onBack;
+
+  Future<void> _openPicker(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selected ?? now,
+      firstDate: startDate,
+      lastDate: now,
+    );
+    if (picked != null) onPick(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(_tr('When did it stop?', 'متى توقف؟')),
+      const SizedBox(height: 24),
+      OutlinedButton.icon(
+        onPressed: () => _openPicker(context),
+        icon: const Icon(Icons.calendar_month_rounded),
+        label: Text(
+          selected == null
+              ? _tr('Select the date', 'اختاري التاريخ')
+              : _formatDate(selected!),
+        ),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(54),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+      const SizedBox(height: 24),
+      _Continue(onPressed: onContinue),
+      TextButton(
+        onPressed: onUnsure,
+        child: Text(
+          _tr('I’m not sure exactly when', 'لست متأكدة تماماً من الموعد'),
+        ),
+      ),
+      TextButton(onPressed: onBack, child: Text(_tr('Back', 'رجوع'))),
+    ],
+  );
+}
+
+/// PR #4 hardening, Blocker 6: replaces the old Slider-based `_NumberStep`,
+/// whose hard min/max ("2-10/15 days", "15-90 days") could reject a real
+/// but unusual answer — a technical/UX bound, not a medical judgment this
+/// wave is authorized to make. A plain numeric field has no such ceiling;
+/// "I'm not sure" remains always available and never forced.
+class _NumberInputStep extends StatefulWidget {
+  const _NumberInputStep({
+    required this.title,
+    required this.description,
+    required this.initialValue,
+    required this.onChanged,
+    required this.onNext,
+    required this.onUnsure,
+  });
+  final String title, description;
+  final int? initialValue;
+  final ValueChanged<int?> onChanged;
+  final VoidCallback onNext;
+  final VoidCallback onUnsure;
+
+  @override
+  State<_NumberInputStep> createState() => _NumberInputStepState();
+}
+
+class _NumberInputStepState extends State<_NumberInputStep> {
+  late final _controller = TextEditingController(
+    text: widget.initialValue?.toString() ?? '',
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(widget.title),
+      const SizedBox(height: 8),
+      Text(
+        widget.description,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+      ),
+      const SizedBox(height: 32),
+      TextField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.center,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        style: const TextStyle(
+          fontSize: 40,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFFFB7185),
+        ),
+        decoration: InputDecoration(
+          suffixText: _tr(' days', ' أيام'),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        onChanged: (text) => widget.onChanged(int.tryParse(text)),
       ),
       const SizedBox(height: 36),
-      _Continue(onPressed: onNext),
+      _Continue(onPressed: widget.onNext),
+      TextButton(
+        onPressed: widget.onUnsure,
+        child: Text(_tr('I’m not sure', 'لست متأكدة')),
+      ),
     ],
   );
 }
@@ -1296,8 +1796,22 @@ class _Privacy extends StatelessWidget {
 }
 
 class _Welcome extends StatelessWidget {
-  const _Welcome({required this.onComplete});
-  final VoidCallback onComplete;
+  const _Welcome({
+    required this.onComplete,
+    this.isBusy = false,
+    this.saveError,
+    this.onSkipSaving,
+  });
+  final VoidCallback? onComplete;
+  // Hostile self-review fix (2026-09-17): completion writes a real
+  // episode/baseline — a disabled, in-flight state prevents a rapid
+  // double-tap from firing the async completion twice.
+  final bool isBusy;
+  // PR #4 hardening, Blocker 3: non-null when a real save genuinely
+  // failed — completion is blocked until she either retries successfully
+  // or explicitly chooses [onSkipSaving]; never silently discarded.
+  final String? saveError;
+  final VoidCallback? onSkipSaving;
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
@@ -1356,12 +1870,51 @@ class _Welcome extends StatelessWidget {
           ],
         ),
       ),
+      if (saveError != null) ...[
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF1F2),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFFECDD3)),
+          ),
+          child: Text(
+            saveError!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF9F1239),
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+        ),
+      ],
       const SizedBox(height: 28),
-      _Continue(
-        label: _tr('Get Started', 'ابدئي'),
-        onPressed: onComplete,
-        strong: true,
-      ),
+      isBusy
+          ? const SizedBox(
+              height: 54,
+              child: Center(
+                child: NiswahLoadingIndicator(
+                  size: NiswahLoadingSize.small,
+                  contrast: NiswahLoadingContrast.dark,
+                ),
+              ),
+            )
+          : _Continue(
+              label: saveError != null
+                  ? _tr('Try again', 'المحاولة مجدداً')
+                  : _tr('Get Started', 'ابدئي'),
+              onPressed: onComplete,
+              strong: true,
+            ),
+      if (saveError != null && onSkipSaving != null)
+        TextButton(
+          onPressed: onSkipSaving,
+          child: Text(
+            _tr('Continue without saving this', 'المتابعة دون حفظ هذا'),
+          ),
+        ),
     ],
   );
 }

@@ -37,6 +37,16 @@ class NotificationRepositoryImpl implements NotificationRepository {
       leadTimeMinutes: 0,
       channels: ['local'],
     ),
+    // Commit E2 — unlike every other type here, default OFF: this one
+    // requires an explicit, contextual "would you like reminders while
+    // tracking?" ask (see the Start Bleeding sheet's own consent prompt),
+    // never a silent opt-in.
+    NotificationType.activeBleeding: const NotificationPreference(
+      type: NotificationType.activeBleeding,
+      enabled: false,
+      leadTimeMinutes: 0,
+      channels: ['local'],
+    ),
   };
 
   @override

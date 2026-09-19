@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -9,19 +10,35 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
+import '../../../../core/services/notification_service.dart';
+import '../../../notifications/data/local/notification_event_log_store.dart';
+import '../../../notifications/data/repositories/notification_repository_impl.dart';
+import '../../../notifications/domain/entities/notification_event.dart';
+import '../../../notifications/domain/entities/notification_preference.dart';
+import '../../../notifications/domain/services/notification_refresh_coordinator.dart';
+import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
+import '../../../cycle_tracking/data/local/pending_bleeding_operation_store.dart';
+import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
+import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
+import '../../../cycle_tracking/domain/entities/load_result.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
+import '../../../cycle_tracking/domain/services/canonical_bleeding_status_resolver.dart';
+import '../../../cycle_tracking/domain/services/canonical_fiqh_evidence_adapter.dart';
+import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
 import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
-import '../../../cycle_tracking/presentation/models/cycle_log_form_data.dart';
 import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
+import '../../../cycle_tracking/presentation/screens/canonical_calendar_screen.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/daily_checkin_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
 import '../../../dream_interpreter/presentation/screens/dream_interpreter_screen.dart';
 import '../../../notifications/presentation/screens/notification_feed_screen.dart';
 import '../../../prayer_tracking/domain/entities/prayer_entry.dart' as prayer;
@@ -42,6 +59,7 @@ String _stateLabel(_FiqhState state) => switch (state) {
     'Select your Madhhab',
     'يلزم اختيار المذهب',
   ),
+  _FiqhState.evidenceUnresolved => _l('Unable to verify', 'تعذر التحقق'),
 };
 
 /// Arabic masculine ordinals ("اليوم الأول", "اليوم الثاني", …) for "يوم"
@@ -169,7 +187,13 @@ int? _activeSegmentDenominator(
 }
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key, this.onProfileTap, this.viewModel});
+  const DashboardScreen({
+    super.key,
+    this.onProfileTap,
+    this.viewModel,
+    this.canonicalRepositoryOverride,
+    this.canonicalUserIdOverride,
+  });
 
   final VoidCallback? onProfileTap;
 
@@ -181,6 +205,20 @@ class DashboardScreen extends StatefulWidget {
   /// screen standalone).
   final CycleTrackingViewModel? viewModel;
 
+  /// Test-only injection points for the canonical (`bleeding_episodes`/
+  /// `bleeding_observations`) read path specifically — mirrors
+  /// [viewModel]'s own established pattern. A real app screen never sets
+  /// these (the canonical refresh already derives both from the real
+  /// signed-in Supabase session); a widget test that needs the dashboard
+  /// to reflect specific canonical evidence without a real backend does.
+  /// Deliberately narrow: only [_refreshCanonicalStatus] consults these —
+  /// every other canonical call site in this file (notification tap
+  /// consumption, Quick Actions, reconciliation) still resolves the real
+  /// signed-in session directly, since none of those are what a test
+  /// needing controlled Fiqh/ring evidence actually exercises.
+  final BleedingEpisodeRepositoryImpl? canonicalRepositoryOverride;
+  final String? canonicalUserIdOverride;
+
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
@@ -191,12 +229,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _istihadahMode = false;
   _WellbeingCheckInResult? _wellbeing;
 
+  // Commit D3 — bumped after every action that could plausibly change
+  // whether a missed-day gap exists (check-in, backfill, start, end),
+  // rekeying [_MissedCheckinBanner] so it genuinely re-fetches rather
+  // than showing a stale gap (or a now-filled one) after she just acted.
+  int _missedCheckinRefreshToken = 0;
+
   // The fiqh state ring reads elapsed bleeding duration off the wall clock
   // (see _currentFiqhStateDetail), so it needs to be re-evaluated on a
   // timer, not just when the logs themselves change — a needsAdvisory
   // state can flip to haid purely from time passing. One-minute ticks
   // match the display's hour-level precision.
   Timer? _fiqhRefreshTimer;
+
+  // Commit F1/F2 — read directly from bleeding_episodes, never through
+  // the cycle_entries projection. Null only until the first fetch
+  // resolves; a stale/absent value must never fabricate a state, so
+  // every read site below treats null as "not known yet," not as
+  // "noHistory."
+  CanonicalBleedingStatus? _canonicalStatus;
+
+  // New critical finding (Fiqh evidence-unavailable closure wave) — the
+  // canonical, effective (post-correction) evidence fed into the
+  // deterministic Fiqh engine, built via CanonicalFiqhEvidenceAdapter
+  // from bleeding_observations directly. Null only while the very first
+  // fetch is still pending or there is no session at all — in that
+  // transient/not-yet-attempted state the build method below treats it
+  // as "no canonical evidence yet" (the same, already-correct
+  // insufficient-history path a genuinely brand-new account gets), never
+  // as a positive ruling. It is DELIBERATELY NEVER used as a signal to
+  // fall back to the legacy `_viewModel.logs` pipeline — that fallback
+  // was removed. [_canonicalFiqhEvidenceUnresolved] is the separate,
+  // explicit signal for "a read was genuinely attempted and cannot be
+  // trusted" (failed outright, degraded with a quarantined row, or
+  // degraded by an excluded-uncertain-flow day that falls within the
+  // currently open episode's own window) — only that flag suppresses a
+  // confident Fiqh ruling.
+  List<CycleLog>? _canonicalFiqhLogs;
+  bool _canonicalFiqhEvidenceUnresolved = false;
+
+  // Closure Blocker 9 — a live subscription for the whole time this
+  // screen is mounted, not just a one-shot check in initState (which
+  // never re-runs for an already-mounted screen — the exact gap this
+  // closes: a background tap while the dashboard was already showing).
+  StreamSubscription<String>? _tapSubscription;
 
   @override
   void initState() {
@@ -210,14 +286,258 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     });
     _loadWellbeingCheckIn();
+    unawaited(_refreshCanonicalStatus());
     _fiqhRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
     });
+    // Covers the terminated-launch case: a payload already captured
+    // before this screen (or any listener) existed.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _consumeNotificationTap(),
+    );
+    // Closure Blocker 9 — covers every tap that happens *while this
+    // screen is already mounted*, foreground or backgrounded: the
+    // dashboard's own initState never re-runs for those, so without this
+    // live subscription a background tap would be silently missed until
+    // some unrelated event happened to re-check the payload.
+    _tapSubscription = NotificationService.instance.onTap.listen(
+      (_) => _consumeNotificationTap(),
+    );
+  }
+
+  /// Commit F1 — re-fetched at the same points [_missedCheckinRefreshToken]
+  /// already bumps (every action that could plausibly change canonical
+  /// episode state), so it never depends on the legacy view model's own
+  /// refresh cadence, which is itself downstream of the projection this
+  /// resolver deliberately bypasses.
+  Future<void> _refreshCanonicalStatus() async {
+    final userId =
+        widget.canonicalUserIdOverride ??
+        NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+    final repository =
+        widget.canonicalRepositoryOverride ?? BleedingEpisodeRepositoryImpl();
+    final status = await CanonicalBleedingStatusResolver(repository)
+        .resolve(userId: userId, now: AppClock.now());
+
+    // Closure Blocker 3 — rebuilt from scratch every refresh (never
+    // cached/patched incrementally), so a correction anywhere in the
+    // history is reflected the next time this runs, exactly like
+    // _canonicalStatus itself.
+    final observationsResult = await repository.getAllObservationsForUser(
+      userId,
+    );
+
+    List<CycleLog>? fiqhLogs;
+    var evidenceUnresolved = false;
+    switch (observationsResult) {
+      case LoadUnavailable<List<BleedingObservation>>():
+        // New critical finding — a genuine read failure must show an
+        // explicit unresolved Fiqh state, never silently fall back to
+        // legacy `_viewModel.logs` (that fallback has been removed
+        // entirely for authoritative Fiqh conclusions).
+        fiqhLogs = null;
+        evidenceUnresolved = true;
+      case LoadSuccess<List<BleedingObservation>>(:final data):
+        fiqhLogs = CanonicalFiqhEvidenceAdapter.buildEffectiveLogs(
+          observations: data,
+        );
+        evidenceUnresolved = _hasMaterialUnresolvedEvidence(
+          observations: data,
+          status: status,
+        );
+      case LoadDegraded<List<BleedingObservation>>(
+        :final data,
+        :final quarantinedCount,
+      ):
+        fiqhLogs = CanonicalFiqhEvidenceAdapter.buildEffectiveLogs(
+          observations: data,
+        );
+        // A quarantined (unparseable) row is itself already a form of
+        // materially incomplete evidence — never confidently rule from a
+        // dataset known to have a gap in it.
+        evidenceUnresolved =
+            quarantinedCount > 0 ||
+            _hasMaterialUnresolvedEvidence(observations: data, status: status);
+    }
+
+    if (mounted) {
+      setState(() {
+        _canonicalStatus = status;
+        _canonicalFiqhLogs = fiqhLogs;
+        _canonicalFiqhEvidenceUnresolved = evidenceUnresolved;
+      });
+    }
+  }
+
+  /// New critical finding — "uncertain flow is currently omitted because
+  /// the legacy engine cannot represent it... if that uncertainty is
+  /// material to an assessment, return unresolved rather than letting
+  /// the gap create an unsupported conclusion." Materiality is defined
+  /// narrowly and conservatively: an excluded "I'm not sure" day counts
+  /// only when it falls on or after the currently OPEN episode's own
+  /// start date — a gap from years-old, already-concluded history isn't
+  /// relevant to a ruling about the present.
+  bool _hasMaterialUnresolvedEvidence({
+    required List<BleedingObservation> observations,
+    required CanonicalBleedingStatus status,
+  }) {
+    final openEpisodeStart = status.openEpisode?.startDate;
+    if (openEpisodeStart == null) return false;
+    final excludedDates = CanonicalFiqhEvidenceAdapter.excludedUncertainDates(
+      observations: observations,
+    );
+    return excludedDates.any(
+      (date) => !date.isBefore(
+        DateTime(
+          openEpisodeStart.year,
+          openEpisodeStart.month,
+          openEpisodeStart.day,
+        ),
+      ),
+    );
+  }
+
+  /// Commit E7 — the dashboard is only ever reached by whoever is
+  /// currently, actually signed in, so this is the correct, narrow place
+  /// to safely act on a pending notification tap: no separate "is this
+  /// the right account" check is needed beyond comparing the payload's
+  /// own userId against whoever is signed in *right now*, and a stale
+  /// payload from a different/previous account is silently discarded
+  /// rather than acted on. Deliberately no global navigator key or
+  /// route-from-outside-the-tree mechanism — this is simpler and
+  /// sufficient for a single, specific deep-link target.
+  Future<void> _consumeNotificationTap() async {
+    final payload = NotificationService.instance.consumePendingTapPayload();
+    if (payload == null) return;
+
+    Map<String, dynamic> decoded;
+    try {
+      decoded = jsonDecode(payload) as Map<String, dynamic>;
+    } catch (_) {
+      // A malformed/foreign payload must never crash the dashboard.
+      return;
+    }
+    // New critical finding (notification continuity beyond 7 days) — the
+    // OS-native recurring fallback (see
+    // NotificationRefreshCoordinator.activeBleedingRecurringFallbackId)
+    // shares this same tap-consumption path, distinguished only by its
+    // own type string and the deliberate absence of a `localDate` (it
+    // has none to embed — see ActiveBleedingReminderScheduler
+    // .recurringFallbackType's own doc comment).
+    final isRecurringFallback =
+        decoded['type'] ==
+        ActiveBleedingReminderScheduler.recurringFallbackType;
+    if (decoded['type'] != 'activeBleedingCheckin' && !isRecurringFallback) {
+      return;
+    }
+
+    final payloadUserId = decoded['userId'] as String?;
+    final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (payloadUserId == null ||
+        signedInUserId == null ||
+        payloadUserId != signedInUserId) {
+      // Wrong user (or logged out entirely) — never open someone else's
+      // journey, never expose health content, just drop it silently.
+      return;
+    }
+
+    final episodeId = decoded['episodeId'] as String?;
+    if (episodeId == null) return;
+
+    // Closure Blocker 1: if this read fails, `dataOrNull` is null and we
+    // simply drop the tap rather than guessing — this is a background,
+    // best-effort action (not a direct user request awaiting a result),
+    // so an honest "couldn't verify" retry prompt has no natural home
+    // here; she can always reach the same check-in from Quick Actions.
+    final episode = (await BleedingEpisodeRepositoryImpl().getOpenEpisode(
+      signedInUserId,
+    )).dataOrNull;
+    // The episode this reminder was about may have since ended (she
+    // ended it through the app before ever tapping the notification) —
+    // must not reopen a journey that's already closed.
+    if (episode == null || episode.id != episodeId) return;
+
+    // Closure Blocker 9 — the payload's own logical local day must still
+    // be today's; a notification that sat in the tray/system feed
+    // untapped and is opened a day (or more) later must never silently
+    // record against *today* as if the tap happened on the day the
+    // reminder was actually about. Does not apply to the recurring
+    // fallback: it carries no `localDate` at all (the OS re-delivers the
+    // same payload every day), so there is nothing stale to compare
+    // against — a tap on it always, honestly, means "today," resolved
+    // right now rather than read from the payload.
+    final utcOffsetMinutes = AppClock.now().timeZoneOffset.inMinutes;
+    final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
+    if (!isRecurringFallback) {
+      final payloadLocalDate = DateTime.tryParse(
+        (decoded['localDate'] as String?) ?? '',
+      );
+      if (payloadLocalDate == null ||
+          !payloadLocalDate.isAtSameMomentAs(today)) {
+        return;
+      }
+    }
+
+    // Closure Blocker 13 — "opened": she genuinely tapped through to this
+    // screen and every validation above passed. Uses the exact same
+    // logical id the scheduler itself computed, so this event joins the
+    // same reminder's own scheduled/cancelled history. `logicalLocalDate`
+    // is always derived from `today` (computed above), never read from
+    // the payload — the recurring fallback's payload has no such field,
+    // and `today` is the honestly correct value for both payload kinds.
+    final reminderId = ActiveBleedingReminderScheduler.reminderId(
+      userId: signedInUserId,
+      episodeId: episodeId,
+      localDay: today,
+    ).toString();
+    final todaysIsoDate =
+        '${today.year.toString().padLeft(4, '0')}-'
+        '${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
+    await NotificationEventLogStore.record(
+      NotificationEvent(
+        reminderId: reminderId,
+        notificationType: NotificationType.activeBleeding.name,
+        state: NotificationEventState.opened,
+        eventTimestamp: AppClock.now(),
+        userId: signedInUserId,
+        episodeId: episodeId,
+        logicalLocalDate: todaysIsoDate,
+      ),
+    );
+
+    if (!mounted) return;
+    final outcome = await showDailyCheckinSheet(
+      context,
+      episodeId: episodeId,
+      episodeStartDate: episode.startDate,
+    );
+    if (outcome != DailyCheckinOutcome.cancelled) {
+      // Closure Blocker 13 — "responded": she actually answered the
+      // check-in this notification was about (any real answer — YES,
+      // NO, or "I'm not sure" — counts; only a dismissal does not).
+      await NotificationEventLogStore.record(
+        NotificationEvent(
+          reminderId: reminderId,
+          notificationType: NotificationType.activeBleeding.name,
+          state: NotificationEventState.responded,
+          eventTimestamp: AppClock.now(),
+          userId: signedInUserId,
+          episodeId: episodeId,
+          logicalLocalDate: todaysIsoDate,
+        ),
+      );
+      await _viewModel.loadLogs();
+      if (mounted) setState(() => _missedCheckinRefreshToken++);
+      unawaited(_refreshCanonicalStatus());
+    }
   }
 
   @override
   void dispose() {
     _fiqhRefreshTimer?.cancel();
+    unawaited(_tapSubscription?.cancel());
     super.dispose();
   }
 
@@ -238,14 +558,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final summary = _viewModel.summary;
         final calculation = _viewModel.cycleCalculation;
         final cycleDay = calculation.currentCycleDay;
+        // New critical finding — the Fiqh engine's own INPUT is now the
+        // canonical, effective (post-correction) evidence EXCLUSIVELY,
+        // never `cycle_entries`/`_viewModel.logs`. The prior `??
+        // _viewModel.logs` fallback was removed outright: falling back to
+        // a legacy, projection-dependent pipeline whenever canonical
+        // evidence was merely not-yet-loaded or unavailable was itself
+        // the exact "confidently assert a ruling from stale or incomplete
+        // evidence" failure mode this finding exists to close.
+        // `_canonicalFiqhLogs` is null only while the very first fetch is
+        // still pending or there is no session at all — treated as "no
+        // canonical evidence yet" (the same, already-correct
+        // insufficient-history path a genuinely brand-new account gets),
+        // never as a positive ruling. `_canonicalFiqhEvidenceUnresolved`
+        // is checked separately, further below, to gate the ring/banner
+        // themselves — never here, since the underlying calculation must
+        // still run honestly either way.
+        final canonicalFiqhLogs = _canonicalFiqhLogs ?? const <CycleLog>[];
+        final fiqhLogs = canonicalFiqhLogs;
+        final fiqhCalculation = const CycleCalculationService().calculate(
+          canonicalFiqhLogs,
+          asOf: AppClock.now(),
+        );
         // The engine always runs (regardless of _istihadahMode) so every
         // state — including manual istihadah — shares the same real,
         // flow-aware day-count data; the toggle only overrides which
         // label is displayed below, never the underlying computation.
-        final snapshot = calculation.hasSufficientHistory
+        final snapshot = fiqhCalculation.hasSufficientHistory
             ? const CycleStatusEngine().evaluate(
-                logs: _viewModel.logs,
-                calculation: calculation,
+                logs: fiqhLogs,
+                calculation: fiqhCalculation,
                 madhhab: MadhhabController.instance.selectedOrNull,
                 now: AppClock.now(),
               )
@@ -267,8 +609,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // with no Madhhab SELECTED.
           FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
         };
-        final state = _istihadahMode ? _FiqhState.istihadah : mappedState;
-        final isCurrentlyBleeding =
+        // Closure Blocker 2 — the factual question "is there an open
+        // bleeding episode?" is now answered ONLY by canonical
+        // bleeding_episodes (via _canonicalStatus), never unioned with
+        // the legacy, projection-dependent Fiqh signal. The prior
+        // OR-union meant a stale cycle_entries row (the END never
+        // mirrored because CycleEntriesProjection failed) could
+        // resurrect a factually-ended episode — exactly the failure mode
+        // this closure wave requires be structurally impossible. `null`
+        // means a read was genuinely ATTEMPTED and genuinely FAILED
+        // (Closure Blocker 1) — never the ordinary, transient gap before
+        // the first fetch has resolved (or no session at all, which
+        // isn't a failure to verify anything; there is nothing to verify
+        // yet). Treating "hasn't resolved yet" the same as "failed" was
+        // itself a real bug this closure wave introduced and then found:
+        // it made the honest-empty-state ("no history yet") briefly (or,
+        // with no session at all, permanently) show the alarming
+        // "couldn't verify" card instead — the exact false-alarm failure
+        // mode Blocker 1 exists to prevent, just inverted.
+        final hasOpenEpisode = switch (_canonicalStatus?.state) {
+          null => false,
+          RingFactualState.unavailable => null,
+          RingFactualState.factualOpenEpisode => true,
+          _ => false,
+        };
+        // New critical finding — a factually open episode (she is
+        // genuinely, currently being tracked as bleeding) combined with
+        // *insufficient* Fiqh evidence (never enough real observations to
+        // reach any evaluated conclusion at all — distinct from a
+        // genuine, evidence-backed Tahara/Istihadah ruling, which this
+        // does not touch) must never fall through to the same "Tahara"
+        // label a brand-new, not-currently-bleeding account gets. Without
+        // this guard, `_PrayerStatusCard` — unconditional, rendered
+        // regardless of which ring branch above shows — would have said
+        // "Salah is obligatory" for a woman who is, right now, factually
+        // bleeding, purely because her observations hadn't finished
+        // loading/existing yet. Folded into the same evidence-unresolved
+        // signal as a genuine read failure: both mean "cannot honestly
+        // conclude anything yet," never a confident ruling either way.
+        // Checked against `fiqhCalculation.hasSufficientHistory` directly —
+        // not `snapshot.state == FiqhCycleState.insufficientHistory` — because
+        // the fallback snapshot above (used precisely when history is
+        // insufficient) is itself hardcoded to report `FiqhCycleState.tahara`,
+        // never the `insufficientHistory` enum value. Matching on the enum
+        // value here would never fire.
+        final insufficientEvidenceWhileFactuallyBleeding =
+            hasOpenEpisode == true && !fiqhCalculation.hasSufficientHistory;
+        // New critical finding — evidence-unresolved takes priority over
+        // every other signal, including her own manual Istihadah toggle:
+        // if the canonical observations backing this conclusion could not
+        // be verified, nothing computed from them (nor a toggle that
+        // itself assumes a specific, knowable state) may be confidently
+        // asserted. Every consumer of `state` below (the ring, the Salah
+        // banner, the prayer-status card) must treat this case as "we
+        // don't know," never silently substitute the last-good value.
+        final state =
+            _canonicalFiqhEvidenceUnresolved ||
+                insufficientEvidenceWhileFactuallyBleeding
+            ? _FiqhState.evidenceUnresolved
+            : _istihadahMode
+            ? _FiqhState.istihadah
+            : mappedState;
+        // The Fiqh/ring DISPLAY label remains legacy-derived — a
+        // deliberately separate, non-factual concern (Commit G4: Fiqh
+        // sits above evidence, never overrides it). Only ever used for
+        // the ring's own color/text below; never for gating Start/End/
+        // Check-in actions or reminder eligibility, which use
+        // [hasOpenEpisode] exclusively.
+        final fiqhDisplayState =
             state == _FiqhState.haid ||
             state == _FiqhState.needsAdvisory ||
             state == _FiqhState.istihadah;
@@ -292,6 +700,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         viewModel: _viewModel,
                         onNotificationsTap: () =>
                             _openFullScreen(const NotificationFeedScreen()),
+                        onCalendarTap: _openCanonicalCalendar,
                       ),
                     ),
                     if (_viewModel.isLoading || _prayerViewModel.isLoading)
@@ -305,6 +714,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       padding: const EdgeInsets.fromLTRB(24, 24, 24, 132),
                       sliver: SliverList.list(
                         children: [
+                          // New critical finding — three honest sync
+                          // states: shown regardless of which
+                          // canonical/prediction branch renders below,
+                          // since a pending operation needing attention
+                          // can coexist with any of them.
+                          _SyncStatusBanner(
+                            key: ValueKey(_missedCheckinRefreshToken),
+                          ),
                           if (PregnancyStatusController
                               .instance
                               .isPregnant) ...[
@@ -364,43 +781,110 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               },
                             ),
                             const SizedBox(height: 24),
-                          ] else if (!calculation.hasSufficientHistory ||
+                          ] else if (hasOpenEpisode == null) ...[
+                            // Closure Blocker 1 — a read failure must
+                            // never be shown as "no history"/"no open
+                            // episode." A retryable, honest message
+                            // instead — no Quick Actions rendered at all
+                            // while the factual state is genuinely
+                            // unknown, since offering either "Start" or
+                            // "Check in" would itself be a guess.
+                            _CanonicalStatusUnavailableCard(
+                              onRetry: () =>
+                                  unawaited(_refreshCanonicalStatus()),
+                            ),
+                          ] else if (hasOpenEpisode ||
+                              !calculation.hasSufficientHistory ||
                               !calculation.hasPlausibleAverage) ...[
-                            _InsufficientCycleDataCard(
-                              onLog: () => showCycleLogSheet(
-                                context,
-                                viewModel: _viewModel,
-                                existingLog: _todayLog(),
-                                initialFlow: FlowLevel.medium,
+                            // Commit F3 — an explicit ring state, not
+                            // "insufficient history" as a single
+                            // catch-all: an open episode is ALWAYS shown
+                            // factually and immediately (F1/F4), one
+                            // completed episode is shown as real observed
+                            // history rather than the same "two Haid
+                            // starts needed" copy a genuinely blank
+                            // history gets (F5) — only a truly empty
+                            // canonical history falls through to that
+                            // original card.
+                            if (hasOpenEpisode)
+                              _FactualOpenEpisodeCard(
+                                daysInto:
+                                    _canonicalStatus!.daysIntoOpenEpisode!,
+                              )
+                            else if (_canonicalStatus?.state ==
+                                RingFactualState.factualCompletedHistory)
+                              _FactualCompletedHistoryCard(
+                                completedCount:
+                                    _canonicalStatus!.completedEpisodeCount,
+                              )
+                            else
+                              _InsufficientCycleDataCard(
+                                onLog: () => _startBleeding(),
                               ),
-                            ),
-                            const SizedBox(height: 16),
-                          ] else ...[
-                            _CycleOverview(
-                              summary: summary,
-                              cycleDay: cycleDay!,
-                              state: state,
-                              isCurrentlyBleeding: isCurrentlyBleeding,
-                              confirmAt: snapshot.confirmAt,
-                              daysIntoCurrentEpisode:
-                                  snapshot.daysIntoCurrentEpisode,
-                              onTap: () => showCycleLogSheet(
-                                context,
-                                viewModel: _viewModel,
-                                existingLog: _todayLog(),
-                                initialFlow: FlowLevel.medium,
-                              ),
-                            ),
                             const SizedBox(height: 24),
                             _QuickActions(
-                              isCurrentlyBleeding: isCurrentlyBleeding,
-                              onStart: () => showCycleLogSheet(
-                                context,
-                                viewModel: _viewModel,
-                                existingLog: _todayLog(),
-                                initialFlow: FlowLevel.medium,
+                              hasOpenEpisode: hasOpenEpisode,
+                              onStart: () => _startBleeding(),
+                              onEnd: () => _endBleeding(),
+                              onCheckIn: () => _checkInToday(),
+                              onBackfill: () => _backfillObservation(),
+                            ),
+                            if (hasOpenEpisode) ...[
+                              const SizedBox(height: 12),
+                              _MissedCheckinBanner(
+                                key: ValueKey(_missedCheckinRefreshToken),
+                                onAdd: (episodeId, episodeStartDate, day) =>
+                                    _backfillSpecificDay(
+                                      episodeId,
+                                      episodeStartDate,
+                                      day,
+                                    ),
                               ),
-                              onEnd: () => _endHaid(cycleDay),
+                            ],
+                          ] else ...[
+                            // New critical finding — a Fiqh ruling must
+                            // never be drawn from evidence that is
+                            // unavailable/degraded in a materially
+                            // relevant way; the ring itself asserts a
+                            // specific state (haid/tahara/istihadah)
+                            // through its color and headline, so it is
+                            // exactly the wrong thing to render
+                            // confidently here. Raw factual tracking
+                            // (Quick Actions, just below) still works
+                            // regardless — only the Fiqh *conclusion* is
+                            // withheld.
+                            if (_canonicalFiqhEvidenceUnresolved)
+                              _FiqhEvidenceUnresolvedCard(
+                                onRetry: () =>
+                                    unawaited(_refreshCanonicalStatus()),
+                              )
+                            else
+                              _CycleOverview(
+                                summary: summary,
+                                cycleDay: cycleDay!,
+                                state: state,
+                                isCurrentlyBleeding: fiqhDisplayState,
+                                confirmAt: snapshot.confirmAt,
+                                daysIntoCurrentEpisode:
+                                    snapshot.daysIntoCurrentEpisode,
+                                onTap: () => showCycleLogSheet(
+                                  context,
+                                  viewModel: _viewModel,
+                                  existingLog: _todayLog(),
+                                  initialFlow: FlowLevel.medium,
+                                ),
+                              ),
+                            const SizedBox(height: 24),
+                            _QuickActions(
+                              // hasOpenEpisode is definitionally false in
+                              // this branch (the outer condition above
+                              // already required it) — no banner either,
+                              // for the same reason.
+                              hasOpenEpisode: false,
+                              onStart: () => _startBleeding(),
+                              onEnd: () => _endBleeding(),
+                              onCheckIn: () => _checkInToday(),
+                              onBackfill: () => _backfillObservation(),
                             ),
                           ],
                           if (PregnancyStatusController
@@ -459,6 +943,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     mode: NiswahAssistantMode.fiqhAdvisory,
                                   ),
                                 ),
+                                onRetry: () =>
+                                    unawaited(_refreshCanonicalStatus()),
                               ),
                             ),
                           ],
@@ -591,42 +1077,228 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _endHaid(int cycleDay) async {
-    try {
-      await _viewModel.saveLog(
-        CycleLogFormData(
-          date: AppClock.now(),
-          flow: FlowLevel.none,
-          cycleDay: cycleDay.clamp(1, 40),
-        ),
-      );
-      final status = _viewModel.lastSaveSyncStatus;
-      if (mounted && status != null && status != SyncStatus.synced) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              status == SyncStatus.pending
-                  ? _l(
-                      'Saved on this device. It will back up to your account automatically the next time you\'re online.',
-                      'تم الحفظ على هذا الجهاز. سيتم النسخ الاحتياطي إلى حسابك تلقائياً عند عودة الاتصال.',
-                    )
-                  : _l(
-                      'Saved on this device, but could not be backed up to your account. Please try again later.',
-                      'تم الحفظ على هذا الجهاز، لكن تعذر النسخ الاحتياطي إلى حسابك. يُرجى المحاولة لاحقاً.',
-                    ),
-            ),
+  /// F8 — unlike [_openFullScreen], this awaits the round trip: a save
+  /// made from the calendar (a backfill or a correction) must refresh
+  /// this screen's own canonical status on return, never leave it
+  /// showing stale evidence until some unrelated event happens to
+  /// trigger [_refreshCanonicalStatus] again.
+  Future<void> _openCanonicalCalendar() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => const CanonicalCalendarScreen(),
+      ),
+    );
+    if (mounted) unawaited(_refreshCanonicalStatus());
+  }
+
+  /// Menstrual Data Integrity charter, Commit D — Section 6/7: the single
+  /// writer for a new bleeding episode is now `bleeding_episodes`/
+  /// `bleeding_observations` (via [showStartBleedingSheet]), never a
+  /// direct `cycle_entries` write from this screen. `cycle_entries` is
+  /// updated only as [CycleEntriesProjection]'s one-directional mirror,
+  /// which the sheet itself triggers — so the dashboard reloading here is
+  /// exactly the honest "prove what succeeded" step Section 7 requires,
+  /// not a second, independent save.
+  Future<void> _startBleeding() async {
+    final started = await showStartBleedingSheet(context);
+    if (started) {
+      await _viewModel.loadLogs();
+      if (mounted) setState(() => _missedCheckinRefreshToken++);
+      unawaited(_refreshCanonicalStatus());
+      if (mounted) await _maybeAskActiveBleedingReminderConsent();
+    }
+  }
+
+  /// Commit E2 — a contextual ask right after a real episode starts
+  /// ("Would you like Niswah to remind you once a day while you're
+  /// tracking?"), never blocking tracking itself (it fires *after* the
+  /// save already succeeded) and never repeated once answered either way
+  /// — the `_askedKey` flag is set on Enable *and* on Not now, and
+  /// persists across app restarts (SharedPreferences), so declining once
+  /// is honored permanently rather than re-asked on the next period.
+  Future<void> _maybeAskActiveBleedingReminderConsent() async {
+    const askedKey = 'niswah_active_bleeding_consent_asked';
+    final preferences = await SharedPreferences.getInstance();
+    if (preferences.getBool(askedKey) ?? false) return;
+
+    if (!mounted) return;
+    final enable = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_l('Daily reminders?', 'تذكيرات يومية؟')),
+        content: Text(
+          _l(
+            "Would you like Niswah to remind you once a day while you're "
+                'tracking?',
+            'هل تودين أن يذكركِ نِسواه مرة واحدة يومياً أثناء تتبعكِ؟',
           ),
-        );
-      }
-    } catch (_) {
-      if (!mounted) return;
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(_l('Not now', 'ليس الآن')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(_l('Enable daily reminder', 'تفعيل التذكير اليومي')),
+          ),
+        ],
+      ),
+    );
+
+    await preferences.setBool(askedKey, true);
+    if (enable != true) return;
+
+    await NotificationService.instance.requestPermission();
+    final preferenceRepository = NotificationRepositoryImpl();
+    final current = await preferenceRepository.loadPreferences();
+    current[NotificationType.activeBleeding] =
+        current[NotificationType.activeBleeding]!.copyWith(enabled: true);
+    await preferenceRepository.savePreferences(current);
+
+    // Schedules immediately rather than waiting for the next app-start/
+    // resume trigger — she just said yes, the reminder should exist now.
+    await NotificationRefreshCoordinator.refresh(
+      userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
+    );
+  }
+
+  /// Closure Blocker 1 — fetches the caller's open episode, honestly
+  /// distinguishing "verified: no open episode" (shows
+  /// [noEpisodeMessageEn]/[noEpisodeMessageAr]) from "couldn't verify
+  /// right now" (a read failure — shows a generic, retryable message). A
+  /// read failure must never be silently treated as "genuinely no open
+  /// episode," which would let a caller wrongly assume tracking has
+  /// ended/never started.
+  Future<BleedingEpisode?> _resolveOpenEpisodeOrShowError(
+    String userId, {
+    required String noEpisodeMessageEn,
+    required String noEpisodeMessageAr,
+  }) async {
+    final result = await BleedingEpisodeRepositoryImpl().getOpenEpisode(userId);
+    if (!mounted) return null;
+    if (result is LoadUnavailable<BleedingEpisode?>) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _l('Unable to save your cycle log.', 'تعذر حفظ سجل الدورة.'),
+            _l(
+              "We couldn't verify your tracking data right now. Try again.",
+              'تعذر التحقق من بيانات تتبعكِ الآن. يرجى المحاولة مجدداً.',
+            ),
           ),
         ),
       );
+      return null;
+    }
+    final episode = result.dataOrNull;
+    if (episode == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_l(noEpisodeMessageEn, noEpisodeMessageAr))),
+      );
+    }
+    return episode;
+  }
+
+  /// Section 6/48: ending an episode needs its real id — fetched fresh
+  /// rather than cached on this screen, since nothing here has tracked it
+  /// so far.
+  Future<void> _endBleeding() async {
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final openEpisode = await _resolveOpenEpisodeOrShowError(
+      userId,
+      noEpisodeMessageEn: 'Could not find your active period to end it.',
+      noEpisodeMessageAr: 'تعذر العثور على دورتكِ النشطة لإنهائها.',
+    );
+    if (openEpisode?.id == null) return;
+
+    if (!mounted) return;
+    final ended = await showEndBleedingSheet(
+      context,
+      episodeId: openEpisode!.id!,
+      episodeStartDate: openEpisode.startDate,
+    );
+    if (ended) {
+      await _viewModel.loadLogs();
+      if (mounted) setState(() => _missedCheckinRefreshToken++);
+      unawaited(_refreshCanonicalStatus());
+    }
+  }
+
+  /// Commit D1 — the recurring "are you still bleeding today?" check-in,
+  /// fetched against the real open episode the same way [_endBleeding]
+  /// does (never assumed from the legacy Fiqh-state signal alone).
+  Future<void> _checkInToday() async {
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final openEpisode = await _resolveOpenEpisodeOrShowError(
+      userId,
+      noEpisodeMessageEn: 'Could not find your active period to check in on.',
+      noEpisodeMessageAr: 'تعذر العثور على دورتكِ النشطة للمتابعة.',
+    );
+    if (openEpisode?.id == null) return;
+
+    if (!mounted) return;
+    final outcome = await showDailyCheckinSheet(
+      context,
+      episodeId: openEpisode!.id!,
+      episodeStartDate: openEpisode.startDate,
+    );
+    if (outcome != DailyCheckinOutcome.cancelled) {
+      await _viewModel.loadLogs();
+      if (mounted) setState(() => _missedCheckinRefreshToken++);
+      unawaited(_refreshCanonicalStatus());
+    }
+  }
+
+  /// Commit D4 — "add a missing day," reachable independently of today's
+  /// own check-in.
+  Future<void> _backfillObservation() async {
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final openEpisode = await _resolveOpenEpisodeOrShowError(
+      userId,
+      noEpisodeMessageEn: 'Could not find your active period.',
+      noEpisodeMessageAr: 'تعذر العثور على دورتكِ النشطة.',
+    );
+    if (openEpisode?.id == null) return;
+
+    if (!mounted) return;
+    final saved = await showBackfillObservationSheet(
+      context,
+      episodeId: openEpisode!.id!,
+      episodeStartDate: openEpisode.startDate,
+    );
+    if (saved) {
+      await _viewModel.loadLogs();
+      if (mounted) setState(() => _missedCheckinRefreshToken++);
+      unawaited(_refreshCanonicalStatus());
+    }
+  }
+
+  /// Commit D3 — [_MissedCheckinBanner]'s own "Add it" action: opens the
+  /// same backfill sheet, pre-filled to the specific missing date it
+  /// detected, rather than a fresh empty picker.
+  Future<void> _backfillSpecificDay(
+    String episodeId,
+    DateTime episodeStartDate,
+    DateTime day,
+  ) async {
+    if (!mounted) return;
+    final saved = await showBackfillObservationSheet(
+      context,
+      episodeId: episodeId,
+      episodeStartDate: episodeStartDate,
+      initialDate: day,
+    );
+    if (saved) {
+      await _viewModel.loadLogs();
+      if (mounted) setState(() => _missedCheckinRefreshToken++);
+      unawaited(_refreshCanonicalStatus());
     }
   }
 }
@@ -1299,14 +1971,367 @@ class _InsufficientCycleDataCard extends StatelessWidget {
   );
 }
 
+/// Commit F3/F4 — RingFactualState.factualOpenEpisode: shown the moment a
+/// real open episode exists, independent of any prior history at all.
+/// "Bleeding recorded / Day N of this record. Learning your cycle." —
+/// never "two Haid starts needed" (that copy is for a genuinely blank
+/// history, a different state entirely), and never a fabricated average/
+/// next-period/fertile-window this early (that remains
+/// [RingFactualState.predictionEligibleHistory]'s domain).
+/// Closure Blocker 1 — shown instead of any card that would otherwise
+/// imply a confident factual claim ("no history," "tracking ended," "day
+/// N") when the canonical read that claim would rest on genuinely failed
+/// (network/backend/auth). Never silently defaults to the empty-history
+/// card, which would misrepresent an unknown state as a verified one.
+class _CanonicalStatusUnavailableCard extends StatelessWidget {
+  const _CanonicalStatusUnavailableCard({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 280,
+        height: 280,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE5E7EB), width: 8),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFF1F3F4), width: 12),
+          ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.cloud_off_outlined,
+                    color: AppColors.textSecondary,
+                    size: 22,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _l(
+                      "We couldn't verify your tracking data right now.",
+                      'تعذر التحقق من بيانات تتبعكِ الآن.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: AppColors.emeraldInk,
+                      fontFamily: AppTypography.serifFamily,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      // Deliberately outside the circular card rather than squeezed
+      // inside it — matching every other "empty state"-shaped card in
+      // this file (e.g. _FactualOpenEpisodeCard), none of which put an
+      // interactive control inside their fixed-size ring.
+      const SizedBox(height: 12),
+      FilledButton(
+        onPressed: onRetry,
+        style: FilledButton.styleFrom(backgroundColor: AppColors.haid),
+        child: Text(_l('Try again', 'إعادة المحاولة')),
+      ),
+    ],
+  );
+}
+
+/// New critical finding — replaces [_CycleOverview] entirely (never
+/// rendered alongside it) whenever canonical Fiqh evidence is
+/// unavailable or materially degraded. Deliberately distinct from
+/// [_CanonicalStatusUnavailableCard]: that one is about the *episode*
+/// read (is there an open episode at all); this one is specifically
+/// about the *Fiqh conclusion* being unconfirmable — a woman can still
+/// see this even when her open-episode status is known perfectly well,
+/// if the separate observations read backing the Fiqh ruling failed or
+/// was materially incomplete.
+class _FiqhEvidenceUnresolvedCard extends StatelessWidget {
+  const _FiqhEvidenceUnresolvedCard({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 280,
+        height: 280,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE5E7EB), width: 8),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFF1F3F4), width: 12),
+          ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              // New critical finding — the English copy is genuinely
+              // longer than the Arabic (both are honest, faithful
+              // translations; English prose is simply less compact
+              // here), and this circle's size is fixed to match every
+              // other ring-state card — without this, English wrapped
+              // to real device widths overflowed the circle by ~10px.
+              // FittedBox shrinks the whole icon+text block together
+              // rather than letting only the text wrap unpredictably,
+              // so the same fix also covers 200% text-scale.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.help_outline_rounded,
+                      color: AppColors.textSecondary,
+                      size: 22,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _l(
+                        "Your Fiqh state can't be confirmed right now.",
+                        'لا يمكن تأكيد حالتكِ الفقهية الآن.',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: AppColors.emeraldInk,
+                        fontFamily: AppTypography.serifFamily,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _l(
+                        'Your tracking is still saved — we just could not '
+                            'verify it well enough for a Fiqh conclusion.',
+                        'تتبعكِ محفوظ بأمان — لم نتمكن فقط من التحقق منه بما '
+                            'يكفي لإصدار حكم فقهي.',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textTertiary,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+      FilledButton(
+        onPressed: onRetry,
+        style: FilledButton.styleFrom(backgroundColor: AppColors.haid),
+        child: Text(_l('Try again', 'إعادة المحاولة')),
+      ),
+    ],
+  );
+}
+
+class _FactualOpenEpisodeCard extends StatelessWidget {
+  const _FactualOpenEpisodeCard({required this.daysInto});
+
+  final int daysInto;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 280,
+        height: 280,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(color: AppColors.haid, width: 8),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: AppColors.haid.withValues(alpha: .25),
+              width: 12,
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.water_drop_outlined,
+                  color: AppColors.haid,
+                  size: 22,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _l('Bleeding recorded', 'تم تسجيل النزيف'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: AppColors.emeraldInk,
+                    fontFamily: AppTypography.serifFamily,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _l(
+                    'Day $daysInto of this record',
+                    'اليوم $daysInto من هذا التسجيل',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _l('Learning your cycle.', 'نتعرّف على دورتكِ.'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(fontSize: 10, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+/// Commit F3/F5 — RingFactualState.factualCompletedHistory: exactly one
+/// completed episode exists. Shows the observed history honestly without
+/// fabricating an average/next-period/fertile-window — a single episode
+/// cannot support a cycle-to-cycle prediction (F5, F6's own explicit
+/// eligibility boundary).
+class _FactualCompletedHistoryCard extends StatelessWidget {
+  const _FactualCompletedHistoryCard({required this.completedCount});
+
+  final int completedCount;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 280,
+        height: 280,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE5E7EB), width: 8),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFF1F3F4), width: 12),
+          ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.history_edu_outlined,
+                    color: AppColors.haid,
+                    size: 22,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _l('One record so far', 'سجل واحد حتى الآن'),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: AppColors.emeraldInk,
+                      fontFamily: AppTypography.serifFamily,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _l(
+                      // Deliberately no average/next-period estimate yet —
+                      // one completed episode is real, observed history,
+                      // but is not enough to predict a cycle from.
+                      'A second Haid start will let us learn your pattern.',
+                      'ستتيح لنا بداية حيض ثانية معرفة نمطكِ.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(fontSize: 10, height: 1.4),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
 class _DashboardHeader extends StatelessWidget {
   const _DashboardHeader({
     required this.viewModel,
     required this.onNotificationsTap,
+    required this.onCalendarTap,
   });
 
   final CycleTrackingViewModel viewModel;
   final VoidCallback onNotificationsTap;
+  final VoidCallback onCalendarTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1349,6 +2374,25 @@ class _DashboardHeader extends StatelessWidget {
               ],
             ),
           ),
+          // F8 — the canonical calendar's entry point from the
+          // dashboard, alongside the existing notifications bell.
+          Semantics(
+            button: true,
+            label: _l('Cycle calendar', 'تقويم الدورة'),
+            excludeSemantics: true,
+            child: InkResponse(
+              onTap: onCalendarTap,
+              radius: 24,
+              child: Icon(
+                Icons.calendar_month_rounded,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF5EEAD4)
+                    : AppColors.emeraldInk,
+                size: 25,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
           AnimatedBuilder(
             animation: NotificationLogController.instance,
             builder: (context, _) {
@@ -1667,6 +2711,13 @@ class _CycleOverview extends StatelessWidget {
         'Bleeding detected — select your Madhhab in Settings to see your Fiqh state.',
         'تم رصد نزيف — يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حالتكِ الفقهية.',
       ),
+      // Unreachable in practice — the dashboard swaps this whole widget
+      // out for _FiqhEvidenceUnresolvedCard before ever constructing
+      // _CycleOverview with this state. Exhaustiveness-only placeholder.
+      _FiqhState.evidenceUnresolved => _l(
+        "We couldn't verify your tracking data right now.",
+        'تعذر التحقق من بيانات تتبعكِ الآن.',
+      ),
     };
     final isNextSegmentArrow =
         !isWaiting && !needsConsult && !needsMadhhabSelection;
@@ -1858,27 +2909,355 @@ class _LiveCountdownState extends State<_LiveCountdown> {
   }
 }
 
-class _QuickActions extends StatelessWidget {
-  const _QuickActions({
-    required this.isCurrentlyBleeding,
-    required this.onStart,
-    required this.onEnd,
-  });
+/// Menstrual Data Integrity charter, Commit D3 — "No response creates
+/// ZERO observations. Do not assume still bleeding, stopped bleeding, or
+/// same flow as yesterday." This banner is the honest alternative to
+/// silent assumption: it detects a real gap (at least one full local day
+/// since the open episode's most recent observation with nothing
+/// recorded for it) and offers — never forces — filling it in. Declining
+/// leaves the gap; UNKNOWN/UNOBSERVED remains valid data. Fetches its own
+/// data independently (keyed by the parent's refresh token) rather than
+/// threading the open episode through the whole dashboard state tree.
+/// New critical finding — three honest sync states: the visible,
+/// actionable surface for [SyncState.needsAttention]. Absent entirely
+/// while nothing is pending or every pending item is still an ordinary
+/// [SyncState.savedSyncing] — this is deliberately not a general
+/// "here's everything queued" view (that would make ordinary, expected
+/// offline syncing feel alarming); it only ever appears once something
+/// genuinely needs her own attention.
+class _SyncStatusBanner extends StatefulWidget {
+  const _SyncStatusBanner({super.key});
 
-  /// Whether the fiqh state counts as "currently bleeding" — haid,
-  /// needsAdvisory, or istihadah, matching [_CycleOverview]'s definition so
-  /// the two widgets never disagree about it.
-  final bool isCurrentlyBleeding;
-  final VoidCallback onStart;
-  final VoidCallback onEnd;
+  @override
+  State<_SyncStatusBanner> createState() => _SyncStatusBannerState();
+}
+
+class _SyncStatusBannerState extends State<_SyncStatusBanner> {
+  List<PendingBleedingOperation> _needsAttention = const [];
+  bool _retrying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    final all = await PendingBleedingOperationStore.loadPending();
+    final needsAttention = all
+        .where((op) => op.syncState == SyncState.needsAttention)
+        .toList();
+    if (mounted) setState(() => _needsAttention = needsAttention);
+  }
+
+  Future<void> _retryNow() async {
+    setState(() => _retrying = true);
+    // forceAll: true — a deliberate, informed manual action (unlike the
+    // automatic app-start/resume reconciliation) is the one case where
+    // even a validation/correction-conflict-categorized item is
+    // genuinely retried rather than left skipped.
+    await BleedingEpisodeRepositoryImpl().reconcilePendingOperations(
+      forceAll: true,
+    );
+    await _load();
+    if (mounted) setState(() => _retrying = false);
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_needsAttention.isEmpty) return const SizedBox.shrink();
+
+    // Never a blind "retry" affordance for a category retrying cannot
+    // possibly fix with unchanged data — honest about which recovery
+    // route actually applies, rather than a control that would just
+    // fail again the same way.
+    final anyRetryable = _needsAttention.any(
+      (op) => op.eligibleForAutomaticRetry,
+    );
+    final anyNeedsReview = _needsAttention.any(
+      (op) => !op.eligibleForAutomaticRetry,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7ED),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFFDBA74)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.sync_problem_rounded,
+                  color: Color(0xFF9A6700),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _l('Sync needs attention', 'المزامنة تحتاج إلى انتباه'),
+                    style: const TextStyle(
+                      color: Color(0xFF9A6700),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _l(
+                "${_needsAttention.length} item(s) you already saved on this "
+                    "device haven't finished syncing to your account. "
+                    "Nothing is lost.",
+                'هناك ${_needsAttention.length} عنصر (عناصر) محفوظة بأمان على '
+                    'هذا الجهاز لم تكتمل مزامنتها مع حسابكِ بعد. لا شيء ضائع.',
+              ),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+            if (anyNeedsReview) ...[
+              const SizedBox(height: 6),
+              Text(
+                _l(
+                  'Some of these need your review before they can sync — '
+                      'trying again automatically will not resolve them.',
+                  'بعض هذه العناصر تحتاج إلى مراجعتكِ قبل أن تتمكن من '
+                      'المزامنة — إعادة المحاولة تلقائياً لن تحلّها.',
+                ),
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+            if (anyRetryable) ...[
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _retrying ? null : () => unawaited(_retryNow()),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF9A6700),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: _retrying
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(_l('Retry now', 'إعادة المحاولة الآن')),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MissedCheckinBanner extends StatefulWidget {
+  const _MissedCheckinBanner({super.key, required this.onAdd});
+
+  final void Function(String episodeId, DateTime episodeStartDate, DateTime day)
+  onAdd;
+
+  @override
+  State<_MissedCheckinBanner> createState() => _MissedCheckinBannerState();
+}
+
+class _MissedCheckinBannerState extends State<_MissedCheckinBanner> {
+  bool _dismissed = false;
+  ({String episodeId, DateTime episodeStartDate, DateTime missingDay})? _gap;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_detectGap());
+  }
+
+  Future<void> _detectGap() async {
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final repository = BleedingEpisodeRepositoryImpl();
+    // Closure Blocker 1: a read failure here must never surface as "you
+    // missed a day" — this banner is purely additive, so the safe,
+    // honest response to "couldn't verify" is simply not to show
+    // anything, exactly like "verified: no gap" — never a fabricated
+    // claim either way.
+    final episode = (await repository.getOpenEpisode(userId)).dataOrNull;
+    final episodeId = episode?.id;
+    if (episode == null || episodeId == null) return;
+
+    final observationsResult = await repository.getObservationsForEpisode(
+      episodeId,
+    );
+    if (observationsResult is LoadUnavailable<List<BleedingObservation>>) {
+      return;
+    }
+    final observations = observationsResult.dataOrNull ?? const [];
+    final utcOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+    final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
+
+    // The most recent day that genuinely has at least one observation —
+    // never assumes today is covered merely because the episode started
+    // recently.
+    DateTime mostRecentCovered = episode.startDate;
+    for (final observation in observations) {
+      if (observation.observedDate.isAfter(mostRecentCovered)) {
+        mostRecentCovered = observation.observedDate;
+      }
+    }
+
+    final firstMissingDay = DateTime(
+      mostRecentCovered.year,
+      mostRecentCovered.month,
+      mostRecentCovered.day,
+    ).add(const Duration(days: 1));
+
+    // A gap exists only if that first missing day is strictly before
+    // today — today itself not yet having a check-in is not "missed" (an
+    // ordinary in-progress day), matching D1/D3's own distinction.
+    if (firstMissingDay.isBefore(today) && mounted) {
+      setState(() {
+        _gap = (
+          episodeId: episodeId,
+          episodeStartDate: episode.startDate,
+          missingDay: firstMissingDay,
+        );
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gap = _gap;
+    if (_dismissed || gap == null) return const SizedBox.shrink();
+
+    final isArabic = AppLocaleController.instance.isArabic;
+    final dateLabel =
+        '${gap.missingDay.year}-${gap.missingDay.month.toString().padLeft(2, '0')}-${gap.missingDay.day.toString().padLeft(2, '0')}';
+
+    return Directionality(
+      textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7ED),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFFED7AA)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _l(
+                  "We're missing an update for $dateLabel. Would you like to add it?",
+                  'لا يوجد تحديث ليوم $dateLabel. هل تودين إضافته؟',
+                ),
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+            TextButton(
+              onPressed: () => widget.onAdd(
+                gap.episodeId,
+                gap.episodeStartDate,
+                gap.missingDay,
+              ),
+              child: Text(_l('Add it', 'إضافة')),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => setState(() => _dismissed = true),
+              tooltip: _l('Dismiss', 'تجاهل'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickActions extends StatelessWidget {
+  const _QuickActions({
+    required this.hasOpenEpisode,
+    required this.onStart,
+    required this.onEnd,
+    this.onCheckIn,
+    this.onBackfill,
+  });
+
+  /// Closure Blocker 2 — the FACTUAL question "is there a canonical open
+  /// episode," derived ONLY from `bleeding_episodes` (never unioned with
+  /// the legacy Fiqh state) — deliberately distinct from
+  /// [_CycleOverview]'s own `isCurrentlyBleeding`, which remains a
+  /// legacy/Fiqh display concern. A stale `cycle_entries` row can never
+  /// resurrect a factually-ended episode here.
+  final bool hasOpenEpisode;
+  final VoidCallback onStart;
+  final VoidCallback onEnd;
+
+  /// Commit D1 — the recurring daily check-in, only meaningful while an
+  /// episode is actually open. Null (and therefore not rendered) whenever
+  /// there is no open canonical episode to check in against.
+  final VoidCallback? onCheckIn;
+
+  /// Commit D4 — "I forgot to log a day," reachable any time an episode
+  /// is open, independent of today's own check-in state.
+  final VoidCallback? onBackfill;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (hasOpenEpisode && onCheckIn != null) ...[
+          FilledButton.icon(
+            onPressed: onCheckIn,
+            icon: const Icon(Icons.today_outlined, size: 18),
+            label: Text(_l('Daily check-in', 'المتابعة اليومية')),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              backgroundColor: AppColors.haid,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        _startEndRow(context),
+        if (hasOpenEpisode && onBackfill != null) ...[
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: onBackfill,
+            icon: const Icon(Icons.history_edu_outlined, size: 16),
+            label: Text(_l('Add a missing day', 'إضافة يوم فائت')),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _startEndRow(BuildContext context) {
     return Row(
       children: [
         Expanded(
           child: FilledButton.icon(
-            onPressed: isCurrentlyBleeding ? null : onStart,
+            onPressed: hasOpenEpisode ? null : onStart,
             icon: const Icon(Icons.water_drop_outlined, size: 18),
             label: Text(_l('Period Started', 'بدأ الحيض')),
             style: FilledButton.styleFrom(
@@ -1897,14 +3276,14 @@ class _QuickActions extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: isCurrentlyBleeding ? onEnd : null,
+            onPressed: hasOpenEpisode ? onEnd : null,
             icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
             label: Text(_l('Period Ended', 'انتهى الحيض')),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
               foregroundColor: AppColors.haid,
               side: BorderSide(
-                color: isCurrentlyBleeding
+                color: hasOpenEpisode
                     ? const Color(0xFFFECDD3)
                     : Theme.of(context).dividerColor,
               ),
@@ -2343,6 +3722,11 @@ class _PrayerStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lifted = fiqhState == _FiqhState.haid;
+    // New critical finding — when canonical evidence is unresolved,
+    // neither "lifted" nor "obligatory" may be confidently asserted:
+    // both are themselves rulings, and the whole point of this state is
+    // that no ruling can be drawn right now.
+    final unresolved = fiqhState == _FiqhState.evidenceUnresolved;
     final names = {
       prayer.PrayerName.fajr: _l('Fajr', 'الفجر'),
       prayer.PrayerName.dhuhr: _l('Dhuhr', 'الظهر'),
@@ -2375,11 +3759,15 @@ class _PrayerStatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      lifted
+                      unresolved
+                          ? _l('Unable to verify', 'تعذر التحقق')
+                          : lifted
                           ? _l('Salah is lifted', 'الصلاة مرفوعة عنكِ')
                           : _l('Salah is obligatory', 'الصلاة واجبة عليكِ'),
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: lifted
+                        color: unresolved
+                            ? const Color(0xFF6B7280)
+                            : lifted
                             ? const Color(0xFF881337)
                             : AppColors.emeraldInk,
                         fontFamily: AppTypography.serifFamily,
@@ -2388,7 +3776,12 @@ class _PrayerStatusCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      lifted
+                      unresolved
+                          ? _l(
+                              "We couldn't verify your tracking data — your prayer obligation can't be confirmed right now.",
+                              'تعذر التحقق من بيانات تتبعكِ — لا يمكن تأكيد حكم الصلاة الآن.',
+                            )
+                          : lifted
                           ? _l(
                               'Your obligations change based on your Fiqh state',
                               'تتغير عباداتكِ حسب حالتكِ الفقهية',
@@ -2430,7 +3823,13 @@ class _PrayerStatusCard extends StatelessWidget {
             ),
             itemBuilder: (context, index) {
               final name = prayer.PrayerName.values[index];
-              final status = lifted
+              // New critical finding — neither "Lifted" nor a computed
+              // obligatory/on-time status may be shown while the
+              // underlying Fiqh state is unresolved; both are
+              // confident claims this state explicitly cannot support.
+              final status = unresolved
+                  ? _l('Unknown', 'غير معروفة')
+                  : lifted
                   ? _l('Lifted', 'مرفوعة')
                   : _prayerStatus(viewModel.statusFor(name));
               final time = viewModel.schedule.timeFor(name);
@@ -2453,14 +3852,23 @@ class _PrayerStatusCard extends StatelessWidget {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: (lifted ? AppColors.haid : AppColors.tahara)
-                                .withValues(alpha: 0.09),
+                            color:
+                                (unresolved
+                                        ? const Color(0xFF6B7280)
+                                        : lifted
+                                        ? AppColors.haid
+                                        : AppColors.tahara)
+                                    .withValues(alpha: 0.09),
                             borderRadius: BorderRadius.circular(7),
                           ),
                           child: Text(
                             status,
                             style: TextStyle(
-                              color: lifted ? AppColors.haid : AppColors.tahara,
+                              color: unresolved
+                                  ? const Color(0xFF6B7280)
+                                  : lifted
+                                  ? AppColors.haid
+                                  : AppColors.tahara,
                               fontSize: 7,
                               fontWeight: FontWeight.w700,
                             ),
@@ -2709,6 +4117,7 @@ class _FiqhStateBanner extends StatelessWidget {
     required this.madhhab,
     required this.onLogBlood,
     required this.onAskAdvisor,
+    required this.onRetry,
   });
 
   final _FiqhState state;
@@ -2716,6 +4125,7 @@ class _FiqhStateBanner extends StatelessWidget {
   final String madhhab;
   final VoidCallback onLogBlood;
   final VoidCallback onAskAdvisor;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -2772,6 +4182,10 @@ class _FiqhStateBanner extends StatelessWidget {
                 'Select your Madhhab in Settings to see your current Fiqh obligation.',
                 'يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حكمكِ الفقهي الحالي.',
               ),
+              _FiqhState.evidenceUnresolved => _l(
+                "We couldn't verify your tracking data right now — your Fiqh state can't be confirmed.",
+                'تعذر التحقق من بيانات تتبعكِ الآن — لا يمكن تأكيد حالتكِ الفقهية.',
+              ),
             },
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: AppColors.textPrimary,
@@ -2821,6 +4235,27 @@ class _FiqhStateBanner extends StatelessWidget {
               icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
               label: Text(
                 _l('Ask the Fiqh advisor', 'اسألي المستشارة الفقهية'),
+              ),
+            ),
+          ],
+          if (state == _FiqhState.evidenceUnresolved) ...[
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: onRetry,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.haid,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+              child: Text(
+                _l('Try again', 'إعادة المحاولة'),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -3346,6 +4781,17 @@ enum _FiqhState {
     'Select your Madhhab',
     Color(0xFF6B7280),
     'Select your Madhhab to see your current Fiqh state.',
+  ),
+  // New critical finding — canonical evidence was genuinely unavailable
+  // or materially degraded (a failed read, a quarantined row, or an
+  // excluded "I'm not sure" day inside the currently open episode's own
+  // window). Deliberately its own state, never silently mapped to
+  // tahara/haid/istihadah: this is "we cannot verify," not a ruling of
+  // any kind, positive or negative.
+  evidenceUnresolved(
+    'Unable to verify',
+    Color(0xFF6B7280),
+    "We couldn't verify your tracking data. Your Fiqh state can't be confirmed right now.",
   );
 
   const _FiqhState(this.label, this.color, this.message);
