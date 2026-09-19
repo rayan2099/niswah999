@@ -33,6 +33,23 @@ class NotificationRefreshCoordinator {
   static const _activeBleedingReminderHour = 18;
   static const _activeBleedingReminderMinute = 0;
 
+  /// New critical finding — multi-day notification continuity: how many
+  /// local days ahead (today included) are scheduled every refresh.
+  /// Deliberately bounded, not "as many as the episode might last" — iOS
+  /// enforces a hard, OS-wide 64-pending-notification ceiling shared
+  /// across every notification type this app schedules (cycle,
+  /// pregnancy, nifas, wellbeing, active-bleeding), so this window must
+  /// stay modest rather than claim unlimited lookahead. Re-planned (and
+  /// naturally extended forward) on every refresh, so an episode lasting
+  /// longer than this window is never actually left without reminders
+  /// as long as the app is opened at least once within any
+  /// [_rollingWindowDays]-day stretch — only a *continuous* absence
+  /// longer than the whole window would exceed what a client-only
+  /// scheduler can guarantee, which is the explicitly disclosed
+  /// limitation this finding itself calls out (a client cannot schedule
+  /// infinitely far into a future it cannot verify obligations for).
+  static const _rollingWindowDays = 7;
+
   static Future<void> refresh({
     required String? userId,
     CycleTrackingRepositoryImpl? cycleRepository,
@@ -120,127 +137,161 @@ class NotificationRefreshCoordinator {
         .where((o) => o.observedDate.isAtSameMomentAs(today))
         .length;
 
-    // Closure Blocker 7 — a real, persisted, user-choosable time; the
-    // defaults below are only ever used before she has customized it
-    // (the same 18:00 this used to be unconditionally hardcoded to), and
-    // Settings now actually surfaces a control that changes this value,
-    // unlike the generic (and previously unused) leadTimeMinutes slider.
-    final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+    // New critical finding — multi-day notification continuity: a
+    // client-only scheduler cannot rely on the app being reopened daily,
+    // so every refresh plans a BOUNDED rolling window of future local
+    // days at once (today through today + _rollingWindowDays - 1), not
+    // only today's. Re-planning the same window on every refresh is
+    // idempotent (an unchanged plan reschedules under the same id, a
+    // no-op replacement) — it only ever extends the window forward,
+    // never duplicates. Closure Blocker 7's own real, persisted,
+    // user-choosable time is still the basis for every day in the
+    // window; the defaults below are only ever used before she has
+    // customized it.
+    final leadHour =
+        activeBleedingPreference?.preferredHour ?? _activeBleedingReminderHour;
+    final leadMinute =
+        activeBleedingPreference?.preferredMinute ??
+        _activeBleedingReminderMinute;
+    final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
       episode: episode,
       todaysObservationCount: todaysObservationCount,
       now: now,
-      leadHour:
-          activeBleedingPreference?.preferredHour ??
-          _activeBleedingReminderHour,
-      leadMinute:
-          activeBleedingPreference?.preferredMinute ??
-          _activeBleedingReminderMinute,
+      leadHour: leadHour,
+      leadMinute: leadMinute,
+      daysAhead: _rollingWindowDays,
     );
 
-    if (plan == null) {
-      // E6: today's obligation is already satisfied (or otherwise
-      // ineligible) — cancel today's own id specifically, computed the
-      // same stable way it would have been scheduled, so a check-in
-      // completed *after* today's reminder already fired still cancels
-      // the (now-moot) notification rather than leaving it dangling.
-      final todaysId = ActiveBleedingReminderScheduler.reminderId(
-        userId: userId,
-        episodeId: episodeId,
-        localDay: today,
-      );
+    // E6: if today's own obligation is already satisfied, the rolling
+    // plan set above deliberately omits it (every other day the window
+    // covers is still optimistically planned) — cancel today's own id
+    // specifically, computed the same stable way it would have been
+    // scheduled, so a check-in completed *after* today's reminder
+    // already fired still cancels the (now-moot) notification rather
+    // than leaving it dangling.
+    final todaysId = ActiveBleedingReminderScheduler.reminderId(
+      userId: userId,
+      episodeId: episodeId,
+      localDay: today,
+    );
+    final todaysPlanStillPending = plans.any((p) => p.id == todaysId);
+    if (!todaysPlanStillPending) {
       // New integrity finding — a failed cancellation must never be
       // recorded as a successful one; the notification may still be
       // live, and the audit trail must say so honestly.
       final cancelled = await NotificationService.instance.cancel(todaysId);
       if (cancelled) {
-        final reminderId = todaysId.toString();
-        final priorEvents = await NotificationEventLogStore.loadForReminder(
-          reminderId,
+        await _recordEventOnce(
+          reminderId: todaysId.toString(),
+          state: NotificationEventState.cancelled,
+          userId: userId,
+          episodeId: episodeId,
+          logicalLocalDate: today,
+          now: now,
         );
-        final alreadyCancelled = priorEvents.any(
-          (e) => e.state == NotificationEventState.cancelled,
-        );
-        if (!alreadyCancelled) {
-          await NotificationEventLogStore.record(
-            NotificationEvent(
-              reminderId: reminderId,
-              notificationType: NotificationType.activeBleeding.name,
-              state: NotificationEventState.cancelled,
-              eventTimestamp: now,
-              userId: userId,
-              episodeId: episodeId,
-              logicalLocalDate: _isoDate(today),
-            ),
-          );
-        }
       }
-      return;
     }
 
-    // New integrity finding — the scheduling audit event (and the
-    // display-feed entry below) may only ever be recorded once the OS
-    // scheduling API has actually acknowledged the call; a caught
-    // exception previously still fell through to logging "scheduled"
-    // regardless.
-    final schedulingOutcome = await NotificationService.instance.scheduleAt(
-      id: plan.id,
-      title: AppLocaleController.instance.isArabic
-          ? plan.titleAr
-          : plan.titleEn,
-      body: AppLocaleController.instance.isArabic ? plan.bodyAr : plan.bodyEn,
-      when: plan.fireAt,
-      payload: plan.payload,
-    );
-    if (schedulingOutcome != NotificationSchedulingOutcome.accepted) return;
+    for (final plan in plans) {
+      // New integrity finding — the scheduling audit event (and, for
+      // today's own plan, the display-feed entry below) may only ever be
+      // recorded once the OS scheduling API has actually acknowledged
+      // the call; a caught exception previously still fell through to
+      // logging "scheduled" regardless.
+      final schedulingOutcome = await NotificationService.instance.scheduleAt(
+        id: plan.id,
+        title: AppLocaleController.instance.isArabic
+            ? plan.titleAr
+            : plan.titleEn,
+        body: AppLocaleController.instance.isArabic ? plan.bodyAr : plan.bodyEn,
+        when: plan.fireAt,
+        payload: plan.payload,
+      );
+      if (schedulingOutcome != NotificationSchedulingOutcome.accepted) {
+        continue;
+      }
 
-    // Closure Blocker 13 — the actual structural scheduling-audit event,
-    // distinct from the display-feed entry logged just below. Recorded
-    // once per reminder id, mirroring the log entry's own dedupe.
-    final reminderId = plan.id.toString();
+      // Closure Blocker 13 — the actual structural scheduling-audit
+      // event, distinct from the display-feed entry below. Recorded for
+      // every day in the window (the full audit trail), once per
+      // reminder id.
+      await _recordEventOnce(
+        reminderId: plan.id.toString(),
+        state: NotificationEventState.scheduled,
+        userId: userId,
+        episodeId: episodeId,
+        logicalLocalDate: DateTime(
+          plan.fireAt.year,
+          plan.fireAt.month,
+          plan.fireAt.day,
+        ),
+        now: now,
+      );
+
+      // Commit E8 — event audit / display feed: deliberately restricted
+      // to *today's own* plan only — she does not need her feed telling
+      // her "a reminder exists 6 days from now" every time she opens the
+      // app; the structural audit event above already records every
+      // day's own scheduling honestly, this is purely the user-facing
+      // surface. Mirrors [_apply]'s own dedupe-by-id logic, and — like
+      // every other entry this controller logs — never persists the
+      // notification body text as a *tracking* record (the log entry
+      // itself already needs body text to display in the feed, an
+      // existing, accepted product surface; this comment documents that
+      // no *additional*, hidden tracking field carries anything more
+      // sensitive, e.g. flow/Madhhab).
+      if (plan.id != todaysId) continue;
+      final logEntryId = 'activeBleeding_${plan.id}';
+      final alreadyLogged = NotificationLogController.instance.entries.any(
+        (entry) => entry.id == logEntryId,
+      );
+      if (!alreadyLogged) {
+        await NotificationLogController.instance.add(
+          NotificationLogEntry(
+            id: logEntryId,
+            type: NotificationType.activeBleeding,
+            titleAr: plan.titleAr,
+            bodyAr: plan.bodyAr,
+            titleEn: plan.titleEn,
+            bodyEn: plan.bodyEn,
+            createdAt: DateTime.now(),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Records one structural audit event unless an event of that same
+  /// [state] already exists for this [reminderId] — the shared dedupe
+  /// every scheduled/cancelled recording site above needs, extracted so
+  /// the rolling window's per-day loop doesn't repeat it inline.
+  /// [logicalLocalDate] is the specific local day this one reminder is
+  /// actually about (each day in the rolling window gets its own, real
+  /// value here — never fabricated as "today" for a different day).
+  static Future<void> _recordEventOnce({
+    required String reminderId,
+    required NotificationEventState state,
+    required String userId,
+    required String episodeId,
+    required DateTime logicalLocalDate,
+    required DateTime now,
+  }) async {
     final priorEvents = await NotificationEventLogStore.loadForReminder(
       reminderId,
     );
-    final alreadyScheduled = priorEvents.any(
-      (e) => e.state == NotificationEventState.scheduled,
+    final alreadyRecorded = priorEvents.any((e) => e.state == state);
+    if (alreadyRecorded) return;
+    await NotificationEventLogStore.record(
+      NotificationEvent(
+        reminderId: reminderId,
+        notificationType: NotificationType.activeBleeding.name,
+        state: state,
+        eventTimestamp: now,
+        userId: userId,
+        episodeId: episodeId,
+        logicalLocalDate: _isoDate(logicalLocalDate),
+      ),
     );
-    if (!alreadyScheduled) {
-      await NotificationEventLogStore.record(
-        NotificationEvent(
-          reminderId: reminderId,
-          notificationType: NotificationType.activeBleeding.name,
-          state: NotificationEventState.scheduled,
-          eventTimestamp: now,
-          userId: userId,
-          episodeId: episodeId,
-          logicalLocalDate: _isoDate(today),
-        ),
-      );
-    }
-
-    // Commit E8 — event audit: scheduled. Mirrors [_apply]'s own
-    // dedupe-by-id logic, and — like every other entry this controller
-    // logs — never persists the notification body text as a *tracking*
-    // record (the log entry above already needs body text to display
-    // itself in the feed, which is an existing, accepted product
-    // surface; this comment documents that no *additional*, hidden
-    // tracking field carries anything more sensitive, e.g. flow/Madhhab).
-    final logEntryId = 'activeBleeding_${plan.id}';
-    final alreadyLogged = NotificationLogController.instance.entries.any(
-      (entry) => entry.id == logEntryId,
-    );
-    if (!alreadyLogged) {
-      await NotificationLogController.instance.add(
-        NotificationLogEntry(
-          id: logEntryId,
-          type: NotificationType.activeBleeding,
-          titleAr: plan.titleAr,
-          bodyAr: plan.bodyAr,
-          titleEn: plan.titleEn,
-          bodyEn: plan.bodyEn,
-          createdAt: DateTime.now(),
-        ),
-      );
-    }
   }
 
   static Future<void> _refreshCycle({

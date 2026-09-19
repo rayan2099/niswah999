@@ -249,28 +249,114 @@ class ActiveBleedingReminderScheduler {
     if (episodeId == null) return null;
 
     final today = DateTime(now.year, now.month, now.day);
+    return _planForDay(
+      userId: episode.userId,
+      episodeId: episodeId,
+      localDay: today,
+      now: now,
+      leadHour: leadHour,
+      leadMinute: leadMinute,
+    );
+  }
+
+  /// New critical finding — multi-day notification continuity. A client-
+  /// only scheduler cannot rely on the app being reopened daily to plan
+  /// each day's reminder one at a time (the prior architecture's own
+  /// real gap: an active episode spanning several days with the app
+  /// never reopened silently stopped getting reminders after the first
+  /// day). This plans a BOUNDED rolling window of [daysAhead] local days
+  /// — today through today + [daysAhead] - 1 — each as its own genuine,
+  /// independently-scheduled, independently-cancellable OS notification
+  /// (Commit E5's own per-day logical identity already made this
+  /// possible; it was simply never exploited for more than one day at a
+  /// time). Re-planned on every refresh (app start/resume): scheduling
+  /// again under an unchanged id is a no-op replacement, so calling this
+  /// repeatedly only ever extends the window forward, never duplicates.
+  ///
+  /// Only [todaysObservationCount] is ever known in advance — a future
+  /// day's own obligation cannot be known before that day arrives, so
+  /// every future day is optimistically scheduled; the next refresh that
+  /// happens to occur once that day is "today" re-evaluates it exactly
+  /// like any other day (and correctly omits/cancels it if by then it
+  /// turns out to already be satisfied). This is the explicitly
+  /// documented, honest limitation of a client-only scheduler: it cannot
+  /// know a woman completed her check-in on a *different* device while
+  /// this one stayed offline the whole window — cross-device
+  /// instantaneous cancellation is not claimed.
+  static List<PlannedNotification> planRollingDailyCheckins({
+    required BleedingEpisode? episode,
+    required int todaysObservationCount,
+    required DateTime now,
+    required int leadHour,
+    required int leadMinute,
+    int daysAhead = 7,
+  }) {
+    if (!isEligible(episode)) return const [];
+    final episodeId = episode!.id;
+    if (episodeId == null) return const [];
+
+    final today = DateTime(now.year, now.month, now.day);
+    final plans = <PlannedNotification>[];
+    for (var offset = 0; offset < daysAhead; offset++) {
+      // E6 — only today's own obligation can actually be known yet.
+      if (offset == 0 && todaysObservationCount > 0) continue;
+      final localDay = today.add(Duration(days: offset));
+      final plan = _planForDay(
+        userId: episode.userId,
+        episodeId: episodeId,
+        localDay: localDay,
+        now: now,
+        leadHour: leadHour,
+        leadMinute: leadMinute,
+      );
+      if (plan != null) plans.add(plan);
+    }
+    return plans;
+  }
+
+  static PlannedNotification? _planForDay({
+    required String userId,
+    required String episodeId,
+    required DateTime localDay,
+    required DateTime now,
+    required int leadHour,
+    required int leadMinute,
+  }) {
     var fireAt = DateTime(
-      today.year,
-      today.month,
-      today.day,
+      localDay.year,
+      localDay.month,
+      localDay.day,
       leadHour,
       leadMinute,
     );
     if (!fireAt.isAfter(now)) {
-      // Already past today's preferred time and nothing recorded yet —
-      // still worth a prompt today, just fire close to now rather than
-      // waiting until tomorrow's slot (tomorrow's own refresh will plan
-      // tomorrow's reminder once today's obligation is settled one way
-      // or another).
-      fireAt = now.add(const Duration(minutes: 1));
+      // New critical finding — this catch-up point must be STABLE
+      // across repeated calls on the same day, derived only from the
+      // preferred time itself, never from `now`: the prior
+      // `now.add(const Duration(minutes: 1))` recomputed a fresh, later
+      // value on every single refresh, so a woman who opened (or the OS
+      // resumed) the app more than once after her preferred time had
+      // already passed would see the same reminder pushed later and
+      // later, potentially never actually firing. A fixed, generous
+      // buffer past the preferred time — not a fixed clock hour, which
+      // could itself precede an unusually late preferred time — keeps
+      // "still worth a same-day prompt" true while every repeated call
+      // on the same day computes the exact same value. Only ever applies
+      // to "today" (a future day's own preferred time is always still
+      // ahead of `now`, so this branch never triggers for one).
+      fireAt = fireAt.add(const Duration(hours: 3));
+      if (!fireAt.isAfter(now)) {
+        // Even the fixed catch-up point is already behind real `now`
+        // (very late in the day) — no further same-day reminder; the
+        // next local day's own already-rolling-scheduled reminder (see
+        // [planRollingDailyCheckins]) is the genuine next touchpoint,
+        // not another invented "soon" time for a day that's nearly over.
+        return null;
+      }
     }
 
     return PlannedNotification(
-      id: reminderId(
-        userId: episode.userId,
-        episodeId: episodeId,
-        localDay: today,
-      ),
+      id: reminderId(userId: userId, episodeId: episodeId, localDay: localDay),
       fireAt: fireAt,
       // Commit E3 — deliberately discreet: no "bleeding," no flow, no
       // Madhhab/Fiqh word appears in default lock-screen text.
@@ -279,9 +365,9 @@ class ActiveBleedingReminderScheduler {
       titleEn: 'Niswah',
       bodyEn: 'Time for your daily check-in.',
       payload: payloadFor(
-        userId: episode.userId,
+        userId: userId,
         episodeId: episodeId,
-        localDay: today,
+        localDay: localDay,
       ),
     );
   }

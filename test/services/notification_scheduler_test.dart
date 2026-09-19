@@ -401,5 +401,167 @@ void main() {
         expect(decoded['localDate'], '2026-09-15');
       });
     });
+
+    group('New critical finding — repeated-refresh catch-up stability', () {
+      test('the same-day catch-up time is identical across repeated calls '
+          'made at different real moments — it must never keep pushing '
+          'later the way a naive `now + 1 minute` would', () {
+        final firstCallNow = DateTime(2026, 9, 15, 20, 0);
+        final secondCallNow = DateTime(2026, 9, 15, 20, 30);
+
+        final firstPlan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: firstCallNow,
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        final secondPlan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: secondCallNow,
+          leadHour: 18,
+          leadMinute: 0,
+        );
+
+        expect(firstPlan, isNotNull);
+        expect(secondPlan, isNotNull);
+        expect(
+          secondPlan!.fireAt,
+          firstPlan!.fireAt,
+          reason:
+              'a second refresh 30 minutes after the first must not '
+              'have pushed the reminder to a new, later time',
+        );
+      });
+
+      test('once the day is genuinely too far gone even for the fixed '
+          'catch-up buffer, no further same-day reminder is invented', () {
+        final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 23, 30),
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        expect(plan, isNull);
+      });
+    });
+
+    group('New critical finding — planRollingDailyCheckins (multi-day '
+        'continuity)', () {
+      test('plans a bounded window of daysAhead distinct days, each with '
+          'its own logical id, when the app is never reopened to plan '
+          'them one at a time', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 5,
+        );
+
+        expect(plans, hasLength(5));
+        expect(plans.map((p) => p.id).toSet(), hasLength(5));
+        expect(
+          plans.map(
+            (p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day),
+          ),
+          [
+            DateTime(2026, 9, 15),
+            DateTime(2026, 9, 16),
+            DateTime(2026, 9, 17),
+            DateTime(2026, 9, 18),
+            DateTime(2026, 9, 19),
+          ],
+        );
+      });
+
+      test("today's own already-satisfied obligation is the only day "
+          'omitted — every future day is still optimistically planned', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 1,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 3,
+        );
+
+        expect(plans, hasLength(2));
+        expect(
+          plans.map(
+            (p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day),
+          ),
+          [DateTime(2026, 9, 16), DateTime(2026, 9, 17)],
+        );
+      });
+
+      test('an ineligible episode plans nothing at all', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(
+            lifecycleStatus: LifecycleStatus.ended,
+            continuationCertainty: null,
+          ),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+        );
+        expect(plans, isEmpty);
+      });
+
+      test('a simulated five-day journey with Niswah never reopened after '
+          'the initial scheduling: the very first rolling plan already '
+          'covers all five days, proving continuity does not depend on a '
+          'daily re-open', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 9),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 5,
+        );
+
+        final fireDays = plans
+            .map((p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day))
+            .toList();
+        for (var i = 0; i < 5; i++) {
+          expect(fireDays, contains(DateTime(2026, 9, 15 + i)));
+        }
+      });
+
+      test('a repeat call with an unchanged today-satisfied state produces '
+          'the exact same plan set — safe to call on every refresh without '
+          'drifting or duplicating', () {
+        final first = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 10),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 3,
+        );
+        final second = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 12),
+          leadHour: 18,
+          leadMinute: 0,
+          daysAhead: 3,
+        );
+
+        expect(
+          second.map((p) => p.id).toList(),
+          first.map((p) => p.id).toList(),
+        );
+        expect(
+          second.map((p) => p.fireAt).toList(),
+          first.map((p) => p.fireAt).toList(),
+        );
+      });
+    });
   });
 }
