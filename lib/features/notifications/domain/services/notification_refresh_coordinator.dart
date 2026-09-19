@@ -25,6 +25,37 @@ class NotificationRefreshCoordinator {
   static const wellbeingReminderId = 104;
   static const _wellbeingReminderHour = 20;
 
+  /// New critical finding (notification continuity beyond 7 days) — an
+  /// OS-native RECURRING reminder (see [NotificationService.scheduleDaily],
+  /// already used for [wellbeingReminderId]): scheduled once, it re-fires
+  /// every day at the preferred time indefinitely, without the app ever
+  /// needing to reopen and re-plan — unlike the rolling window below, it
+  /// only ever consumes a SINGLE slot of iOS's shared 64-pending-
+  /// notification budget, no matter how long the episode lasts.
+  ///
+  /// This does not replace [_rollingWindowDays]'s own exact, per-day-
+  /// aware reminders — it is a deliberately cruder long-horizon fallback
+  /// for the specific case the rolling window cannot cover on its own:
+  /// the app never being reopened for longer than the window. Two real
+  /// limitations, both honestly disclosed rather than silently accepted
+  /// as "full continuity": (1) the OS fires it regardless of whether
+  /// that day's check-in is already done — it cannot consult app state
+  /// (E6's per-day suppression only applies within the rolling window);
+  /// (2) its payload cannot embed which specific date it will fire on
+  /// (the OS re-delivers the same payload every day), so a tap always
+  /// routes to whatever "today" genuinely is at the moment of the tap —
+  /// see [recurringFallbackType]'s own doc comment and
+  /// `DashboardScreen._consumeNotificationTap`.
+  ///
+  /// Exact supported horizon, stated plainly: per-day-aware reminders
+  /// (skip-if-already-done, tap routes to that specific date) are
+  /// guaranteed for [_rollingWindowDays] days without reopening. Beyond
+  /// that, if still never reopened, a daily nudge continues indefinitely
+  /// via this recurring fallback — but without the rolling window's own
+  /// precision. This is NOT a claim of indefinite exact daily tracking —
+  /// it is a bounded exact window plus an indefinite coarse nudge.
+  static const activeBleedingRecurringFallbackId = 105;
+
   /// The daily check-in reminder's default local time, used only until
   /// she customizes [NotificationPreference.preferredHour]/
   /// [NotificationPreference.preferredMinute] in Settings (Closure
@@ -33,22 +64,24 @@ class NotificationRefreshCoordinator {
   static const _activeBleedingReminderHour = 18;
   static const _activeBleedingReminderMinute = 0;
 
-  /// New critical finding — multi-day notification continuity: how many
-  /// local days ahead (today included) are scheduled every refresh.
-  /// Deliberately bounded, not "as many as the episode might last" — iOS
-  /// enforces a hard, OS-wide 64-pending-notification ceiling shared
-  /// across every notification type this app schedules (cycle,
-  /// pregnancy, nifas, wellbeing, active-bleeding), so this window must
-  /// stay modest rather than claim unlimited lookahead. Re-planned (and
-  /// naturally extended forward) on every refresh, so an episode lasting
-  /// longer than this window is never actually left without reminders
-  /// as long as the app is opened at least once within any
-  /// [_rollingWindowDays]-day stretch — only a *continuous* absence
-  /// longer than the whole window would exceed what a client-only
-  /// scheduler can guarantee, which is the explicitly disclosed
-  /// limitation this finding itself calls out (a client cannot schedule
-  /// infinitely far into a future it cannot verify obligations for).
-  static const _rollingWindowDays = 7;
+  /// How many local days ahead (today included) are scheduled every
+  /// refresh. Deliberately bounded, not "as many as the episode might
+  /// last" — iOS enforces a hard, OS-wide 64-pending-notification
+  /// ceiling shared across every notification type this app schedules
+  /// (cycle, pregnancy, nifas, wellbeing, active-bleeding), so this
+  /// window must stay modest rather than claim unlimited lookahead.
+  /// Re-planned (and naturally extended forward) on every refresh, so an
+  /// episode lasting longer than this window is never actually left
+  /// without reminders as long as the app is opened at least once within
+  /// any [_rollingWindowDays]-day stretch — and, beyond that, the
+  /// [activeBleedingRecurringFallbackId] mechanism above still delivers a
+  /// daily nudge indefinitely (with the honestly-disclosed precision
+  /// tradeoff its own doc comment states). A single shared constant
+  /// ([ActiveBleedingReminderScheduler.defaultRollingWindowDays]) so
+  /// every call site that must cancel a whole window's ids — not only
+  /// the scheduling call site — stays in agreement about its size.
+  static const _rollingWindowDays =
+      ActiveBleedingReminderScheduler.defaultRollingWindowDays;
 
   static Future<void> refresh({
     required String? userId,
@@ -100,15 +133,22 @@ class NotificationRefreshCoordinator {
     if (!enabled || userId == null) {
       // Cancel-on-disable/no-session: never leaves a stale reminder
       // scheduled for a state (opted out, signed out) it no longer
-      // applies to. The specific per-episode id isn't known here without
-      // a fetch, but a disabled/no-session refresh has nothing eligible
-      // to schedule regardless — [ActiveBleedingReminderScheduler.isEligible]
-      // already returns false for a null episode, so simply not
-      // scheduling (rather than tracking every historical id to cancel)
-      // is sufficient: the OS never fires an id that was never scheduled
+      // applies to. The specific per-day ids aren't known here without a
+      // fetch, but [ActiveBleedingReminderScheduler.isEligible] already
+      // returns false for a null episode, so simply not scheduling those
+      // (rather than tracking every historical id to cancel) is
+      // sufficient — the OS never fires an id that was never scheduled
       // this session, and Commit E9's explicit end/signout cancellation
       // (wired at the call sites that actually know the episode id)
       // covers the "was already scheduled, now must stop" case.
+      //
+      // The recurring fallback is different: it is a FIXED id (no
+      // episode/day needed to compute it), and — being OS-native
+      // recurring — it does not naturally stop like a one-off
+      // notification does. It must be explicitly cancelled here.
+      await NotificationService.instance.cancel(
+        activeBleedingRecurringFallbackId,
+      );
       return;
     }
 
@@ -116,11 +156,17 @@ class NotificationRefreshCoordinator {
     // open episode" — that would silently cancel/never-schedule a real,
     // still-open episode's reminder purely because the read hiccuped.
     // Leaving the refresh as a no-op (whatever was already scheduled
-    // stays scheduled) is the honest response to "genuinely unknown."
+    // stays scheduled) is the honest response to "genuinely unknown" —
+    // this includes the recurring fallback, left untouched here.
     final episodeResult = await bleedingRepository.getOpenEpisode(userId);
     if (episodeResult is LoadUnavailable<BleedingEpisode?>) return;
     final episode = episodeResult.dataOrNull;
-    if (!ActiveBleedingReminderScheduler.isEligible(episode)) return;
+    if (!ActiveBleedingReminderScheduler.isEligible(episode)) {
+      await NotificationService.instance.cancel(
+        activeBleedingRecurringFallbackId,
+      );
+      return;
+    }
 
     final episodeId = episode!.id;
     if (episodeId == null) return;
@@ -259,6 +305,31 @@ class NotificationRefreshCoordinator {
         );
       }
     }
+
+    // New critical finding (notification continuity beyond 7 days) — the
+    // long-horizon fallback: re-scheduling under the same fixed id every
+    // refresh is idempotent (the OS replaces an unchanged recurring
+    // schedule as a no-op), so this simply keeps the fallback aligned
+    // with her current preferred time. Deliberately not routed through
+    // [_recordEventOnce]/the structural audit log — that log's own
+    // schema is keyed to one specific [logicalLocalDate] per event, which
+    // this recurring, date-agnostic registration has no honest single
+    // value for (see [ActiveBleedingReminderScheduler.recurringFallbackType]'s
+    // own doc comment). Its correctness is instead covered directly by
+    // this coordinator's own tests.
+    await NotificationService.instance.scheduleDaily(
+      id: activeBleedingRecurringFallbackId,
+      title: AppLocaleController.instance.isArabic ? 'نِسواه' : 'Niswah',
+      body: AppLocaleController.instance.isArabic
+          ? 'حان وقت متابعتكِ اليومية.'
+          : 'Time for your daily check-in.',
+      hour: leadHour,
+      minute: leadMinute,
+      payload: ActiveBleedingReminderScheduler.recurringFallbackPayloadFor(
+        userId: userId,
+        episodeId: episodeId,
+      ),
+    );
   }
 
   /// Records one structural audit event unless an event of that same

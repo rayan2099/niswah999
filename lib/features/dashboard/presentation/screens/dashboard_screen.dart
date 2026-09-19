@@ -418,7 +418,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // A malformed/foreign payload must never crash the dashboard.
       return;
     }
-    if (decoded['type'] != 'activeBleedingCheckin') return;
+    // New critical finding (notification continuity beyond 7 days) — the
+    // OS-native recurring fallback (see
+    // NotificationRefreshCoordinator.activeBleedingRecurringFallbackId)
+    // shares this same tap-consumption path, distinguished only by its
+    // own type string and the deliberate absence of a `localDate` (it
+    // has none to embed — see ActiveBleedingReminderScheduler
+    // .recurringFallbackType's own doc comment).
+    final isRecurringFallback =
+        decoded['type'] ==
+        ActiveBleedingReminderScheduler.recurringFallbackType;
+    if (decoded['type'] != 'activeBleedingCheckin' && !isRecurringFallback) {
+      return;
+    }
 
     final payloadUserId = decoded['userId'] as String?;
     final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
@@ -450,25 +462,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // be today's; a notification that sat in the tray/system feed
     // untapped and is opened a day (or more) later must never silently
     // record against *today* as if the tap happened on the day the
-    // reminder was actually about.
+    // reminder was actually about. Does not apply to the recurring
+    // fallback: it carries no `localDate` at all (the OS re-delivers the
+    // same payload every day), so there is nothing stale to compare
+    // against — a tap on it always, honestly, means "today," resolved
+    // right now rather than read from the payload.
     final utcOffsetMinutes = AppClock.now().timeZoneOffset.inMinutes;
     final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
-    final payloadLocalDate = DateTime.tryParse(
-      (decoded['localDate'] as String?) ?? '',
-    );
-    if (payloadLocalDate == null || !payloadLocalDate.isAtSameMomentAs(today)) {
-      return;
+    if (!isRecurringFallback) {
+      final payloadLocalDate = DateTime.tryParse(
+        (decoded['localDate'] as String?) ?? '',
+      );
+      if (payloadLocalDate == null ||
+          !payloadLocalDate.isAtSameMomentAs(today)) {
+        return;
+      }
     }
 
     // Closure Blocker 13 — "opened": she genuinely tapped through to this
     // screen and every validation above passed. Uses the exact same
     // logical id the scheduler itself computed, so this event joins the
-    // same reminder's own scheduled/cancelled history.
+    // same reminder's own scheduled/cancelled history. `logicalLocalDate`
+    // is always derived from `today` (computed above), never read from
+    // the payload — the recurring fallback's payload has no such field,
+    // and `today` is the honestly correct value for both payload kinds.
     final reminderId = ActiveBleedingReminderScheduler.reminderId(
       userId: signedInUserId,
       episodeId: episodeId,
       localDay: today,
     ).toString();
+    final todaysIsoDate =
+        '${today.year.toString().padLeft(4, '0')}-'
+        '${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
     await NotificationEventLogStore.record(
       NotificationEvent(
         reminderId: reminderId,
@@ -477,7 +503,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         eventTimestamp: AppClock.now(),
         userId: signedInUserId,
         episodeId: episodeId,
-        logicalLocalDate: decoded['localDate'] as String?,
+        logicalLocalDate: todaysIsoDate,
       ),
     );
 
@@ -499,7 +525,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           eventTimestamp: AppClock.now(),
           userId: signedInUserId,
           episodeId: episodeId,
-          logicalLocalDate: decoded['localDate'] as String?,
+          logicalLocalDate: todaysIsoDate,
         ),
       );
       await _viewModel.loadLogs();

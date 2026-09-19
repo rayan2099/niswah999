@@ -307,6 +307,7 @@ class NotificationService {
     required String body,
     required int hour,
     required int minute,
+    String? payload,
   }) async {
     if (!_initialized) {
       AppErrorReporter.report(
@@ -341,6 +342,7 @@ class NotificationService {
         body: body,
         scheduledDate: firstFire,
         notificationDetails: _details(),
+        payload: payload,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         matchDateTimeComponents: DateTimeComponents.time,
       );

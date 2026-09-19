@@ -283,13 +283,19 @@ class ActiveBleedingReminderScheduler {
   /// know a woman completed her check-in on a *different* device while
   /// this one stayed offline the whole window — cross-device
   /// instantaneous cancellation is not claimed.
+  /// The single source of truth for how many local days ahead a rolling
+  /// refresh plans, shared by [NotificationRefreshCoordinator] and every
+  /// call site that must cancel a *whole* window's worth of ids (not
+  /// just today's) — see [rollingWindowReminderIds].
+  static const int defaultRollingWindowDays = 7;
+
   static List<PlannedNotification> planRollingDailyCheckins({
     required BleedingEpisode? episode,
     required int todaysObservationCount,
     required DateTime now,
     required int leadHour,
     required int leadMinute,
-    int daysAhead = 7,
+    int daysAhead = defaultRollingWindowDays,
   }) {
     if (!isEligible(episode)) return const [];
     final episodeId = episode!.id;
@@ -313,6 +319,52 @@ class ActiveBleedingReminderScheduler {
     }
     return plans;
   }
+
+  /// New critical finding (notification continuity beyond 7 days) —
+  /// every reminder id the rolling window *could* currently have
+  /// scheduled, today through today + [daysAhead] - 1, regardless of
+  /// whether each one actually got a [PlannedNotification] this refresh
+  /// (a day already satisfied is skipped by [planRollingDailyCheckins]
+  /// but may still be scheduled from an *earlier* refresh, before that
+  /// day's own check-in existed). An explicit episode end must cancel
+  /// the *entire* window it could have left behind, not only today's id
+  /// — otherwise days 2-7's already-scheduled reminders would still
+  /// fire for an episode that has since ended.
+  static List<int> rollingWindowReminderIds({
+    required String userId,
+    required String episodeId,
+    required DateTime today,
+    int daysAhead = defaultRollingWindowDays,
+  }) => List.generate(
+    daysAhead,
+    (offset) => reminderId(
+      userId: userId,
+      episodeId: episodeId,
+      localDay: today.add(Duration(days: offset)),
+    ),
+  );
+
+  /// New critical finding (notification continuity beyond 7 days) — the
+  /// distinct payload for the OS-native recurring fallback (see
+  /// [NotificationRefreshCoordinator.activeBleedingRecurringFallbackId]'s
+  /// own doc comment for the full design). Deliberately carries no
+  /// `localDate`: unlike [payloadFor], this same payload is handed to
+  /// the OS once and re-delivered by the OS itself every day thereafter
+  /// — there is no single date to bake in ahead of time. The tap
+  /// handler must treat this type as always meaning "today," resolved
+  /// at the moment of the tap, never compared against a stale embedded
+  /// date the way [payloadFor]'s `localDate` is (Closure Blocker 9).
+  static const String recurringFallbackType =
+      'activeBleedingCheckinRecurringFallback';
+
+  static String recurringFallbackPayloadFor({
+    required String userId,
+    required String episodeId,
+  }) => jsonEncode({
+    'type': recurringFallbackType,
+    'userId': userId,
+    'episodeId': episodeId,
+  });
 
   static PlannedNotification? _planForDay({
     required String userId,

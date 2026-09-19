@@ -8,6 +8,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
+import '../../../notifications/domain/services/notification_refresh_coordinator.dart';
 import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
@@ -242,18 +243,26 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       // Reported internally by the projection's own repository calls.
     }
 
-    // Commit E9 — ending the episode cancels today's own active-bleeding
-    // reminder id (the same stable id the coordinator would have
-    // scheduled it under); no reminder should keep asking about an
-    // episode that no longer exists as open.
+    // Commit E9 — ending the episode cancels its active-bleeding
+    // reminders; no reminder should keep asking about an episode that no
+    // longer exists as open. New critical finding (notification
+    // continuity beyond 7 days): every id the ROLLING WINDOW could have
+    // left scheduled (not only today's — days 2-7 may already be
+    // scheduled from an earlier refresh) plus the recurring fallback,
+    // or an ended episode would still get reminded on days that were
+    // never going to arrive.
     final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (signedInUserId != null) {
+      final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
+      for (final id in ActiveBleedingReminderScheduler.rollingWindowReminderIds(
+        userId: signedInUserId,
+        episodeId: widget.episodeId,
+        today: today,
+      )) {
+        await NotificationService.instance.cancel(id);
+      }
       await NotificationService.instance.cancel(
-        ActiveBleedingReminderScheduler.reminderId(
-          userId: signedInUserId,
-          episodeId: widget.episodeId,
-          localDay: BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes),
-        ),
+        NotificationRefreshCoordinator.activeBleedingRecurringFallbackId,
       );
     }
 

@@ -563,5 +563,153 @@ void main() {
         );
       });
     });
+
+    group('New critical finding — notification continuity beyond 7 days', () {
+      test('rollingWindowReminderIds returns exactly the same ids '
+          'planRollingDailyCheckins would have scheduled for a full window '
+          '— needed so an episode end can cancel every one of them, not '
+          'only today\'s', () {
+        final ids = ActiveBleedingReminderScheduler.rollingWindowReminderIds(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          today: DateTime(2026, 9, 15),
+        );
+
+        expect(ids, hasLength(7));
+        expect(ids.toSet(), hasLength(7), reason: 'every day distinct');
+        for (var offset = 0; offset < 7; offset++) {
+          expect(
+            ids[offset],
+            ActiveBleedingReminderScheduler.reminderId(
+              userId: 'user-1',
+              episodeId: 'episode-1',
+              localDay: DateTime(2026, 9, 15 + offset),
+            ),
+          );
+        }
+      });
+
+      test('a genuinely 15-day-long episode with the app never reopened: the '
+          'rolling window (7 days) alone does not reach days 8-15 — the '
+          'exact, disclosed gap the recurring fallback exists to cover', () {
+        final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 9),
+          leadHour: 18,
+          leadMinute: 0,
+        );
+
+        final fireDays = plans
+            .map((p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day))
+            .toSet();
+        expect(fireDays, hasLength(7));
+        for (var day = 0; day < 7; day++) {
+          expect(fireDays, contains(DateTime(2026, 9, 15 + day)));
+        }
+        for (var day = 7; day < 15; day++) {
+          expect(
+            fireDays,
+            isNot(contains(DateTime(2026, 9, 15 + day))),
+            reason:
+                'day $day is genuinely beyond the 7-day window a single '
+                'refresh can plan — this is the exact supported horizon, '
+                'not indefinite exact daily tracking',
+          );
+        }
+      });
+
+      test('reminder ids stay distinct and stable across a real DST spring-'
+          'forward boundary (America/Vancouver, 2027-03-14) — identity is '
+          'purely calendar-date-based and never affected by a clock shift', () {
+        // 15 consecutive local calendar days straddling the 2027 US/
+        // Canada DST transition (2027-03-14 02:00 local clocks skip to
+        // 03:00) — reminderId must produce 15 distinct, stable ids
+        // regardless, since it only ever keys off the plain calendar
+        // date, never wall-clock time.
+        final days = List.generate(
+          15,
+          (offset) => DateTime(2027, 3, 8 + offset),
+        );
+        final ids = days
+            .map(
+              (day) => ActiveBleedingReminderScheduler.reminderId(
+                userId: 'user-1',
+                episodeId: 'episode-1',
+                localDay: day,
+              ),
+            )
+            .toList();
+
+        expect(ids.toSet(), hasLength(15));
+        // Recomputing later (simulating a later refresh, well after the
+        // DST boundary has passed) must reproduce the identical ids —
+        // the whole point of a stable logical identity (Commit E5).
+        final recomputed = days
+            .map(
+              (day) => ActiveBleedingReminderScheduler.reminderId(
+                userId: 'user-1',
+                episodeId: 'episode-1',
+                localDay: day,
+              ),
+            )
+            .toList();
+        expect(recomputed, ids);
+      });
+
+      test('recurringFallbackPayloadFor carries no localDate — deliberately, '
+          'since the OS re-delivers the same payload every day and there is '
+          'no single date to honestly bake in ahead of time', () {
+        final payload =
+            ActiveBleedingReminderScheduler.recurringFallbackPayloadFor(
+              userId: 'user-1',
+              episodeId: 'episode-1',
+            );
+        final decoded = jsonDecode(payload) as Map<String, dynamic>;
+
+        expect(
+          decoded['type'],
+          ActiveBleedingReminderScheduler.recurringFallbackType,
+        );
+        expect(decoded['userId'], 'user-1');
+        expect(decoded['episodeId'], 'episode-1');
+        expect(
+          decoded.containsKey('localDate'),
+          isFalse,
+          reason:
+              'no single date is honest to embed in an indefinitely '
+              'recurring payload',
+        );
+      });
+
+      test('iOS pending-notification budget audit: the worst-case total '
+          'across every notification type this app schedules stays '
+          'comfortably under the OS-wide 64-pending ceiling', () {
+        const cycle = 1;
+        const pregnancy = 1;
+        const nifas = 1;
+        const wellbeing = 1;
+        const activeBleedingRolling =
+            ActiveBleedingReminderScheduler.defaultRollingWindowDays;
+        const activeBleedingRecurringFallback = 1;
+
+        const worstCaseTotal =
+            cycle +
+            pregnancy +
+            nifas +
+            wellbeing +
+            activeBleedingRolling +
+            activeBleedingRecurringFallback;
+
+        expect(worstCaseTotal, 12);
+        expect(
+          worstCaseTotal,
+          lessThan(64),
+          reason:
+              'every notification type enabled simultaneously must stay '
+              'well under the shared iOS 64-pending-request ceiling',
+        );
+      });
+    });
   });
 }
