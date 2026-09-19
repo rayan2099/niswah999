@@ -7,7 +7,9 @@ import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/entities/load_result.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
+import '../../data/local/notification_event_log_store.dart';
 import '../../data/repositories/notification_repository_impl.dart';
+import '../entities/notification_event.dart';
 import '../entities/notification_preference.dart';
 import 'notification_scheduler.dart';
 
@@ -147,6 +149,30 @@ class NotificationRefreshCoordinator {
         localDay: today,
       );
       await NotificationService.instance.cancel(todaysId);
+      // Closure Blocker 13 — only a structural audit record: no title,
+      // body, or flow content, and only recorded once per reminder id
+      // (a repeat refresh that finds the same id already satisfied must
+      // not append a duplicate cancellation event every time).
+      final reminderId = todaysId.toString();
+      final priorEvents = await NotificationEventLogStore.loadForReminder(
+        reminderId,
+      );
+      final alreadyCancelled = priorEvents.any(
+        (e) => e.state == NotificationEventState.cancelled,
+      );
+      if (!alreadyCancelled) {
+        await NotificationEventLogStore.record(
+          NotificationEvent(
+            reminderId: reminderId,
+            notificationType: NotificationType.activeBleeding.name,
+            state: NotificationEventState.cancelled,
+            eventTimestamp: now,
+            userId: userId,
+            episodeId: episodeId,
+            logicalLocalDate: _isoDate(today),
+          ),
+        );
+      }
       return;
     }
 
@@ -159,6 +185,30 @@ class NotificationRefreshCoordinator {
       when: plan.fireAt,
       payload: plan.payload,
     );
+
+    // Closure Blocker 13 — the actual structural scheduling-audit event,
+    // distinct from the display-feed entry logged just below. Recorded
+    // once per reminder id, mirroring the log entry's own dedupe.
+    final reminderId = plan.id.toString();
+    final priorEvents = await NotificationEventLogStore.loadForReminder(
+      reminderId,
+    );
+    final alreadyScheduled = priorEvents.any(
+      (e) => e.state == NotificationEventState.scheduled,
+    );
+    if (!alreadyScheduled) {
+      await NotificationEventLogStore.record(
+        NotificationEvent(
+          reminderId: reminderId,
+          notificationType: NotificationType.activeBleeding.name,
+          state: NotificationEventState.scheduled,
+          eventTimestamp: now,
+          userId: userId,
+          episodeId: episodeId,
+          logicalLocalDate: _isoDate(today),
+        ),
+      );
+    }
 
     // Commit E8 — event audit: scheduled. Mirrors [_apply]'s own
     // dedupe-by-id logic, and — like every other entry this controller
@@ -309,4 +359,9 @@ class NotificationRefreshCoordinator {
       ),
     );
   }
+
+  static String _isoDate(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
 }

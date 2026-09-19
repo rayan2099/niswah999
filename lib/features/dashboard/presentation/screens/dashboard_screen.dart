@@ -11,9 +11,12 @@ import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
 import '../../../../core/services/notification_service.dart';
+import '../../../notifications/data/local/notification_event_log_store.dart';
 import '../../../notifications/data/repositories/notification_repository_impl.dart';
+import '../../../notifications/domain/entities/notification_event.dart';
 import '../../../notifications/domain/entities/notification_preference.dart';
 import '../../../notifications/domain/services/notification_refresh_coordinator.dart';
+import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
@@ -367,6 +370,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
+    // Closure Blocker 13 — "opened": she genuinely tapped through to this
+    // screen and every validation above passed. Uses the exact same
+    // logical id the scheduler itself computed, so this event joins the
+    // same reminder's own scheduled/cancelled history.
+    final reminderId = ActiveBleedingReminderScheduler.reminderId(
+      userId: signedInUserId,
+      episodeId: episodeId,
+      localDay: today,
+    ).toString();
+    await NotificationEventLogStore.record(
+      NotificationEvent(
+        reminderId: reminderId,
+        notificationType: NotificationType.activeBleeding.name,
+        state: NotificationEventState.opened,
+        eventTimestamp: AppClock.now(),
+        userId: signedInUserId,
+        episodeId: episodeId,
+        logicalLocalDate: decoded['localDate'] as String?,
+      ),
+    );
+
     if (!mounted) return;
     final outcome = await showDailyCheckinSheet(
       context,
@@ -374,6 +398,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       episodeStartDate: episode.startDate,
     );
     if (outcome != DailyCheckinOutcome.cancelled) {
+      // Closure Blocker 13 — "responded": she actually answered the
+      // check-in this notification was about (any real answer — YES,
+      // NO, or "I'm not sure" — counts; only a dismissal does not).
+      await NotificationEventLogStore.record(
+        NotificationEvent(
+          reminderId: reminderId,
+          notificationType: NotificationType.activeBleeding.name,
+          state: NotificationEventState.responded,
+          eventTimestamp: AppClock.now(),
+          userId: signedInUserId,
+          episodeId: episodeId,
+          logicalLocalDate: decoded['localDate'] as String?,
+        ),
+      );
       await _viewModel.loadLogs();
       if (mounted) setState(() => _missedCheckinRefreshToken++);
       unawaited(_refreshCanonicalStatus());
