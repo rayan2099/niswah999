@@ -234,6 +234,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // certainty from an unavailable read).
   List<CycleLog>? _canonicalFiqhLogs;
 
+  // Closure Blocker 9 — a live subscription for the whole time this
+  // screen is mounted, not just a one-shot check in initState (which
+  // never re-runs for an already-mounted screen — the exact gap this
+  // closes: a background tap while the dashboard was already showing).
+  StreamSubscription<String>? _tapSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -250,7 +256,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _fiqhRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
     });
+    // Covers the terminated-launch case: a payload already captured
+    // before this screen (or any listener) existed.
     WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _consumeNotificationTap(),
+    );
+    // Closure Blocker 9 — covers every tap that happens *while this
+    // screen is already mounted*, foreground or backgrounded: the
+    // dashboard's own initState never re-runs for those, so without this
+    // live subscription a background tap would be silently missed until
+    // some unrelated event happened to re-check the payload.
+    _tapSubscription = NotificationService.instance.onTap.listen(
       (_) => _consumeNotificationTap(),
     );
   }
@@ -337,6 +353,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // must not reopen a journey that's already closed.
     if (episode == null || episode.id != episodeId) return;
 
+    // Closure Blocker 9 — the payload's own logical local day must still
+    // be today's; a notification that sat in the tray/system feed
+    // untapped and is opened a day (or more) later must never silently
+    // record against *today* as if the tap happened on the day the
+    // reminder was actually about.
+    final utcOffsetMinutes = AppClock.now().timeZoneOffset.inMinutes;
+    final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
+    final payloadLocalDate = DateTime.tryParse(
+      (decoded['localDate'] as String?) ?? '',
+    );
+    if (payloadLocalDate == null || !payloadLocalDate.isAtSameMomentAs(today)) {
+      return;
+    }
+
     if (!mounted) return;
     final outcome = await showDailyCheckinSheet(
       context,
@@ -353,6 +383,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _fiqhRefreshTimer?.cancel();
+    unawaited(_tapSubscription?.cancel());
     super.dispose();
   }
 
@@ -865,7 +896,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(_l('Enable reminders', 'تفعيل التذكيرات')),
+            child: Text(_l('Enable daily reminder', 'تفعيل التذكير اليومي')),
           ),
         ],
       ),
@@ -1761,19 +1792,21 @@ class _CanonicalStatusUnavailableCard extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: onRetry,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.haid,
-                    ),
-                    child: Text(_l('Try again', 'إعادة المحاولة')),
-                  ),
                 ],
               ),
             ),
           ),
         ),
+      ),
+      // Deliberately outside the circular card rather than squeezed
+      // inside it — matching every other "empty state"-shaped card in
+      // this file (e.g. _FactualOpenEpisodeCard), none of which put an
+      // interactive control inside their fixed-size ring.
+      const SizedBox(height: 12),
+      FilledButton(
+        onPressed: onRetry,
+        style: FilledButton.styleFrom(backgroundColor: AppColors.haid),
+        child: Text(_l('Try again', 'إعادة المحاولة')),
       ),
     ],
   );

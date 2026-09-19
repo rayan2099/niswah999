@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
@@ -32,6 +34,20 @@ class NotificationService {
   // safely decide "does this belong to whoever is signed in right now."
   String? _pendingTapPayload;
 
+  /// Closure Blocker 9 — background/foreground notification tap routing.
+  /// `onDidReceiveNotificationResponse` fires whenever she taps a
+  /// notification while the process is alive, regardless of whether the
+  /// app was foregrounded, backgrounded, or already showing a mounted
+  /// screen — [consumePendingTapPayload] alone only covers a caller that
+  /// happens to check *after* the tap (e.g. a screen's own `initState`,
+  /// which never re-runs for an already-mounted screen). A listener on
+  /// this stream is notified immediately instead, in addition to the
+  /// payload still being available via [consumePendingTapPayload] for a
+  /// terminated-launch caller that was not listening yet when the tap
+  /// happened.
+  final _tapController = StreamController<String>.broadcast();
+  Stream<String> get onTap => _tapController.stream;
+
   /// Closure Blocker 6 — the real IANA zone `tz.local` is currently set
   /// to, or null if resolution has ever failed and the safe UTC fallback
   /// is active instead. Exposed only for tests/diagnostics; scheduling
@@ -64,7 +80,9 @@ class NotificationService {
       ),
       onDidReceiveNotificationResponse: (details) {
         final payload = details.payload;
-        if (payload != null) _pendingTapPayload = payload;
+        if (payload == null) return;
+        _pendingTapPayload = payload;
+        _tapController.add(payload);
       },
     );
 
