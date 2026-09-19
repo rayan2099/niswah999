@@ -509,7 +509,7 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     // reachable (i.e. the user is signed in) — mirrors how the reports
     // recompute fresh each time they're opened, applied to scheduling.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _refreshNotifications();
+      unawaited(_refreshNotifications());
       // App-start retry trigger — one of two triggers (with app-resume,
       // below) that make CycleTrackingViewModel.saveLog's "backs up
       // automatically" wording actually true rather than aspirational
@@ -541,7 +541,7 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
       // _refreshNotifications so any reminder recomputation it triggers
       // already sees the real current zone, never a stale one.
       DeviceTimezone.invalidateCache();
-      _refreshNotifications();
+      unawaited(_refreshNotifications());
       // App-resume retry trigger — see the app-start trigger in initState
       // for why this exists and what it does/doesn't guarantee.
       unawaited(_cycleViewModel.retryPendingSync());
@@ -549,8 +549,15 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     }
   }
 
-  void _refreshNotifications() {
-    NotificationRefreshCoordinator.refresh(
+  Future<void> _refreshNotifications() async {
+    // Closure Blocker 6 — `tz.local` itself must be re-applied to the
+    // device's real current zone BEFORE anything below recomputes what
+    // to schedule; refreshing DeviceTimezone's own cache above is not
+    // sufficient by itself, since `NotificationService` only ever reads
+    // the platform's real zone through this call, not through
+    // `DeviceTimezone` directly.
+    await NotificationService.instance.refreshLocalTimezone(forceRefresh: true);
+    await NotificationRefreshCoordinator.refresh(
       userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
     );
   }

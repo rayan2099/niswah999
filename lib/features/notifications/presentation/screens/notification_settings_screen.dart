@@ -6,6 +6,13 @@ import '../viewmodels/notification_settings_view_model.dart';
 
 String _ns(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
+// Closure Blocker 7 — matches NotificationRefreshCoordinator's own
+// pre-customization default, purely for display before she has ever set
+// a preference; the scheduler applies this identical default
+// independently, so the two can never disagree.
+const _defaultActiveBleedingHour = 18;
+const _defaultActiveBleedingMinute = 0;
+
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
 
@@ -84,26 +91,55 @@ class _NotificationSettingsScreenState
                                 ],
                               ),
                               const SizedBox(height: 8),
-                              Text(
-                                '${_ns('Lead time', 'وقت التنبيه المسبق')}: ${preference.leadTimeMinutes} ${_ns('minutes', 'دقيقة')}',
-                              ),
-                              const SizedBox(height: 12),
-                              Slider(
-                                value: preference.leadTimeMinutes.toDouble(),
-                                min: 0,
-                                max: 120,
-                                divisions: 12,
-                                label:
-                                    '${preference.leadTimeMinutes} ${_ns('min', 'د')}',
-                                onChanged: (value) {
-                                  _viewModel.updatePreference(
-                                    type: type,
-                                    enabled: preference.enabled,
-                                    leadTimeMinutes: value.round(),
-                                    channels: preference.channels,
-                                  );
-                                },
-                              ),
+                              // Closure Blocker 7 — activeBleeding is a
+                              // real once-a-day check-in at a chosen
+                              // clock time, never a "lead time" before
+                              // some other event; the generic
+                              // leadTimeMinutes slider every other type
+                              // uses was a false control here (the
+                              // scheduler never read it).
+                              if (type == NotificationType.activeBleeding)
+                                _ReminderTimeRow(
+                                  hour:
+                                      preference.preferredHour ??
+                                      _defaultActiveBleedingHour,
+                                  minute:
+                                      preference.preferredMinute ??
+                                      _defaultActiveBleedingMinute,
+                                  onChanged: (hour, minute) {
+                                    _viewModel.updatePreference(
+                                      type: type,
+                                      enabled: preference.enabled,
+                                      leadTimeMinutes:
+                                          preference.leadTimeMinutes,
+                                      channels: preference.channels,
+                                      preferredHour: hour,
+                                      preferredMinute: minute,
+                                    );
+                                  },
+                                )
+                              else ...[
+                                Text(
+                                  '${_ns('Lead time', 'وقت التنبيه المسبق')}: ${preference.leadTimeMinutes} ${_ns('minutes', 'دقيقة')}',
+                                ),
+                                const SizedBox(height: 12),
+                                Slider(
+                                  value: preference.leadTimeMinutes.toDouble(),
+                                  min: 0,
+                                  max: 120,
+                                  divisions: 12,
+                                  label:
+                                      '${preference.leadTimeMinutes} ${_ns('min', 'د')}',
+                                  onChanged: (value) {
+                                    _viewModel.updatePreference(
+                                      type: type,
+                                      enabled: preference.enabled,
+                                      leadTimeMinutes: value.round(),
+                                      channels: preference.channels,
+                                    );
+                                  },
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -135,9 +171,48 @@ class _NotificationSettingsScreenState
         'تذكير الحالة النفسية اليومي',
       ),
       NotificationType.activeBleeding => _ns(
-        'Daily check-in while tracking a period',
-        'تذكير المتابعة اليومية أثناء تتبع الحيض',
+        'Daily check-in reminder',
+        'تذكير المتابعة اليومية',
       ),
     };
+  }
+}
+
+/// Closure Blocker 7 — the real control for [NotificationType.
+/// activeBleeding]'s chosen time of day, replacing the generic (and
+/// previously unused) lead-time slider for this one reminder type.
+class _ReminderTimeRow extends StatelessWidget {
+  const _ReminderTimeRow({
+    required this.hour,
+    required this.minute,
+    required this.onChanged,
+  });
+
+  final int hour;
+  final int minute;
+  final void Function(int hour, int minute) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final time = TimeOfDay(hour: hour, minute: minute);
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            '${_ns('Reminder time', 'وقت التذكير')}: ${time.format(context)}',
+          ),
+        ),
+        TextButton(
+          onPressed: () async {
+            final picked = await showTimePicker(
+              context: context,
+              initialTime: time,
+            );
+            if (picked != null) onChanged(picked.hour, picked.minute);
+          },
+          child: Text(_ns('Change', 'تغيير')),
+        ),
+      ],
+    );
   }
 }

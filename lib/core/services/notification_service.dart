@@ -3,6 +3,7 @@ import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../errors/app_error_reporter.dart';
+import '../utils/device_timezone.dart';
 
 /// Thin wrapper around `flutter_local_notifications` — the only file in
 /// this app that touches the plugin directly. Real OS-level notifications:
@@ -31,13 +32,21 @@ class NotificationService {
   // safely decide "does this belong to whoever is signed in right now."
   String? _pendingTapPayload;
 
+  /// Closure Blocker 6 — the real IANA zone `tz.local` is currently set
+  /// to, or null if resolution has ever failed and the safe UTC fallback
+  /// is active instead. Exposed only for tests/diagnostics; scheduling
+  /// code should never branch on this — it should just call
+  /// [refreshLocalTimezone] before scheduling and trust `tz.local`.
+  String? get activeTimezoneId => _activeTimezoneId;
+  String? _activeTimezoneId;
+
   /// Registers the plugin and creates the Android channel. No permission
   /// prompt here — call once from app startup.
   Future<void> initialize() async {
     if (_initialized) return;
 
     tz_data.initializeTimeZones();
-    tz.setLocalLocation(tz.local);
+    await refreshLocalTimezone(forceRefresh: true);
 
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
@@ -84,6 +93,46 @@ class NotificationService {
     );
 
     _initialized = true;
+  }
+
+  /// Closure Blocker 6 — resolves the device's real current IANA zone and
+  /// applies it to `tz.local` (every `tz.TZDateTime`/`zonedSchedule` call
+  /// in this file interprets a wall-clock time against whatever `tz.local`
+  /// currently is). Previously this file only ever did
+  /// `tz.setLocalLocation(tz.local)` — a no-op that re-applies whatever
+  /// `tz.local` already was (UTC, since it is never otherwise set) and
+  /// never actually reads the device's real zone at all.
+  ///
+  /// Call again on every app resume, [forceRefresh]d, *before* any
+  /// reminder is (re)computed/(re)scheduled — the device's zone may have
+  /// genuinely changed while backgrounded (travel, or a manual change),
+  /// and a reminder computed against a stale zone would fire at the wrong
+  /// wall-clock local time. Historical observations are never affected —
+  /// this only ever feeds future scheduling.
+  ///
+  /// Never throws: an unresolvable id (the platform channel failed, or —
+  /// unexpectedly — returned an id the bundled tzdata does not recognize)
+  /// falls back to UTC, a safe, documented, predictable default rather
+  /// than leaving `tz.local` unset or crashing scheduling over it.
+  Future<void> refreshLocalTimezone({bool forceRefresh = false}) async {
+    final iana = await DeviceTimezone.currentId(forceRefresh: forceRefresh);
+    if (iana == null) {
+      tz.setLocalLocation(tz.UTC);
+      _activeTimezoneId = null;
+      return;
+    }
+    try {
+      tz.setLocalLocation(tz.getLocation(iana));
+      _activeTimezoneId = iana;
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.refreshLocalTimezone',
+      );
+      tz.setLocalLocation(tz.UTC);
+      _activeTimezoneId = null;
+    }
   }
 
   /// Contextual permission request — call this when the user actually

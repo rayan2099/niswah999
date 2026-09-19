@@ -20,6 +20,8 @@ class NotificationPreference extends Equatable {
     required this.enabled,
     required this.leadTimeMinutes,
     required this.channels,
+    this.preferredHour,
+    this.preferredMinute,
   });
 
   final NotificationType type;
@@ -27,11 +29,23 @@ class NotificationPreference extends Equatable {
   final int leadTimeMinutes;
   final List<String> channels;
 
+  /// Closure Blocker 7 — a real, persisted, user-choosable time of day.
+  /// Only meaningful for [NotificationType.activeBleeding] (the daily
+  /// check-in reminder, asked once a day while a real episode is open —
+  /// never a "lead time" before some other event, so [leadTimeMinutes]
+  /// was never the right control for it). Null means "not yet customized
+  /// — use the scheduler's own documented default", never "midnight";
+  /// both are set together or not at all.
+  final int? preferredHour;
+  final int? preferredMinute;
+
   Map<String, dynamic> toJson() => {
     'type': type.name,
     'enabled': enabled,
     'lead_time_minutes': leadTimeMinutes,
     'channels': channels,
+    if (preferredHour != null) 'preferred_hour': preferredHour,
+    if (preferredMinute != null) 'preferred_minute': preferredMinute,
   };
 
   factory NotificationPreference.fromJson(Map<String, dynamic> json) {
@@ -45,6 +59,8 @@ class NotificationPreference extends Equatable {
       channels: List<String>.from(
         json['channels'] as List? ?? const <String>[],
       ),
+      preferredHour: json['preferred_hour'] as int?,
+      preferredMinute: json['preferred_minute'] as int?,
     );
   }
 
@@ -53,17 +69,28 @@ class NotificationPreference extends Equatable {
     bool? enabled,
     int? leadTimeMinutes,
     List<String>? channels,
+    int? preferredHour,
+    int? preferredMinute,
   }) {
     return NotificationPreference(
       type: type ?? this.type,
       enabled: enabled ?? this.enabled,
       leadTimeMinutes: leadTimeMinutes ?? this.leadTimeMinutes,
       channels: channels ?? this.channels,
+      preferredHour: preferredHour ?? this.preferredHour,
+      preferredMinute: preferredMinute ?? this.preferredMinute,
     );
   }
 
   @override
-  List<Object?> get props => [type, enabled, leadTimeMinutes, channels];
+  List<Object?> get props => [
+    type,
+    enabled,
+    leadTimeMinutes,
+    channels,
+    preferredHour,
+    preferredMinute,
+  ];
 }
 
 Map<NotificationType, NotificationPreference> buildReminderSchedule({

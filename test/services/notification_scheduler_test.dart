@@ -323,6 +323,21 @@ void main() {
         },
       );
 
+      test('Closure Blocker 7: a genuinely custom preferred time (not the '
+          '18:00 default) is honored exactly — proves this is a real, '
+          'user-choosable preference the scheduler actually reads, not a '
+          'hardcoded constant', () {
+        final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
+          episode: openEpisode(),
+          todaysObservationCount: 0,
+          now: DateTime(2026, 9, 15, 6, 0),
+          leadHour: 7,
+          leadMinute: 45,
+        );
+        expect(plan, isNotNull);
+        expect(plan!.fireAt, DateTime(2026, 9, 15, 7, 45));
+      });
+
       test('still plans something today (soon) rather than skipping to '
           'tomorrow when the preferred time has already passed and '
           "nothing is recorded yet — a missed reminder time is not the "

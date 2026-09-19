@@ -23,11 +23,11 @@ class NotificationRefreshCoordinator {
   static const wellbeingReminderId = 104;
   static const _wellbeingReminderHour = 20;
 
-  /// Commit E — a fixed default local time for the daily check-in
-  /// reminder. A per-user preferred time is out of scope for this pass
-  /// (the existing [NotificationPreference] model has no time-of-day
-  /// field for any reminder type); documented here as a known,
-  /// deliberately narrow gap rather than silently assumed richer.
+  /// The daily check-in reminder's default local time, used only until
+  /// she customizes [NotificationPreference.preferredHour]/
+  /// [NotificationPreference.preferredMinute] in Settings (Closure
+  /// Blocker 7) — never itself the actual scheduled time once a real
+  /// preference exists.
   static const _activeBleedingReminderHour = 18;
   static const _activeBleedingReminderMinute = 0;
 
@@ -75,8 +75,9 @@ class NotificationRefreshCoordinator {
     required BleedingEpisodeRepositoryImpl bleedingRepository,
     required DateTime now,
   }) async {
-    final enabled =
-        preferences[NotificationType.activeBleeding]?.enabled ?? false;
+    final activeBleedingPreference =
+        preferences[NotificationType.activeBleeding];
+    final enabled = activeBleedingPreference?.enabled ?? false;
     if (!enabled || userId == null) {
       // Cancel-on-disable/no-session: never leaves a stale reminder
       // scheduled for a state (opted out, signed out) it no longer
@@ -117,12 +118,21 @@ class NotificationRefreshCoordinator {
         .where((o) => o.observedDate.isAtSameMomentAs(today))
         .length;
 
+    // Closure Blocker 7 — a real, persisted, user-choosable time; the
+    // defaults below are only ever used before she has customized it
+    // (the same 18:00 this used to be unconditionally hardcoded to), and
+    // Settings now actually surfaces a control that changes this value,
+    // unlike the generic (and previously unused) leadTimeMinutes slider.
     final plan = ActiveBleedingReminderScheduler.planDailyCheckin(
       episode: episode,
       todaysObservationCount: todaysObservationCount,
       now: now,
-      leadHour: _activeBleedingReminderHour,
-      leadMinute: _activeBleedingReminderMinute,
+      leadHour:
+          activeBleedingPreference?.preferredHour ??
+          _activeBleedingReminderHour,
+      leadMinute:
+          activeBleedingPreference?.preferredMinute ??
+          _activeBleedingReminderMinute,
     );
 
     if (plan == null) {
