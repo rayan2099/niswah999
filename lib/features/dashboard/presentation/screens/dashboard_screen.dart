@@ -186,7 +186,13 @@ int? _activeSegmentDenominator(
 }
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key, this.onProfileTap, this.viewModel});
+  const DashboardScreen({
+    super.key,
+    this.onProfileTap,
+    this.viewModel,
+    this.canonicalRepositoryOverride,
+    this.canonicalUserIdOverride,
+  });
 
   final VoidCallback? onProfileTap;
 
@@ -197,6 +203,20 @@ class DashboardScreen extends StatefulWidget {
   /// a private instance when unset (e.g. existing tests that mount this
   /// screen standalone).
   final CycleTrackingViewModel? viewModel;
+
+  /// Test-only injection points for the canonical (`bleeding_episodes`/
+  /// `bleeding_observations`) read path specifically — mirrors
+  /// [viewModel]'s own established pattern. A real app screen never sets
+  /// these (the canonical refresh already derives both from the real
+  /// signed-in Supabase session); a widget test that needs the dashboard
+  /// to reflect specific canonical evidence without a real backend does.
+  /// Deliberately narrow: only [_refreshCanonicalStatus] consults these —
+  /// every other canonical call site in this file (notification tap
+  /// consumption, Quick Actions, reconciliation) still resolves the real
+  /// signed-in session directly, since none of those are what a test
+  /// needing controlled Fiqh/ring evidence actually exercises.
+  final BleedingEpisodeRepositoryImpl? canonicalRepositoryOverride;
+  final String? canonicalUserIdOverride;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -290,9 +310,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// refresh cadence, which is itself downstream of the projection this
   /// resolver deliberately bypasses.
   Future<void> _refreshCanonicalStatus() async {
-    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    final userId =
+        widget.canonicalUserIdOverride ??
+        NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId == null) return;
-    final repository = BleedingEpisodeRepositoryImpl();
+    final repository =
+        widget.canonicalRepositoryOverride ?? BleedingEpisodeRepositoryImpl();
     final status = await CanonicalBleedingStatusResolver(repository)
         .resolve(userId: userId, now: AppClock.now());
 
@@ -559,19 +582,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // with no Madhhab SELECTED.
           FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
         };
-        // New critical finding — evidence-unresolved takes priority over
-        // every other signal, including her own manual Istihadah toggle:
-        // if the canonical observations backing this conclusion could not
-        // be verified, nothing computed from them (nor a toggle that
-        // itself assumes a specific, knowable state) may be confidently
-        // asserted. Every consumer of `state` below (the ring, the Salah
-        // banner, the prayer-status card) must treat this case as "we
-        // don't know," never silently substitute the last-good value.
-        final state = _canonicalFiqhEvidenceUnresolved
-            ? _FiqhState.evidenceUnresolved
-            : _istihadahMode
-            ? _FiqhState.istihadah
-            : mappedState;
         // Closure Blocker 2 — the factual question "is there an open
         // bleeding episode?" is now answered ONLY by canonical
         // bleeding_episodes (via _canonicalStatus), never unioned with
@@ -596,6 +606,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
           RingFactualState.factualOpenEpisode => true,
           _ => false,
         };
+        // New critical finding — a factually open episode (she is
+        // genuinely, currently being tracked as bleeding) combined with
+        // *insufficient* Fiqh evidence (never enough real observations to
+        // reach any evaluated conclusion at all — distinct from a
+        // genuine, evidence-backed Tahara/Istihadah ruling, which this
+        // does not touch) must never fall through to the same "Tahara"
+        // label a brand-new, not-currently-bleeding account gets. Without
+        // this guard, `_PrayerStatusCard` — unconditional, rendered
+        // regardless of which ring branch above shows — would have said
+        // "Salah is obligatory" for a woman who is, right now, factually
+        // bleeding, purely because her observations hadn't finished
+        // loading/existing yet. Folded into the same evidence-unresolved
+        // signal as a genuine read failure: both mean "cannot honestly
+        // conclude anything yet," never a confident ruling either way.
+        // Checked against `fiqhCalculation.hasSufficientHistory` directly —
+        // not `snapshot.state == FiqhCycleState.insufficientHistory` — because
+        // the fallback snapshot above (used precisely when history is
+        // insufficient) is itself hardcoded to report `FiqhCycleState.tahara`,
+        // never the `insufficientHistory` enum value. Matching on the enum
+        // value here would never fire.
+        final insufficientEvidenceWhileFactuallyBleeding =
+            hasOpenEpisode == true && !fiqhCalculation.hasSufficientHistory;
+        // New critical finding — evidence-unresolved takes priority over
+        // every other signal, including her own manual Istihadah toggle:
+        // if the canonical observations backing this conclusion could not
+        // be verified, nothing computed from them (nor a toggle that
+        // itself assumes a specific, knowable state) may be confidently
+        // asserted. Every consumer of `state` below (the ring, the Salah
+        // banner, the prayer-status card) must treat this case as "we
+        // don't know," never silently substitute the last-good value.
+        final state =
+            _canonicalFiqhEvidenceUnresolved ||
+                insufficientEvidenceWhileFactuallyBleeding
+            ? _FiqhState.evidenceUnresolved
+            : _istihadahMode
+            ? _FiqhState.istihadah
+            : mappedState;
         // The Fiqh/ring DISPLAY label remains legacy-derived — a
         // deliberately separate, non-factual concern (Commit G4: Fiqh
         // sits above evidence, never overrides it). Only ever used for
