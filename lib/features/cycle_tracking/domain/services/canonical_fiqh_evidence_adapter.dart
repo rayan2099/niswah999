@@ -37,6 +37,56 @@ class CanonicalFiqhEvidenceAdapter {
   static List<CycleLog> buildEffectiveLogs({
     required List<BleedingObservation> observations,
   }) {
+    final byDay = _effectiveByDay(observations);
+
+    final logs = <CycleLog>[];
+    for (final entry in byDay.entries) {
+      final flow = _flowOrNull(entry.value.flow);
+      // See class doc comment: an uncertain-flow day has no honest
+      // FlowLevel to map to, so it is left out entirely rather than
+      // fabricated as any specific level.
+      if (flow == null) continue;
+      logs.add(
+        CycleLog(
+          id: entry.value.id ?? '',
+          userId: entry.value.userId,
+          date: entry.key,
+          flow: flow,
+          notes: entry.value.notes,
+          symptoms: entry.value.symptoms ?? const <String>[],
+          dataProvenance: _mapProvenance(entry.value.source),
+        ),
+      );
+    }
+    logs.sort((a, b) => a.date.compareTo(b.date));
+    return logs;
+  }
+
+  /// New critical finding (Fiqh evidence-unavailable closure wave) — the
+  /// disclosed, honest counterpart to [buildEffectiveLogs]'s own
+  /// documented gap: every calendar day whose effective observation was
+  /// excluded specifically because its flow was [ObservationFlow.uncertain]
+  /// (never a day excluded for any other reason — there is none; every
+  /// other effective observation always maps to a real [FlowLevel]).
+  /// Callers that need to decide whether an "I'm not sure" gap is
+  /// *material* to a specific Fiqh conclusion (e.g. it falls inside the
+  /// currently-open episode's own date range) use this set rather than
+  /// trying to re-derive it from [buildEffectiveLogs]'s own output, which
+  /// — by design — has no way to distinguish "no data existed for this
+  /// day" from "data existed but was honestly unrepresentable."
+  static Set<DateTime> excludedUncertainDates({
+    required List<BleedingObservation> observations,
+  }) {
+    final byDay = _effectiveByDay(observations);
+    return {
+      for (final entry in byDay.entries)
+        if (entry.value.flow == ObservationFlow.uncertain) entry.key,
+    };
+  }
+
+  static Map<DateTime, BleedingObservation> _effectiveByDay(
+    List<BleedingObservation> observations,
+  ) {
     // A chain's tip is, by definition, the one row nothing else
     // supersedes — collecting every supersedes_id target and excluding
     // them is equivalent to (and simpler than) walking each chain
@@ -68,28 +118,7 @@ class CanonicalFiqhEvidenceAdapter {
         byDay[day] = observation;
       }
     }
-
-    final logs = <CycleLog>[];
-    for (final entry in byDay.entries) {
-      final flow = _flowOrNull(entry.value.flow);
-      // See class doc comment: an uncertain-flow day has no honest
-      // FlowLevel to map to, so it is left out entirely rather than
-      // fabricated as any specific level.
-      if (flow == null) continue;
-      logs.add(
-        CycleLog(
-          id: entry.value.id ?? '',
-          userId: entry.value.userId,
-          date: entry.key,
-          flow: flow,
-          notes: entry.value.notes,
-          symptoms: entry.value.symptoms ?? const <String>[],
-          dataProvenance: _mapProvenance(entry.value.source),
-        ),
-      );
-    }
-    logs.sort((a, b) => a.date.compareTo(b.date));
-    return logs;
+    return byDay;
   }
 
   static bool _isLaterReport(

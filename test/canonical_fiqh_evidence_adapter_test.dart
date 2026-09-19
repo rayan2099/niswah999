@@ -190,4 +190,63 @@ void main() {
       expect(logs, isEmpty);
     });
   });
+
+  group('CanonicalFiqhEvidenceAdapter.excludedUncertainDates', () {
+    test('reports the calendar day of an uncertain-flow observation — the '
+        'disclosed counterpart to buildEffectiveLogs silently dropping it', () {
+      final excluded = CanonicalFiqhEvidenceAdapter.excludedUncertainDates(
+        observations: [
+          _obs(
+            id: 'obs-1',
+            observedDate: DateTime(2026, 9, 1),
+            flow: ObservationFlow.uncertain,
+          ),
+        ],
+      );
+      expect(excluded, {DateTime(2026, 9, 1)});
+    });
+
+    test('a day with a real flow value is never reported as excluded', () {
+      final excluded = CanonicalFiqhEvidenceAdapter.excludedUncertainDates(
+        observations: [
+          _obs(
+            id: 'obs-1',
+            observedDate: DateTime(2026, 9, 1),
+            flow: ObservationFlow.medium,
+          ),
+        ],
+      );
+      expect(excluded, isEmpty);
+    });
+
+    test('a correction that resolves an uncertain day to a real flow removes '
+        'it from the excluded set — the tip, not the superseded row, '
+        'decides materiality', () {
+      final excluded = CanonicalFiqhEvidenceAdapter.excludedUncertainDates(
+        observations: [
+          _obs(
+            id: 'v1',
+            observedDate: DateTime(2026, 9, 1),
+            flow: ObservationFlow.uncertain,
+          ),
+          _obs(
+            id: 'v2',
+            observedDate: DateTime(2026, 9, 1),
+            flow: ObservationFlow.medium,
+            supersedesId: 'v1',
+          ),
+        ],
+      );
+      expect(excluded, isEmpty);
+    });
+
+    test('empty input produces an empty, never fabricated, result', () {
+      expect(
+        CanonicalFiqhEvidenceAdapter.excludedUncertainDates(
+          observations: const [],
+        ),
+        isEmpty,
+      );
+    });
+  });
 }

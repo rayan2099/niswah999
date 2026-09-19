@@ -57,6 +57,7 @@ String _stateLabel(_FiqhState state) => switch (state) {
     'Select your Madhhab',
     'يلزم اختيار المذهب',
   ),
+  _FiqhState.evidenceUnresolved => _l('Unable to verify', 'تعذر التحقق'),
 };
 
 /// Arabic masculine ordinals ("اليوم الأول", "اليوم الثاني", …) for "يوم"
@@ -226,16 +227,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // "noHistory."
   CanonicalBleedingStatus? _canonicalStatus;
 
-  // Closure Blocker 3 — the canonical, effective (post-correction)
-  // evidence fed into the deterministic Fiqh engine, built via
-  // CanonicalFiqhEvidenceAdapter from bleeding_observations directly.
-  // Null until the first fetch resolves OR whenever the read genuinely
-  // fails — in either case the render method below falls back to the
-  // legacy `_viewModel.logs`-derived pipeline rather than forcing a
-  // fresh Fiqh conclusion from data it cannot currently verify (Closure
-  // Blocker 1's own principle, applied here too: never silently invent
-  // certainty from an unavailable read).
+  // New critical finding (Fiqh evidence-unavailable closure wave) — the
+  // canonical, effective (post-correction) evidence fed into the
+  // deterministic Fiqh engine, built via CanonicalFiqhEvidenceAdapter
+  // from bleeding_observations directly. Null only while the very first
+  // fetch is still pending or there is no session at all — in that
+  // transient/not-yet-attempted state the build method below treats it
+  // as "no canonical evidence yet" (the same, already-correct
+  // insufficient-history path a genuinely brand-new account gets), never
+  // as a positive ruling. It is DELIBERATELY NEVER used as a signal to
+  // fall back to the legacy `_viewModel.logs` pipeline — that fallback
+  // was removed. [_canonicalFiqhEvidenceUnresolved] is the separate,
+  // explicit signal for "a read was genuinely attempted and cannot be
+  // trusted" (failed outright, degraded with a quarantined row, or
+  // degraded by an excluded-uncertain-flow day that falls within the
+  // currently open episode's own window) — only that flag suppresses a
+  // confident Fiqh ruling.
   List<CycleLog>? _canonicalFiqhLogs;
+  bool _canonicalFiqhEvidenceUnresolved = false;
 
   // Closure Blocker 9 — a live subscription for the whole time this
   // screen is mounted, not just a one-shot check in initState (which
@@ -293,19 +302,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final observationsResult = await repository.getAllObservationsForUser(
       userId,
     );
-    final fiqhLogs =
-        observationsResult is LoadUnavailable<List<BleedingObservation>>
-        ? null
-        : CanonicalFiqhEvidenceAdapter.buildEffectiveLogs(
-            observations: observationsResult.dataOrNull ?? const [],
-          );
+
+    List<CycleLog>? fiqhLogs;
+    var evidenceUnresolved = false;
+    switch (observationsResult) {
+      case LoadUnavailable<List<BleedingObservation>>():
+        // New critical finding — a genuine read failure must show an
+        // explicit unresolved Fiqh state, never silently fall back to
+        // legacy `_viewModel.logs` (that fallback has been removed
+        // entirely for authoritative Fiqh conclusions).
+        fiqhLogs = null;
+        evidenceUnresolved = true;
+      case LoadSuccess<List<BleedingObservation>>(:final data):
+        fiqhLogs = CanonicalFiqhEvidenceAdapter.buildEffectiveLogs(
+          observations: data,
+        );
+        evidenceUnresolved = _hasMaterialUnresolvedEvidence(
+          observations: data,
+          status: status,
+        );
+      case LoadDegraded<List<BleedingObservation>>(
+        :final data,
+        :final quarantinedCount,
+      ):
+        fiqhLogs = CanonicalFiqhEvidenceAdapter.buildEffectiveLogs(
+          observations: data,
+        );
+        // A quarantined (unparseable) row is itself already a form of
+        // materially incomplete evidence — never confidently rule from a
+        // dataset known to have a gap in it.
+        evidenceUnresolved =
+            quarantinedCount > 0 ||
+            _hasMaterialUnresolvedEvidence(observations: data, status: status);
+    }
 
     if (mounted) {
       setState(() {
         _canonicalStatus = status;
         _canonicalFiqhLogs = fiqhLogs;
+        _canonicalFiqhEvidenceUnresolved = evidenceUnresolved;
       });
     }
+  }
+
+  /// New critical finding — "uncertain flow is currently omitted because
+  /// the legacy engine cannot represent it... if that uncertainty is
+  /// material to an assessment, return unresolved rather than letting
+  /// the gap create an unsupported conclusion." Materiality is defined
+  /// narrowly and conservatively: an excluded "I'm not sure" day counts
+  /// only when it falls on or after the currently OPEN episode's own
+  /// start date — a gap from years-old, already-concluded history isn't
+  /// relevant to a ruling about the present.
+  bool _hasMaterialUnresolvedEvidence({
+    required List<BleedingObservation> observations,
+    required CanonicalBleedingStatus status,
+  }) {
+    final openEpisodeStart = status.openEpisode?.startDate;
+    if (openEpisodeStart == null) return false;
+    final excludedDates = CanonicalFiqhEvidenceAdapter.excludedUncertainDates(
+      observations: observations,
+    );
+    return excludedDates.any(
+      (date) => !date.isBefore(
+        DateTime(
+          openEpisodeStart.year,
+          openEpisodeStart.month,
+          openEpisodeStart.day,
+        ),
+      ),
+    );
   }
 
   /// Commit E7 — the dashboard is only ever reached by whoever is
@@ -442,23 +507,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final summary = _viewModel.summary;
         final calculation = _viewModel.cycleCalculation;
         final cycleDay = calculation.currentCycleDay;
-        // Closure Blocker 3 — the Fiqh engine's own INPUT is now the
-        // canonical, effective (post-correction) evidence whenever it is
-        // available, never cycle_entries. `_canonicalFiqhLogs` is null
-        // only while the very first fetch is still pending or if that
-        // read genuinely failed (Closure Blocker 1) — in either case,
-        // falling back to the legacy pipeline is a disclosed, narrow
-        // degradation (the Fiqh label may briefly lag canonical truth),
-        // never a fabricated conclusion from data that couldn't be
-        // verified.
-        final canonicalFiqhLogs = _canonicalFiqhLogs;
-        final fiqhLogs = canonicalFiqhLogs ?? _viewModel.logs;
-        final fiqhCalculation = canonicalFiqhLogs != null
-            ? const CycleCalculationService().calculate(
-                canonicalFiqhLogs,
-                asOf: AppClock.now(),
-              )
-            : calculation;
+        // New critical finding — the Fiqh engine's own INPUT is now the
+        // canonical, effective (post-correction) evidence EXCLUSIVELY,
+        // never `cycle_entries`/`_viewModel.logs`. The prior `??
+        // _viewModel.logs` fallback was removed outright: falling back to
+        // a legacy, projection-dependent pipeline whenever canonical
+        // evidence was merely not-yet-loaded or unavailable was itself
+        // the exact "confidently assert a ruling from stale or incomplete
+        // evidence" failure mode this finding exists to close.
+        // `_canonicalFiqhLogs` is null only while the very first fetch is
+        // still pending or there is no session at all — treated as "no
+        // canonical evidence yet" (the same, already-correct
+        // insufficient-history path a genuinely brand-new account gets),
+        // never as a positive ruling. `_canonicalFiqhEvidenceUnresolved`
+        // is checked separately, further below, to gate the ring/banner
+        // themselves — never here, since the underlying calculation must
+        // still run honestly either way.
+        final canonicalFiqhLogs = _canonicalFiqhLogs ?? const <CycleLog>[];
+        final fiqhLogs = canonicalFiqhLogs;
+        final fiqhCalculation = const CycleCalculationService().calculate(
+          canonicalFiqhLogs,
+          asOf: AppClock.now(),
+        );
         // The engine always runs (regardless of _istihadahMode) so every
         // state — including manual istihadah — shares the same real,
         // flow-aware day-count data; the toggle only overrides which
@@ -488,7 +558,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // with no Madhhab SELECTED.
           FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
         };
-        final state = _istihadahMode ? _FiqhState.istihadah : mappedState;
+        // New critical finding — evidence-unresolved takes priority over
+        // every other signal, including her own manual Istihadah toggle:
+        // if the canonical observations backing this conclusion could not
+        // be verified, nothing computed from them (nor a toggle that
+        // itself assumes a specific, knowable state) may be confidently
+        // asserted. Every consumer of `state` below (the ring, the Salah
+        // banner, the prayer-status card) must treat this case as "we
+        // don't know," never silently substitute the last-good value.
+        final state = _canonicalFiqhEvidenceUnresolved
+            ? _FiqhState.evidenceUnresolved
+            : _istihadahMode
+            ? _FiqhState.istihadah
+            : mappedState;
         // Closure Blocker 2 — the factual question "is there an open
         // bleeding episode?" is now answered ONLY by canonical
         // bleeding_episodes (via _canonicalStatus), never unioned with
@@ -676,21 +758,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ],
                           ] else ...[
-                            _CycleOverview(
-                              summary: summary,
-                              cycleDay: cycleDay!,
-                              state: state,
-                              isCurrentlyBleeding: fiqhDisplayState,
-                              confirmAt: snapshot.confirmAt,
-                              daysIntoCurrentEpisode:
-                                  snapshot.daysIntoCurrentEpisode,
-                              onTap: () => showCycleLogSheet(
-                                context,
-                                viewModel: _viewModel,
-                                existingLog: _todayLog(),
-                                initialFlow: FlowLevel.medium,
+                            // New critical finding — a Fiqh ruling must
+                            // never be drawn from evidence that is
+                            // unavailable/degraded in a materially
+                            // relevant way; the ring itself asserts a
+                            // specific state (haid/tahara/istihadah)
+                            // through its color and headline, so it is
+                            // exactly the wrong thing to render
+                            // confidently here. Raw factual tracking
+                            // (Quick Actions, just below) still works
+                            // regardless — only the Fiqh *conclusion* is
+                            // withheld.
+                            if (_canonicalFiqhEvidenceUnresolved)
+                              _FiqhEvidenceUnresolvedCard(
+                                onRetry: () =>
+                                    unawaited(_refreshCanonicalStatus()),
+                              )
+                            else
+                              _CycleOverview(
+                                summary: summary,
+                                cycleDay: cycleDay!,
+                                state: state,
+                                isCurrentlyBleeding: fiqhDisplayState,
+                                confirmAt: snapshot.confirmAt,
+                                daysIntoCurrentEpisode:
+                                    snapshot.daysIntoCurrentEpisode,
+                                onTap: () => showCycleLogSheet(
+                                  context,
+                                  viewModel: _viewModel,
+                                  existingLog: _todayLog(),
+                                  initialFlow: FlowLevel.medium,
+                                ),
                               ),
-                            ),
                             const SizedBox(height: 24),
                             _QuickActions(
                               // hasOpenEpisode is definitionally false in
@@ -760,6 +859,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     mode: NiswahAssistantMode.fiqhAdvisory,
                                   ),
                                 ),
+                                onRetry: () =>
+                                    unawaited(_refreshCanonicalStatus()),
                               ),
                             ),
                           ],
@@ -1857,6 +1958,100 @@ class _CanonicalStatusUnavailableCard extends StatelessWidget {
   );
 }
 
+/// New critical finding — replaces [_CycleOverview] entirely (never
+/// rendered alongside it) whenever canonical Fiqh evidence is
+/// unavailable or materially degraded. Deliberately distinct from
+/// [_CanonicalStatusUnavailableCard]: that one is about the *episode*
+/// read (is there an open episode at all); this one is specifically
+/// about the *Fiqh conclusion* being unconfirmable — a woman can still
+/// see this even when her open-episode status is known perfectly well,
+/// if the separate observations read backing the Fiqh ruling failed or
+/// was materially incomplete.
+class _FiqhEvidenceUnresolvedCard extends StatelessWidget {
+  const _FiqhEvidenceUnresolvedCard({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 280,
+        height: 280,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE5E7EB), width: 8),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFF1F3F4), width: 12),
+          ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.help_outline_rounded,
+                    color: AppColors.textSecondary,
+                    size: 22,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _l(
+                      "Your Fiqh state can't be confirmed right now.",
+                      'لا يمكن تأكيد حالتكِ الفقهية الآن.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: AppColors.emeraldInk,
+                      fontFamily: AppTypography.serifFamily,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _l(
+                      'Your tracking is still saved — we just could not '
+                          'verify it well enough for a Fiqh conclusion.',
+                      'تتبعكِ محفوظ بأمان — لم نتمكن فقط من التحقق منه بما '
+                          'يكفي لإصدار حكم فقهي.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 11,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+      FilledButton(
+        onPressed: onRetry,
+        style: FilledButton.styleFrom(backgroundColor: AppColors.haid),
+        child: Text(_l('Try again', 'إعادة المحاولة')),
+      ),
+    ],
+  );
+}
+
 class _FactualOpenEpisodeCard extends StatelessWidget {
   const _FactualOpenEpisodeCard({required this.daysInto});
 
@@ -2383,6 +2578,13 @@ class _CycleOverview extends StatelessWidget {
       _FiqhState.madhhabUnresolved => _l(
         'Bleeding detected — select your Madhhab in Settings to see your Fiqh state.',
         'تم رصد نزيف — يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حالتكِ الفقهية.',
+      ),
+      // Unreachable in practice — the dashboard swaps this whole widget
+      // out for _FiqhEvidenceUnresolvedCard before ever constructing
+      // _CycleOverview with this state. Exhaustiveness-only placeholder.
+      _FiqhState.evidenceUnresolved => _l(
+        "We couldn't verify your tracking data right now.",
+        'تعذر التحقق من بيانات تتبعكِ الآن.',
       ),
     };
     final isNextSegmentArrow =
@@ -3239,6 +3441,11 @@ class _PrayerStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lifted = fiqhState == _FiqhState.haid;
+    // New critical finding — when canonical evidence is unresolved,
+    // neither "lifted" nor "obligatory" may be confidently asserted:
+    // both are themselves rulings, and the whole point of this state is
+    // that no ruling can be drawn right now.
+    final unresolved = fiqhState == _FiqhState.evidenceUnresolved;
     final names = {
       prayer.PrayerName.fajr: _l('Fajr', 'الفجر'),
       prayer.PrayerName.dhuhr: _l('Dhuhr', 'الظهر'),
@@ -3271,11 +3478,15 @@ class _PrayerStatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      lifted
+                      unresolved
+                          ? _l('Unable to verify', 'تعذر التحقق')
+                          : lifted
                           ? _l('Salah is lifted', 'الصلاة مرفوعة عنكِ')
                           : _l('Salah is obligatory', 'الصلاة واجبة عليكِ'),
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: lifted
+                        color: unresolved
+                            ? const Color(0xFF6B7280)
+                            : lifted
                             ? const Color(0xFF881337)
                             : AppColors.emeraldInk,
                         fontFamily: AppTypography.serifFamily,
@@ -3284,7 +3495,12 @@ class _PrayerStatusCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      lifted
+                      unresolved
+                          ? _l(
+                              "We couldn't verify your tracking data — your prayer obligation can't be confirmed right now.",
+                              'تعذر التحقق من بيانات تتبعكِ — لا يمكن تأكيد حكم الصلاة الآن.',
+                            )
+                          : lifted
                           ? _l(
                               'Your obligations change based on your Fiqh state',
                               'تتغير عباداتكِ حسب حالتكِ الفقهية',
@@ -3326,7 +3542,13 @@ class _PrayerStatusCard extends StatelessWidget {
             ),
             itemBuilder: (context, index) {
               final name = prayer.PrayerName.values[index];
-              final status = lifted
+              // New critical finding — neither "Lifted" nor a computed
+              // obligatory/on-time status may be shown while the
+              // underlying Fiqh state is unresolved; both are
+              // confident claims this state explicitly cannot support.
+              final status = unresolved
+                  ? _l('Unknown', 'غير معروفة')
+                  : lifted
                   ? _l('Lifted', 'مرفوعة')
                   : _prayerStatus(viewModel.statusFor(name));
               final time = viewModel.schedule.timeFor(name);
@@ -3349,14 +3571,23 @@ class _PrayerStatusCard extends StatelessWidget {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: (lifted ? AppColors.haid : AppColors.tahara)
-                                .withValues(alpha: 0.09),
+                            color:
+                                (unresolved
+                                        ? const Color(0xFF6B7280)
+                                        : lifted
+                                        ? AppColors.haid
+                                        : AppColors.tahara)
+                                    .withValues(alpha: 0.09),
                             borderRadius: BorderRadius.circular(7),
                           ),
                           child: Text(
                             status,
                             style: TextStyle(
-                              color: lifted ? AppColors.haid : AppColors.tahara,
+                              color: unresolved
+                                  ? const Color(0xFF6B7280)
+                                  : lifted
+                                  ? AppColors.haid
+                                  : AppColors.tahara,
                               fontSize: 7,
                               fontWeight: FontWeight.w700,
                             ),
@@ -3605,6 +3836,7 @@ class _FiqhStateBanner extends StatelessWidget {
     required this.madhhab,
     required this.onLogBlood,
     required this.onAskAdvisor,
+    required this.onRetry,
   });
 
   final _FiqhState state;
@@ -3612,6 +3844,7 @@ class _FiqhStateBanner extends StatelessWidget {
   final String madhhab;
   final VoidCallback onLogBlood;
   final VoidCallback onAskAdvisor;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -3668,6 +3901,10 @@ class _FiqhStateBanner extends StatelessWidget {
                 'Select your Madhhab in Settings to see your current Fiqh obligation.',
                 'يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حكمكِ الفقهي الحالي.',
               ),
+              _FiqhState.evidenceUnresolved => _l(
+                "We couldn't verify your tracking data right now — your Fiqh state can't be confirmed.",
+                'تعذر التحقق من بيانات تتبعكِ الآن — لا يمكن تأكيد حالتكِ الفقهية.',
+              ),
             },
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: AppColors.textPrimary,
@@ -3717,6 +3954,27 @@ class _FiqhStateBanner extends StatelessWidget {
               icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
               label: Text(
                 _l('Ask the Fiqh advisor', 'اسألي المستشارة الفقهية'),
+              ),
+            ),
+          ],
+          if (state == _FiqhState.evidenceUnresolved) ...[
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: onRetry,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.haid,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+              child: Text(
+                _l('Try again', 'إعادة المحاولة'),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -4242,6 +4500,17 @@ enum _FiqhState {
     'Select your Madhhab',
     Color(0xFF6B7280),
     'Select your Madhhab to see your current Fiqh state.',
+  ),
+  // New critical finding — canonical evidence was genuinely unavailable
+  // or materially degraded (a failed read, a quarantined row, or an
+  // excluded "I'm not sure" day inside the currently open episode's own
+  // window). Deliberately its own state, never silently mapped to
+  // tahara/haid/istihadah: this is "we cannot verify," not a ruling of
+  // any kind, positive or negative.
+  evidenceUnresolved(
+    'Unable to verify',
+    Color(0xFF6B7280),
+    "We couldn't verify your tracking data. Your Fiqh state can't be confirmed right now.",
   );
 
   const _FiqhState(this.label, this.color, this.message);
