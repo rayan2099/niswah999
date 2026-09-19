@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -181,6 +183,111 @@ void main() {
     test('loadPending on an empty store returns an empty list', () async {
       final loaded = await PendingBleedingOperationStore.loadPending();
       expect(loaded, isEmpty);
+    });
+
+    group('Closure Blocker 11 — corrupt persisted data must not crash '
+        'health tracking or block every other pending operation', () {
+      // Mirrors the store's own private `_category` key — there is no
+      // public constant to import, and duplicating this one literal
+      // string is simpler than widening the class's own encapsulation
+      // just for these tests.
+      const category = 'cycle_tracking_pending_bleeding_operations';
+
+      test('invalid JSON syntax is quarantined, not thrown', () async {
+        await SecureLocalStore.write(category, '{not valid json at all');
+
+        final loaded = await PendingBleedingOperationStore.loadPending();
+
+        expect(loaded, isEmpty);
+      });
+
+      test('a wrong top-level shape (a JSON object instead of a list) is '
+          'quarantined, not thrown', () async {
+        await SecureLocalStore.write(category, '{"oops": "not a list"}');
+
+        final loaded = await PendingBleedingOperationStore.loadPending();
+
+        expect(loaded, isEmpty);
+      });
+
+      test('one invalid item among otherwise-valid items is quarantined '
+          'alone — every valid operation around it still loads', () async {
+        final valid1 = PendingBleedingOperation(
+          operationId: 'op-1',
+          type: PendingBleedingOperationType.startEpisode,
+          params: const {'flow': 'medium'},
+          createdAt: DateTime(2026, 9, 17),
+        ).toJson();
+        final valid2 = PendingBleedingOperation(
+          operationId: 'op-2',
+          type: PendingBleedingOperationType.endEpisode,
+          params: const {},
+          createdAt: DateTime(2026, 9, 18),
+        ).toJson();
+
+        // A bare string in the list where an object is expected — the
+        // old `item as Map<String, dynamic>` cast would have thrown
+        // here, losing op-1 and op-2 both.
+        await SecureLocalStore.write(
+          category,
+          '[${jsonEncode(valid1)}, "not an object", ${jsonEncode(valid2)}]',
+        );
+
+        final loaded = await PendingBleedingOperationStore.loadPending();
+
+        expect(loaded, hasLength(2));
+        expect(loaded.map((o) => o.operationId), ['op-1', 'op-2']);
+      });
+
+      test('an unknown operation type is quarantined alone', () async {
+        final valid = PendingBleedingOperation(
+          operationId: 'op-1',
+          type: PendingBleedingOperationType.startEpisode,
+          params: const {},
+          createdAt: DateTime(2026, 9, 17),
+        ).toJson();
+        final unknownType = {
+          'operation_id': 'op-2',
+          'type': 'some_future_type_this_build_does_not_know',
+          'params': <String, dynamic>{},
+          'created_at': DateTime(2026, 9, 18).toIso8601String(),
+        };
+
+        await SecureLocalStore.write(
+          category,
+          jsonEncode([valid, unknownType]),
+        );
+
+        final loaded = await PendingBleedingOperationStore.loadPending();
+
+        expect(loaded, hasLength(1));
+        expect(loaded.single.operationId, 'op-1');
+      });
+
+      test('an invalid timestamp is quarantined alone', () async {
+        final valid = PendingBleedingOperation(
+          operationId: 'op-1',
+          type: PendingBleedingOperationType.startEpisode,
+          params: const {},
+          createdAt: DateTime(2026, 9, 17),
+        ).toJson();
+        final invalidTimestamp = {
+          'operation_id': 'op-2',
+          'type': PendingBleedingOperationType.endEpisode.name,
+          'params': <String, dynamic>{},
+          'created_at': 'not-a-real-timestamp',
+        };
+
+        await SecureLocalStore.write(
+          category,
+          jsonEncode([valid, invalidTimestamp]),
+        );
+
+        final loaded = await PendingBleedingOperationStore.loadPending();
+
+        expect(loaded, hasLength(1));
+        expect(loaded.single.operationId, 'op-1');
+      });
     });
 
     group('getPendingByType (Hardening 1)', () {

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
+import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/storage/secure_local_store.dart';
 
 /// Menstrual Data Integrity charter, PR #4 completion wave — Fix D. The
@@ -146,17 +147,73 @@ class PendingBleedingOperationStore {
     );
   }
 
+  /// Closure Blocker 11 — every failure mode below is quarantined, never
+  /// thrown: a `jsonDecode` failure (malformed outer JSON), a top-level
+  /// value that isn't a list at all (wrong shape — e.g. a stray JSON
+  /// object), and any individual list element that isn't a JSON object
+  /// (or fails [PendingBleedingOperation.tryFromJson]'s own field-level
+  /// validation) must never abort every *other*, genuinely valid pending
+  /// operation's ability to reconcile. The old cast inside
+  /// `decoded.map((item) => ...(item as Map&lt;String, dynamic&gt;)...)`
+  /// threw as soon as the lazy map hit one non-Map element — losing every
+  /// operation after it
+  /// (and, once materialized via `.toList()`, discarding the ones before
+  /// it too, since the whole expression never produced a result). Never
+  /// fabricates a replacement for a quarantined item — it is simply
+  /// dropped, reported for visibility, and the remaining valid operations
+  /// still reconcile normally.
   static Future<List<PendingBleedingOperation>> loadPending() async {
     final raw = await SecureLocalStore.read(_category);
     if (raw == null || raw.isEmpty) return const [];
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded
-        .map(
-          (item) => PendingBleedingOperation.tryFromJson(
-            item as Map<String, dynamic>,
-          ),
-        )
-        .whereType<PendingBleedingOperation>()
-        .toList();
+
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'PendingBleedingOperationStore.loadPending — malformed outer JSON, quarantined',
+      );
+      return const [];
+    }
+
+    if (decoded is! List) {
+      AppErrorReporter.report(
+        StateError(
+          'pending operations store held a non-list top-level value '
+          '(${decoded.runtimeType}) — quarantined',
+        ),
+        StackTrace.current,
+        context: 'PendingBleedingOperationStore.loadPending',
+      );
+      return const [];
+    }
+
+    final operations = <PendingBleedingOperation>[];
+    var quarantinedCount = 0;
+    for (final item in decoded) {
+      final parsed = item is Map<String, dynamic>
+          ? PendingBleedingOperation.tryFromJson(item)
+          : null;
+      if (parsed == null) {
+        quarantinedCount++;
+        continue;
+      }
+      operations.add(parsed);
+    }
+
+    if (quarantinedCount > 0) {
+      AppErrorReporter.report(
+        StateError(
+          '$quarantinedCount malformed pending operation(s) quarantined '
+          'out of ${decoded.length} total',
+        ),
+        StackTrace.current,
+        context: 'PendingBleedingOperationStore.loadPending',
+      );
+    }
+
+    return operations;
   }
 }
