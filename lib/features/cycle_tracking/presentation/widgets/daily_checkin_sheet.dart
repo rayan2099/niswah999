@@ -115,7 +115,6 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
           'observedDate': today.toIso8601String(),
           'precision': ObservationPrecision.dateOnly.value,
           'flow': flow.value,
-          'source': ObservationSource.userObserved.value,
           'utcOffsetMinutes': utcOffsetMinutes,
           'timezone': timezone,
         },
@@ -130,7 +129,6 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       observedDate: today,
       precision: ObservationPrecision.dateOnly,
       flow: flow,
-      source: ObservationSource.userObserved,
       utcOffsetMinutes: utcOffsetMinutes,
       timezone: timezone,
     );
@@ -152,9 +150,10 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
     // Best-effort mirror into the legacy read model — see the Start/End
     // sheets' own identical note (Blocker 12, Commit F closes this gap).
     try {
-      final observations = await repository.getObservationsForEpisode(
-        widget.episodeId,
-      );
+      final observations =
+          (await repository.getObservationsForEpisode(widget.episodeId))
+              .dataOrNull ??
+          const [];
       final recorded = observations
           .where((o) => o.id == observationId)
           .firstOrNull;
@@ -223,9 +222,10 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
 
     await PendingBleedingOperationStore.clearPending(_clientOperationId);
     try {
-      final observations = await repository.getObservationsForEpisode(
-        widget.episodeId,
-      );
+      final observations =
+          (await repository.getObservationsForEpisode(widget.episodeId))
+              .dataOrNull ??
+          const [];
       final closingObservation = observations
           .where((o) => o.id == result.closingObservationId)
           .firstOrNull;
@@ -543,7 +543,6 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
           'observedDate': observedDate.toIso8601String(),
           'precision': ObservationPrecision.dateOnly.value,
           'flow': flow.value,
-          'source': ObservationSource.userReportedHistorical.value,
           'utcOffsetMinutes': utcOffsetMinutes,
           'timezone': timezone,
         },
@@ -558,7 +557,6 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
       observedDate: observedDate,
       precision: ObservationPrecision.dateOnly,
       flow: flow,
-      source: ObservationSource.userReportedHistorical,
       utcOffsetMinutes: utcOffsetMinutes,
       timezone: timezone,
     );
@@ -577,9 +575,10 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
 
     await PendingBleedingOperationStore.clearPending(_clientOperationId);
     try {
-      final observations = await repository.getObservationsForEpisode(
-        widget.episodeId,
-      );
+      final observations =
+          (await repository.getObservationsForEpisode(widget.episodeId))
+              .dataOrNull ??
+          const [];
       final recorded = observations
           .where((o) => o.id == observationId)
           .firstOrNull;

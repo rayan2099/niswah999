@@ -165,6 +165,41 @@ BEGIN
     CREATE INDEX IF NOT EXISTS bleeding_episodes_user_start_idx
       ON public.bleeding_episodes (user_id, start_date DESC);
 
+    -- Closure Blocker 5 — precision/timestamp consistency: `date_only`
+    -- must never carry a precise timestamp it never actually reported
+    -- (that would silently claim more exactness than was given), and
+    -- `exact_time`/`approximate_time` must never claim precision while
+    -- carrying no time at all (the opposite fabrication). Enforced at
+    -- the DB layer, not merely by RPC validation, so a direct write —
+    -- if one were ever legitimately possible — could not bypass it
+    -- either.
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'bleeding_episodes_start_precision_time_check'
+    ) THEN
+      ALTER TABLE public.bleeding_episodes
+        ADD CONSTRAINT bleeding_episodes_start_precision_time_check
+        CHECK (
+          (start_precision = 'date_only' AND start_time IS NULL)
+          OR (start_precision IN ('exact_time', 'approximate_time')
+            AND start_time IS NOT NULL)
+        );
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'bleeding_episodes_end_precision_time_check'
+    ) THEN
+      ALTER TABLE public.bleeding_episodes
+        ADD CONSTRAINT bleeding_episodes_end_precision_time_check
+        CHECK (
+          end_precision IS NULL
+          OR (end_precision = 'date_only' AND end_time IS NULL)
+          OR (end_precision IN ('exact_time', 'approximate_time')
+            AND end_time IS NOT NULL)
+        );
+    END IF;
+
     ALTER TABLE public.bleeding_episodes ENABLE ROW LEVEL SECURITY;
 
     -- A single blanket `USING/WITH CHECK` policy with no `FOR` clause
@@ -306,6 +341,23 @@ BEGIN
       ON public.bleeding_observations (episode_id, observed_date);
     CREATE INDEX IF NOT EXISTS bleeding_observations_user_date_idx
       ON public.bleeding_observations (user_id, observed_date DESC);
+
+    -- Closure Blocker 5 — same precision/timestamp consistency rule as
+    -- bleeding_episodes' own start/end constraints above, applied here to
+    -- every observation (daily check-in, backfill, episode start/end,
+    -- correction, onboarding-reported history).
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'bleeding_observations_precision_time_check'
+    ) THEN
+      ALTER TABLE public.bleeding_observations
+        ADD CONSTRAINT bleeding_observations_precision_time_check
+        CHECK (
+          (precision = 'date_only' AND observed_time IS NULL)
+          OR (precision IN ('exact_time', 'approximate_time')
+            AND observed_time IS NOT NULL)
+        );
+    END IF;
 
     ALTER TABLE public.bleeding_observations ENABLE ROW LEVEL SECURITY;
 

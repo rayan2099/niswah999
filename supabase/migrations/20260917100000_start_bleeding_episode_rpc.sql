@@ -50,16 +50,24 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'bleeding_episodes'
   ) THEN
 
+    -- Closure Blocker 4: drops the old 13-parameter overload
+    -- (p_start_source/p_source, both caller-trusted) before creating the
+    -- new 11-parameter one below — otherwise Postgres would keep both
+    -- signatures simultaneously (it overloads by parameter list, not by
+    -- name alone), leaving the old, unsafe entry point still callable.
+    DROP FUNCTION IF EXISTS public.start_bleeding_episode(
+      uuid, date, text, timestamptz, text, text, timestamptz, text, text,
+      text, integer, jsonb, text
+    );
+
     CREATE OR REPLACE FUNCTION public.start_bleeding_episode(
       p_client_operation_id uuid,
       p_start_date date,
       p_start_precision text,
       p_start_time timestamptz,
-      p_start_source text,
       p_flow text,
       p_observed_time timestamptz,
       p_precision text,
-      p_source text,
       p_timezone text,
       p_utc_offset_minutes integer,
       p_symptoms jsonb DEFAULT NULL,
@@ -75,6 +83,7 @@ BEGIN
       v_episode_id uuid;
       v_observation_id uuid;
       v_local_today date;
+      v_derived_source text;
     BEGIN
       IF v_user_id IS NULL THEN
         RAISE EXCEPTION 'start_bleeding_episode requires an authenticated user';
@@ -105,12 +114,43 @@ BEGIN
           p_start_date, v_local_today;
       END IF;
 
+      -- Closure Blocker 5 — precision/timestamp consistency, enforced
+      -- here too (not only by the table's own CHECK constraint) so the
+      -- failure is attributable to this specific call with a clear
+      -- message, not a generic constraint-violation.
+      IF p_start_precision = 'date_only' AND p_start_time IS NOT NULL THEN
+        RAISE EXCEPTION 'start_time must be null when start_precision is date_only';
+      END IF;
+      IF p_start_precision IN ('exact_time', 'approximate_time')
+        AND p_start_time IS NULL
+      THEN
+        RAISE EXCEPTION 'start_time is required when start_precision is %', p_start_precision;
+      END IF;
+      IF p_precision = 'date_only' AND p_observed_time IS NOT NULL THEN
+        RAISE EXCEPTION 'observed_time must be null when precision is date_only';
+      END IF;
+      IF p_precision IN ('exact_time', 'approximate_time')
+        AND p_observed_time IS NULL
+      THEN
+        RAISE EXCEPTION 'observed_time is required when precision is %', p_precision;
+      END IF;
+
+      -- Closure Blocker 4 — provenance is derived here, never trusted
+      -- from the caller: reporting today's own local date is
+      -- user_observed; any other (necessarily past) date is
+      -- user_reported_historical. `p_start_source`/`p_source` are no
+      -- longer accepted as parameters at all (see the signature above)
+      -- — there is nothing left to ignore, so there is nothing a
+      -- malicious or malformed caller could ever override.
+      v_derived_source := CASE WHEN p_start_date = v_local_today
+        THEN 'user_observed' ELSE 'user_reported_historical' END;
+
       INSERT INTO public.bleeding_episodes (
         user_id, lifecycle_status, continuation_certainty, start_date,
         start_precision, start_time, start_source, client_operation_id
       ) VALUES (
         v_user_id, 'open', 'confirmed', p_start_date, p_start_precision,
-        p_start_time, p_start_source, p_client_operation_id
+        p_start_time, v_derived_source, p_client_operation_id
       ) RETURNING id INTO v_episode_id;
 
       INSERT INTO public.bleeding_observations (
@@ -118,8 +158,8 @@ BEGIN
         source, timezone, utc_offset_minutes, symptoms, notes, client_operation_id
       ) VALUES (
         v_user_id, v_episode_id, p_start_date, p_observed_time, p_precision,
-        p_flow, p_source, p_timezone, p_utc_offset_minutes, p_symptoms, p_notes,
-        p_client_operation_id
+        p_flow, v_derived_source, p_timezone, p_utc_offset_minutes, p_symptoms,
+        p_notes, p_client_operation_id
       ) RETURNING id INTO v_observation_id;
 
       RETURN QUERY SELECT v_episode_id, v_observation_id;
@@ -127,12 +167,12 @@ BEGIN
     $function$;
 
     REVOKE ALL ON FUNCTION public.start_bleeding_episode(
-      uuid, date, text, timestamptz, text, text, timestamptz, text, text,
-      text, integer, jsonb, text
+      uuid, date, text, timestamptz, text, timestamptz, text, text,
+      integer, jsonb, text
     ) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.start_bleeding_episode(
-      uuid, date, text, timestamptz, text, text, timestamptz, text, text,
-      text, integer, jsonb, text
+      uuid, date, text, timestamptz, text, timestamptz, text, text,
+      integer, jsonb, text
     ) TO authenticated;
 
   END IF;

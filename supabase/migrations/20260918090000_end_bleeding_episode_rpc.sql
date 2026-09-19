@@ -56,15 +56,21 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'bleeding_episodes'
   ) THEN
 
+    -- Closure Blocker 4: drops the old 10-parameter overload
+    -- (p_end_source/p_source, both caller-trusted) before creating the
+    -- new one below — see start_bleeding_episode's identical note.
+    DROP FUNCTION IF EXISTS public.end_bleeding_episode(
+      uuid, uuid, date, text, text, timestamptz, text, text, text, integer
+    );
+
     CREATE OR REPLACE FUNCTION public.end_bleeding_episode(
       p_client_operation_id uuid,
       p_episode_id uuid,
       p_end_date date,
       p_end_precision text,
-      p_end_source text,
+      p_end_time timestamptz,
       p_observed_time timestamptz,
       p_precision text,
-      p_source text,
       p_timezone text,
       p_utc_offset_minutes integer
     )
@@ -81,6 +87,7 @@ BEGIN
       v_episode_start date;
       v_closing_observation_id uuid;
       v_local_today date;
+      v_derived_source text;
     BEGIN
       IF v_user_id IS NULL THEN
         RAISE EXCEPTION 'end_bleeding_episode requires an authenticated user';
@@ -123,6 +130,30 @@ BEGIN
           p_end_date, v_local_today;
       END IF;
 
+      -- Closure Blocker 5 — precision/timestamp consistency, mirroring
+      -- start_bleeding_episode's identical validation.
+      IF p_end_precision = 'date_only' AND p_end_time IS NOT NULL THEN
+        RAISE EXCEPTION 'end_time must be null when end_precision is date_only';
+      END IF;
+      IF p_end_precision IN ('exact_time', 'approximate_time')
+        AND p_end_time IS NULL
+      THEN
+        RAISE EXCEPTION 'end_time is required when end_precision is %', p_end_precision;
+      END IF;
+      IF p_precision = 'date_only' AND p_observed_time IS NOT NULL THEN
+        RAISE EXCEPTION 'observed_time must be null when precision is date_only';
+      END IF;
+      IF p_precision IN ('exact_time', 'approximate_time')
+        AND p_observed_time IS NULL
+      THEN
+        RAISE EXCEPTION 'observed_time is required when precision is %', p_precision;
+      END IF;
+
+      -- Closure Blocker 4 — derived here, never trusted from the caller;
+      -- see start_bleeding_episode's identical rationale.
+      v_derived_source := CASE WHEN p_end_date = v_local_today
+        THEN 'user_observed' ELSE 'user_reported_historical' END;
+
       -- Insert the closing observation FIRST, while the episode is still
       -- genuinely 'open' — the validation trigger's ended-episode rule
       -- never even applies to this statement, no exception needed.
@@ -131,7 +162,7 @@ BEGIN
         source, timezone, utc_offset_minutes, client_operation_id
       ) VALUES (
         v_user_id, p_episode_id, p_end_date, p_observed_time, p_precision,
-        'none', p_source, p_timezone, p_utc_offset_minutes, p_client_operation_id
+        'none', v_derived_source, p_timezone, p_utc_offset_minutes, p_client_operation_id
       ) RETURNING id INTO v_closing_observation_id;
 
       -- Only now does the episode actually close.
@@ -140,7 +171,8 @@ BEGIN
           continuation_certainty = NULL,
           end_date = p_end_date,
           end_precision = p_end_precision,
-          end_source = p_end_source,
+          end_time = p_end_time,
+          end_source = v_derived_source,
           end_client_operation_id = p_client_operation_id
       WHERE id = p_episode_id;
 
@@ -149,10 +181,10 @@ BEGIN
     $function$;
 
     REVOKE ALL ON FUNCTION public.end_bleeding_episode(
-      uuid, uuid, date, text, text, timestamptz, text, text, text, integer
+      uuid, uuid, date, text, timestamptz, timestamptz, text, text, integer
     ) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.end_bleeding_episode(
-      uuid, uuid, date, text, text, timestamptz, text, text, text, integer
+      uuid, uuid, date, text, timestamptz, timestamptz, text, text, integer
     ) TO authenticated;
 
   END IF;

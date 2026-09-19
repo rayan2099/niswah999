@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
+import 'package:niswah/features/cycle_tracking/domain/entities/load_result.dart';
 
 /// Menstrual Data Integrity charter: without a configured Supabase client
 /// (no session — matches app-start-before-sign-in and every offline
@@ -58,7 +59,6 @@ void main() {
         observedDate: DateTime(2026, 9, 17),
         precision: ObservationPrecision.dateOnly,
         flow: ObservationFlow.medium,
-        source: ObservationSource.userObserved,
         utcOffsetMinutes: 0,
       );
       expect(result, isNull);
@@ -73,7 +73,6 @@ void main() {
           observedDate: DateTime(2026, 9, 17),
           precision: ObservationPrecision.dateOnly,
           flow: ObservationFlow.none,
-          source: ObservationSource.userReportedHistorical,
           utcOffsetMinutes: 0,
         );
         expect(result, isNull);
@@ -86,24 +85,28 @@ void main() {
     });
 
     test(
-      'getRevisionHistory returns an empty list rather than throwing',
+      'getRevisionHistory returns LoadUnavailable rather than throwing or '
+      'silently returning an empty list (Closure Blocker 1: a read '
+      'failure must never be conflated with a verified-empty result)',
       () async {
         final result = await repository.getRevisionHistory('observation-1');
-        expect(result, isEmpty);
+        expect(result, isA<LoadUnavailable<List<BleedingObservation>>>());
       },
     );
 
     test(
-      'getObservationsForEpisode returns an empty list rather than throwing',
+      'getObservationsForEpisode returns LoadUnavailable rather than '
+      'throwing or silently returning an empty list (Closure Blocker 1)',
       () async {
         final result = await repository.getObservationsForEpisode('episode-1');
-        expect(result, isEmpty);
+        expect(result, isA<LoadUnavailable<List<BleedingObservation>>>());
       },
     );
 
-    test('getOpenEpisode returns null rather than throwing', () async {
+    test('getOpenEpisode returns LoadUnavailable rather than throwing or '
+        'silently returning null (Closure Blocker 1)', () async {
       final result = await repository.getOpenEpisode('user-1');
-      expect(result, isNull);
+      expect(result, isA<LoadUnavailable<BleedingEpisode?>>());
     });
 
     test(

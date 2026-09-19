@@ -37,13 +37,20 @@ BEGIN
     -- regardless of this function's own SECURITY DEFINER status — the
     -- explicit checks below exist to fail with a specific, actionable
     -- message rather than relying solely on the trigger's.
+    -- Closure Blocker 4: drops the old 11-parameter overload (p_source,
+    -- caller-trusted) before creating the new one below — see
+    -- start_bleeding_episode's identical note.
+    DROP FUNCTION IF EXISTS public.record_bleeding_observation(
+      uuid, uuid, date, text, text, text, integer, timestamptz, text,
+      jsonb, text
+    );
+
     CREATE OR REPLACE FUNCTION public.record_bleeding_observation(
       p_client_operation_id uuid,
       p_episode_id uuid,
       p_observed_date date,
       p_precision text,
       p_flow text,
-      p_source text,
       p_utc_offset_minutes integer,
       p_observed_time timestamptz DEFAULT NULL,
       p_timezone text DEFAULT NULL,
@@ -62,6 +69,7 @@ BEGIN
       v_existing_id uuid;
       v_new_id uuid;
       v_local_today date;
+      v_derived_source text;
     BEGIN
       IF v_user_id IS NULL THEN
         RAISE EXCEPTION
@@ -102,14 +110,33 @@ BEGIN
           p_observed_date, v_local_today;
       END IF;
 
+      -- Closure Blocker 5 — precision/timestamp consistency, mirroring
+      -- every other write RPC's identical checks.
+      IF p_precision = 'date_only' AND p_observed_time IS NOT NULL THEN
+        RAISE EXCEPTION 'observed_time must be null when precision is date_only';
+      END IF;
+      IF p_precision IN ('exact_time', 'approximate_time')
+        AND p_observed_time IS NULL
+      THEN
+        RAISE EXCEPTION 'observed_time is required when precision is %', p_precision;
+      END IF;
+
+      -- Closure Blocker 4 — derived here, never trusted from the caller;
+      -- see start_bleeding_episode's identical rationale. This one
+      -- function serves both D1 (today's check-in) and D4 (backfill), so
+      -- the same today-vs-past comparison already used for future-date
+      -- rejection is what distinguishes them.
+      v_derived_source := CASE WHEN p_observed_date = v_local_today
+        THEN 'user_observed' ELSE 'user_reported_historical' END;
+
       INSERT INTO public.bleeding_observations (
         user_id, episode_id, observed_date, observed_time, precision, flow,
         source, timezone, utc_offset_minutes, symptoms, notes,
         client_operation_id
       ) VALUES (
         v_user_id, p_episode_id, p_observed_date, p_observed_time, p_precision,
-        p_flow, p_source, p_timezone, p_utc_offset_minutes, p_symptoms, p_notes,
-        p_client_operation_id
+        p_flow, v_derived_source, p_timezone, p_utc_offset_minutes, p_symptoms,
+        p_notes, p_client_operation_id
       ) RETURNING id INTO v_new_id;
 
       RETURN QUERY SELECT v_new_id;
@@ -117,12 +144,10 @@ BEGIN
     $function$;
 
     REVOKE ALL ON FUNCTION public.record_bleeding_observation(
-      uuid, uuid, date, text, text, text, integer, timestamptz, text,
-      jsonb, text
+      uuid, uuid, date, text, text, integer, timestamptz, text, jsonb, text
     ) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.record_bleeding_observation(
-      uuid, uuid, date, text, text, text, integer, timestamptz, text,
-      jsonb, text
+      uuid, uuid, date, text, text, integer, timestamptz, text, jsonb, text
     ) TO authenticated;
 
     -- set_continuation_uncertain — Commit D1's "I'M NOT SURE" daily

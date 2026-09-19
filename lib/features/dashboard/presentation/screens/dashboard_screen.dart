@@ -21,8 +21,12 @@ import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
 import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
+import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
+import '../../../cycle_tracking/domain/entities/load_result.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/canonical_bleeding_status_resolver.dart';
+import '../../../cycle_tracking/domain/services/canonical_fiqh_evidence_adapter.dart';
+import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
 import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
@@ -219,6 +223,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // "noHistory."
   CanonicalBleedingStatus? _canonicalStatus;
 
+  // Closure Blocker 3 — the canonical, effective (post-correction)
+  // evidence fed into the deterministic Fiqh engine, built via
+  // CanonicalFiqhEvidenceAdapter from bleeding_observations directly.
+  // Null until the first fetch resolves OR whenever the read genuinely
+  // fails — in either case the render method below falls back to the
+  // legacy `_viewModel.logs`-derived pipeline rather than forcing a
+  // fresh Fiqh conclusion from data it cannot currently verify (Closure
+  // Blocker 1's own principle, applied here too: never silently invent
+  // certainty from an unavailable read).
+  List<CycleLog>? _canonicalFiqhLogs;
+
   @override
   void initState() {
     super.initState();
@@ -248,10 +263,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _refreshCanonicalStatus() async {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId == null) return;
-    final status = await CanonicalBleedingStatusResolver(
-      BleedingEpisodeRepositoryImpl(),
-    ).resolve(userId: userId, now: AppClock.now());
-    if (mounted) setState(() => _canonicalStatus = status);
+    final repository = BleedingEpisodeRepositoryImpl();
+    final status = await CanonicalBleedingStatusResolver(repository)
+        .resolve(userId: userId, now: AppClock.now());
+
+    // Closure Blocker 3 — rebuilt from scratch every refresh (never
+    // cached/patched incrementally), so a correction anywhere in the
+    // history is reflected the next time this runs, exactly like
+    // _canonicalStatus itself.
+    final observationsResult = await repository.getAllObservationsForUser(
+      userId,
+    );
+    final fiqhLogs =
+        observationsResult is LoadUnavailable<List<BleedingObservation>>
+        ? null
+        : CanonicalFiqhEvidenceAdapter.buildEffectiveLogs(
+            observations: observationsResult.dataOrNull ?? const [],
+          );
+
+    if (mounted) {
+      setState(() {
+        _canonicalStatus = status;
+        _canonicalFiqhLogs = fiqhLogs;
+      });
+    }
   }
 
   /// Commit E7 — the dashboard is only ever reached by whoever is
@@ -289,9 +324,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final episodeId = decoded['episodeId'] as String?;
     if (episodeId == null) return;
 
-    final episode = await BleedingEpisodeRepositoryImpl().getOpenEpisode(
+    // Closure Blocker 1: if this read fails, `dataOrNull` is null and we
+    // simply drop the tap rather than guessing — this is a background,
+    // best-effort action (not a direct user request awaiting a result),
+    // so an honest "couldn't verify" retry prompt has no natural home
+    // here; she can always reach the same check-in from Quick Actions.
+    final episode = (await BleedingEpisodeRepositoryImpl().getOpenEpisode(
       signedInUserId,
-    );
+    )).dataOrNull;
     // The episode this reminder was about may have since ended (she
     // ended it through the app before ever tapping the notification) —
     // must not reopen a journey that's already closed.
@@ -333,14 +373,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final summary = _viewModel.summary;
         final calculation = _viewModel.cycleCalculation;
         final cycleDay = calculation.currentCycleDay;
+        // Closure Blocker 3 — the Fiqh engine's own INPUT is now the
+        // canonical, effective (post-correction) evidence whenever it is
+        // available, never cycle_entries. `_canonicalFiqhLogs` is null
+        // only while the very first fetch is still pending or if that
+        // read genuinely failed (Closure Blocker 1) — in either case,
+        // falling back to the legacy pipeline is a disclosed, narrow
+        // degradation (the Fiqh label may briefly lag canonical truth),
+        // never a fabricated conclusion from data that couldn't be
+        // verified.
+        final canonicalFiqhLogs = _canonicalFiqhLogs;
+        final fiqhLogs = canonicalFiqhLogs ?? _viewModel.logs;
+        final fiqhCalculation = canonicalFiqhLogs != null
+            ? const CycleCalculationService().calculate(
+                canonicalFiqhLogs,
+                asOf: AppClock.now(),
+              )
+            : calculation;
         // The engine always runs (regardless of _istihadahMode) so every
         // state — including manual istihadah — shares the same real,
         // flow-aware day-count data; the toggle only overrides which
         // label is displayed below, never the underlying computation.
-        final snapshot = calculation.hasSufficientHistory
+        final snapshot = fiqhCalculation.hasSufficientHistory
             ? const CycleStatusEngine().evaluate(
-                logs: _viewModel.logs,
-                calculation: calculation,
+                logs: fiqhLogs,
+                calculation: fiqhCalculation,
                 madhhab: MadhhabController.instance.selectedOrNull,
                 now: AppClock.now(),
               )
@@ -363,20 +420,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
           FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
         };
         final state = _istihadahMode ? _FiqhState.istihadah : mappedState;
-        // Commit F1 — the canonical fact ("is there really an open
-        // episode") can only ever ADD a true case the legacy,
-        // projection-dependent signal missed (a save that succeeded but
-        // never made it into cycle_entries), never subtract one it
-        // already had right; this is a union, never a replacement, so an
-        // established user's existing Fiqh-driven experience is
-        // unaffected whenever the projection is healthy.
-        final canonicalOpenEpisode =
-            _canonicalStatus?.state == RingFactualState.factualOpenEpisode;
-        final isCurrentlyBleeding =
+        // Closure Blocker 2 — the factual question "is there an open
+        // bleeding episode?" is now answered ONLY by canonical
+        // bleeding_episodes (via _canonicalStatus), never unioned with
+        // the legacy, projection-dependent Fiqh signal. The prior
+        // OR-union meant a stale cycle_entries row (the END never
+        // mirrored because CycleEntriesProjection failed) could
+        // resurrect a factually-ended episode — exactly the failure mode
+        // this closure wave requires be structurally impossible. `null`
+        // means genuinely unknown (the first fetch hasn't resolved yet,
+        // or Closure Blocker 1's read failed) — never silently treated
+        // as either true or false.
+        final hasOpenEpisode = switch (_canonicalStatus?.state) {
+          null => null,
+          RingFactualState.unavailable => null,
+          RingFactualState.factualOpenEpisode => true,
+          _ => false,
+        };
+        // The Fiqh/ring DISPLAY label remains legacy-derived — a
+        // deliberately separate, non-factual concern (Commit G4: Fiqh
+        // sits above evidence, never overrides it). Only ever used for
+        // the ring's own color/text below; never for gating Start/End/
+        // Check-in actions or reminder eligibility, which use
+        // [hasOpenEpisode] exclusively.
+        final fiqhDisplayState =
             state == _FiqhState.haid ||
             state == _FiqhState.needsAdvisory ||
-            state == _FiqhState.istihadah ||
-            canonicalOpenEpisode;
+            state == _FiqhState.istihadah;
 
         return Directionality(
           textDirection: AppLocaleController.instance.isArabic
@@ -469,7 +539,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               },
                             ),
                             const SizedBox(height: 24),
-                          ] else if (canonicalOpenEpisode ||
+                          ] else if (hasOpenEpisode == null) ...[
+                            // Closure Blocker 1 — a read failure must
+                            // never be shown as "no history"/"no open
+                            // episode." A retryable, honest message
+                            // instead — no Quick Actions rendered at all
+                            // while the factual state is genuinely
+                            // unknown, since offering either "Start" or
+                            // "Check in" would itself be a guess.
+                            _CanonicalStatusUnavailableCard(
+                              onRetry: () =>
+                                  unawaited(_refreshCanonicalStatus()),
+                            ),
+                          ] else if (hasOpenEpisode ||
                               !calculation.hasSufficientHistory ||
                               !calculation.hasPlausibleAverage) ...[
                             // Commit F3 — an explicit ring state, not
@@ -482,7 +564,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             // history gets (F5) — only a truly empty
                             // canonical history falls through to that
                             // original card.
-                            if (canonicalOpenEpisode)
+                            if (hasOpenEpisode)
                               _FactualOpenEpisodeCard(
                                 daysInto:
                                     _canonicalStatus!.daysIntoOpenEpisode!,
@@ -499,13 +581,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             const SizedBox(height: 24),
                             _QuickActions(
-                              isCurrentlyBleeding: isCurrentlyBleeding,
+                              hasOpenEpisode: hasOpenEpisode,
                               onStart: () => _startBleeding(),
                               onEnd: () => _endBleeding(),
                               onCheckIn: () => _checkInToday(),
                               onBackfill: () => _backfillObservation(),
                             ),
-                            if (isCurrentlyBleeding) ...[
+                            if (hasOpenEpisode) ...[
                               const SizedBox(height: 12),
                               _MissedCheckinBanner(
                                 key: ValueKey(_missedCheckinRefreshToken),
@@ -522,7 +604,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               summary: summary,
                               cycleDay: cycleDay!,
                               state: state,
-                              isCurrentlyBleeding: isCurrentlyBleeding,
+                              isCurrentlyBleeding: fiqhDisplayState,
                               confirmAt: snapshot.confirmAt,
                               daysIntoCurrentEpisode:
                                   snapshot.daysIntoCurrentEpisode,
@@ -535,24 +617,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const SizedBox(height: 24),
                             _QuickActions(
-                              isCurrentlyBleeding: isCurrentlyBleeding,
+                              // hasOpenEpisode is definitionally false in
+                              // this branch (the outer condition above
+                              // already required it) — no banner either,
+                              // for the same reason.
+                              hasOpenEpisode: false,
                               onStart: () => _startBleeding(),
                               onEnd: () => _endBleeding(),
                               onCheckIn: () => _checkInToday(),
                               onBackfill: () => _backfillObservation(),
                             ),
-                            if (isCurrentlyBleeding) ...[
-                              const SizedBox(height: 12),
-                              _MissedCheckinBanner(
-                                key: ValueKey(_missedCheckinRefreshToken),
-                                onAdd: (episodeId, episodeStartDate, day) =>
-                                    _backfillSpecificDay(
-                                      episodeId,
-                                      episodeStartDate,
-                                      day,
-                                    ),
-                              ),
-                            ],
                           ],
                           if (PregnancyStatusController
                               .instance
@@ -814,32 +888,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  /// Section 6/48: ending an episode needs its real id — fetched fresh
-  /// rather than cached on this screen, since nothing here has tracked it
-  /// so far (the dashboard's "isCurrentlyBleeding" signal still comes from
-  /// the legacy `cycle_entries` derivation, which the projection keeps in
-  /// sync, but does not itself carry an episode id).
-  Future<void> _endBleeding() async {
-    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
-    if (userId == null) return;
-
-    final openEpisode = await BleedingEpisodeRepositoryImpl().getOpenEpisode(
-      userId,
-    );
-    if (openEpisode?.id == null) {
-      if (!mounted) return;
+  /// Closure Blocker 1 — fetches the caller's open episode, honestly
+  /// distinguishing "verified: no open episode" (shows
+  /// [noEpisodeMessageEn]/[noEpisodeMessageAr]) from "couldn't verify
+  /// right now" (a read failure — shows a generic, retryable message). A
+  /// read failure must never be silently treated as "genuinely no open
+  /// episode," which would let a caller wrongly assume tracking has
+  /// ended/never started.
+  Future<BleedingEpisode?> _resolveOpenEpisodeOrShowError(
+    String userId, {
+    required String noEpisodeMessageEn,
+    required String noEpisodeMessageAr,
+  }) async {
+    final result = await BleedingEpisodeRepositoryImpl().getOpenEpisode(userId);
+    if (!mounted) return null;
+    if (result is LoadUnavailable<BleedingEpisode?>) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             _l(
-              'Could not find your active period to end it.',
-              'تعذر العثور على دورتكِ النشطة لإنهائها.',
+              "We couldn't verify your tracking data right now. Try again.",
+              'تعذر التحقق من بيانات تتبعكِ الآن. يرجى المحاولة مجدداً.',
             ),
           ),
         ),
       );
-      return;
+      return null;
     }
+    final episode = result.dataOrNull;
+    if (episode == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_l(noEpisodeMessageEn, noEpisodeMessageAr))),
+      );
+    }
+    return episode;
+  }
+
+  /// Section 6/48: ending an episode needs its real id — fetched fresh
+  /// rather than cached on this screen, since nothing here has tracked it
+  /// so far.
+  Future<void> _endBleeding() async {
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final openEpisode = await _resolveOpenEpisodeOrShowError(
+      userId,
+      noEpisodeMessageEn: 'Could not find your active period to end it.',
+      noEpisodeMessageAr: 'تعذر العثور على دورتكِ النشطة لإنهائها.',
+    );
+    if (openEpisode?.id == null) return;
 
     if (!mounted) return;
     final ended = await showEndBleedingSheet(
@@ -861,23 +958,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId == null) return;
 
-    final openEpisode = await BleedingEpisodeRepositoryImpl().getOpenEpisode(
+    final openEpisode = await _resolveOpenEpisodeOrShowError(
       userId,
+      noEpisodeMessageEn: 'Could not find your active period to check in on.',
+      noEpisodeMessageAr: 'تعذر العثور على دورتكِ النشطة للمتابعة.',
     );
-    if (openEpisode?.id == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _l(
-              'Could not find your active period to check in on.',
-              'تعذر العثور على دورتكِ النشطة للمتابعة.',
-            ),
-          ),
-        ),
-      );
-      return;
-    }
+    if (openEpisode?.id == null) return;
 
     if (!mounted) return;
     final outcome = await showDailyCheckinSheet(
@@ -898,23 +984,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId == null) return;
 
-    final openEpisode = await BleedingEpisodeRepositoryImpl().getOpenEpisode(
+    final openEpisode = await _resolveOpenEpisodeOrShowError(
       userId,
+      noEpisodeMessageEn: 'Could not find your active period.',
+      noEpisodeMessageAr: 'تعذر العثور على دورتكِ النشطة.',
     );
-    if (openEpisode?.id == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _l(
-              'Could not find your active period.',
-              'تعذر العثور على دورتكِ النشطة.',
-            ),
-          ),
-        ),
-      );
-      return;
-    }
+    if (openEpisode?.id == null) return;
 
     if (!mounted) return;
     final saved = await showBackfillObservationSheet(
@@ -1627,6 +1702,83 @@ class _InsufficientCycleDataCard extends StatelessWidget {
 /// history, a different state entirely), and never a fabricated average/
 /// next-period/fertile-window this early (that remains
 /// [RingFactualState.predictionEligibleHistory]'s domain).
+/// Closure Blocker 1 — shown instead of any card that would otherwise
+/// imply a confident factual claim ("no history," "tracking ended," "day
+/// N") when the canonical read that claim would rest on genuinely failed
+/// (network/backend/auth). Never silently defaults to the empty-history
+/// card, which would misrepresent an unknown state as a verified one.
+class _CanonicalStatusUnavailableCard extends StatelessWidget {
+  const _CanonicalStatusUnavailableCard({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 280,
+        height: 280,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE5E7EB), width: 8),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFF1F3F4), width: 12),
+          ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.cloud_off_outlined,
+                    color: AppColors.textSecondary,
+                    size: 22,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _l(
+                      "We couldn't verify your tracking data right now.",
+                      'تعذر التحقق من بيانات تتبعكِ الآن.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: AppColors.emeraldInk,
+                      fontFamily: AppTypography.serifFamily,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: onRetry,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.haid,
+                    ),
+                    child: Text(_l('Try again', 'إعادة المحاولة')),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
 class _FactualOpenEpisodeCard extends StatelessWidget {
   const _FactualOpenEpisodeCard({required this.daysInto});
 
@@ -2379,11 +2531,22 @@ class _MissedCheckinBannerState extends State<_MissedCheckinBanner> {
     if (userId == null) return;
 
     final repository = BleedingEpisodeRepositoryImpl();
-    final episode = await repository.getOpenEpisode(userId);
+    // Closure Blocker 1: a read failure here must never surface as "you
+    // missed a day" — this banner is purely additive, so the safe,
+    // honest response to "couldn't verify" is simply not to show
+    // anything, exactly like "verified: no gap" — never a fabricated
+    // claim either way.
+    final episode = (await repository.getOpenEpisode(userId)).dataOrNull;
     final episodeId = episode?.id;
     if (episode == null || episodeId == null) return;
 
-    final observations = await repository.getObservationsForEpisode(episodeId);
+    final observationsResult = await repository.getObservationsForEpisode(
+      episodeId,
+    );
+    if (observationsResult is LoadUnavailable<List<BleedingObservation>>) {
+      return;
+    }
+    final observations = observationsResult.dataOrNull ?? const [];
     final utcOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
     final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
 
@@ -2468,24 +2631,26 @@ class _MissedCheckinBannerState extends State<_MissedCheckinBanner> {
 
 class _QuickActions extends StatelessWidget {
   const _QuickActions({
-    required this.isCurrentlyBleeding,
+    required this.hasOpenEpisode,
     required this.onStart,
     required this.onEnd,
     this.onCheckIn,
     this.onBackfill,
   });
 
-  /// Whether the fiqh state counts as "currently bleeding" — haid,
-  /// needsAdvisory, or istihadah, matching [_CycleOverview]'s definition so
-  /// the two widgets never disagree about it.
-  final bool isCurrentlyBleeding;
+  /// Closure Blocker 2 — the FACTUAL question "is there a canonical open
+  /// episode," derived ONLY from `bleeding_episodes` (never unioned with
+  /// the legacy Fiqh state) — deliberately distinct from
+  /// [_CycleOverview]'s own `isCurrentlyBleeding`, which remains a
+  /// legacy/Fiqh display concern. A stale `cycle_entries` row can never
+  /// resurrect a factually-ended episode here.
+  final bool hasOpenEpisode;
   final VoidCallback onStart;
   final VoidCallback onEnd;
 
   /// Commit D1 — the recurring daily check-in, only meaningful while an
   /// episode is actually open. Null (and therefore not rendered) whenever
-  /// there is no open canonical episode to check in against, even if
-  /// [isCurrentlyBleeding] (the legacy Fiqh-state signal) is somehow true.
+  /// there is no open canonical episode to check in against.
   final VoidCallback? onCheckIn;
 
   /// Commit D4 — "I forgot to log a day," reachable any time an episode
@@ -2497,7 +2662,7 @@ class _QuickActions extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (isCurrentlyBleeding && onCheckIn != null) ...[
+        if (hasOpenEpisode && onCheckIn != null) ...[
           FilledButton.icon(
             onPressed: onCheckIn,
             icon: const Icon(Icons.today_outlined, size: 18),
@@ -2514,7 +2679,7 @@ class _QuickActions extends StatelessWidget {
           const SizedBox(height: 10),
         ],
         _startEndRow(context),
-        if (isCurrentlyBleeding && onBackfill != null) ...[
+        if (hasOpenEpisode && onBackfill != null) ...[
           const SizedBox(height: 10),
           TextButton.icon(
             onPressed: onBackfill,
@@ -2531,7 +2696,7 @@ class _QuickActions extends StatelessWidget {
       children: [
         Expanded(
           child: FilledButton.icon(
-            onPressed: isCurrentlyBleeding ? null : onStart,
+            onPressed: hasOpenEpisode ? null : onStart,
             icon: const Icon(Icons.water_drop_outlined, size: 18),
             label: Text(_l('Period Started', 'بدأ الحيض')),
             style: FilledButton.styleFrom(
@@ -2550,14 +2715,14 @@ class _QuickActions extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: isCurrentlyBleeding ? onEnd : null,
+            onPressed: hasOpenEpisode ? onEnd : null,
             icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
             label: Text(_l('Period Ended', 'انتهى الحيض')),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
               foregroundColor: AppColors.haid,
               side: BorderSide(
-                color: isCurrentlyBleeding
+                color: hasOpenEpisode
                     ? const Color(0xFFFECDD3)
                     : Theme.of(context).dividerColor,
               ),

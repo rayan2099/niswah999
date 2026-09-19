@@ -5,6 +5,7 @@ import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/bleeding_episode.dart';
+import '../../domain/entities/load_result.dart';
 import '../local/pending_bleeding_operation_store.dart';
 
 /// Thrown by [BleedingEpisodeRepositoryImpl.startEpisode] specifically
@@ -118,11 +119,9 @@ class BleedingEpisodeRepositoryImpl {
           'p_start_date': _dateOnly(startDate),
           'p_start_precision': startPrecision.value,
           'p_start_time': startTime?.toIso8601String(),
-          'p_start_source': source.value,
           'p_flow': flow.value,
           'p_observed_time': observedTime?.toIso8601String(),
           'p_precision': observationPrecision.value,
-          'p_source': source.value,
           'p_timezone': timezone,
           'p_utc_offset_minutes': utcOffsetMinutes,
           'p_symptoms': symptoms,
@@ -196,6 +195,7 @@ class BleedingEpisodeRepositoryImpl {
     required String episodeId,
     required DateTime endDate,
     required ObservationPrecision endPrecision,
+    DateTime? endTime,
     DateTime? observedTime,
     required ObservationPrecision observationPrecision,
     String? timezone,
@@ -203,11 +203,6 @@ class BleedingEpisodeRepositoryImpl {
   }) async {
     final client = _client;
     if (client == null) return null;
-
-    final source = ObservationSource.classify(
-      reportedDate: endDate,
-      localToday: localToday(utcOffsetMinutes),
-    );
 
     try {
       final response = await client.rpc(
@@ -217,10 +212,9 @@ class BleedingEpisodeRepositoryImpl {
           'p_episode_id': episodeId,
           'p_end_date': _dateOnly(endDate),
           'p_end_precision': endPrecision.value,
-          'p_end_source': source.value,
+          'p_end_time': endTime?.toIso8601String(),
           'p_observed_time': observedTime?.toIso8601String(),
           'p_precision': observationPrecision.value,
-          'p_source': source.value,
           'p_timezone': timezone,
           'p_utc_offset_minutes': utcOffsetMinutes,
         },
@@ -303,7 +297,6 @@ class BleedingEpisodeRepositoryImpl {
     required DateTime observedDate,
     required ObservationPrecision precision,
     required ObservationFlow flow,
-    required ObservationSource source,
     required int utcOffsetMinutes,
     DateTime? observedTime,
     String? timezone,
@@ -322,7 +315,6 @@ class BleedingEpisodeRepositoryImpl {
           'p_observed_date': _dateOnly(observedDate),
           'p_precision': precision.value,
           'p_flow': flow.value,
-          'p_source': source.value,
           'p_utc_offset_minutes': utcOffsetMinutes,
           'p_observed_time': observedTime?.toIso8601String(),
           'p_timezone': timezone,
@@ -366,13 +358,17 @@ class BleedingEpisodeRepositoryImpl {
   /// [effectiveObservationId] and let the user choose to keep the saved
   /// value or retry rebased onto it (never a silent last-write-win, never
   /// a silent fork).
+  ///
+  /// Closure Blocker 4: takes no `source` parameter — the RPC always
+  /// stores `user_reported_historical` for a correction, since amending a
+  /// prior fact is never honestly "live observed" even when filed the
+  /// same day as the original.
   Future<String?> correctObservation({
     required String clientOperationId,
     required String supersedesId,
     required DateTime observedDate,
     required ObservationPrecision precision,
     required ObservationFlow flow,
-    required ObservationSource source,
     required int utcOffsetMinutes,
     DateTime? observedTime,
     String? timezone,
@@ -391,7 +387,6 @@ class BleedingEpisodeRepositoryImpl {
           'p_observed_date': _dateOnly(observedDate),
           'p_precision': precision.value,
           'p_flow': flow.value,
-          'p_source': source.value,
           'p_utc_offset_minutes': utcOffsetMinutes,
           'p_observed_time': observedTime?.toIso8601String(),
           'p_timezone': timezone,
@@ -458,12 +453,37 @@ class BleedingEpisodeRepositoryImpl {
   /// true root before calling this (every observation this app creates
   /// through [recordObservation] is itself always a root, since it never
   /// accepts a `supersedesId`).
-  Future<List<BleedingObservation>> getRevisionHistory(
+  Future<LoadResult<List<BleedingObservation>>> getRevisionHistory(
     String rootObservationId,
   ) async {
-    final all = await getObservationsForEpisode(
-      await _episodeIdFor(rootObservationId) ?? '',
-    );
+    final episodeId = await _episodeIdFor(rootObservationId);
+    if (episodeId == null) {
+      return const LoadUnavailable(
+        LoadErrorCategory.unknown,
+        'Could not resolve the episode for this observation',
+      );
+    }
+    final result = await getObservationsForEpisode(episodeId);
+    return switch (result) {
+      LoadUnavailable<List<BleedingObservation>>() => LoadUnavailable(
+        result.category,
+        result.message,
+      ),
+      LoadSuccess<List<BleedingObservation>>(:final data) => LoadSuccess(
+        _walkChain(data, rootObservationId),
+      ),
+      LoadDegraded<List<BleedingObservation>>(
+        :final data,
+        :final quarantinedCount,
+      ) =>
+        LoadDegraded(_walkChain(data, rootObservationId), quarantinedCount),
+    };
+  }
+
+  List<BleedingObservation> _walkChain(
+    List<BleedingObservation> all,
+    String rootObservationId,
+  ) {
     final chain = <BleedingObservation>[];
     String? currentId = rootObservationId;
     while (currentId != null) {
@@ -500,11 +520,13 @@ class BleedingEpisodeRepositoryImpl {
   /// Every observation for an episode, oldest first — the raw evidence
   /// behind a day's summary (Section 39: same-day multiple observations
   /// must all remain visible, never collapsed into one fabricated value).
-  Future<List<BleedingObservation>> getObservationsForEpisode(
+  Future<LoadResult<List<BleedingObservation>>> getObservationsForEpisode(
     String episodeId,
   ) async {
     final client = _client;
-    if (client == null) return const [];
+    if (client == null) {
+      return const LoadUnavailable(LoadErrorCategory.unknown, 'No session');
+    }
 
     try {
       final response = await client
@@ -515,12 +537,14 @@ class BleedingEpisodeRepositoryImpl {
           .order('reported_at');
       final rows = response as List<dynamic>;
       final observations = <BleedingObservation>[];
+      var quarantined = 0;
       for (final row in rows) {
         try {
           observations.add(
             BleedingObservation.fromJson(row as Map<String, dynamic>),
           );
         } on BleedingEpisodeParseException catch (error, stack) {
+          quarantined++;
           AppErrorReporter.report(
             error,
             stack,
@@ -530,7 +554,9 @@ class BleedingEpisodeRepositoryImpl {
           );
         }
       }
-      return observations;
+      return quarantined > 0
+          ? LoadDegraded(observations, quarantined)
+          : LoadSuccess(observations);
     } on PostgrestException catch (error, stack) {
       AppErrorReporter.report(
         error,
@@ -539,7 +565,7 @@ class BleedingEpisodeRepositoryImpl {
         feature: 'cycle_tracking',
         recordId: episodeId,
       );
-      return const [];
+      return LoadUnavailable(_categorizeError(error), error.message);
     }
   }
 
@@ -582,7 +608,6 @@ class BleedingEpisodeRepositoryImpl {
         if (episode != null) ...{
           'p_start_date': _dateOnly(episode.startDate),
           'p_start_precision': episode.startPrecision.value,
-          'p_start_source': episode.startSource.value,
           'p_lifecycle_status': episode.lifecycleStatus.value,
           if (episode.continuationCertainty != null)
             'p_continuation_certainty': episode.continuationCertainty!.value,
@@ -590,8 +615,6 @@ class BleedingEpisodeRepositoryImpl {
             'p_end_date': _dateOnly(episode.endDate!),
           if (episode.endPrecision != null)
             'p_end_precision': episode.endPrecision!.value,
-          if (episode.endSource != null)
-            'p_end_source': episode.endSource!.value,
         },
         if (baseline != null) ...{
           if (baseline.usualBleedingDurationDays != null)
@@ -613,9 +636,11 @@ class BleedingEpisodeRepositoryImpl {
   /// The user's currently open episode (bleeding may be ongoing, or its
   /// continuation may be uncertain — either way, the one-open-per-user
   /// slot is occupied), if any.
-  Future<BleedingEpisode?> getOpenEpisode(String userId) async {
+  Future<LoadResult<BleedingEpisode?>> getOpenEpisode(String userId) async {
     final client = _client;
-    if (client == null) return null;
+    if (client == null) {
+      return const LoadUnavailable(LoadErrorCategory.unknown, 'No session');
+    }
 
     try {
       final response = await client
@@ -624,8 +649,8 @@ class BleedingEpisodeRepositoryImpl {
           .eq('user_id', userId)
           .eq('lifecycle_status', 'open')
           .maybeSingle();
-      if (response == null) return null;
-      return BleedingEpisode.fromJson(response);
+      if (response == null) return const LoadSuccess(null);
+      return LoadSuccess(BleedingEpisode.fromJson(response));
     } on PostgrestException catch (error, stack) {
       AppErrorReporter.report(
         error,
@@ -634,7 +659,7 @@ class BleedingEpisodeRepositoryImpl {
         feature: 'cycle_tracking',
         recordId: userId,
       );
-      return null;
+      return LoadUnavailable(_categorizeError(error), error.message);
     } on BleedingEpisodeParseException catch (error, stack) {
       AppErrorReporter.report(
         error,
@@ -643,7 +668,10 @@ class BleedingEpisodeRepositoryImpl {
         feature: 'cycle_tracking',
         recordId: userId,
       );
-      return null;
+      // A single-row read's own row failing to parse has nothing left to
+      // degrade gracefully into — the whole read is unavailable, not
+      // "verified: no open episode."
+      return LoadUnavailable(LoadErrorCategory.parseFailure, error.toString());
     }
   }
 
@@ -652,9 +680,13 @@ class BleedingEpisodeRepositoryImpl {
   /// episodes directly (Section F5/F6: one completed episode is not
   /// enough for a cycle-to-cycle prediction) without depending on the
   /// legacy `cycle_entries` projection at all.
-  Future<List<BleedingEpisode>> getEpisodesForUser(String userId) async {
+  Future<LoadResult<List<BleedingEpisode>>> getEpisodesForUser(
+    String userId,
+  ) async {
     final client = _client;
-    if (client == null) return const [];
+    if (client == null) {
+      return const LoadUnavailable(LoadErrorCategory.unknown, 'No session');
+    }
 
     try {
       final response = await client
@@ -664,10 +696,12 @@ class BleedingEpisodeRepositoryImpl {
           .order('start_date', ascending: false);
       final rows = response as List<dynamic>;
       final episodes = <BleedingEpisode>[];
+      var quarantined = 0;
       for (final row in rows) {
         try {
           episodes.add(BleedingEpisode.fromJson(row as Map<String, dynamic>));
         } on BleedingEpisodeParseException catch (error, stack) {
+          quarantined++;
           AppErrorReporter.report(
             error,
             stack,
@@ -677,7 +711,9 @@ class BleedingEpisodeRepositoryImpl {
           );
         }
       }
-      return episodes;
+      return quarantined > 0
+          ? LoadDegraded(episodes, quarantined)
+          : LoadSuccess(episodes);
     } on PostgrestException catch (error, stack) {
       AppErrorReporter.report(
         error,
@@ -686,8 +722,75 @@ class BleedingEpisodeRepositoryImpl {
         feature: 'cycle_tracking',
         recordId: userId,
       );
-      return const [];
+      return LoadUnavailable(_categorizeError(error), error.message);
     }
+  }
+
+  /// Closure Blocker 3 — every canonical observation across every one of
+  /// a user's episodes, in one query, for
+  /// [CanonicalFiqhEvidenceAdapter]'s own use (it needs the full
+  /// timeline to build effective, day-level evidence, not just one
+  /// episode's own observations).
+  Future<LoadResult<List<BleedingObservation>>> getAllObservationsForUser(
+    String userId,
+  ) async {
+    final client = _client;
+    if (client == null) {
+      return const LoadUnavailable(LoadErrorCategory.unknown, 'No session');
+    }
+
+    try {
+      final response = await client
+          .from('bleeding_observations')
+          .select()
+          .eq('user_id', userId)
+          .order('observed_date')
+          .order('reported_at');
+      final rows = response as List<dynamic>;
+      final observations = <BleedingObservation>[];
+      var quarantined = 0;
+      for (final row in rows) {
+        try {
+          observations.add(
+            BleedingObservation.fromJson(row as Map<String, dynamic>),
+          );
+        } on BleedingEpisodeParseException catch (error, stack) {
+          quarantined++;
+          AppErrorReporter.report(
+            error,
+            stack,
+            context: 'BleedingEpisodeRepositoryImpl.getAllObservationsForUser',
+            feature: 'cycle_tracking',
+            recordId: (row as Map<String, dynamic>)['id'] as String?,
+          );
+        }
+      }
+      return quarantined > 0
+          ? LoadDegraded(observations, quarantined)
+          : LoadSuccess(observations);
+    } on PostgrestException catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'BleedingEpisodeRepositoryImpl.getAllObservationsForUser',
+        feature: 'cycle_tracking',
+        recordId: userId,
+      );
+      return LoadUnavailable(_categorizeError(error), error.message);
+    }
+  }
+
+  /// Closure Blocker 1/17 — a best-effort, conservative mapping from a
+  /// Postgrest failure to a [LoadErrorCategory]; used only to inform an
+  /// honest retry message, never to decide whether the data is "really"
+  /// absent.
+  static LoadErrorCategory _categorizeError(PostgrestException error) {
+    final code = error.code;
+    if (code == '42501' || code == 'PGRST301' || code == '401') {
+      return LoadErrorCategory.unauthorized;
+    }
+    if (code == null) return LoadErrorCategory.network;
+    return LoadErrorCategory.backend;
   }
 
   /// PR #4 completion wave, Fix D: replays every still-[PendingBleedingOperationStore]
@@ -845,7 +948,6 @@ class BleedingEpisodeRepositoryImpl {
                 params['precision'] as String?,
               ),
               flow: ObservationFlow.parse(params['flow'] as String?),
-              source: ObservationSource.parse(params['source'] as String?),
               utcOffsetMinutes: params['utcOffsetMinutes'] as int,
               timezone: params['timezone'] as String?,
               symptoms: (params['symptoms'] as List<dynamic>?)?.cast<String>(),
@@ -881,7 +983,6 @@ class BleedingEpisodeRepositoryImpl {
                 params['precision'] as String?,
               ),
               flow: ObservationFlow.parse(params['flow'] as String?),
-              source: ObservationSource.parse(params['source'] as String?),
               utcOffsetMinutes: params['utcOffsetMinutes'] as int,
               timezone: params['timezone'] as String?,
               symptoms: (params['symptoms'] as List<dynamic>?)?.cast<String>(),

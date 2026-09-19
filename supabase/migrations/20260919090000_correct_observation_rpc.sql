@@ -45,13 +45,20 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'bleeding_observations'
   ) THEN
 
+    -- Closure Blocker 4: drops the old 11-parameter overload (p_source,
+    -- caller-trusted) before creating the new one below — see
+    -- start_bleeding_episode's identical note.
+    DROP FUNCTION IF EXISTS public.correct_observation(
+      uuid, uuid, date, text, text, text, integer, timestamptz, text,
+      jsonb, text
+    );
+
     CREATE OR REPLACE FUNCTION public.correct_observation(
       p_client_operation_id uuid,
       p_supersedes_id uuid,
       p_observed_date date,
       p_precision text,
       p_flow text,
-      p_source text,
       p_utc_offset_minutes integer,
       p_observed_time timestamptz DEFAULT NULL,
       p_timezone text DEFAULT NULL,
@@ -118,20 +125,38 @@ BEGIN
           USING ERRCODE = 'NW409';
       END IF;
 
+      -- Closure Blocker 5 — precision/timestamp consistency, mirroring
+      -- every other write RPC's identical checks.
+      IF p_precision = 'date_only' AND p_observed_time IS NOT NULL THEN
+        RAISE EXCEPTION 'observed_time must be null when precision is date_only';
+      END IF;
+      IF p_precision IN ('exact_time', 'approximate_time')
+        AND p_observed_time IS NULL
+      THEN
+        RAISE EXCEPTION 'observed_time is required when precision is %', p_precision;
+      END IF;
+
       -- The rest (no fork/cycle, no future date, same-user/same-episode
       -- re-confirmed) is enforced by bleeding_observations_validate_insert
       -- and bleeding_observations_supersedes_once as independent layers
       -- underneath this explicit check — this function bypasses RLS
       -- (SECURITY DEFINER) but not the trigger, which still runs on
       -- every INSERT regardless of role.
+      --
+      -- Closure Blocker 4 — a correction's source is never a caller
+      -- parameter at all: a correction is inherently an after-the-fact
+      -- amendment to something already reported, even when filed the
+      -- same day as the original observation, so it is never honestly
+      -- "live observed" — always `user_reported_historical`, a fixed
+      -- constant rather than something derived from today's date.
       INSERT INTO public.bleeding_observations (
         user_id, episode_id, observed_date, observed_time, precision, flow,
         source, timezone, utc_offset_minutes, symptoms, notes,
         supersedes_id, client_operation_id
       ) VALUES (
         v_user_id, v_episode_id, p_observed_date, p_observed_time, p_precision,
-        p_flow, p_source, p_timezone, p_utc_offset_minutes, p_symptoms, p_notes,
-        p_supersedes_id, p_client_operation_id
+        p_flow, 'user_reported_historical', p_timezone, p_utc_offset_minutes,
+        p_symptoms, p_notes, p_supersedes_id, p_client_operation_id
       ) RETURNING id INTO v_new_id;
 
       RETURN QUERY SELECT v_new_id;
@@ -139,12 +164,10 @@ BEGIN
     $function$;
 
     REVOKE ALL ON FUNCTION public.correct_observation(
-      uuid, uuid, date, text, text, text, integer, timestamptz, text,
-      jsonb, text
+      uuid, uuid, date, text, text, integer, timestamptz, text, jsonb, text
     ) FROM PUBLIC, anon;
     GRANT EXECUTE ON FUNCTION public.correct_observation(
-      uuid, uuid, date, text, text, text, integer, timestamptz, text,
-      jsonb, text
+      uuid, uuid, date, text, text, integer, timestamptz, text, jsonb, text
     ) TO authenticated;
 
     -- Commit D5 — effective-observation resolver: given ANY observation

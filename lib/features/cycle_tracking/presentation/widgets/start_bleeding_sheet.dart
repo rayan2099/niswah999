@@ -401,9 +401,10 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
       // closing observation already exists (created atomically above);
       // this only mirrors it, and a failure here does not mean the real
       // save failed.
-      final observations = await repository.getObservationsForEpisode(
-        widget.episodeId,
-      );
+      final observations =
+          (await repository.getObservationsForEpisode(widget.episodeId))
+              .dataOrNull ??
+          const [];
       final closingObservation = observations
           .where((o) => o.id == result.closingObservationId)
           .firstOrNull;

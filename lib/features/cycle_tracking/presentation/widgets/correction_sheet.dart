@@ -11,6 +11,7 @@ import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../domain/entities/bleeding_episode.dart';
+import '../../domain/entities/load_result.dart';
 
 String _t(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
@@ -110,7 +111,6 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
           'observedDate': widget.target.observedDate.toIso8601String(),
           'precision': widget.target.precision.value,
           'flow': flow.value,
-          'source': widget.target.source.value,
           'utcOffsetMinutes': utcOffsetMinutes,
           'timezone': timezone,
         },
@@ -125,7 +125,6 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
         observedDate: widget.target.observedDate,
         precision: widget.target.precision,
         flow: flow,
-        source: widget.target.source,
         utcOffsetMinutes: utcOffsetMinutes,
         timezone: timezone,
       );
@@ -147,17 +146,33 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
       Navigator.of(context).pop(true);
     } on CorrectionConflictException catch (conflict) {
       // The value that's actually saved now — a fresh read, never
-      // reconstructed from the exception itself.
+      // reconstructed from the exception itself. Closure Blocker 1/17: a
+      // read failure here must not be shown as if it were a clean
+      // resolution — an honest, retryable message instead of silently
+      // rendering the conflict panel with no "current saved value" at
+      // all.
       final currentTipId = await repository.effectiveObservationId(
         conflict.supersedesId,
       );
-      final observations = await repository.getObservationsForEpisode(
+      final observationsResult = await repository.getObservationsForEpisode(
         widget.target.episodeId,
       );
+      if (!mounted) return;
+      if (observationsResult is LoadUnavailable<List<BleedingObservation>>) {
+        setState(() {
+          _saving = false;
+          _errorMessage = _t(
+            "We couldn't verify the current saved value right now. Try "
+                'again.',
+            'تعذر التحقق من القيمة المحفوظة حالياً. يرجى المحاولة مجدداً.',
+          );
+        });
+        return;
+      }
+      final observations = observationsResult.dataOrNull ?? const [];
       final currentValue = observations
           .where((o) => o.id == currentTipId)
           .firstOrNull;
-      if (!mounted) return;
       setState(() {
         _saving = false;
         _conflictWith = currentValue;
@@ -168,6 +183,13 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
   void _useMyChangeAnyway() {
     final conflictWith = _conflictWith;
     if (conflictWith?.id == null) return;
+    // Closure Blocker 10: the operation id that just conflicted targets a
+    // supersedes_id that can never succeed again — left pending, it
+    // would be retried forever by reconcilePendingOperations, hitting
+    // this identical conflict every time. It must be resolved (cleared)
+    // as part of rebasing onto the new tip, not left stranded in the
+    // outbox alongside the new, rebased attempt.
+    final staleOperationId = _clientOperationId;
     // Rebased onto the CURRENT tip, never the stale original target —
     // exactly the "new revision from the current tip, not a fork from
     // v1" the charter requires. A fresh operation id: this is now
@@ -178,10 +200,22 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
       _clientOperationId = const Uuid().v4();
       _conflictWith = null;
     });
-    unawaited(_submit());
+    unawaited(_resolveStaleThenSubmit(staleOperationId));
   }
 
-  void _keepSaved() {
+  Future<void> _resolveStaleThenSubmit(String staleOperationId) async {
+    await PendingBleedingOperationStore.clearPending(staleOperationId);
+    await _submit();
+  }
+
+  Future<void> _keepSaved() async {
+    // Closure Blocker 10: choosing to keep the already-saved value means
+    // her own offline attempt is deliberately abandoned, not merely
+    // postponed — its pending operation must be cleared now, or
+    // reconciliation would keep retrying (and keep re-conflicting on) an
+    // attempt she has already chosen not to pursue.
+    await PendingBleedingOperationStore.clearPending(_clientOperationId);
+    if (!mounted) return;
     Navigator.of(context).pop(false);
   }
 

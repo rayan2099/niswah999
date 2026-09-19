@@ -3,6 +3,8 @@ import '../../../../core/preferences/notification_log_controller.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
+import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
+import '../../../cycle_tracking/domain/entities/load_result.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../data/repositories/notification_repository_impl.dart';
@@ -90,7 +92,14 @@ class NotificationRefreshCoordinator {
       return;
     }
 
-    final episode = await bleedingRepository.getOpenEpisode(userId);
+    // Closure Blocker 1: a read failure must never be concluded as "no
+    // open episode" — that would silently cancel/never-schedule a real,
+    // still-open episode's reminder purely because the read hiccuped.
+    // Leaving the refresh as a no-op (whatever was already scheduled
+    // stays scheduled) is the honest response to "genuinely unknown."
+    final episodeResult = await bleedingRepository.getOpenEpisode(userId);
+    if (episodeResult is LoadUnavailable<BleedingEpisode?>) return;
+    final episode = episodeResult.dataOrNull;
     if (!ActiveBleedingReminderScheduler.isEligible(episode)) return;
 
     final episodeId = episode!.id;
@@ -98,9 +107,12 @@ class NotificationRefreshCoordinator {
 
     final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
     final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
-    final observations = await bleedingRepository.getObservationsForEpisode(
-      episodeId,
-    );
+    final observationsResult = await bleedingRepository
+        .getObservationsForEpisode(episodeId);
+    if (observationsResult is LoadUnavailable<List<BleedingObservation>>) {
+      return;
+    }
+    final observations = observationsResult.dataOrNull ?? const [];
     final todaysObservationCount = observations
         .where((o) => o.observedDate.isAtSameMomentAs(today))
         .length;
