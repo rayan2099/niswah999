@@ -2098,44 +2098,56 @@ class _FiqhEvidenceUnresolvedCard extends StatelessWidget {
           child: Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.help_outline_rounded,
-                    color: AppColors.textSecondary,
-                    size: 22,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _l(
-                      "Your Fiqh state can't be confirmed right now.",
-                      'لا يمكن تأكيد حالتكِ الفقهية الآن.',
+              // New critical finding — the English copy is genuinely
+              // longer than the Arabic (both are honest, faithful
+              // translations; English prose is simply less compact
+              // here), and this circle's size is fixed to match every
+              // other ring-state card — without this, English wrapped
+              // to real device widths overflowed the circle by ~10px.
+              // FittedBox shrinks the whole icon+text block together
+              // rather than letting only the text wrap unpredictably,
+              // so the same fix also covers 200% text-scale.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.help_outline_rounded,
+                      color: AppColors.textSecondary,
+                      size: 22,
                     ),
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AppColors.emeraldInk,
-                      fontFamily: AppTypography.serifFamily,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                    const SizedBox(height: 6),
+                    Text(
+                      _l(
+                        "Your Fiqh state can't be confirmed right now.",
+                        'لا يمكن تأكيد حالتكِ الفقهية الآن.',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: AppColors.emeraldInk,
+                        fontFamily: AppTypography.serifFamily,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _l(
-                      'Your tracking is still saved — we just could not '
-                          'verify it well enough for a Fiqh conclusion.',
-                      'تتبعكِ محفوظ بأمان — لم نتمكن فقط من التحقق منه بما '
-                          'يكفي لإصدار حكم فقهي.',
+                    const SizedBox(height: 6),
+                    Text(
+                      _l(
+                        'Your tracking is still saved — we just could not '
+                            'verify it well enough for a Fiqh conclusion.',
+                        'تتبعكِ محفوظ بأمان — لم نتمكن فقط من التحقق منه بما '
+                            'يكفي لإصدار حكم فقهي.',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textTertiary,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: 11,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
