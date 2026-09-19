@@ -497,11 +497,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // mirrored because CycleEntriesProjection failed) could
         // resurrect a factually-ended episode — exactly the failure mode
         // this closure wave requires be structurally impossible. `null`
-        // means genuinely unknown (the first fetch hasn't resolved yet,
-        // or Closure Blocker 1's read failed) — never silently treated
-        // as either true or false.
+        // means a read was genuinely ATTEMPTED and genuinely FAILED
+        // (Closure Blocker 1) — never the ordinary, transient gap before
+        // the first fetch has resolved (or no session at all, which
+        // isn't a failure to verify anything; there is nothing to verify
+        // yet). Treating "hasn't resolved yet" the same as "failed" was
+        // itself a real bug this closure wave introduced and then found:
+        // it made the honest-empty-state ("no history yet") briefly (or,
+        // with no session at all, permanently) show the alarming
+        // "couldn't verify" card instead — the exact false-alarm failure
+        // mode Blocker 1 exists to prevent, just inverted.
         final hasOpenEpisode = switch (_canonicalStatus?.state) {
-          null => null,
+          null => false,
           RingFactualState.unavailable => null,
           RingFactualState.factualOpenEpisode => true,
           _ => false,
