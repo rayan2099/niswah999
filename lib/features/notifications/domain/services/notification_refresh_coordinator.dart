@@ -148,35 +148,41 @@ class NotificationRefreshCoordinator {
         episodeId: episodeId,
         localDay: today,
       );
-      await NotificationService.instance.cancel(todaysId);
-      // Closure Blocker 13 — only a structural audit record: no title,
-      // body, or flow content, and only recorded once per reminder id
-      // (a repeat refresh that finds the same id already satisfied must
-      // not append a duplicate cancellation event every time).
-      final reminderId = todaysId.toString();
-      final priorEvents = await NotificationEventLogStore.loadForReminder(
-        reminderId,
-      );
-      final alreadyCancelled = priorEvents.any(
-        (e) => e.state == NotificationEventState.cancelled,
-      );
-      if (!alreadyCancelled) {
-        await NotificationEventLogStore.record(
-          NotificationEvent(
-            reminderId: reminderId,
-            notificationType: NotificationType.activeBleeding.name,
-            state: NotificationEventState.cancelled,
-            eventTimestamp: now,
-            userId: userId,
-            episodeId: episodeId,
-            logicalLocalDate: _isoDate(today),
-          ),
+      // New integrity finding — a failed cancellation must never be
+      // recorded as a successful one; the notification may still be
+      // live, and the audit trail must say so honestly.
+      final cancelled = await NotificationService.instance.cancel(todaysId);
+      if (cancelled) {
+        final reminderId = todaysId.toString();
+        final priorEvents = await NotificationEventLogStore.loadForReminder(
+          reminderId,
         );
+        final alreadyCancelled = priorEvents.any(
+          (e) => e.state == NotificationEventState.cancelled,
+        );
+        if (!alreadyCancelled) {
+          await NotificationEventLogStore.record(
+            NotificationEvent(
+              reminderId: reminderId,
+              notificationType: NotificationType.activeBleeding.name,
+              state: NotificationEventState.cancelled,
+              eventTimestamp: now,
+              userId: userId,
+              episodeId: episodeId,
+              logicalLocalDate: _isoDate(today),
+            ),
+          );
+        }
       }
       return;
     }
 
-    await NotificationService.instance.scheduleAt(
+    // New integrity finding — the scheduling audit event (and the
+    // display-feed entry below) may only ever be recorded once the OS
+    // scheduling API has actually acknowledged the call; a caught
+    // exception previously still fell through to logging "scheduled"
+    // regardless.
+    final schedulingOutcome = await NotificationService.instance.scheduleAt(
       id: plan.id,
       title: AppLocaleController.instance.isArabic
           ? plan.titleAr
@@ -185,6 +191,7 @@ class NotificationRefreshCoordinator {
       when: plan.fireAt,
       payload: plan.payload,
     );
+    if (schedulingOutcome != NotificationSchedulingOutcome.accepted) return;
 
     // Closure Blocker 13 — the actual structural scheduling-audit event,
     // distinct from the display-feed entry logged just below. Recorded
@@ -320,12 +327,17 @@ class NotificationRefreshCoordinator {
     }
 
     final isArabic = AppLocaleController.instance.isArabic;
-    await NotificationService.instance.scheduleAt(
+    // New integrity finding — the display-feed log entry below must not
+    // be recorded unless the OS scheduling API actually accepted the
+    // call; otherwise the feed could tell her a reminder exists when it
+    // does not.
+    final outcome = await NotificationService.instance.scheduleAt(
       id: id,
       title: isArabic ? plan.titleAr : plan.titleEn,
       body: isArabic ? plan.bodyAr : plan.bodyEn,
       when: plan.fireAt,
     );
+    if (outcome != NotificationSchedulingOutcome.accepted) return;
 
     // The same still-pending prediction gets rescheduled every refresh
     // (app start/resume) — that's fine for the OS scheduler (replacing a

@@ -7,6 +7,37 @@ import 'package:timezone/timezone.dart' as tz;
 import '../errors/app_error_reporter.dart';
 import '../utils/device_timezone.dart';
 
+/// New integrity finding — a caller must be able to distinguish these
+/// four outcomes rather than treating "the call returned without
+/// throwing" as proof of anything. [accepted] means the OS scheduling
+/// API itself acknowledged the call — it is NOT proof the notification
+/// will actually be delivered or presented (a separate guarantee this
+/// service cannot make and never claims to); callers must not name an
+/// audit event "delivered" from this alone.
+enum NotificationSchedulingOutcome {
+  /// The platform scheduling API accepted the call. The only outcome
+  /// that may be recorded as a successful "scheduled" audit event.
+  accepted,
+
+  /// The platform API was called and rejected/threw, or (for
+  /// [NotificationService.cancel]) the cancellation call itself failed.
+  failed,
+
+  /// Known, in advance of even attempting the call, that notifications
+  /// are disabled at the OS level (checked where the platform exposes a
+  /// non-prompting query API — Android's `areNotificationsEnabled()`
+  /// today; iOS has no equivalent non-prompting check in the installed
+  /// plugin version, so this outcome is never returned there — an iOS
+  /// permission-caused failure surfaces as [failed] instead, honestly
+  /// less precise rather than fabricating a distinction this plugin
+  /// cannot actually make on that platform).
+  permissionUnavailable,
+
+  /// [NotificationService.initialize] has not yet completed — nothing
+  /// was attempted at all.
+  uninitialized,
+}
+
 /// Thin wrapper around `flutter_local_notifications` — the only file in
 /// this app that touches the plugin directly. Real OS-level notifications:
 /// once scheduled, the OS owns delivery even if the app is killed, so
@@ -220,7 +251,14 @@ class NotificationService {
   /// that id (callers use a fixed id per notification "slot").
   /// [payload] (Commit E7) is opaque data returned on tap — never
   /// sensitive content itself (Commit E3), just enough to route.
-  Future<void> scheduleAt({
+  ///
+  /// New integrity finding — returns [NotificationSchedulingOutcome]
+  /// rather than `void`: a caller that previously assumed "didn't throw"
+  /// meant "the OS actually scheduled this" had no way to notice a
+  /// silently-swallowed failure before recording a "scheduled" audit
+  /// event that never happened. [NotificationSchedulingOutcome.accepted]
+  /// is the only outcome honestly recordable as such.
+  Future<NotificationSchedulingOutcome> scheduleAt({
     required int id,
     required String title,
     required String body,
@@ -235,8 +273,10 @@ class NotificationService {
         StackTrace.current,
         context: 'NotificationService.scheduleAt',
       );
-      return;
+      return NotificationSchedulingOutcome.uninitialized;
     }
+    final permissionOutcome = await _checkKnownPermissionUnavailable();
+    if (permissionOutcome != null) return permissionOutcome;
     try {
       await _plugin.zonedSchedule(
         id: id,
@@ -247,18 +287,21 @@ class NotificationService {
         payload: payload,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       );
+      return NotificationSchedulingOutcome.accepted;
     } catch (error, stack) {
       AppErrorReporter.report(
         error,
         stack,
         context: 'NotificationService.scheduleAt',
       );
+      return NotificationSchedulingOutcome.failed;
     }
   }
 
   /// Repeats daily at the given local time (e.g. the wellbeing check-in
-  /// reminder) until [cancel]led.
-  Future<void> scheduleDaily({
+  /// reminder) until [cancel]led. See [scheduleAt]'s own doc comment for
+  /// why this returns [NotificationSchedulingOutcome].
+  Future<NotificationSchedulingOutcome> scheduleDaily({
     required int id,
     required String title,
     required String body,
@@ -273,8 +316,10 @@ class NotificationService {
         StackTrace.current,
         context: 'NotificationService.scheduleDaily',
       );
-      return;
+      return NotificationSchedulingOutcome.uninitialized;
     }
+    final permissionOutcome = await _checkKnownPermissionUnavailable();
+    if (permissionOutcome != null) return permissionOutcome;
 
     final now = tz.TZDateTime.now(tz.local);
     var firstFire = tz.TZDateTime(
@@ -299,13 +344,42 @@ class NotificationService {
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         matchDateTimeComponents: DateTimeComponents.time,
       );
+      return NotificationSchedulingOutcome.accepted;
     } catch (error, stack) {
       AppErrorReporter.report(
         error,
         stack,
         context: 'NotificationService.scheduleDaily',
       );
+      return NotificationSchedulingOutcome.failed;
     }
+  }
+
+  /// Android-only, non-prompting permission query — see
+  /// [NotificationSchedulingOutcome.permissionUnavailable]'s own doc
+  /// comment for why no iOS equivalent exists here. Returns null (no
+  /// known permission problem) rather than [NotificationSchedulingOutcome.
+  /// permissionUnavailable] whenever the platform can't answer the
+  /// question at all (iOS, or the query itself failing) — silence here
+  /// is "unknown," never asserted as "unavailable."
+  Future<NotificationSchedulingOutcome?>
+  _checkKnownPermissionUnavailable() async {
+    final androidPlugin = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (androidPlugin == null) return null;
+    try {
+      final enabled = await androidPlugin.areNotificationsEnabled();
+      if (enabled == false) {
+        return NotificationSchedulingOutcome.permissionUnavailable;
+      }
+    } catch (_) {
+      // Query itself failed — treat as unknown, not as a confirmed
+      // permission problem; the scheduling attempt below will surface
+      // its own honest failed/accepted outcome regardless.
+    }
+    return null;
   }
 
   /// Commit E7 — returns and clears whatever tap payload is currently
@@ -320,16 +394,22 @@ class NotificationService {
     return payload;
   }
 
-  Future<void> cancel(int id) async {
-    if (!_initialized) return;
+  /// New integrity finding — returns whether the cancellation actually
+  /// succeeded. A failed cancellation must never be recorded as a
+  /// successful "cancelled" audit event; `false` here is the caller's
+  /// signal to not record one (the notification may still be live).
+  Future<bool> cancel(int id) async {
+    if (!_initialized) return false;
     try {
       await _plugin.cancel(id: id);
+      return true;
     } catch (error, stack) {
       AppErrorReporter.report(
         error,
         stack,
         context: 'NotificationService.cancel',
       );
+      return false;
     }
   }
 
