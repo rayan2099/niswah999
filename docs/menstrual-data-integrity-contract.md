@@ -653,3 +653,262 @@ separate task, not claimed done.
 All four CI jobs (Analyze & Test, Build Android, Build iOS, BR-002
 migration reproducibility) were green on this wave's own final pushed
 SHA. PR #4 remains draft and unmerged throughout.
+
+## 10. "Finish the Product Contract" wave (2026-09-19, same branch)
+
+Picks up exactly where Section 9 left off: F7 and F8, left un-started
+there, are built and tested in this wave; the manual-Istihadah test
+regression Section 9 disclosed as a "directly caused" casualty is
+properly resolved (not merely re-skipped); notification continuity
+beyond the 7-day rolling window received the explicit design review
+this wave's charter required; and the remaining widget-test gaps
+Section 9's own text implicitly left open are closed. PR #4 stays
+**draft, unmerged**; nothing here claims `E4` (owner device) evidence
+or an overall launch decision.
+
+### F7 — evidence provenance, built
+
+`EvidenceProvenance` (`lib/features/cycle_tracking/domain/entities/
+evidence_provenance.dart`) is the shared six-class taxonomy this
+charter's Section 1 requires: `userObserved`, `userReportedHistorical`,
+`userReportedEstimate`, `predicted`, `legacyUnverified`,
+`missingUncertain`. Each carries its own icon, short/long label pair
+(English + Arabic), and an `isTentative` flag so a predicted value can
+never share a confirmed observation's own confident visual treatment.
+`ProvenanceBadge` is the one reusable widget every consumer renders
+from — icon + text always, never color alone, with the long-form
+sentence reaching a screen reader via `Semantics.label` even where the
+visible chip only shows the short text, and `FittedBox`-wrapped to
+survive 200% text scale. Wired into the new canonical calendar's day
+cells and legend (predicted days additionally get a distinct dashed
+border, painted by a small `CustomPainter`, never the same solid fill
+real bleeding gets).
+
+A real, pre-existing accessibility gap was found and fixed while
+building this: the legacy `CycleCalendar` widget's day-cell `Semantics`
+label always announced the marker's internal English constant (e.g.
+"Expected Haid") regardless of the active locale — a screen reader in
+Arabic mode was announcing English. Fixed via a new `localizedLabel`
+getter on `_DayMarker`, mirroring the pairing the visible legend text
+already showed sighted users.
+
+Test coverage: `provenance_badge_test.dart`, 16 tests — every class's
+icon+text, every class's Semantics long-form label, the
+never-tentative-false invariant for `predicted`, the honest
+`legacyUnverified` wording, Arabic labels, and 200% text scale.
+
+### F8 — canonical calendar, built
+
+`CanonicalCalendarScreen` (new) is the production month-grid screen
+this charter's Section 2 explicitly required rather than accepting as
+out of scope. Reads `bleeding_episodes`/effective
+`bleeding_observations` directly — `cycle_entries` is never read.
+Supports month/year navigation (prev/next plus a tap-to-pick month
+picker), and tapping any date opens `observation_detail_sheet.dart`,
+which:
+
+- shows every observation reported for that day (Commit D2's
+  multiple-same-day-observations feature is fully preserved, never
+  collapsed to one row);
+- marks which one is the effective (current) value versus a
+  superseded revision, in oldest-first order — a genuine, visible
+  revision history, since a correction never changes which calendar
+  day a fact is about, grouping by date already reconstructs the full
+  chain with no extra network round trip;
+- offers "Correct this entry" (opens the existing, already-hardened
+  `showCorrectObservationSheet`) for a day with an effective value, or
+  "Add missing entry" (`showBackfillObservationSheet`) for an empty day
+  that falls within an existing episode's own range;
+- for a day with no episode covering it at all, shows honest guidance
+  ("use Start Bleeding") rather than a fabricated action — see the
+  disclosed scope limit below;
+- refreshes the calendar from canonical data directly on return from
+  any action — never relies on the legacy projection to reflect a
+  save.
+
+A bounded, disclosed forward projection (2+ real completed episodes,
+plausible 15-90 day gap) marks predicted days, and explicitly never
+projects across an already-open episode's own real data — the
+"fabricate bleeding between two reported observations" failure mode
+this charter prohibits.
+
+**Disclosed scope limit, not silently narrowed**: adding a fully
+separate historical episode (both start and end already in the past,
+unconnected to today) has no write path anywhere in this app outside
+the one-time onboarding history flow (`recordOnboardingHistory`, which
+this codebase's own server-side design ties to account setup, not
+repeated ad-hoc entry). "Add missing entry" therefore covers
+backfilling within an *existing* episode's own date range, matching
+this codebase's own established Commit D4 "backfill" scope — building
+a second, general-purpose historical-episode-creation RPC and UI is a
+real, separate feature, not something this wave silently declined to
+disclose.
+
+A real bug was found and fixed while wiring this up: `episodeForDay`'s
+range check (used to decide whether "Add missing entry" should be
+offered) treated an *open* episode's range as unbounded into the
+future (it has no `endDate` to bound it), which would have offered
+backfill on a future date and then handed that date straight to
+`showBackfillObservationSheet`'s own date picker as its `initialDate`
+— outside that picker's own `lastDate: now` bound, an assertion
+failure. Fixed by clamping the eligibility check to never extend past
+"today," closing the future-date-rejection requirement structurally
+rather than only inside the sheet.
+
+Test coverage: `canonical_calendar_screen_test.dart`, 10 tests — a real
+bleeding day from canonical evidence, a full multi-observation revision
+chain (current vs. superseded, both visible), the backfill entry point
+opening the real backfill sheet, an empty day with no episode offering
+no fabricated action, the future-date-rejection edge case above, month
+navigation, a leap day (2028-02-29), an honest unavailable-read card
+(never fabricated data), predicted-day distinct dashed styling, and
+Arabic RTL.
+
+**What this does NOT cover, matching this codebase's own established
+scope boundary** (`correction_sheet_test.dart`'s identical note): a
+full write round trip (save → server → refreshed calendar) requires a
+real, signed-in Supabase session, which a plain widget test cannot
+provide. Not tried on a real device.
+
+### Canonical Fiqh regression — resolved properly, not re-skipped
+
+Section 9 disclosed the manual-Istihadah test as a casualty of Commit
+G4's legacy-fallback removal. Resolved per the charter's explicit
+5-step instruction — no legacy fallback restored, no alternate one
+introduced:
+
+1. The test's real intended behavior (manual Istihadah still shows a
+   real, grounded day count, never blank/crashed) is preserved by
+   giving `DashboardScreen` genuine test-injection points
+   (`canonicalRepositoryOverride`/`canonicalUserIdOverride`, mirroring
+   its own established `viewModel` pattern) so the fixture can supply
+   real canonical evidence instead of a legacy-log fallback.
+2. A second, real, safety-critical bug was found in the process: the
+   `insufficientEvidenceWhileFactuallyBleeding` guard (added in the
+   prior wave to stop `_PrayerStatusCard` from asserting "Salah is
+   obligatory" for a factually-open episode with unsynced evidence)
+   checked `snapshot.state == FiqhCycleState.insufficientHistory` — an
+   enum value the fallback snapshot that triggers exactly this
+   situation never actually produces (it is hardcoded to
+   `FiqhCycleState.tahara`). The guard never fired. Fixed to check
+   `!fiqhCalculation.hasSufficientHistory` directly, the same condition
+   that selects that fallback in the first place.
+3. Two new tests prove the required negative space: unavailable
+   canonical evidence produces the explicit unresolved state (never a
+   confident Haid/Tahara/Istihadah ruling), and a factually open
+   episode with genuinely insufficient evidence (none synced yet, not
+   "unavailable") is never shown as confirmed Tahara.
+4. No separate religious rule was needed or invented — the gap was a
+   test-fixture/engineering defect (a legacy fallback the fixture had
+   relied on being removed), not a genuine Fiqh product-rule question.
+
+Verified against the true baseline (`915af02`, via a `git worktree`
+comparison) rather than assumed: two of the four originally-failing
+tests in `parity_today_stepper_consistency_test.dart` are pre-existing,
+unrelated ring/statistical-placement bugs (present at baseline,
+untouched by this fix); the manual-Istihadah test and the two new
+tests all pass. Zero newly-failing tests.
+
+### Notification continuity beyond 7 days — design review + build
+
+The charter asked for an explicit review of extending the existing
+7-day rolling window, not merely enlarging it. `NotificationService.
+scheduleDaily` already used an OS-native RECURRING trigger
+(`matchDateTimeComponents: DateTimeComponents.time`) for the wellbeing
+reminder — this is the "genuinely-supported background scheduling
+mechanism" the charter asked to be considered, now also applied to the
+active-bleeding reminder as a second tier:
+
+- **Tier 1 (unchanged)**: the existing 7-day rolling window — exact,
+  per-day identity, E6 satisfaction-aware, precise tap-routing to a
+  specific date.
+- **Tier 2 (new)**: `activeBleedingRecurringFallbackId`, one OS-native
+  recurring registration that fires daily at the same preferred time
+  indefinitely, consuming exactly one of iOS's shared 64-pending slots
+  regardless of episode length, and re-derives the correct local fire
+  time from the device's *current* timezone/DST on every firing — no
+  app reopen needed, unlike Tier 1's own absolute-instant scheduling.
+
+Honestly disclosed, not claimed as full continuity: Tier 2 cannot
+consult app state, so it may occasionally repeat on a day already
+checked in, and its payload (`recurringFallbackType`, deliberately no
+`localDate`) cannot pre-encode which day it will fire on — a tap on it
+always means "whatever today genuinely is," resolved at tap time, not
+read from a stale embedded date. **Exact supported horizon, stated
+plainly**: 7 days of precise, per-day-aware reminders without
+reopening; beyond that, an indefinite but coarser daily nudge — never
+described as indefinite exact daily tracking.
+
+A second, real, independently-found gap was fixed alongside this: both
+`start_bleeding_sheet.dart`'s and `daily_checkin_sheet.dart`'s
+end-episode paths (Commit E9) previously cancelled only *today's* own
+rolling-window id, leaving days 2-7 of an already-scheduled window live
+to fire for an episode that no longer exists. Both now cancel the
+entire window (`ActiveBleedingReminderScheduler.rollingWindowReminderIds`)
+plus the new recurring fallback.
+
+**iOS pending-notification budget, worst case, every type enabled
+simultaneously**: cycle (1) + pregnancy (1) + nifas (1) + wellbeing (1)
++ active-bleeding rolling window (7) + active-bleeding recurring
+fallback (1) = **12 of 64** — audited as its own explicit test, not
+merely asserted.
+
+Test coverage: `notification_scheduler_test.dart` (+5 — rolling-window
+id enumeration, a 15-day-episode gap demonstration showing the rolling
+window alone does not reach days 8-15, DST-spanning id stability
+across the real 2027-03-14 transition, the recurring payload's shape,
+the budget audit above), `notification_multi_day_continuity_test.dart`
+(+3 — the recurring fallback scheduled/cancelled correctly against a
+real mocked `flutter_local_notifications` plugin channel), and a new
+`dashboard_notification_tap_stream_test.dart` (5 — the live `onTap`
+subscription while the dashboard is already mounted, for both payload
+types plus malformed/foreign/rapid-fire inputs; simulates a real tap by
+invoking the plugin's own native-to-Dart `didReceiveNotificationResponse`
+callback through the mocked channel, not a hand-rolled shortcut).
+
+**Not tried on a real device**: real timezone/DST change, real OS
+notification delivery/permission grant-deny, and real tap-through
+remain E2 (automated) only.
+
+### Remaining widget-test gaps — closed
+
+Two structural gaps this wave found, both closed against the real
+`DashboardScreen` and its real `BleedingEpisodeRepositoryImpl`-shaped
+injection points, never a decorative stand-in — new
+`dashboard_canonical_degraded_evidence_test.dart`, 5 tests:
+
+- `_CanonicalStatusUnavailableCard` after a genuine episodes-read
+  failure, including a full retry round trip (the fake repository
+  itself changes behavior on the second call — a real state
+  transition).
+- Degraded canonical evidence (`LoadDegraded`, both the
+  quarantined-row and the materially-excluded-uncertain-day
+  sub-cases) correctly restricts the Fiqh conclusion via
+  `_PrayerStatusCard`, and — the necessary negative case — an
+  excluded uncertain day from already-concluded, months-old history
+  does *not* restrict a conclusion about the present.
+
+A real bug surfaced while writing the second test: `_FiqhEvidenceUnresolvedCard`'s
+English copy overflowed its fixed 280×280 circle by ~10px at real
+device width (the Arabic translation is more compact and never
+triggered it) — fixed with a `FittedBox`, which also covers 200%
+text-scale for this card.
+
+### Documents updated this wave
+
+This contract document (own section, above); `00_12_TRACEABILITY_MATRIX.md`
+(F7/F8 rows updated from `MISSING` to `REMEDIATED —
+E2_AUTOMATED_VERIFIED`, new rows for the Fiqh regression fix,
+notification continuity, and the remaining widget-test coverage); the
+founder launch-confidence dashboard (`docs/founder-launch-confidence-dashboard.md`,
+same-day follow-on paragraph, plain language, no overclaiming); a new
+portable owner E4 script, `docs/owner-e4-menstrual-journey.md`,
+committed to the repository (superseding the prior wave's failed
+`vscode-webview://` artifact link). **Preserved, not touched**: every
+existing finding ID and evidence status in the master finding
+register/requirements ledger — this wave's work is scoped entirely to
+this charter, not a re-litigation of unrelated findings. **`E4` is not
+marked passed for anything in this section, and no overall launch GO
+is declared anywhere in this wave's documentation updates.**
+
+All changes on this same branch, PR #4, still **draft and unmerged**.
