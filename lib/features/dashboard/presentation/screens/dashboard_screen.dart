@@ -35,6 +35,7 @@ import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
 import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
+import '../../../cycle_tracking/presentation/screens/canonical_calendar_screen.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
 import '../../../cycle_tracking/presentation/widgets/daily_checkin_sheet.dart';
 import '../../../cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
@@ -673,6 +674,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         viewModel: _viewModel,
                         onNotificationsTap: () =>
                             _openFullScreen(const NotificationFeedScreen()),
+                        onCalendarTap: _openCanonicalCalendar,
                       ),
                     ),
                     if (_viewModel.isLoading || _prayerViewModel.isLoading)
@@ -1047,6 +1049,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(fullscreenDialog: true, builder: (_) => screen),
     );
+  }
+
+  /// F8 — unlike [_openFullScreen], this awaits the round trip: a save
+  /// made from the calendar (a backfill or a correction) must refresh
+  /// this screen's own canonical status on return, never leave it
+  /// showing stale evidence until some unrelated event happens to
+  /// trigger [_refreshCanonicalStatus] again.
+  Future<void> _openCanonicalCalendar() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => const CanonicalCalendarScreen(),
+      ),
+    );
+    if (mounted) unawaited(_refreshCanonicalStatus());
   }
 
   /// Menstrual Data Integrity charter, Commit D — Section 6/7: the single
@@ -2271,10 +2288,12 @@ class _DashboardHeader extends StatelessWidget {
   const _DashboardHeader({
     required this.viewModel,
     required this.onNotificationsTap,
+    required this.onCalendarTap,
   });
 
   final CycleTrackingViewModel viewModel;
   final VoidCallback onNotificationsTap;
+  final VoidCallback onCalendarTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2317,6 +2336,25 @@ class _DashboardHeader extends StatelessWidget {
               ],
             ),
           ),
+          // F8 — the canonical calendar's entry point from the
+          // dashboard, alongside the existing notifications bell.
+          Semantics(
+            button: true,
+            label: _l('Cycle calendar', 'تقويم الدورة'),
+            excludeSemantics: true,
+            child: InkResponse(
+              onTap: onCalendarTap,
+              radius: 24,
+              child: Icon(
+                Icons.calendar_month_rounded,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF5EEAD4)
+                    : AppColors.emeraldInk,
+                size: 25,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
           AnimatedBuilder(
             animation: NotificationLogController.instance,
             builder: (context, _) {
