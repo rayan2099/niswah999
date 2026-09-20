@@ -283,11 +283,70 @@ class ActiveBleedingReminderScheduler {
   /// know a woman completed her check-in on a *different* device while
   /// this one stayed offline the whole window — cross-device
   /// instantaneous cancellation is not claimed.
+  ///
+  /// New critical finding (single-owner scheduling policy) — this is now
+  /// the ONLY mechanism this app uses for the active-bleeding daily
+  /// reminder. An earlier design additionally layered an OS-native
+  /// *recurring* notification (`matchDateTimeComponents: DateTimeComponents
+  /// .time`, already used for the wellbeing reminder) on top of this
+  /// window, intended to fire only once the window ran out. That design
+  /// is rejected, not merely deferred: it is platform-inconsistent in a
+  /// way that would have caused real, immediate duplicate reminders, not
+  /// only a theoretical risk.
+  ///
+  /// Verified directly against the installed `flutter_local_notifications`
+  /// plugin's own native source (v22.3.0), not assumed:
+  /// - **Android**
+  ///   (`android/.../FlutterLocalNotificationsPlugin.java`,
+  ///   `scheduleNextNotification`/`zonedScheduleNextNotificationMatchingDateComponents`):
+  ///   the plugin schedules one real alarm at the exact instant requested,
+  ///   and only computes the *next* occurrence once that alarm actually
+  ///   fires — a future `scheduledDate` genuinely delays the first fire.
+  /// - **iOS**
+  ///   (`ios/.../FlutterLocalNotificationsPlugin.m`,
+  ///   `buildUserNotificationCalendarTrigger`, the `DateTimeComponents.Time`
+  ///   branch): the `NSDateComponents` built for a time-only match carries
+  ///   **only hour/minute/second** — year/month/day are discarded before
+  ///   ever reaching `UNCalendarNotificationTrigger`. Per Apple's own
+  ///   calendar-trigger semantics, this fires at the *next* occurrence of
+  ///   that clock time from now, regardless of which future date was
+  ///   originally passed as `scheduledDate`.
+  ///
+  /// In short: the exact same call that correctly delays its first fire
+  /// on Android fires **today** on iOS regardless of intent — there is no
+  /// way, using this plugin's cross-platform time-only-matching API, to
+  /// register a recurring reminder whose *first* occurrence is a future
+  /// date. Any design relying on that would duplicate every day the
+  /// rolling window and the "delayed" recurring reminder both nominally
+  /// cover, on iOS specifically. Per this finding's own instruction — "if
+  /// the platform cannot reliably support the intended hybrid, choose one
+  /// predictable, documented scheduling architecture instead of allowing
+  /// duplicates" — the single, chosen architecture is: no recurring
+  /// fallback at all. Instead, the one bounded, per-day-exact rolling
+  /// window itself is widened, from the prior 7 days to
+  /// [defaultRollingWindowDays] days, using the exact same one-off
+  /// `zonedSchedule` call (no `matchDateTimeComponents`) the window
+  /// already used — verified reliable on both platforms (the iOS `else`
+  /// branch of the same function builds the DateComponents from the
+  /// *full* date, not time-only, so a plain future one-off notification's
+  /// date is never discarded).
+  ///
+  /// Chosen size, documented rather than arbitrary: 30 days (a full
+  /// month) — comfortably covers any realistic length of time between
+  /// app opens, and (audited in `notification_scheduler_test.dart`)
+  /// leaves 34 of iOS's shared 64-pending-notification budget free for
+  /// the cycle/pregnancy/nifas/wellbeing reminders plus future headroom,
+  /// even with every one of this window's 30 days scheduled at once. This
+  /// is a product/UX bound on how far ahead reminders are pre-scheduled,
+  /// not a medical claim about how long bleeding can last — the window
+  /// is re-planned (and simply extended forward) every time the app
+  /// opens regardless.
+  ///
   /// The single source of truth for how many local days ahead a rolling
   /// refresh plans, shared by [NotificationRefreshCoordinator] and every
   /// call site that must cancel a *whole* window's worth of ids (not
   /// just today's) — see [rollingWindowReminderIds].
-  static const int defaultRollingWindowDays = 7;
+  static const int defaultRollingWindowDays = 30;
 
   static List<PlannedNotification> planRollingDailyCheckins({
     required BleedingEpisode? episode,
@@ -343,28 +402,6 @@ class ActiveBleedingReminderScheduler {
       localDay: today.add(Duration(days: offset)),
     ),
   );
-
-  /// New critical finding (notification continuity beyond 7 days) — the
-  /// distinct payload for the OS-native recurring fallback (see
-  /// [NotificationRefreshCoordinator.activeBleedingRecurringFallbackId]'s
-  /// own doc comment for the full design). Deliberately carries no
-  /// `localDate`: unlike [payloadFor], this same payload is handed to
-  /// the OS once and re-delivered by the OS itself every day thereafter
-  /// — there is no single date to bake in ahead of time. The tap
-  /// handler must treat this type as always meaning "today," resolved
-  /// at the moment of the tap, never compared against a stale embedded
-  /// date the way [payloadFor]'s `localDate` is (Closure Blocker 9).
-  static const String recurringFallbackType =
-      'activeBleedingCheckinRecurringFallback';
-
-  static String recurringFallbackPayloadFor({
-    required String userId,
-    required String episodeId,
-  }) => jsonEncode({
-    'type': recurringFallbackType,
-    'userId': userId,
-    'episodeId': episodeId,
-  });
 
   static PlannedNotification? _planForDay({
     required String userId,

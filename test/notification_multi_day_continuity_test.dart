@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,18 +45,6 @@ class _FakeOpenEpisodeRepository extends BleedingEpisodeRepositoryImpl {
   Future<LoadResult<List<BleedingObservation>>> getObservationsForEpisode(
     String episodeId,
   ) async => const LoadSuccess([]);
-}
-
-/// No open episode at all (e.g. it has since ended) — used to verify
-/// the recurring fallback gets explicitly cancelled in this case too,
-/// not only when the preference itself is disabled.
-class _FakeNoOpenEpisodeRepository extends BleedingEpisodeRepositoryImpl {
-  _FakeNoOpenEpisodeRepository() : super(client: null);
-
-  @override
-  Future<LoadResult<BleedingEpisode?>> getOpenEpisode(String userId) async {
-    return const LoadSuccess(null);
-  }
 }
 
 /// New critical finding — multi-day notification continuity. Exercises
@@ -117,8 +103,20 @@ void main() {
   });
 
   test('a single refresh (simulating the app never being reopened again) '
-      'schedules and structurally audits a full rolling week of distinct '
+      'schedules and structurally audits a full rolling window of distinct '
       'reminder ids, not merely today\'s', () async {
+    // Fix 6 (regression-baseline reconciliation) — BleedingEpisodeRepositoryImpl
+    // .localToday is a deliberately real-wall-clock-only pure function
+    // (see its own dedicated test/doc comment, PR #4 hardening Blocker
+    // 7) — it is not, and must not become, AppClock-injectable. The
+    // prior flakiness came from this test independently re-deriving
+    // "today" via a second, separate clock read instead of mirroring
+    // the exact same derivation the coordinator itself uses — computed
+    // once, immediately before the single call that consumes it, to
+    // keep the two as close together as this design allows.
+    final today = BleedingEpisodeRepositoryImpl.localToday(
+      DateTime.now().timeZoneOffset.inMinutes,
+    );
     await NotificationRefreshCoordinator.refresh(
       userId: 'user-1',
       bleedingRepository: _FakeOpenEpisodeRepository(),
@@ -126,11 +124,11 @@ void main() {
     );
 
     final expectedIds = List.generate(
-      7,
+      ActiveBleedingReminderScheduler.defaultRollingWindowDays,
       (offset) => ActiveBleedingReminderScheduler.reminderId(
         userId: 'user-1',
         episodeId: 'episode-1',
-        localDay: DateTime.now().add(Duration(days: offset)),
+        localDay: today.add(Duration(days: offset)),
       ),
     ).map((id) => id.toString()).toSet();
 
@@ -144,88 +142,108 @@ void main() {
       scheduledReminderIds,
       expectedIds,
       reason:
-          'every one of the 7 rolling days must have its own genuine '
-          'scheduled audit event from this single refresh call',
+          'every one of the rolling window\'s days must have its own '
+          'genuine scheduled audit event from this single refresh call',
     );
   });
 
-  group('New critical finding — notification continuity beyond 7 days', () {
-    test('a refresh also registers the OS-native recurring fallback '
-        'alongside the rolling week — one extra pending slot that covers '
-        'the app never being reopened past the 7-day window', () async {
+  group('New critical finding — single-owner scheduling policy (fixes a '
+      'real, immediate duplicate-notification defect the prior hybrid '
+      'design had)', () {
+    test('a single refresh schedules exactly one OS notification per local '
+        'day, covering at least 15 days including the day-seven/day-eight '
+        'transition — no second, overlapping mechanism', () async {
+      final today = BleedingEpisodeRepositoryImpl.localToday(
+        DateTime.now().timeZoneOffset.inMinutes,
+      );
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
         bleedingRepository: _FakeOpenEpisodeRepository(),
         preferenceRepository: null,
       );
 
-      final recurringCalls = zonedScheduleCalls.where(
-        (args) =>
-            args['id'] ==
-            NotificationRefreshCoordinator.activeBleedingRecurringFallbackId,
-      );
-      expect(
-        recurringCalls,
-        hasLength(1),
-        reason: 'exactly one registration for the recurring fallback id',
-      );
-      expect(
-        recurringCalls.single['matchDateTimeComponents'],
-        isNotNull,
-        reason:
-            'must be a genuinely OS-native repeating schedule (matches '
-            'only the time component), never a one-off instance the '
-            'app would need to reschedule itself',
-      );
+      final activeBleedingIds = List.generate(
+        ActiveBleedingReminderScheduler.defaultRollingWindowDays,
+        (offset) => ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          localDay: today.add(Duration(days: offset)),
+        ),
+      ).toSet();
 
-      final payload = jsonDecode(
-        recurringCalls.single['payload'] as String,
-      ) as Map<String, dynamic>;
-      expect(
-        payload['type'],
-        ActiveBleedingReminderScheduler.recurringFallbackType,
-      );
-      expect(payload.containsKey('localDate'), isFalse);
+      for (final id in activeBleedingIds) {
+        final callsForThisId = zonedScheduleCalls.where(
+          (args) => args['id'] == id,
+        );
+        expect(
+          callsForThisId,
+          hasLength(1),
+          reason:
+              'reminder id $id must be scheduled exactly once this '
+              'refresh — never twice (which is what the removed OS '
+              'recurring-fallback layer would have caused for every '
+              'day within the rolling window on iOS specifically, per '
+              'the verified plugin source cited in '
+              'ActiveBleedingReminderScheduler.defaultRollingWindowDays\'s '
+              'own doc comment)',
+        );
+      }
+
+      // Day-seven/day-eight transition, and well beyond — at least 15
+      // consecutive days, all present, all from the SAME mechanism.
+      for (var day = 0; day < 15; day++) {
+        final id = ActiveBleedingReminderScheduler.reminderId(
+          userId: 'user-1',
+          episodeId: 'episode-1',
+          localDay: today.add(Duration(days: day)),
+        );
+        expect(
+          zonedScheduleCalls.any((args) => args['id'] == id),
+          isTrue,
+          reason:
+              'day $day (spanning the old 7-day boundary) must be '
+              'scheduled by this single refresh',
+        );
+      }
     });
 
-    test('disabling the preference cancels the recurring fallback, not only '
-        'the per-day rolling ids', () async {
-      final preferenceRepository = NotificationRepositoryImpl();
-      final current = await preferenceRepository.loadPreferences();
-      current[NotificationType.activeBleeding] =
-          current[NotificationType.activeBleeding]!.copyWith(enabled: false);
-      await preferenceRepository.savePreferences(current);
-
+    test('no active-bleeding reminder is ever registered as an OS-native '
+        'recurring schedule — every one is a plain, exact, one-off '
+        'instance for its own specific date', () async {
+      final today = BleedingEpisodeRepositoryImpl.localToday(
+        DateTime.now().timeZoneOffset.inMinutes,
+      );
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
         bleedingRepository: _FakeOpenEpisodeRepository(),
-        preferenceRepository: preferenceRepository,
+        preferenceRepository: null,
       );
 
-      expect(
-        cancelledIds,
-        contains(
-          NotificationRefreshCoordinator.activeBleedingRecurringFallbackId,
-        ),
-      );
-    });
-
-    test(
-      'an episode that has since ended cancels the recurring fallback too',
-      () async {
-        await NotificationRefreshCoordinator.refresh(
+      final activeBleedingIds = List.generate(
+        ActiveBleedingReminderScheduler.defaultRollingWindowDays,
+        (offset) => ActiveBleedingReminderScheduler.reminderId(
           userId: 'user-1',
-          bleedingRepository: _FakeNoOpenEpisodeRepository(),
-          preferenceRepository: null,
-        );
+          episodeId: 'episode-1',
+          localDay: today.add(Duration(days: offset)),
+        ),
+      ).toSet();
 
+      final activeBleedingCalls = zonedScheduleCalls.where(
+        (args) => activeBleedingIds.contains(args['id']),
+      );
+      expect(activeBleedingCalls, isNotEmpty);
+      for (final call in activeBleedingCalls) {
         expect(
-          cancelledIds,
-          contains(
-            NotificationRefreshCoordinator.activeBleedingRecurringFallbackId,
-          ),
+          call['matchDateTimeComponents'],
+          isNull,
+          reason:
+              'a recurring (matchDateTimeComponents-based) schedule '
+              'would, on iOS, fire at the next matching clock time '
+              'regardless of which date was requested — exactly the '
+              'platform inconsistency this policy avoids by never '
+              'using one for this reminder type',
         );
-      },
-    );
+      }
+    });
   });
 }

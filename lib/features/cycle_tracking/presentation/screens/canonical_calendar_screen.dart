@@ -31,10 +31,12 @@ class CanonicalCalendarScreen extends StatefulWidget {
   const CanonicalCalendarScreen({
     super.key,
     this.repositoryOverride,
+    this.baselineRepositoryOverride,
     this.userIdOverride,
   });
 
   final BleedingEpisodeRepositoryImpl? repositoryOverride;
+  final CycleBaselineRepositoryImpl? baselineRepositoryOverride;
   final String? userIdOverride;
 
   @override
@@ -45,6 +47,8 @@ class CanonicalCalendarScreen extends StatefulWidget {
 class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
   late final BleedingEpisodeRepositoryImpl _repository =
       widget.repositoryOverride ?? BleedingEpisodeRepositoryImpl();
+  late final CycleBaselineRepositoryImpl _baselineRepository =
+      widget.baselineRepositoryOverride ?? CycleBaselineRepositoryImpl();
   late final String? _userId =
       widget.userIdOverride ??
       NiswahSupabase.clientOrNull?.auth.currentUser?.id;
@@ -53,8 +57,29 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
   bool _loading = true;
   bool _episodesUnavailable = false;
   bool _observationsUnavailable = false;
+  // New critical finding (make degraded calendar data explicit) —
+  // LoadDegraded is a genuinely distinct outcome from LoadSuccess: some
+  // rows came back, but at least one was quarantined (failed strict
+  // parsing) along the way. Silently folding it into "clean success" (the
+  // prior behavior) meant a quarantined row was implicitly treated as
+  // verified-absent, and a prediction could be computed from a data set
+  // known to have a gap in it. Tracked separately, never merged into the
+  // plain unavailable flags above.
+  bool _episodesDegraded = false;
+  bool _observationsDegraded = false;
   List<BleedingEpisode> _episodes = const [];
   List<BleedingObservation> _observations = const [];
+
+  /// New critical finding (prove actual F7 category coverage) — a real,
+  /// previously-unread production data source: `getBaseline` already
+  /// existed on the repository, written once during onboarding, but was
+  /// never called from anywhere in the app. [EvidenceProvenance
+  /// .userReportedEstimate] had no real UI surface to attach to as a
+  /// result — a badge in a legend, never a real displayed value. Shown
+  /// here as its own summary line, explicitly labeled an estimate, never
+  /// attached to any specific calendar day (an estimate is a stated
+  /// generalization, not an observation of a particular date).
+  CycleBaseline? _baseline;
 
   @override
   void initState() {
@@ -73,13 +98,24 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
     final observationsResult = await _repository.getAllObservationsForUser(
       userId,
     );
+    // Best-effort: a baseline read failure is never fatal to the
+    // calendar (it's an ordinary nullable optional value, not something
+    // Closure Blocker 1's "read failure must never be treated as
+    // absence" applies to the same way — there is no confident-claim
+    // consequence to a missing estimate the way there is for an episode/
+    // observation read).
+    final baseline = await _baselineRepository.getBaseline(userId);
     if (!mounted) return;
     setState(() {
       _loading = false;
+      _baseline = baseline;
       _episodesUnavailable =
           episodesResult is LoadUnavailable<List<BleedingEpisode>>;
       _observationsUnavailable =
           observationsResult is LoadUnavailable<List<BleedingObservation>>;
+      _episodesDegraded = episodesResult is LoadDegraded<List<BleedingEpisode>>;
+      _observationsDegraded =
+          observationsResult is LoadDegraded<List<BleedingObservation>>;
       _episodes = episodesResult.dataOrNull ?? const [];
       _observations = observationsResult.dataOrNull ?? const [];
     });
@@ -152,8 +188,17 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
                         onNext: () => _changeMonth(1),
                         onTapLabel: _pickMonth,
                       ),
+                      if (_baseline != null &&
+                          (_baseline!.usualCycleLengthDays != null ||
+                              _baseline!.usualBleedingDurationDays != null))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: _BaselineEstimateNotice(baseline: _baseline!),
+                        ),
                       const SizedBox(height: 12),
-                      if (_observationsUnavailable)
+                      if (_observationsUnavailable ||
+                          _observationsDegraded ||
+                          _episodesDegraded)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _DegradedNotice(onRetry: _load),
@@ -162,6 +207,15 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
                         month: _month,
                         episodes: _episodes,
                         observations: _observations,
+                        // Never predict from evidence known to be
+                        // incomplete — a degraded (or fully unavailable,
+                        // though that already blocks this whole screen)
+                        // episodes/observations read must not feed the
+                        // forward projection, since a quarantined row
+                        // could be exactly the episode/observation that
+                        // would have changed the answer.
+                        allowPrediction:
+                            !_episodesDegraded && !_observationsDegraded,
                         onDayTap: _onDayTap,
                       ),
                       const SizedBox(height: 20),
@@ -303,12 +357,19 @@ class _CanonicalMonthGrid extends StatelessWidget {
     required this.month,
     required this.episodes,
     required this.observations,
+    required this.allowPrediction,
     required this.onDayTap,
   });
 
   final DateTime month;
   final List<BleedingEpisode> episodes;
   final List<BleedingObservation> observations;
+
+  /// New critical finding (make degraded calendar data explicit) — false
+  /// whenever the episodes or observations read that would feed the
+  /// forward projection is degraded (or unavailable): a prediction built
+  /// from a data set known to have a quarantined row is not honest.
+  final bool allowPrediction;
   final void Function(DateTime day, _DayEvidence evidence) onDayTap;
 
   @override
@@ -323,7 +384,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
     final today = DateUtils.dateOnly(AppClock.now());
 
     final effectiveByDay = _effectiveByDay(observations);
-    final prediction = _predictNextEpisode(episodes);
+    final prediction = allowPrediction ? _predictNextEpisode(episodes) : null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
@@ -388,6 +449,17 @@ class _CanonicalMonthGrid extends StatelessWidget {
                   )
                   .firstOrNull;
 
+              // New critical finding (detect actual corrections) — the
+              // number of same-day observations is never itself a
+              // correction signal: three genuinely independent same-day
+              // reports (no revision relationship between them) must
+              // never be flagged as "corrected" merely because there are
+              // several of them. A real correction is only ever proven
+              // by a `supersedes_id` link — the same canonical
+              // revision-chain fact `_effectiveByDay` itself relies on
+              // to resolve which row is current.
+              final isCorrected = rawForDay.any((o) => o.supersedesId != null);
+
               final _DayEvidence evidence;
               if (effective != null) {
                 evidence = _DayEvidence(
@@ -395,7 +467,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
                   hasBleeding:
                       effective.flow != ObservationFlow.none &&
                       effective.flow != ObservationFlow.uncertain,
-                  isCorrected: rawForDay.length > 1,
+                  isCorrected: isCorrected,
                   episode: episodeForDay,
                   rawObservations: rawForDay,
                 );
@@ -547,10 +619,30 @@ class _CanonicalDayCell extends StatelessWidget {
     final arabic = AppLocaleController.instance.isArabic;
     final provenance = evidence.provenance;
     final semanticsParts = <String>['${date.day}'];
-    if (provenance != null && evidence.hasBleeding) {
+    // New critical finding (calendar uncertainty semantics) — these four
+    // states are genuinely different facts and must never collapse into
+    // one another, in either direction: no report at all is not the same
+    // as an explicit "I'm not sure," which is itself not the same as an
+    // explicit "no bleeding" report, which is not the same as a report of
+    // real bleeding. The prior version announced "No recorded bleeding"
+    // for BOTH "nothing was ever reported" and "she explicitly reported
+    // uncertain" — the latter is a real, present answer, not an absence
+    // of data, and must never be announced as if nothing were recorded.
+    if (provenance == null) {
+      semanticsParts.add(_t('No entry recorded', 'لا يوجد إدخال مسجَّل'));
+    } else if (provenance == EvidenceProvenance.missingUncertain) {
+      semanticsParts.add(
+        _t('Reported as uncertain', 'أُبلغ عنه بأنه غير مؤكد'),
+      );
+    } else if (provenance == EvidenceProvenance.predicted) {
       semanticsParts.add(provenance.longLabel(arabic));
+    } else if (!evidence.hasBleeding) {
+      semanticsParts.add(_t('Reported: no bleeding', 'مُسجَّل: لا يوجد نزيف'));
     } else {
-      semanticsParts.add(_t('No recorded bleeding', 'لا يوجد نزيف مسجَّل'));
+      semanticsParts.add(
+        '${_t('Reported: bleeding', 'مُسجَّل: نزيف')}, '
+        '${provenance.longLabel(arabic)}',
+      );
     }
     if (evidence.isCorrected) {
       semanticsParts.add(_t('Has a correction', 'تحتوي على تصحيح'));
@@ -711,6 +803,65 @@ class _UnavailableCard extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// New critical finding (prove actual F7 category coverage) — the real
+/// UI surface for [EvidenceProvenance.userReportedEstimate]. Deliberately
+/// its own summary line, never attached to any specific calendar day:
+/// an estimate is a stated generalization about a usual duration/length,
+/// not an observation of a particular date, and must never be rendered
+/// as though it were one.
+class _BaselineEstimateNotice extends StatelessWidget {
+  const _BaselineEstimateNotice({required this.baseline});
+  final CycleBaseline baseline;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppColors.istihadah.withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            _summaryText(),
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        const ProvenanceBadge(
+          provenance: EvidenceProvenance.userReportedEstimate,
+          dense: true,
+        ),
+      ],
+    ),
+  );
+
+  String _summaryText() {
+    final duration = baseline.usualBleedingDurationDays;
+    final cycleLength = baseline.usualCycleLengthDays;
+    if (duration != null && cycleLength != null) {
+      return _t(
+        'Your stated usual period: $duration days, every $cycleLength days',
+        'مدة حيضكِ المعتادة كما ذكرتِ: $duration أيام، كل $cycleLength يوماً',
+      );
+    }
+    if (duration != null) {
+      return _t(
+        'Your stated usual period length: $duration days',
+        'مدة حيضكِ المعتادة كما ذكرتِ: $duration أيام',
+      );
+    }
+    return _t(
+      'Your stated usual cycle length: $cycleLength days',
+      'طول دورتكِ المعتاد كما ذكرتِ: $cycleLength يوماً',
+    );
+  }
 }
 
 class _DegradedNotice extends StatelessWidget {

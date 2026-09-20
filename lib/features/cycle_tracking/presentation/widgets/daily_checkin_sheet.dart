@@ -8,7 +8,6 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
-import '../../../notifications/domain/services/notification_refresh_coordinator.dart';
 import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
@@ -247,10 +246,9 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
     // reminders; no reminder should keep asking about an episode that no
     // longer exists as open. New critical finding (notification
     // continuity beyond 7 days): every id the ROLLING WINDOW could have
-    // left scheduled (not only today's — days 2-7 may already be
-    // scheduled from an earlier refresh) plus the recurring fallback,
-    // or an ended episode would still get reminded on days that were
-    // never going to arrive.
+    // left scheduled (not only today's — later days may already be
+    // scheduled from an earlier refresh), or an ended episode would
+    // still get reminded on days that were never going to arrive.
     final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (signedInUserId != null) {
       final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
@@ -261,9 +259,6 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       )) {
         await NotificationService.instance.cancel(id);
       }
-      await NotificationService.instance.cancel(
-        NotificationRefreshCoordinator.activeBleedingRecurringFallbackId,
-      );
     }
 
     if (!mounted) return;

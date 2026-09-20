@@ -10,7 +10,6 @@ import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episod
 import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/load_result.dart';
 import 'package:niswah/features/dashboard/presentation/screens/dashboard_screen.dart';
-import 'package:niswah/features/notifications/domain/services/notification_scheduler.dart';
 
 import 'support/parity_test_harness.dart';
 
@@ -137,25 +136,6 @@ void main() {
             'pending payload — nothing left for a later, redundant check '
             'to pick up',
       );
-    },
-  );
-
-  testWidgets(
-    'the OS-native recurring fallback\'s tap payload (no embedded date) '
-    'is also picked up by the same live subscription without crashing',
-    (tester) async {
-      await pumpDashboard(tester);
-
-      final payload =
-          ActiveBleedingReminderScheduler.recurringFallbackPayloadFor(
-            userId: 'user-1',
-            episodeId: 'episode-1',
-          );
-      await simulateNotificationTap(payload);
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(NotificationService.instance.consumePendingTapPayload(), isNull);
     },
   );
 

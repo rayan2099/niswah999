@@ -5,6 +5,7 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../domain/entities/cycle_log.dart';
+import '../../domain/entities/evidence_provenance.dart';
 
 class CycleCalendar extends StatelessWidget {
   const CycleCalendar({
@@ -143,6 +144,21 @@ class CycleCalendar extends StatelessWidget {
                 inMonth: date.month == month.month,
                 isToday: DateUtils.isSameDay(date, AppClock.now()),
                 showHijri: showHijri,
+                // Fix 5 (prove actual F7 category coverage) — this
+                // screen still reads legacy `cycle_entries`/[CycleLog]
+                // directly (unlike the new canonical calendar), so it is
+                // the one real surface where a genuine
+                // [EvidenceProvenance.legacyUnverified] record can
+                // actually appear. Previously declared in the taxonomy
+                // and shown only in a legend — never actually attached
+                // to a real rendered day. Never treated as a canonical
+                // observation: this is purely an honest visibility flag
+                // on the same legacy marker, not a claim this day is
+                // now backed by `bleeding_observations`.
+                isLegacyUnverified:
+                    log != null &&
+                    provenanceForCycleLog(log) ==
+                        EvidenceProvenance.legacyUnverified,
                 onTap: () => onDateSelected(date),
               );
             },
@@ -248,6 +264,7 @@ class _CalendarDay extends StatefulWidget {
     required this.isToday,
     required this.onTap,
     required this.showHijri,
+    required this.isLegacyUnverified,
   });
   final DateTime date;
   final _DayMarker marker;
@@ -255,6 +272,7 @@ class _CalendarDay extends StatefulWidget {
   final bool isToday;
   final VoidCallback onTap;
   final bool showHijri;
+  final bool isLegacyUnverified;
 
   @override
   State<_CalendarDay> createState() => _CalendarDayState();
@@ -313,8 +331,14 @@ class _CalendarDayState extends State<_CalendarDay>
         // F7 — a screen reader must hear this in the user's actual
         // language, never the enum's internal English constant
         // regardless of locale (the bug this fixes: Arabic mode was
-        // announcing "Expected Haid" in English).
-        label: '${widget.date.day}, ${marker.localizedLabel}',
+        // announcing "Expected Haid" in English). Fix 5 — a legacy,
+        // provenance-less day is announced as such explicitly, using
+        // the same shared taxonomy every other surface uses, rather
+        // than silently sounding identical to a real observed day.
+        label: widget.isLegacyUnverified
+            ? '${widget.date.day}, ${marker.localizedLabel}, '
+                  '${EvidenceProvenance.legacyUnverified.longLabel(AppLocaleController.instance.isArabic)}'
+            : '${widget.date.day}, ${marker.localizedLabel}',
         // Without this, the day-number Text rendered below merges in as
         // a redundant trailing fragment of this already-complete label.
         excludeSemantics: true,
@@ -371,6 +395,12 @@ class _CalendarDayState extends State<_CalendarDay>
                               : FontWeight.w500,
                         ),
                       ),
+                      if (widget.isLegacyUnverified)
+                        Icon(
+                          EvidenceProvenance.legacyUnverified.icon,
+                          size: 7,
+                          color: foreground.withValues(alpha: 0.7),
+                        ),
                     ],
                   ),
                 ),
