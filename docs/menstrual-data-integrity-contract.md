@@ -1085,3 +1085,94 @@ diagnose a race condition — was already satisfied and is unchanged.
 
 All changes on this same branch, PR #4, still **draft and unmerged**.
 No `E4` (real device) evidence is claimed for any of these seven fixes.
+
+## 12. Notification Cancellation Closure wave (2026-09-20, same branch)
+
+Section 11's Fix 1 established the single 30-day exact-window
+architecture. This wave closes three real gaps in when that window
+actually gets *cancelled*, not merely stopped from growing further.
+
+**Finding 1 — disabling the preference did not cancel what was already
+scheduled.** `_refreshActiveBleeding`'s `!enabled` branch previously
+just returned — correct for a fresh session that never scheduled
+anything, silently wrong for the far more common case of an
+already-scheduled window from *before* she turned the reminder off. A
+new `_cancelStaleActiveBleedingWindows` helper now runs on that branch:
+it reads the user's own episodes (`getEpisodesForUser`, already-loaded
+data, no new persisted state), bounds the sweep to episodes whose date
+range could still plausibly overlap a previously-scheduled window
+(`today - 30 days` cutoff, so an old account's ancient episodes are
+never swept), and cancels each id in range — recording a `cancelled`
+audit event **only** when the platform genuinely acknowledges the
+cancel call, never on a rejected one. Separately,
+`NotificationSettingsViewModel.updatePreference` now calls
+`NotificationRefreshCoordinator.refresh()` immediately after a
+successful `savePreferences`, instead of waiting for the next app
+start/resume — mirroring the exact "schedule immediately" pattern the
+dashboard's own contextual-consent flow already established.
+
+**Finding 2 — a remotely-ended episode left local reminders active.**
+The `isEligible(episode)` false branch (a canonical refresh
+*verifying* no open episode remains) now runs the same
+`_cancelStaleActiveBleedingWindows` sweep. Closure Blocker 1 discipline
+is preserved throughout: a genuine read failure
+(`LoadUnavailable<BleedingEpisode?>`) returns immediately, before this
+branch is ever reached, and triggers no cancellation — only a
+*verified* absence (a real `LoadSuccess`/`LoadDegraded` with no
+eligible episode) counts. Account-switch leakage was found to already
+be handled by an existing mechanism (`AuthController`'s
+`cancelAll()` at sign-out, `lib/core/auth/auth_controller.dart:253`) —
+this wave adds test coverage for it, not new production code.
+
+**Finding 3 — reminder-time and timezone changes could leave stale
+ids.** Two additions: (a) every refresh of an eligible episode now also
+sweeps ids for days strictly before `today` within that episode's own
+range (covers both ordinary day-forward progression and
+timezone-shift-induced staleness, with no new persisted "last
+scheduled window" cache needed); (b) `refreshLocalTimezone(forceRefresh:
+true)` moved from being each caller's own responsibility into
+`NotificationRefreshCoordinator.refresh()` itself, so every call site —
+`main.dart`'s app-resume handler, the dashboard's contextual-consent
+flow, and this wave's new Settings-toggle call site — picks up a
+genuinely current device zone before any rescheduling, rather than
+relying on each remembering it separately (the dashboard call site had
+this exact gap before this wave; it is fixed as a side effect of
+centralizing the call, not fixed separately). Historical observation
+timestamps are never touched by any of this — only future scheduling.
+
+Eight new coordinator-level integration tests, against the real
+coordinator with an injected/mocked notification platform channel,
+cover exactly the required scenarios: (1) schedule a full 30-day
+window, then disable — zero outstanding active-bleeding ids; (2)
+disable then re-enable — exactly one valid, freshly-scheduled reminder
+per eligible day, not a permanently-cancelled one; (3) change the
+preferred time — outstanding reminders reflect the new time (asserted
+as a delta between two scheduled calls, not a hardcoded absolute hour,
+since this test file's `tz.local` falls back to UTC in the absence of
+`mockDeviceTimezoneForTest()`); (4) an episode verified ended remotely
+is cancelled on this device's next successful refresh; (5) a read
+failure produces zero false cancellations; (6) account switch reaches
+the platform's `cancelAll` and the new account schedules independently
+afterward; (7) a platform-rejected cancel call is never recorded as a
+false `cancelled` audit event, and a later successful call still
+succeeds; (8) cycle/pregnancy/nifas/wellbeing scheduling is untouched
+by the active-bleeding cancellation sweep.
+
+Full-repo verification after this wave: `dart format` and `flutter
+analyze` clean on every file this wave touched (a pre-existing,
+unrelated repo-wide formatting drift across ~67 other files was left
+untouched — out of this wave's scope); **747 tests, 10 failures — the
+same 10 golden/parity-image failures already confirmed present at the
+true merge base in Section 11's Fix 6, zero new regressions**; BR-002
+migration reproducibility (`scripts/validate_migrations.sh`) reconfirmed
+passing (unaffected — no SQL touched this wave).
+
+As with every prior wave, `E4` (real device) delivery/cancellation
+timing is not claimed here — a mocked plugin channel proves the
+coordinator's own logic is correct, not that a real OS actually honors
+a `cancel` call within any particular latency. Cross-device
+cancellation is, and remains, bounded by "this device's next
+successful refresh" — never instantaneous, and never claimed while a
+device is offline or the app never reopens.
+
+All changes on this same branch, PR #4, still **draft and unmerged**.
