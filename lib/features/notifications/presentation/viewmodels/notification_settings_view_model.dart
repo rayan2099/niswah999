@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/network/supabase_client.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../data/repositories/notification_repository_impl.dart';
 import '../../domain/entities/notification_preference.dart';
 import '../../domain/repositories/notification_repository.dart';
+import '../../domain/services/notification_refresh_coordinator.dart';
 
 class NotificationSettingsViewModel extends ChangeNotifier {
   NotificationSettingsViewModel({NotificationRepository? repository})
@@ -96,6 +98,18 @@ class NotificationSettingsViewModel extends ChangeNotifier {
     } catch (error) {
       errorMessage = error.toString();
       notifyListeners();
+      return;
     }
+
+    // New critical finding (notification cancellation closure, Finding
+    // 1) — a saved preference change (most importantly, disabling a
+    // reminder) must reconcile the scheduler promptly, not wait for an
+    // unrelated app-start/resume trigger. Mirrors the exact same
+    // "schedule immediately rather than waiting" pattern the contextual-
+    // consent flow already established (`dashboard_screen.dart`'s own
+    // enable-reminder call site).
+    await NotificationRefreshCoordinator.refresh(
+      userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
+    );
   }
 }

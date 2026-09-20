@@ -550,13 +550,11 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   }
 
   Future<void> _refreshNotifications() async {
-    // Closure Blocker 6 — `tz.local` itself must be re-applied to the
-    // device's real current zone BEFORE anything below recomputes what
-    // to schedule; refreshing DeviceTimezone's own cache above is not
-    // sufficient by itself, since `NotificationService` only ever reads
-    // the platform's real zone through this call, not through
-    // `DeviceTimezone` directly.
-    await NotificationService.instance.refreshLocalTimezone(forceRefresh: true);
+    // Closure Blocker 6 / notification cancellation closure Finding 3 —
+    // `NotificationRefreshCoordinator.refresh` now refreshes `tz.local`
+    // to the device's real current zone itself, before recomputing
+    // anything, so every caller (this resume handler included) gets it
+    // uniformly without needing its own copy of this call.
     await NotificationRefreshCoordinator.refresh(
       userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
     );
