@@ -912,3 +912,176 @@ marked passed for anything in this section, and no overall launch GO
 is declared anywhere in this wave's documentation updates.**
 
 All changes on this same branch, PR #4, still **draft and unmerged**.
+
+## 11. Independent Review Fixes wave (2026-09-20, same branch)
+
+An independent review of Section 10's own work found seven real issues.
+All seven are addressed here; none required restoring any legacy Fiqh
+fallback.
+
+**Fix 1 — eliminate duplicate daily notifications.** Section 10's own
+two-tier notification design (a 7-day exact rolling window plus an
+OS-native recurring fallback layered on top, both active simultaneously
+for the same days) was reviewed against the installed
+`flutter_local_notifications` plugin's actual native source rather than
+assumed reliable cross-platform: Android's `zonedScheduleNotification`
+genuinely delays a recurring schedule's first fire to a future
+`scheduledDate`, but iOS's `buildUserNotificationCalendarTrigger`
+(`ios/.../FlutterLocalNotificationsPlugin.m`) builds its
+`NSDateComponents` for a time-only match from **only hour/minute/second
+— year/month/day are discarded** before ever reaching
+`UNCalendarNotificationTrigger`. Per Apple's own calendar-trigger
+semantics, this fires at the *next* occurrence of that clock time
+regardless of which future date was requested — meaning the "delay the
+fallback until day 8" design would, on iOS specifically, have started
+firing on day 1, genuinely duplicating every day the rolling window
+already covered. This is a real, verified platform inconsistency, not a
+theoretical risk.
+
+Per that finding's own explicit instruction ("if the platform cannot
+reliably support the intended hybrid, choose one predictable,
+documented scheduling architecture instead of allowing duplicates"):
+the recurring fallback is removed entirely.
+`ActiveBleedingReminderScheduler.defaultRollingWindowDays` is widened
+from 7 to **30** — using the exact same one-off, per-day-exact
+`zonedSchedule` call the window already used (verified reliable on
+both platforms: the same iOS function's non-time-only branch builds its
+`NSDateComponents` from the *full* date, never discarding it). Single
+mechanism, single owner, no overlap possible by construction. 30 was
+chosen, not left arbitrary: it is a full month (comfortably covers any
+realistic gap between app opens) and, audited as its own test, leaves
+34 of iOS's shared 64-pending-notification budget free for
+cycle/pregnancy/nifas/wellbeing plus future headroom, even with the
+entire window scheduled at once.
+
+A second, real, independently-found gap surfaced by this same
+investigation: both `start_bleeding_sheet.dart`'s and
+`daily_checkin_sheet.dart`'s end-episode paths already looped over
+`ActiveBleedingReminderScheduler.rollingWindowReminderIds` to cancel
+the *whole* window (not only today's id) — that loop now correctly
+covers the new, larger 30-day size automatically, since both reference
+the one shared constant.
+
+New coordinator-level tests prove, against a real mocked plugin
+channel: exactly one `zonedSchedule` call per reminder id across a full
+30-day window (never twice for the same id); at least 15 consecutive
+days present, spanning the old 7-day boundary; and zero
+`matchDateTimeComponents`-based registrations for this reminder type at
+all. `E4` (real device behavior) remains explicitly not claimed — this
+is the honest limit of what a mocked-plugin-channel test can prove.
+
+**Fix 2 — correct calendar uncertainty semantics.** The canonical
+calendar's day-cell Semantics announcement collapsed two genuinely
+different facts into the same phrase: a day with *no report at all*
+and a day with an *explicit "I'm not sure"* observation were both
+announced as "No recorded bleeding" — silently treating a real,
+present answer as if nothing had been recorded. Now four distinct,
+tested announcements: no entry recorded / reported as uncertain /
+reported: no bleeding / reported: bleeding (with its provenance
+appended). The already-correct *visual* distinction (a muted tint plus
+a small question-mark icon for uncertain days) is untouched — this fix
+is specifically the audible/semantic side.
+
+**Fix 3 — detect actual corrections via `supersedes_id`, never same-day
+observation count.** `isCorrected` was computed as
+`rawForDay.length > 1` — meaning three genuinely independent same-day
+observations (no revision relationship between them at all) were
+incorrectly flagged as "corrected" purely because there happened to be
+several of them. Now computed as
+`rawForDay.any((o) => o.supersedesId != null)` — the same canonical
+revision-chain fact the effective-value resolver itself already relies
+on. Four scenarios directly tested: three independent observations
+(no correction indicator); one observation plus one real correction
+(indicator present); a correction-of-correction (full history
+retained, effective tip correct); and multiple independent
+observations where only one is corrected (accurate combined display,
+indicator present for the real correction, unaffected by the unrelated
+independent one).
+
+**Fix 4 — make degraded calendar data explicit.** `LoadDegraded`
+(a partially-successful read with at least one quarantined row) was
+previously indistinguishable from a clean `LoadSuccess` — folded
+silently into "the data," with no notice shown and no restriction on
+computing a forward prediction from it. Now tracked as its own state
+(`_episodesDegraded`/`_observationsDegraded`), surfacing the same
+distinct, non-alarming, retryable notice a degraded observations read
+already showed, and explicitly suppressing the forward projection
+whenever either read is degraded — a prediction is never computed from
+evidence known to have a gap. Four scenarios tested separately: clean
+empty, fully unavailable, degraded, and complete.
+
+**Fix 5 — prove actual F7 category coverage, not a legend-only claim.**
+An audit of all six `EvidenceProvenance` categories against real
+production data sources and real UI surfaces found that two of the six
+— `legacyUnverified` and `userReportedEstimate` — appeared only in the
+calendar's own legend, with zero code path ever attaching either to an
+actually-rendered record. Both now have a real, tested surface:
+
+- `legacyUnverified`: the *legacy* `CycleCalendar` widget (Section
+  10's own F7 fix already touched its Semantics localization) is the
+  one place such a record can genuinely exist — the new canonical
+  calendar deliberately never reads `cycle_entries` at all. A day
+  whose `CycleLog.dataProvenance` is `legacyUnverified` now shows a
+  small, additional icon and an extended Semantics disclosure, reusing
+  the already-written (but previously uncalled) `provenanceForCycleLog`
+  mapping — the day's own haid/tahara marker logic is untouched; this
+  is purely an honest, additive visibility flag, never a claim the row
+  is now a canonical observation.
+- `userReportedEstimate`: `CycleBaselineRepositoryImpl.getBaseline`
+  already existed, written once during onboarding, but was never
+  called from anywhere in the app — the estimate had nowhere to be
+  displayed. Now shown as its own labeled summary line on the
+  canonical calendar, explicitly badged as an estimate, and — the
+  charter's own explicit prohibition — never attached to any specific
+  calendar day (an estimate is a stated generalization, not an
+  observation of a particular date; a dedicated test confirms a real
+  observed day's own Semantics label never mentions the estimate).
+
+**Fix 6 — correct the regression-baseline report.** Section 10's own
+baseline comparison used `915af02` — a checkpoint on this same PR
+branch, not the actual merge base. Re-verified via a fresh `git
+worktree` at the true merge base, `e4cc02e28c8df7220ed21090e3634311e1a3a28d`:
+all 10 of the previously-reported "pre-existing" failures are
+confirmed genuinely present there too — none was a false attribution.
+The one test that did *not* reproduce at the merge base,
+`notification_multi_day_continuity_test.dart`, was introduced within
+this PR itself and had a real flakiness of its own: it independently
+re-derived its expected reminder ids via a second, separate real-clock
+read, racing (astronomically rarely, but genuinely) against
+`BleedingEpisodeRepositoryImpl.localToday`'s own internal real-clock
+read inside `NotificationRefreshCoordinator.refresh()`.
+`localToday` is deliberately real-wall-clock-only by design (see its
+own dedicated test and PR #4 hardening Blocker 7 doc comment) — not a
+bug to "fix" by making it `AppClock`-injectable. The correct fix was in
+the test: compute "today" once, the same way the production code
+derives it, and reuse that single value throughout, rather than
+re-deriving it independently. Verified clean across 5 consecutive
+runs. `NotificationRefreshCoordinator.refresh()`'s own `now` was
+additionally switched from raw `DateTime.now()` to `AppClock.now()`
+for general consistency with this codebase's established time-
+injection pattern elsewhere (harmless — `AppClock.now()` defaults to
+real `DateTime.now()` in production, and no other test exercises
+`refresh()` directly).
+
+Final count after all six code fixes: **739 tests, 10 failures — all
+10 confirmed identical to the true merge-base baseline. Zero PR-
+introduced regressions remain.**
+
+**Fix 7 — validate the owner E4 script.** The prior wave's step 10
+("Notification delivery — multi-day, and tap in all three app states")
+chained a 5-day uninterrupted no-reopen delivery test together with a
+same-run notification tap — but tapping a notification reopens the
+app, which changes the very conditions the 5-day test was supposed to
+be measuring. Split into two independent steps: step 10 (five real
+days, delivery only, explicitly "do not tap anything") and a new step
+11 (tap in each of the three app states, as its own separate, later
+run using fresh notifications). All subsequent steps renumbered
+(12-15). Step 10's own stale "Failure signal" text (describing the
+now-removed two-tier hybrid) was also corrected to match Fix 1's new
+single-window architecture. The rest of the script's own constraint —
+every step is a real user-facing interaction with a plain pass/fail
+criterion, never asking the owner to inspect a server row count or
+diagnose a race condition — was already satisfied and is unchanged.
+
+All changes on this same branch, PR #4, still **draft and unmerged**.
+No `E4` (real device) evidence is claimed for any of these seven fixes.

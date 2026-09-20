@@ -165,32 +165,42 @@ you've even had a reason to want reminders.
 **Failure signal**: the OS permission prompt appears at app launch,
 before you've done anything that would need it.
 
-## 10. Notification delivery — multi-day, and tap in all three app states
+## 10. Notification delivery — five real days, uninterrupted
+
+This step is about delivery only — do not tap any notification during
+this run (that would reopen the app and change what this step is
+actually testing). Tapping is its own separate step 11, done
+afterward, on different notifications.
 
 1. With reminders enabled and a period being tracked, **force-quit the
-   app** (not just background it) and do not reopen it for **at least
-   5 real days**.
-2. Each day, check whether a reminder notification appeared at your
-   chosen time.
-3. On one of those days, tap the notification while the app is
-   **closed/terminated**. On another day (or a second test run), tap
-   one while the app is **backgrounded**. On a third, tap one while the
-   app is **already open and on-screen**.
+   app** (not just background it) and do not reopen it, and do not tap
+   any notification, for **at least 5 real days**.
+2. Each day, just glance at whether a reminder notification appeared at
+   your chosen time — do not open it, do not tap it, do not open the
+   app.
+3. After the 5 days, reopen the app normally.
 
 **Expected**: a reminder appears every one of those 5 days, without
-ever reopening the app yourself in between. Tapping it — in any of the
-three states — opens the correct daily check-in for that day, as long
-as you tap it the same day it arrived.
-**Failure signal**: reminders stop after day 1 or 2 (this is the
-specific, previously-known limit this wave addresses — a single
-precise reminder only reruns automatically for 7 days without
-reopening; a plainer daily nudge should still continue after that, but
-it may occasionally repeat itself, which is expected, not a bug —
-see `docs/founder-launch-confidence-dashboard.md`'s latest note for the
-full honest explanation); or tapping in any of the three states fails
-to open the check-in.
+ever reopening the app or tapping anything in between.
+**Failure signal**: reminders stop after day 1 or 2, or skip a day.
 
-## 11. Timezone change mid-window
+## 11. Notification tap — three app states
+
+A separate, later run from step 10 — using fresh notifications, not
+the ones from that 5-day stretch (those may already be several days
+old by the time you get here).
+
+With a reminder currently arriving, tap one while the app is
+**closed/terminated**. On another day (or a second test run), tap one
+while the app is **backgrounded**. On a third, tap one while the app is
+**already open and on-screen**.
+
+**Expected**: tapping — in any of the three states — opens the correct
+daily check-in, as long as you tap it the same day it arrived.
+**Failure signal**: tapping in any of the three states fails to open
+the check-in, or opens the wrong day.
+
+## 12. Timezone change mid-window
 
 With a reminder currently scheduled, travel (or simulate travel by
 changing your phone's timezone in Settings) to a different timezone —
@@ -205,7 +215,7 @@ time (Settings should still show the same clock-time preference, e.g.
 instead of the new one, well after you've reopened the app at least
 once since the change.
 
-## 12. Process-kill recovery
+## 13. Process-kill recovery
 
 1. Start a check-in, backfill, or correction.
 2. The instant you tap "Save," force-kill the app before you could
@@ -217,7 +227,7 @@ one save went through, and the app reflects it correctly once reopened
 (it may briefly show "syncing" first).
 **Failure signal**: the entry is missing, or it appears twice.
 
-## 13. UNKNOWN Madhhab — Fiqh state genuinely unavailable
+## 14. UNKNOWN Madhhab — Fiqh state genuinely unavailable
 
 With your Madhhab still set to "I don't know" (from step 1, or reset it
 in Settings), look at the dashboard's prayer-status area during an
@@ -230,7 +240,7 @@ picks a specific school for you.
 **Failure signal**: a specific ruling (Haid/Tahara/Istihadah) appears
 anyway, with no Madhhab ever selected.
 
-## 14. Account switch
+## 15. Account switch
 
 1. Sign out of the account you've been testing with.
 2. Sign into a **different** account (or create a new one) on the same
