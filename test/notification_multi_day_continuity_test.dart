@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:niswah/core/services/notification_service.dart';
+import 'package:niswah/core/utils/app_clock.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/load_result.dart';
@@ -57,6 +60,14 @@ BleedingEpisode _endedEpisode({
 class _FakeOpenEpisodeRepository extends BleedingEpisodeRepositoryImpl {
   _FakeOpenEpisodeRepository() : super(client: null);
 
+  /// New critical finding (local notification reconciliation closure) —
+  /// the whole point of reconciling against the OS's own actual pending
+  /// set is that a disable/verified-no-open-episode cancellation must
+  /// never need a second Supabase read to decide what to cancel. This
+  /// counter is the direct proof: it must stay at 0 across every
+  /// cancellation-flow test below.
+  int getEpisodesForUserCallCount = 0;
+
   @override
   Future<LoadResult<BleedingEpisode?>> getOpenEpisode(String userId) async {
     return LoadSuccess(_openEpisode(userId: userId));
@@ -65,7 +76,10 @@ class _FakeOpenEpisodeRepository extends BleedingEpisodeRepositoryImpl {
   @override
   Future<LoadResult<List<BleedingEpisode>>> getEpisodesForUser(
     String userId,
-  ) async => LoadSuccess([_openEpisode(userId: userId)]);
+  ) async {
+    getEpisodesForUserCallCount++;
+    return LoadSuccess([_openEpisode(userId: userId)]);
+  }
 
   @override
   Future<LoadResult<List<BleedingObservation>>> getObservationsForEpisode(
@@ -85,6 +99,7 @@ class _FakeRemotelyEndedEpisodeRepository
 
   final DateTime today;
   bool episodeHasEnded = false;
+  int getEpisodesForUserCallCount = 0;
 
   @override
   Future<LoadResult<BleedingEpisode?>> getOpenEpisode(String userId) async {
@@ -95,12 +110,15 @@ class _FakeRemotelyEndedEpisodeRepository
   @override
   Future<LoadResult<List<BleedingEpisode>>> getEpisodesForUser(
     String userId,
-  ) async => LoadSuccess([
-    if (episodeHasEnded)
-      _endedEpisode(userId: userId, startDate: today, endDate: today)
-    else
-      _openEpisode(userId: userId, startDate: today),
-  ]);
+  ) async {
+    getEpisodesForUserCallCount++;
+    return LoadSuccess([
+      if (episodeHasEnded)
+        _endedEpisode(userId: userId, startDate: today, endDate: today)
+      else
+        _openEpisode(userId: userId, startDate: today),
+    ]);
+  }
 
   @override
   Future<LoadResult<List<BleedingObservation>>> getObservationsForEpisode(
@@ -110,9 +128,14 @@ class _FakeRemotelyEndedEpisodeRepository
 
 /// A genuine read failure — must never be treated as "verified: no open
 /// episode" (Closure Blocker 1), so nothing should ever be cancelled
-/// because of this repository's own responses.
+/// because of this repository's own responses. Both reads are
+/// deliberately unavailable, not only [getOpenEpisode], to prove the
+/// disable flow's own independence from Supabase entirely — even a
+/// fully-unreachable backend must not block a local opt-out.
 class _FakeUnavailableRepository extends BleedingEpisodeRepositoryImpl {
   _FakeUnavailableRepository() : super(client: null);
+
+  int getEpisodesForUserCallCount = 0;
 
   @override
   Future<LoadResult<BleedingEpisode?>> getOpenEpisode(String userId) async =>
@@ -121,7 +144,10 @@ class _FakeUnavailableRepository extends BleedingEpisodeRepositoryImpl {
   @override
   Future<LoadResult<List<BleedingEpisode>>> getEpisodesForUser(
     String userId,
-  ) async => const LoadUnavailable(LoadErrorCategory.network);
+  ) async {
+    getEpisodesForUserCallCount++;
+    return const LoadUnavailable(LoadErrorCategory.network);
+  }
 }
 
 /// New critical finding — multi-day notification continuity. Exercises
@@ -139,6 +165,17 @@ void main() {
   var cancelAllCallCount = 0;
   final rejectCancelIds = <int>{};
 
+  // New critical finding (local notification reconciliation closure) —
+  // a stateful simulation of the OS's own actual pending-request set,
+  // the exact thing `pendingNotificationRequests()` is meant to reflect:
+  // populated on `zonedSchedule`, removed on a genuinely-accepted
+  // `cancel`/`cancelAll`. This is what makes it possible to test
+  // `NotificationService.pendingActiveBleedingReminders()` — and, in
+  // turn, the coordinator's own set-reconciliation logic — against a
+  // real mocked platform channel rather than merely asserting on the
+  // call log.
+  final pendingRequests = <int, Map<String, dynamic>>{};
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     AndroidFlutterLocalNotificationsPlugin.registerWith();
@@ -146,6 +183,7 @@ void main() {
     cancelledIds.clear();
     cancelAllCallCount = 0;
     rejectCancelIds.clear();
+    pendingRequests.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_pluginChannel, (call) async {
           switch (call.method) {
@@ -155,7 +193,15 @@ void main() {
             case 'getNotificationAppLaunchDetails':
               return null;
             case 'zonedSchedule':
-              zonedScheduleCalls.add(call.arguments as Map<dynamic, dynamic>);
+              final args = call.arguments as Map<dynamic, dynamic>;
+              zonedScheduleCalls.add(args);
+              final id = args['id'] as int;
+              pendingRequests[id] = {
+                'id': id,
+                'title': args['title'],
+                'body': args['body'],
+                'payload': args['payload'],
+              };
               return null;
             case 'cancel':
               final id = call.arguments['id'] as int;
@@ -166,10 +212,14 @@ void main() {
                 );
               }
               cancelledIds.add(id);
+              pendingRequests.remove(id);
               return null;
             case 'cancelAll':
               cancelAllCallCount++;
+              pendingRequests.clear();
               return null;
+            case 'pendingNotificationRequests':
+              return pendingRequests.values.toList();
             case 'areNotificationsEnabled':
               return true;
             default:
@@ -191,6 +241,7 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_pluginChannel, null);
+    AppClock.reset();
   });
 
   test('a single refresh (simulating the app never being reopened again) '
@@ -338,7 +389,7 @@ void main() {
     });
   });
 
-  group('New critical finding — notification cancellation closure', () {
+  group('New critical finding — local notification reconciliation closure', () {
     DateTime today() => BleedingEpisodeRepositoryImpl.localToday(
       DateTime.now().timeZoneOffset.inMinutes,
     );
@@ -364,46 +415,229 @@ void main() {
       await preferenceRepository.savePreferences(current);
     }
 
-    test('1. schedule 30 reminders, then disable — zero outstanding '
-        'active-bleeding reminders (every id genuinely cancelled)', () async {
-      final day = today();
+    // Cycle/pregnancy/wellbeing all default to enabled (unlike
+    // active-bleeding, which defaults off) — `pendingRequests` as a
+    // whole legitimately contains their own ids too (wellbeing's fixed
+    // id in particular, scheduled unconditionally whenever enabled, with
+    // no data dependency). Every assertion below that means "the 30
+    // active-bleeding ids" must filter down to exactly those — by
+    // payload `type`/`userId`, mirroring the real production
+    // reconciliation filter — rather than asserting on the raw pending
+    // map, which would otherwise be contaminated by those unrelated,
+    // legitimately-still-scheduled types.
+    Set<int> activeBleedingPendingIds({required String userId}) =>
+        pendingRequests.entries
+            .where((entry) {
+              final payload = entry.value['payload'];
+              if (payload is! String) return false;
+              try {
+                final decoded = jsonDecode(payload);
+                return decoded is Map &&
+                    decoded['type'] == 'activeBleedingCheckin' &&
+                    decoded['userId'] == userId;
+              } catch (_) {
+                return false;
+              }
+            })
+            .map((entry) => entry.key)
+            .toSet();
+
+    test('1. 30 scheduled, then Supabase unavailable, then disabled — zero '
+        'owned active-bleeding pending requests remain (an explicit local '
+        'opt-out never depends on a Supabase read to take effect)', () async {
       final repository = _FakeOpenEpisodeRepository();
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
         bleedingRepository: repository,
         preferenceRepository: null,
       );
-      final ids = windowIds(
+      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+
+      await setActiveBleedingEnabled(false);
+      final unavailableRepository = _FakeUnavailableRepository();
+      await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
-        episodeId: 'episode-1',
-        start: day,
+        bleedingRepository: unavailableRepository,
+        preferenceRepository: null,
+      );
+
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        isEmpty,
+        reason:
+            'every one of the 30 owned active-bleeding requests must be '
+            'cancelled locally, purely from the OS\'s own pending set — '
+            'both getOpenEpisode AND getEpisodesForUser on this repository '
+            'are wired to LoadUnavailable, and the disable still succeeds',
       );
       expect(
-        zonedScheduleCalls.where((c) => ids.contains(c['id'])),
-        hasLength(30),
+        unavailableRepository.getEpisodesForUserCallCount,
+        0,
+        reason:
+            'the disable flow must never call getEpisodesForUser (a '
+            'Supabase read) to discover what to cancel',
+      );
+    });
+
+    test('2. Supabase unavailable while enabled — no false inference of '
+        'episode end (a read failure stays honestly unknown)', () async {
+      final repository = _FakeOpenEpisodeRepository();
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: _FakeUnavailableRepository(),
+        preferenceRepository: null,
       );
 
-      await setActiveBleedingEnabled(false);
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        hasLength(30),
+        reason:
+            '"could not verify" must never be treated as "verified: no '
+            'open episode" — the honest response is to leave whatever is '
+            'already scheduled untouched',
+      );
+    });
+
+    test('3. a verified clean "no open episode" cancels local pending '
+        'requests without any second getEpisodesForUser query', () async {
+      final day = today();
+      final repository = _FakeRemotelyEndedEpisodeRepository(today: day);
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+      expect(repository.getEpisodesForUserCallCount, 0);
+
+      repository.episodeHasEnded = true;
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
         bleedingRepository: repository,
         preferenceRepository: null,
       );
 
-      for (final id in ids) {
-        expect(
-          cancelledIds,
-          contains(id),
-          reason:
-              'reminder id $id must be cancelled once the '
-              'preference is disabled, not merely left unscheduled '
-              'going forward',
-        );
-      }
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        isEmpty,
+        reason:
+            'once getOpenEpisode cleanly returns null (VERIFIED, not a '
+            'read failure), every owned pending request must be '
+            'cancelled — this covers an episode ended on a different '
+            'device just as much as one ended here',
+      );
+      expect(
+        repository.getEpisodesForUserCallCount,
+        0,
+        reason:
+            'the verified-no-open-episode cancellation path must reconcile '
+            'against the OS\'s own pending set, never a second '
+            'getEpisodesForUser Supabase read',
+      );
     });
 
-    test('2. disable then re-enable — one valid (freshly scheduled) '
-        'reminder per eligible day, not a permanently cancelled one', () async {
+    test('4. a device timezone shift backward across a calendar boundary '
+        'removes the old far-edge notification no longer in the new '
+        'desired window', () async {
+      // Deliberately far in the future (2030), not merely "tomorrow" —
+      // `flutter_local_notifications` itself validates every
+      // `zonedSchedule` call's `scheduledDate` against the REAL wall
+      // clock (`tz.TZDateTime.now(tz.local)`), not against this test's
+      // own AppClock injection; a date anywhere near the real "now"
+      // could otherwise land in the real past for one of the two
+      // refreshes below and be rejected by the plugin itself.
+      AppClock.now = () => DateTime(2030, 1, 15, 12, 0);
+      final repository = _FakeOpenEpisodeRepository();
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+      final oldFarEdgeId = ActiveBleedingReminderScheduler.reminderId(
+        userId: 'user-1',
+        episodeId: 'episode-1',
+        localDay: DateTime(2030, 2, 13),
+      );
+      expect(pendingRequests.containsKey(oldFarEdgeId), isTrue);
+
+      // The device's own timezone changes backward — "today" itself
+      // moves back one calendar day (the charter's own worked example:
+      // Sep 21 -> Sep 20, reproduced here as Jan 15 -> Jan 14).
+      // AppClock.now feeds
+      // ActiveBleedingReminderScheduler.planRollingDailyCheckins's own
+      // "today" directly; this is a faithful, honest exercise of the
+      // reconciliation mechanism's reaction to a shifted desired window,
+      // whatever its real-world cause — a genuine device timezone change
+      // itself remains E4-only, not exercised here.
+      AppClock.now = () => DateTime(2030, 1, 14, 12, 0);
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+
+      expect(
+        pendingRequests.containsKey(oldFarEdgeId),
+        isFalse,
+        reason:
+            'Feb 13 is no longer part of the new Jan 14 - Feb 12 desired '
+            'window and must be cancelled',
+      );
+      final newNearEdgeId = ActiveBleedingReminderScheduler.reminderId(
+        userId: 'user-1',
+        episodeId: 'episode-1',
+        localDay: DateTime(2030, 1, 14),
+      );
+      expect(pendingRequests.containsKey(newNearEdgeId), isTrue);
+    });
+
+    test('5. a device timezone shift forward across a calendar boundary '
+        'removes the old past notification and adds the new far-edge '
+        'one', () async {
+      AppClock.now = () => DateTime(2030, 1, 14, 12, 0);
+      final repository = _FakeOpenEpisodeRepository();
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+      final oldNearEdgeId = ActiveBleedingReminderScheduler.reminderId(
+        userId: 'user-1',
+        episodeId: 'episode-1',
+        localDay: DateTime(2030, 1, 14),
+      );
+      expect(pendingRequests.containsKey(oldNearEdgeId), isTrue);
+
+      AppClock.now = () => DateTime(2030, 1, 15, 12, 0);
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+
+      expect(
+        pendingRequests.containsKey(oldNearEdgeId),
+        isFalse,
+        reason: 'Jan 14 is now in the past relative to the new today',
+      );
+      final newFarEdgeId = ActiveBleedingReminderScheduler.reminderId(
+        userId: 'user-1',
+        episodeId: 'episode-1',
+        localDay: DateTime(2030, 2, 13),
+      );
+      expect(pendingRequests.containsKey(newFarEdgeId), isTrue);
+    });
+
+    test('6. changing the preferred reminder time reschedules the same '
+        'logical days, reflects the new time, and leaves no stale '
+        'duplicate requests', () async {
       final day = today();
       final repository = _FakeOpenEpisodeRepository();
       await NotificationRefreshCoordinator.refresh(
@@ -411,47 +645,12 @@ void main() {
         bleedingRepository: repository,
         preferenceRepository: null,
       );
-
-      await setActiveBleedingEnabled(false);
-      await NotificationRefreshCoordinator.refresh(
-        userId: 'user-1',
-        bleedingRepository: repository,
-        preferenceRepository: null,
-      );
-
-      await setActiveBleedingEnabled(true);
-      await NotificationRefreshCoordinator.refresh(
-        userId: 'user-1',
-        bleedingRepository: repository,
-        preferenceRepository: null,
-      );
-
       final ids = windowIds(
         userId: 'user-1',
         episodeId: 'episode-1',
         start: day,
       );
-      for (final id in ids) {
-        final callsForId = zonedScheduleCalls.where((c) => c['id'] == id);
-        expect(
-          callsForId.length,
-          greaterThanOrEqualTo(2),
-          reason:
-              'id $id must have been scheduled again after re-enabling '
-              '— once initially, and again once re-enabled',
-        );
-      }
-    });
-
-    test('3. changing the preferred reminder time reschedules outstanding '
-        'reminders to the new time', () async {
-      final day = today();
-      final repository = _FakeOpenEpisodeRepository();
-      await NotificationRefreshCoordinator.refresh(
-        userId: 'user-1',
-        bleedingRepository: repository,
-        preferenceRepository: null,
-      );
+      expect(activeBleedingPendingIds(userId: 'user-1'), ids);
 
       final todaysId = ActiveBleedingReminderScheduler.reminderId(
         userId: 'user-1',
@@ -513,124 +712,18 @@ void main() {
       );
       expect(firstMinute, 0);
       expect(secondMinute, 30);
-    });
-
-    test('4. an episode verified to have ended remotely is cancelled on '
-        'this device\'s next successful refresh', () async {
-      final day = today();
-      final repository = _FakeRemotelyEndedEpisodeRepository(today: day);
-      await NotificationRefreshCoordinator.refresh(
-        userId: 'user-1',
-        bleedingRepository: repository,
-        preferenceRepository: null,
-      );
-      final ids = windowIds(
-        userId: 'user-1',
-        episodeId: 'episode-1',
-        start: day,
-      );
       expect(
-        zonedScheduleCalls.where((c) => ids.contains(c['id'])),
-        hasLength(30),
-      );
-
-      repository.episodeHasEnded = true;
-      await NotificationRefreshCoordinator.refresh(
-        userId: 'user-1',
-        bleedingRepository: repository,
-        preferenceRepository: null,
-      );
-
-      for (final id in ids) {
-        expect(
-          cancelledIds,
-          contains(id),
-          reason:
-              'once this device verifies (not merely suspects) the '
-              'episode has ended, every id from that episode\'s window '
-              'must be cancelled — it was ended on a different device, '
-              'so this device\'s own end-episode call sites never ran',
-        );
-      }
-    });
-
-    test(
-      '5. a genuine read failure never triggers a false cancellation',
-      () async {
-        await NotificationRefreshCoordinator.refresh(
-          userId: 'user-1',
-          bleedingRepository: _FakeUnavailableRepository(),
-          preferenceRepository: null,
-        );
-
-        // The unrelated cycle/pregnancy/nifas planners legitimately
-        // cancel their own small, fixed ids on every refresh when they
-        // have nothing to schedule (pre-existing, correct behavior,
-        // entirely independent of this fake repository) — this test is
-        // specifically about the ACTIVE-BLEEDING sweep never firing a
-        // false cancellation from a read failure, so only its own
-        // (large, hashed) ids are asserted against here.
-        const fixedNonActiveBleedingIds = {
-          NotificationScheduler.cycleNotificationId,
-          NotificationScheduler.pregnancyNotificationId,
-          NotificationScheduler.nifasNotificationId,
-          NotificationRefreshCoordinator.wellbeingReminderId,
-        };
-        expect(
-          cancelledIds.where((id) => !fixedNonActiveBleedingIds.contains(id)),
-          isEmpty,
-          reason:
-              '"could not verify" must never be treated as "verified: '
-              'nothing to schedule" — the honest response is to leave '
-              'whatever is already scheduled untouched; no active-'
-              'bleeding-specific id may ever appear here',
-        );
-      },
-    );
-
-    test('6. account switch — cancelAll reaches the platform, and the new '
-        'account\'s own reminders schedule independently afterward', () async {
-      await NotificationRefreshCoordinator.refresh(
-        userId: 'user-1',
-        bleedingRepository: _FakeOpenEpisodeRepository(),
-        preferenceRepository: null,
-      );
-
-      await NotificationService.instance.cancelAll();
-      expect(
-        cancelAllCallCount,
-        1,
+        activeBleedingPendingIds(userId: 'user-1'),
+        ids,
         reason:
-            'this is the real mechanism AuthController wires at '
-            'sign-out — verified here at the platform-channel level',
+            'the exact same 30 logical days remain pending — an unchanged '
+            'id is idempotently replaced, never duplicated alongside a '
+            'stale copy',
       );
-
-      final day = today();
-      await NotificationRefreshCoordinator.refresh(
-        userId: 'user-2',
-        bleedingRepository: _FakeOpenEpisodeRepository(),
-        preferenceRepository: null,
-      );
-      final user2Ids = windowIds(
-        userId: 'user-2',
-        episodeId: 'episode-1',
-        start: day,
-      );
-      for (final id in user2Ids) {
-        expect(
-          zonedScheduleCalls.any((c) => c['id'] == id),
-          isTrue,
-          reason:
-              'the new account\'s own reminders must schedule '
-              'independently of whatever cancelAll just cleared',
-        );
-      }
     });
 
-    test('7. a rejected platform cancellation is never recorded as a false '
-        '"cancelled" audit event, and recovery remains possible once the '
-        'platform accepts the call again', () async {
-      final day = today();
+    test('7. a malformed pending-notification payload is ignored safely, '
+        'never crashes the sweep', () async {
       final repository = _FakeOpenEpisodeRepository();
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
@@ -638,12 +731,13 @@ void main() {
         preferenceRepository: null,
       );
 
-      final todaysId = ActiveBleedingReminderScheduler.reminderId(
-        userId: 'user-1',
-        episodeId: 'episode-1',
-        localDay: day,
-      );
-      rejectCancelIds.add(todaysId);
+      const malformedId = 777777;
+      pendingRequests[malformedId] = {
+        'id': malformedId,
+        'title': 'x',
+        'body': 'y',
+        'payload': 'not-valid-json{{{',
+      };
 
       await setActiveBleedingEnabled(false);
       await NotificationRefreshCoordinator.refresh(
@@ -652,30 +746,71 @@ void main() {
         preferenceRepository: null,
       );
 
-      expect(cancelledIds, isNot(contains(todaysId)));
-      final eventsForId = await NotificationEventLogStore.loadForReminder(
-        todaysId.toString(),
+      expect(
+        pendingRequests.containsKey(malformedId),
+        isTrue,
+        reason:
+            'a malformed payload must never be treated as an owned '
+            'active-bleeding request — it is excluded, not crashed on, '
+            'and left untouched here (this disable call must still '
+            'complete and cancel every one of user-1\'s real 30 ids)',
       );
       expect(
-        eventsForId.any((e) => e.state == NotificationEventState.cancelled),
-        isFalse,
+        activeBleedingPendingIds(userId: 'user-1'),
+        isEmpty,
         reason:
-            'a platform rejection must never be recorded as a '
-            'successful cancellation — the notification may still be '
-            'live',
+            'every one of user-1\'s real active-bleeding ids must '
+            'still be cancelled despite the unrelated malformed entry',
       );
+    });
 
-      // Recovery: the platform now accepts the call.
-      rejectCancelIds.remove(todaysId);
+    test('8. a pending active-bleeding request for another user is '
+        'untouched while the current user\'s preference is disabled', () async {
+      final repository = _FakeOpenEpisodeRepository();
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
         bleedingRepository: repository,
         preferenceRepository: null,
       );
-      expect(cancelledIds, contains(todaysId));
+
+      const otherUserRequestId = 918273;
+      pendingRequests[otherUserRequestId] = {
+        'id': otherUserRequestId,
+        'title': 'x',
+        'body': 'y',
+        'payload': jsonEncode({
+          'type': 'activeBleedingCheckin',
+          'userId': 'user-2',
+          'episodeId': 'episode-other',
+          'localDate': '2026-09-25',
+        }),
+      };
+
+      await setActiveBleedingEnabled(false);
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        isEmpty,
+        reason:
+            'every one of user-1\'s own real ids must still be '
+            'cancelled',
+      );
+      expect(
+        pendingRequests.containsKey(otherUserRequestId),
+        isTrue,
+        reason:
+            'account isolation — only requests the payload structurally '
+            'attributes to the current signed-in user may be cancelled; '
+            'user-2\'s own request must survive user-1\'s own disable',
+      );
     });
 
-    test('8. other notification types are never touched by the '
+    test('9. other notification types are never touched by the '
         'active-bleeding cancellation sweep', () async {
       final preferenceRepository = NotificationRepositoryImpl();
       final current = await preferenceRepository.loadPreferences();
@@ -719,12 +854,146 @@ void main() {
           .length;
       expect(wellbeingScheduleCount, 2);
       expect(
-        cancelledIds,
-        isNot(contains(NotificationRefreshCoordinator.wellbeingReminderId)),
+        pendingRequests.containsKey(
+          NotificationRefreshCoordinator.wellbeingReminderId,
+        ),
+        isTrue,
         reason:
             'disabling active-bleeding must never cancel an unrelated, '
             'still-enabled reminder type',
       );
+    });
+
+    test('10. one rejected cancellation never stops the rest from being '
+        'attempted, and is never recorded as a false "cancelled" audit '
+        'event; recovery remains possible once the platform accepts the '
+        'call again', () async {
+      final day = today();
+      final repository = _FakeOpenEpisodeRepository();
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+      final ids = windowIds(
+        userId: 'user-1',
+        episodeId: 'episode-1',
+        start: day,
+      );
+      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+
+      final rejectedId = ids.first;
+      rejectCancelIds.add(rejectedId);
+
+      await setActiveBleedingEnabled(false);
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+
+      expect(
+        pendingRequests.containsKey(rejectedId),
+        isTrue,
+        reason: 'the rejected id is still live — the platform refused it',
+      );
+      final eventsForRejected = await NotificationEventLogStore.loadForReminder(
+        rejectedId.toString(),
+      );
+      expect(
+        eventsForRejected.any(
+          (e) => e.state == NotificationEventState.cancelled,
+        ),
+        isFalse,
+        reason:
+            'a platform rejection must never be recorded as a successful '
+            'cancellation — the notification may still be live',
+      );
+      for (final id in ids.where((id) => id != rejectedId)) {
+        expect(
+          pendingRequests.containsKey(id),
+          isFalse,
+          reason:
+              'every OTHER owned id must still have been attempted and '
+              'cancelled — one rejection must never abort the rest of '
+              'the sweep',
+        );
+      }
+
+      // Recovery: the platform now accepts the call.
+      rejectCancelIds.remove(rejectedId);
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+      expect(pendingRequests.containsKey(rejectedId), isFalse);
+    });
+
+    test('11. disable then re-enable — one freshly-scheduled reminder per '
+        'eligible day, not a permanently cancelled one', () async {
+      final day = today();
+      final repository = _FakeOpenEpisodeRepository();
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+
+      await setActiveBleedingEnabled(false);
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+      expect(activeBleedingPendingIds(userId: 'user-1'), isEmpty);
+
+      await setActiveBleedingEnabled(true);
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: repository,
+        preferenceRepository: null,
+      );
+
+      final ids = windowIds(
+        userId: 'user-1',
+        episodeId: 'episode-1',
+        start: day,
+      );
+      expect(activeBleedingPendingIds(userId: 'user-1'), ids);
+    });
+
+    test('12. account switch — cancelAll reaches the platform, and the new '
+        'account\'s own reminders schedule independently afterward', () async {
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-1',
+        bleedingRepository: _FakeOpenEpisodeRepository(),
+        preferenceRepository: null,
+      );
+      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+
+      await NotificationService.instance.cancelAll();
+      expect(
+        cancelAllCallCount,
+        1,
+        reason:
+            'this is the real mechanism AuthController wires at '
+            'sign-out — verified here at the platform-channel level',
+      );
+      expect(pendingRequests, isEmpty);
+
+      final day = today();
+      await NotificationRefreshCoordinator.refresh(
+        userId: 'user-2',
+        bleedingRepository: _FakeOpenEpisodeRepository(),
+        preferenceRepository: null,
+      );
+      final user2Ids = windowIds(
+        userId: 'user-2',
+        episodeId: 'episode-1',
+        start: day,
+      );
+      expect(activeBleedingPendingIds(userId: 'user-2'), user2Ids);
     });
   });
 }

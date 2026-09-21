@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
@@ -36,6 +37,31 @@ enum NotificationSchedulingOutcome {
   /// [NotificationService.initialize] has not yet completed — nothing
   /// was attempted at all.
   uninitialized,
+}
+
+/// New critical finding (local notification reconciliation closure) — a
+/// clean, structural view of one owned active-bleeding pending OS
+/// request, decoded from Commit E7's own opaque payload shape (`type`,
+/// `userId`, `episodeId`, `localDate` — never flow/Madhhab/notes/Fiqh
+/// content). Deliberately never exposes the plugin's own
+/// `PendingNotificationRequest` (which also carries the raw title/body
+/// text) to any caller outside this file.
+class PendingActiveBleedingReminder {
+  const PendingActiveBleedingReminder({
+    required this.id,
+    required this.userId,
+    required this.episodeId,
+    required this.localDate,
+  });
+
+  final int id;
+  final String userId;
+  final String episodeId;
+
+  /// `yyyy-MM-dd` — the logical local calendar day this reminder is
+  /// about, exactly as [ActiveBleedingReminderScheduler.payloadFor]
+  /// wrote it.
+  final String localDate;
 }
 
 /// Thin wrapper around `flutter_local_notifications` — the only file in
@@ -413,6 +439,72 @@ class NotificationService {
       );
       return false;
     }
+  }
+
+  /// New critical finding (local notification reconciliation closure) —
+  /// the OS's own actual pending-request set is the sole authority for
+  /// what an active-bleeding reconciliation pass should cancel, not this
+  /// app's own inferred guess (derived from episode history, which in
+  /// turn required a Supabase read that could itself be offline). This
+  /// call is purely local — `pendingNotificationRequests()` talks only
+  /// to the platform plugin, never Supabase — so it works correctly in
+  /// airplane mode, during a backend outage, or with an expired session.
+  ///
+  /// Filters to only `type: 'activeBleedingCheckin'` payloads with all
+  /// three required fields present as strings; a different notification
+  /// type, a payload that isn't valid JSON, or one missing a required
+  /// field is silently excluded rather than crashing the whole sweep
+  /// over one bad entry. A genuine platform-channel failure here returns
+  /// an empty list — "unknown," never "confirmed nothing pending" — so
+  /// a caller must treat an empty result from a failed read the same
+  /// honest way Closure Blocker 1 already treats any other unknown: as
+  /// nothing to safely act on, not as verified-empty.
+  Future<List<PendingActiveBleedingReminder>>
+  pendingActiveBleedingReminders() async {
+    if (!_initialized) return const [];
+    List<PendingNotificationRequest> requests;
+    try {
+      requests = await _plugin.pendingNotificationRequests();
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.pendingActiveBleedingReminders',
+      );
+      return const [];
+    }
+
+    final owned = <PendingActiveBleedingReminder>[];
+    for (final request in requests) {
+      final payload = request.payload;
+      if (payload == null) continue;
+      Map<String, dynamic>? decoded;
+      try {
+        final parsed = jsonDecode(payload);
+        if (parsed is Map<String, dynamic>) decoded = parsed;
+      } catch (_) {
+        // Malformed payload (not valid JSON, or not a JSON object) —
+        // ignored safely, never aborts the sweep over the rest.
+      }
+      if (decoded == null) continue;
+      if (decoded['type'] != 'activeBleedingCheckin') continue;
+      final userId = decoded['userId'];
+      final episodeId = decoded['episodeId'];
+      final localDate = decoded['localDate'];
+      if (userId is! String || episodeId is! String || localDate is! String) {
+        // Missing/malformed required field — never treated as owned.
+        continue;
+      }
+      owned.add(
+        PendingActiveBleedingReminder(
+          id: request.id,
+          userId: userId,
+          episodeId: episodeId,
+          localDate: localDate,
+        ),
+      );
+    }
+    return owned;
   }
 
   /// Commit E9 — account signout/switch: every reminder scheduled belongs

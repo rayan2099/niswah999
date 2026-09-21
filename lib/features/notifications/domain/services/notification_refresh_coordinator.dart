@@ -122,22 +122,17 @@ class NotificationRefreshCoordinator {
     final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
 
     if (!enabled || userId == null) {
-      // New critical finding (notification cancellation closure, Finding
-      // 1) — disabling the preference must actually cancel whatever is
-      // already scheduled, not merely stop scheduling anything new (the
-      // prior "the OS never fires an id that was never scheduled this
-      // session" reasoning only covered a fresh install/session; it was
-      // silently wrong for the far more common case of an already-
-      // scheduled window from BEFORE she turned this off). No session at
-      // all (signed out) has nothing further to do here — Commit E9's
-      // own `cancelAll()` at sign-out already covers that case.
+      // New critical finding (local notification reconciliation closure,
+      // Finding 1) — an explicit local opt-out must take effect locally
+      // even with Supabase offline/unreachable, airplane mode, or an
+      // expired/refreshing session: this must NEVER go through
+      // `getEpisodesForUser` (a Supabase read) to decide what to cancel.
+      // The OS's own actual pending-request set is the sole authority
+      // here. No session at all (signed out) has nothing further to do
+      // — Commit E9's own `cancelAll()` at sign-out already covers that
+      // case, broader by explicit design.
       if (userId != null) {
-        await _cancelStaleActiveBleedingWindows(
-          bleedingRepository: bleedingRepository,
-          userId: userId,
-          today: today,
-          now: now,
-        );
+        await _cancelAllOwnedActiveBleedingReminders(userId: userId, now: now);
       }
       return;
     }
@@ -151,21 +146,17 @@ class NotificationRefreshCoordinator {
     if (episodeResult is LoadUnavailable<BleedingEpisode?>) return;
     final episode = episodeResult.dataOrNull;
     if (!ActiveBleedingReminderScheduler.isEligible(episode)) {
-      // New critical finding (notification cancellation closure, Finding
-      // 2) — a *verified* absence of an open episode (as opposed to a
-      // read failure, handled above) must reconcile the schedule too:
-      // this covers an episode ended on a *different* device, which
-      // never ran through this device's own local end-episode
-      // cancellation call sites (start_bleeding_sheet.dart/
-      // daily_checkin_sheet.dart). Only reached once this device's own
-      // next successful refresh confirms it — never claimed
-      // instantaneous while offline or never reopened.
-      await _cancelStaleActiveBleedingWindows(
-        bleedingRepository: bleedingRepository,
-        userId: userId,
-        today: today,
-        now: now,
-      );
+      // New critical finding (local notification reconciliation closure,
+      // Finding 2) — a *verified* absence of an open episode (as opposed
+      // to a read failure, handled above — `getOpenEpisode` returning a
+      // clean `null` is VERIFIED, never inferred) covers both "she ended
+      // it here" and "it ended on a different device." No second
+      // `getEpisodesForUser` read is needed to discover what to cancel —
+      // the OS pending set already says exactly what is live. Only
+      // reached once this device's own next successful refresh confirms
+      // it — never claimed instantaneous while offline or never
+      // reopened.
+      await _cancelAllOwnedActiveBleedingReminders(userId: userId, now: now);
       return;
     }
 
@@ -207,64 +198,44 @@ class NotificationRefreshCoordinator {
       daysAhead: _rollingWindowDays,
     );
 
-    // E6: if today's own obligation is already satisfied, the rolling
-    // plan set above deliberately omits it (every other day the window
-    // covers is still optimistically planned) — cancel today's own id
-    // specifically, computed the same stable way it would have been
-    // scheduled, so a check-in completed *after* today's reminder
-    // already fired still cancels the (now-moot) notification rather
-    // than leaving it dangling.
-    final todaysId = ActiveBleedingReminderScheduler.reminderId(
-      userId: userId,
-      episodeId: episodeId,
-      localDay: today,
-    );
-    final todaysPlanStillPending = plans.any((p) => p.id == todaysId);
-    if (!todaysPlanStillPending) {
+    // New critical finding (local notification reconciliation closure,
+    // Finding 2/set reconciliation) — `desiredIds` is exactly the set of
+    // ids the current 30-day plan wants scheduled (E6: today's own id is
+    // already absent here when today's obligation is satisfied). Rather
+    // than trying to infer what MAY have been scheduled by scanning
+    // episode history (the prior approach — fragile under a timezone
+    // shift, and blind to a rejected cancel that silently left an id
+    // live), this reconciles against what ACTUALLY is registered with
+    // the OS for this exact user+episode right now:
+    // `actualOwnedPendingIds - desiredIds` is cancelled; every desired id
+    // is (re)scheduled below regardless, an idempotent replace for one
+    // already correct. This one pass alone covers stale same-day ids
+    // (today satisfied), stale past-day ids (day-forward progression), a
+    // stale far-future id left behind by a timezone shift, and a stale
+    // id left behind by a preferred-time change — all without needing
+    // separate bespoke sweeps for each cause, and without depending on
+    // `episode.startDate` to bound a guess.
+    final pending = await NotificationService.instance
+        .pendingActiveBleedingReminders();
+    final desiredIds = plans.map((p) => p.id).toSet();
+    for (final owned in pending) {
+      if (owned.userId != userId || owned.episodeId != episodeId) continue;
+      if (desiredIds.contains(owned.id)) continue;
       // New integrity finding — a failed cancellation must never be
       // recorded as a successful one; the notification may still be
-      // live, and the audit trail must say so honestly.
-      final cancelled = await NotificationService.instance.cancel(todaysId);
+      // live, and the audit trail must say so honestly, leaving it
+      // visible for a later retry rather than a false "cancelled".
+      final cancelled = await NotificationService.instance.cancel(owned.id);
       if (cancelled) {
         await _recordEventOnce(
-          reminderId: todaysId.toString(),
+          reminderId: owned.id.toString(),
           state: NotificationEventState.cancelled,
           userId: userId,
           episodeId: episodeId,
-          logicalLocalDate: today,
+          logicalLocalDate: _parseIsoDate(owned.localDate) ?? today,
           now: now,
         );
       }
-    }
-
-    // New critical finding (notification cancellation closure, Finding
-    // 3) — a genuine timezone change (or, far more mundanely, simple
-    // day-forward progression) can leave a PRIOR refresh's own scheduled
-    // ids pointing at days strictly before today's own window start —
-    // never legitimately part of `[today, today + _rollingWindowDays -
-    // 1]`. `episode.startDate` bounds how far back this can ever
-    // realistically reach, so this stays cheap for a real, short-lived
-    // episode.
-    var staleDay = _dateOnly(episode.startDate);
-    final staleBoundary = today.subtract(const Duration(days: 1));
-    while (!staleDay.isAfter(staleBoundary)) {
-      final staleId = ActiveBleedingReminderScheduler.reminderId(
-        userId: userId,
-        episodeId: episodeId,
-        localDay: staleDay,
-      );
-      final cancelled = await NotificationService.instance.cancel(staleId);
-      if (cancelled) {
-        await _recordEventOnce(
-          reminderId: staleId.toString(),
-          state: NotificationEventState.cancelled,
-          userId: userId,
-          episodeId: episodeId,
-          logicalLocalDate: staleDay,
-          now: now,
-        );
-      }
-      staleDay = staleDay.add(const Duration(days: 1));
     }
 
     for (final plan in plans) {
@@ -315,7 +286,11 @@ class NotificationRefreshCoordinator {
       // existing, accepted product surface; this comment documents that
       // no *additional*, hidden tracking field carries anything more
       // sensitive, e.g. flow/Madhhab).
-      if (plan.id != todaysId) continue;
+      final isTodaysPlan =
+          plan.fireAt.year == today.year &&
+          plan.fireAt.month == today.month &&
+          plan.fireAt.day == today.day;
+      if (!isTodaysPlan) continue;
       final logEntryId = 'activeBleeding_${plan.id}';
       final alreadyLogged = NotificationLogController.instance.entries.any(
         (entry) => entry.id == logEntryId,
@@ -336,85 +311,61 @@ class NotificationRefreshCoordinator {
     }
   }
 
-  /// New critical finding (notification cancellation closure) — cancels
-  /// every active-bleeding reminder id that could plausibly still be
-  /// live for [userId], across every episode whose own date range could
-  /// overlap an already-scheduled rolling window as of [today]. Called
-  /// only when this refresh has genuinely determined nothing should
-  /// currently be scheduled (the preference is off, or a canonical read
-  /// confirms no open episode exists) — never on a mere read failure,
-  /// which stays honestly unresolved rather than triggering a
-  /// destructive sweep.
-  ///
-  /// Deliberately re-derives ids from [episode.startDate] rather than
-  /// requiring a separately-persisted "what did we last schedule" cache:
-  /// a rolling window is only ever planned "today through today +
-  /// [_rollingWindowDays] - 1" at whatever moment it was last
-  /// successfully scheduled, so every id that could possibly still be
-  /// live for a given episode falls somewhere in
-  /// `[episode.startDate, today + _rollingWindowDays - 1]`. Episodes
-  /// whose own span ended more than a full window ago are skipped
-  /// entirely first (nothing that old could still have a live id
-  /// regardless) so this never degenerates into hundreds of no-op
-  /// `cancel()` calls against a long-standing account's full history.
-  static Future<void> _cancelStaleActiveBleedingWindows({
-    required BleedingEpisodeRepositoryImpl bleedingRepository,
+  /// New critical finding (local notification reconciliation closure,
+  /// Findings 1/2) — cancels every active-bleeding reminder the OS
+  /// itself currently has pending for [userId], across every episode
+  /// (an ended episode's own stray ids are just as much "not wanted
+  /// anymore" as a still-open one's, once we've determined nothing
+  /// should currently be scheduled at all). Deliberately reads
+  /// [NotificationService.pendingActiveBleedingReminders] — the OS's own
+  /// actual pending set — rather than `getEpisodesForUser` (a Supabase
+  /// read): an explicit local opt-out, or a verified episode end, must
+  /// take effect purely locally, correctly even with Supabase
+  /// offline/unreachable, airplane mode, or an expired/refreshing
+  /// session. Called only when this refresh has genuinely determined
+  /// nothing should currently be scheduled (the preference is off, or a
+  /// canonical read confirms no open episode exists) — never on a mere
+  /// read failure, which stays honestly unresolved rather than
+  /// triggering a destructive sweep. One rejected cancel never stops the
+  /// rest from being attempted, and is never recorded as a false
+  /// "cancelled" audit event.
+  static Future<void> _cancelAllOwnedActiveBleedingReminders({
     required String userId,
-    required DateTime today,
     required DateTime now,
   }) async {
-    final episodesResult = await bleedingRepository.getEpisodesForUser(userId);
-    // Closure Blocker 1, applied identically here: a read failure is
-    // "unknown," never "verified nothing to cancel" — leave whatever is
-    // scheduled untouched rather than guess.
-    if (episodesResult is LoadUnavailable<List<BleedingEpisode>>) return;
-    final episodes = episodesResult.dataOrNull ?? const [];
-
-    final windowEnd = today.add(const Duration(days: _rollingWindowDays - 1));
-    final staleCutoff = today.subtract(
-      const Duration(days: _rollingWindowDays),
-    );
-
-    for (final episode in episodes) {
-      final episodeId = episode.id;
-      if (episodeId == null) continue;
-      final start = _dateOnly(episode.startDate);
-      final end = episode.endDate != null
-          ? _dateOnly(episode.endDate!)
-          : windowEnd;
-      // Nothing this old could still have a live scheduled id — skips
-      // the vast majority of a long-standing account's own history.
-      if (end.isBefore(staleCutoff)) continue;
-
-      var day = start.isBefore(staleCutoff) ? staleCutoff : start;
-      while (!day.isAfter(windowEnd)) {
-        final id = ActiveBleedingReminderScheduler.reminderId(
+    final pending = await NotificationService.instance
+        .pendingActiveBleedingReminders();
+    for (final owned in pending) {
+      // Account isolation — only ever cancel requests the payload
+      // itself structurally attributes to this signed-in user.
+      if (owned.userId != userId) continue;
+      final cancelled = await NotificationService.instance.cancel(owned.id);
+      if (cancelled) {
+        await _recordEventOnce(
+          reminderId: owned.id.toString(),
+          state: NotificationEventState.cancelled,
           userId: userId,
-          episodeId: episodeId,
-          localDay: day,
+          episodeId: owned.episodeId,
+          logicalLocalDate: _parseIsoDate(owned.localDate) ?? now,
+          now: now,
         );
-        // New integrity finding — a failed cancellation must never be
-        // recorded as a successful one; the notification may still be
-        // live, and the audit trail must say so honestly, leaving it
-        // visible for a later retry rather than a false "cancelled".
-        final cancelled = await NotificationService.instance.cancel(id);
-        if (cancelled) {
-          await _recordEventOnce(
-            reminderId: id.toString(),
-            state: NotificationEventState.cancelled,
-            userId: userId,
-            episodeId: episodeId,
-            logicalLocalDate: day,
-            now: now,
-          );
-        }
-        day = day.add(const Duration(days: 1));
       }
     }
   }
 
-  static DateTime _dateOnly(DateTime date) =>
-      DateTime(date.year, date.month, date.day);
+  /// Parses the `yyyy-MM-dd` string
+  /// [ActiveBleedingReminderScheduler.payloadFor] itself writes back into
+  /// a [DateTime] — null on anything malformed (defensive only; this app
+  /// always writes a well-formed value itself).
+  static DateTime? _parseIsoDate(String isoDate) {
+    final parts = isoDate.split('-');
+    if (parts.length != 3) return null;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+    if (year == null || month == null || day == null) return null;
+    return DateTime(year, month, day);
+  }
 
   /// Records one structural audit event unless an event of that same
   /// [state] already exists for this [reminderId] — the shared dedupe
