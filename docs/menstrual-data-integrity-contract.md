@@ -1175,4 +1175,94 @@ cancellation is, and remains, bounded by "this device's next
 successful refresh" — never instantaneous, and never claimed while a
 device is offline or the app never reopens.
 
+## 13. Local Notification Reconciliation Closure wave (2026-09-21, same branch)
+
+Section 12's own cancellation sweeps (`_cancelStaleActiveBleedingWindows`)
+still depended on `getEpisodesForUser` — a Supabase read — to decide what
+to cancel. This meant an explicit local opt-out (Settings → reminders off)
+could silently fail to take effect while offline, mid-outage, or with an
+expired/refreshing session: the exact scenario a *local* notification
+toggle must never depend on a network round trip to honor.
+
+**Architecture change.** `NotificationService` gained
+`pendingActiveBleedingReminders()` — a thin wrapper over
+`flutter_local_notifications`' own `pendingNotificationRequests()` API
+(confirmed via direct source inspection, v22.3.0: returns
+`id`/`title`/`body`/`payload` per pending request), purely local, never
+touching Supabase. It decodes each request's own opaque Commit E7 payload
+(`type`/`userId`/`episodeId`/`localDate` — never flow/Madhhab/notes/Fiqh
+content) and returns only well-formed `activeBleedingCheckin` entries — a
+different type, a payload that isn't valid JSON, or one missing a
+required field is silently excluded, never crashes the sweep. Returns a
+clean structural type (`PendingActiveBleedingReminder`), never the
+plugin's own request object (which also carries raw title/body text), so
+no caller outside this one file ever touches plugin internals.
+
+`NotificationRefreshCoordinator` now reconciles against this actual OS
+set instead of inferring from episode history:
+
+- **Disable, or a verified "no open episode"**: cancels every pending
+  request the payload attributes to the current signed-in user — no
+  `getEpisodesForUser` call anywhere in either path. Account isolation is
+  enforced structurally (`payload.userId == currentUserId`), never by
+  trusting which reminder id happens to look "recent."
+- **An eligible open episode**: `desiredIds` is exactly the current
+  30-day plan's own ids (E6-aware — today's id is already absent when
+  satisfied); `actualOwnedPendingIds - desiredIds` (scoped to this
+  user+episode) is cancelled, and every desired id is (re)scheduled
+  regardless (an idempotent replace for one already correct). This one
+  pass subsumes Section 12's separate today's-id and stale-day sweeps,
+  and correctly handles a shifted window from ANY cause — timezone
+  change, ordinary day-forward progression, or a preferred-time change —
+  without needing `episode.startDate` as a bound.
+
+A rejected platform `cancel` call is still never recorded as a successful
+`cancelled` audit event, and never stops the rest of the sweep from being
+attempted — unchanged discipline from Section 12, re-verified against
+the new architecture.
+
+**Twelve integration tests** against the real coordinator with a mocked
+plugin channel, extended to simulate the OS's own live pending-request
+state (populated on `zonedSchedule`, removed on an accepted
+`cancel`/`cancelAll`): (1) 30 scheduled, then Supabase fully unavailable
+(both reads), then disabled — zero owned ids remain, zero
+`getEpisodesForUser` calls; (2) Supabase unavailable while enabled — no
+false episode-end inference; (3) a verified clean `getOpenEpisode(null)`
+cancels local pending requests with zero `getEpisodesForUser` calls; (4)
+(5) a simulated day-boundary shift backward/forward (via `AppClock`,
+since the plugin's own `pendingNotificationRequests`/`zonedSchedule`
+validate against the real wall clock, not an injectable one — a genuine
+device timezone change itself remains E4-only) proves the old
+out-of-window edge is cancelled and the new edge is added; (6) a
+preferred-time change reschedules the same logical days with no stale
+duplicates; (7) a malformed pending payload is ignored safely; (8) another
+user's own pending request survives this user's disable; (9)
+cycle/pregnancy/nifas/wellbeing untouched; (10) one rejected cancellation
+never aborts the rest, never falsely audited, recovery still possible;
+(11)/(12) re-enable and account-switch regression coverage carried
+forward from Section 12.
+
+Full-repo verification: `dart format`/`flutter analyze` clean on every
+file this wave touched; **751 tests, 10 failures — the same 10
+golden/parity-image failures already confirmed identical to the true
+merge-base baseline, zero new regressions** (net +4 tests versus Section
+12's 747, reflecting 12 new tests replacing the prior 8). BR-002
+migration reproducibility (`scripts/validate_migrations.sh`) could not be
+re-run to a clean pass this wave: three consecutive genuine attempts each
+timed out identically at `supabase start`'s own container health-check
+stage (analytics/vector/realtime/storage/pg_meta/studio all reported
+"not ready: unhealthy"), before the script's own schema-validation logic
+ever ran — an environment/docker resource constraint in this sandbox, not
+a code issue: this wave touched zero SQL/migration files (confirmed via
+`git diff --stat -- supabase/`), so the schema-contract itself is
+unaffected and expected to still pass in a healthier environment or in
+CI's own dedicated runner.
+
+As with Section 12, `E4` (real device) evidence is not claimed: a mocked
+plugin channel proves the reconciliation logic is correct, not that a
+real OS actually honors a `cancel`/`pendingNotificationRequests` call
+within any particular latency, nor that a real device timezone change is
+picked up correctly (only a same-process day-boundary simulation is
+exercised here).
+
 All changes on this same branch, PR #4, still **draft and unmerged**.
