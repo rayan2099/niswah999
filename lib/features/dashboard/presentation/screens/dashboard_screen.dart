@@ -60,6 +60,10 @@ String _stateLabel(_FiqhState state) => switch (state) {
     'يلزم اختيار المذهب',
   ),
   _FiqhState.evidenceUnresolved => _l('Unable to verify', 'تعذر التحقق'),
+  _FiqhState.insufficientHistory => _l(
+    'Not enough history yet',
+    'لا يوجد سجل كافٍ بعد',
+  ),
 };
 
 /// Arabic masculine ordinals ("اليوم الأول", "اليوم الثاني", …) for "يوم"
@@ -641,10 +645,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // asserted. Every consumer of `state` below (the ring, the Salah
         // banner, the prayer-status card) must treat this case as "we
         // don't know," never silently substitute the last-good value.
-        final state =
-            _canonicalFiqhEvidenceUnresolved ||
-                insufficientEvidenceWhileFactuallyBleeding
+        final state = _canonicalFiqhEvidenceUnresolved
             ? _FiqhState.evidenceUnresolved
+            : insufficientEvidenceWhileFactuallyBleeding
+            ? _FiqhState.insufficientHistory
             : _istihadahMode
             ? _FiqhState.istihadah
             : mappedState;
@@ -2696,6 +2700,10 @@ class _CycleOverview extends StatelessWidget {
         "We couldn't verify your tracking data right now.",
         'تعذر التحقق من بيانات تتبعكِ الآن.',
       ),
+      _FiqhState.insufficientHistory => _l(
+        'Your entry is saved. More history is needed before Niswah can work out your prayer status.',
+        'تم حفظ ما سجّلتِه. يلزم سجل أطول قبل أن يتمكن نسواه من تحديد حالة صلاتكِ.',
+      ),
     };
     final isNextSegmentArrow =
         !isWaiting && !needsConsult && !needsMadhhabSelection;
@@ -3704,7 +3712,9 @@ class _PrayerStatusCard extends StatelessWidget {
     // neither "lifted" nor "obligatory" may be confidently asserted:
     // both are themselves rulings, and the whole point of this state is
     // that no ruling can be drawn right now.
-    final unresolved = fiqhState == _FiqhState.evidenceUnresolved;
+    final insufficientHistory = fiqhState == _FiqhState.insufficientHistory;
+    final unresolved =
+        fiqhState == _FiqhState.evidenceUnresolved || insufficientHistory;
     final names = {
       prayer.PrayerName.fajr: _l('Fajr', 'الفجر'),
       prayer.PrayerName.dhuhr: _l('Dhuhr', 'الظهر'),
@@ -3737,7 +3747,9 @@ class _PrayerStatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      unresolved
+                      insufficientHistory
+                          ? _l('Not enough history yet', 'لا يوجد سجل كافٍ بعد')
+                          : unresolved
                           ? _l('Unable to verify', 'تعذر التحقق')
                           : lifted
                           ? _l('Salah is lifted', 'الصلاة مرفوعة عنكِ')
@@ -3754,7 +3766,12 @@ class _PrayerStatusCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      unresolved
+                      insufficientHistory
+                          ? _l(
+                              "Your entry is saved. Niswah doesn't have enough recorded history yet to work out your prayer status — if you need guidance today, please ask a trusted scholar.",
+                              'تم حفظ ما سجّلتِه. لا تتوفر لدى نسواه بيانات كافية لتحديد حالة صلاتكِ بعد — إن احتجتِ إلى إرشاد اليوم فاسألي أهل العلم الموثوقين.',
+                            )
+                          : unresolved
                           ? _l(
                               "We couldn't verify your tracking data — your prayer obligation can't be confirmed right now.",
                               'تعذر التحقق من بيانات تتبعكِ — لا يمكن تأكيد حكم الصلاة الآن.',
@@ -4163,6 +4180,10 @@ class _FiqhStateBanner extends StatelessWidget {
               _FiqhState.evidenceUnresolved => _l(
                 "We couldn't verify your tracking data right now — your Fiqh state can't be confirmed.",
                 'تعذر التحقق من بيانات تتبعكِ الآن — لا يمكن تأكيد حالتكِ الفقهية.',
+              ),
+              _FiqhState.insufficientHistory => _l(
+                "Your entry is saved. There isn't enough recorded history yet to work out your Fiqh state — keep logging, and ask a trusted scholar if you need guidance today.",
+                'تم حفظ ما سجّلتِه. لا يوجد سجل كافٍ بعد لتحديد حالتكِ الفقهية — واصلي التسجيل، واسألي أهل العلم الموثوقين إن احتجتِ إلى إرشاد اليوم.',
               ),
             },
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -4770,6 +4791,18 @@ enum _FiqhState {
     'Unable to verify',
     Color(0xFF6B7280),
     "We couldn't verify your tracking data. Your Fiqh state can't be confirmed right now.",
+  ),
+
+  // Acceptance-test finding — a woman actively bleeding for the first time
+  // has NOTHING wrong with her data: too little recorded history exists to
+  // conclude anything yet. This was previously folded into
+  // [evidenceUnresolved], whose copy blames a data-verification failure
+  // and offers a "Try again" that can never help. Still a non-ruling state
+  // (no "obligatory"/"lifted" claim), but honest about the real reason.
+  insufficientHistory(
+    'Not enough history yet',
+    Color(0xFF6B7280),
+    "There isn't enough recorded history yet to work out your Fiqh state.",
   );
 
   const _FiqhState(this.label, this.color, this.message);

@@ -19,6 +19,7 @@ import 'core/storage/local_sensitive_data_cleanup.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
 import 'core/utils/device_timezone.dart';
+import 'core/widgets/diagnostics_banner.dart';
 import 'core/widgets/floating_nav_bar.dart';
 import 'core/widgets/niswah_loading_indicator.dart';
 import 'features/notifications/domain/services/notification_refresh_coordinator.dart';
@@ -359,7 +360,7 @@ class NiswahApp extends StatelessWidget {
           locale: AppLocaleController.instance.locale,
           builder: (context, child) => Directionality(
             textDirection: AppLocaleController.instance.textDirection,
-            child: child!,
+            child: Stack(children: [child!, const DiagnosticsBanner()]),
           ),
           home: _buildHome(context),
           routes: {

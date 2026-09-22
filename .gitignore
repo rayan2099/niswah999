@@ -27,3 +27,4 @@ android/app/*.keystore
 # Golden-test failure diffs are regenerated locally on every failing run —
 # never meant to be committed.
 test/failures/
+acceptance/

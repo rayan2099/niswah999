@@ -659,6 +659,16 @@ void main() {
           '"Salah is obligatory" is a confident not-bleeding claim — '
           'never correct while a real episode is factually open',
     );
-    expect(find.textContaining('تعذر التحقق'), findsWidgets);
+    // Persona-B acceptance finding: nothing FAILED for a first-ever period
+    // — there is simply too little recorded history. The screen must say
+    // so, never claim a data-verification failure, and never offer a
+    // "Try again" that cannot help.
+    expect(find.textContaining('لا يوجد سجل كافٍ بعد'), findsWidgets);
+    expect(
+      find.textContaining('تعذر التحقق'),
+      findsNothing,
+      reason: 'insufficient history is not a verification failure',
+    );
+    expect(find.text('إعادة المحاولة'), findsNothing);
   });
 }
