@@ -88,12 +88,18 @@ extension OnboardingFlow on Flows {
 extension AccountFlow on Flows {
   /// Fresh disposable account → real onboarding (UNKNOWN Madhhab, no
   /// menstrual history) → real dashboard. Returns the email.
-  Future<String> newAccountOnDashboard(String persona, {bool english = true}) async {
+  Future<String> newAccountOnDashboard(
+    String persona, {
+    bool english = true,
+  }) async {
     await boot(english: english);
     final email = await signUpWithEmail(persona);
     h.note('$persona EMAIL $email');
     await h.tapVisible(find.text(english ? 'Create Account' : 'إنشاء حساب'));
-    await h.waitFor(find.text('Get Started'), timeout: const Duration(seconds: 25));
+    await h.waitFor(
+      find.text('Get Started'),
+      timeout: const Duration(seconds: 25),
+    );
     await walkOnboarding(persona, [
       'Get Started',
       "I don't know my Madhhab",
@@ -109,7 +115,10 @@ extension AccountFlow on Flows {
 extension EpisodeFlow on Flows {
   /// Real Start Bleeding sheet: Today + [flow], Save, then dismiss the
   /// contextual reminder prompt with "Not now" (persona G covers enabling).
-  Future<void> startBleedingToday(String persona, {String flow = 'Medium'}) async {
+  Future<void> startBleedingToday(
+    String persona, {
+    String flow = 'Medium',
+  }) async {
     await h.tapVisible(find.text('Period Started'));
     await h.settle(2);
     await h.tapVisible(find.text('Today'), last: true);
@@ -121,7 +130,11 @@ extension EpisodeFlow on Flows {
       await h.tapVisible(find.text('Not now'));
       await h.settle(2);
     }
-    await t.drag(find.byType(Scrollable).first, const Offset(0, 2500), warnIfMissed: false);
+    await t.drag(
+      find.byType(Scrollable).first,
+      const Offset(0, 2500),
+      warnIfMissed: false,
+    );
     await h.settle(1);
   }
 }

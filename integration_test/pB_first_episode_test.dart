@@ -9,7 +9,9 @@ import 'support/harness.dart';
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Persona B: first bleeding episode, one observation', (tester) async {
+  testWidgets('Persona B: first bleeding episode, one observation', (
+    tester,
+  ) async {
     app.main();
     final h = Harness(binding, tester);
     final f = Flows(h);
@@ -25,11 +27,17 @@ void main() {
     await h.shot('B', 'reminder_consent_prompt');
     h.note('B tap Not now: ${await h.tapVisible(find.text('Not now'))}');
     await h.settle(2);
-    await tester.drag(find.byType(Scrollable).first, const Offset(0, 2500), warnIfMissed: false);
+    await tester.drag(
+      find.byType(Scrollable).first,
+      const Offset(0, 2500),
+      warnIfMissed: false,
+    );
     await h.settle(1);
     await h.shot('B', 'dashboard_top');
     h.dumpTexts('B dashboard top');
-    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable).first);
+    final scrollable = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
     scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
     await h.settle(1);
     await h.shot('B', 'dashboard_bottom_prayer_card');
@@ -42,9 +50,15 @@ void main() {
 
     await h.tapVisible(find.text('Today'), last: true);
     await h.settle(2);
-    await tester.drag(find.byType(Scrollable).first, const Offset(0, 2500), warnIfMissed: false);
+    await tester.drag(
+      find.byType(Scrollable).first,
+      const Offset(0, 2500),
+      warnIfMissed: false,
+    );
     await h.settle(1);
-    h.note('B open canonical calendar: ${await h.tapVisible(find.bySemanticsLabel('Cycle calendar'))}');
+    h.note(
+      'B open canonical calendar: ${await h.tapVisible(find.bySemanticsLabel('Cycle calendar'))}',
+    );
     await h.settle(3);
     await h.shot('B', 'canonical_calendar');
     h.dumpTexts('B canonical calendar');
