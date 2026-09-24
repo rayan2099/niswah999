@@ -10,6 +10,7 @@ import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
+import '../../data/repositories/cycle_entries_projection.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/load_result.dart';
 
@@ -144,6 +145,35 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
       }
 
       await PendingBleedingOperationStore.clearPending(_clientOperationId);
+
+      // Acceptance-test finding (cross-screen consistency) — a correction
+      // is the one write path in this file that never mirrored into the
+      // legacy `cycle_entries` read model, unlike the Start/End/backfill
+      // sheets' own identical note (Blocker 12, Commit F). Any screen
+      // still reading `cycle_entries` directly (the bottom-nav Calendar
+      // tab, Insights) would otherwise keep showing the pre-correction
+      // flow level forever — the canonical screens read
+      // `bleeding_observations` directly and were never affected, but a
+      // legacy consumer has no way to know a correction ever happened.
+      try {
+        final observations =
+            (await repository.getObservationsForEpisode(
+              widget.target.episodeId,
+            )).dataOrNull ??
+            const [];
+        final recorded = observations
+            .where((o) => o.id == observationId)
+            .firstOrNull;
+        if (recorded != null) {
+          await CycleEntriesProjection().projectCorrection(
+            recorded,
+            supersededObservationId: _supersedesId,
+          );
+        }
+      } catch (_) {
+        // Reported internally by the projection's own repository calls.
+      }
+
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on CorrectionConflictException catch (conflict) {

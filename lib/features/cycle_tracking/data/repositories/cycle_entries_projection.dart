@@ -68,6 +68,26 @@ class CycleEntriesProjection {
     return true;
   }
 
+  /// Acceptance-test finding — a correction supersedes an earlier
+  /// observation, but [project] alone leaves the SUPERSEDED
+  /// observation's own prior `cycle_entries` row in place (it was
+  /// written under that observation's own id, never touched again).
+  /// The legacy flat model has no revision-chain concept at all, so a
+  /// consumer reading it would show both the pre-correction and
+  /// post-correction flow as if they were two independent same-day
+  /// reports — exactly as wrong as never projecting the correction in
+  /// the first place, just a different flavor of it. [correctedFlow]
+  /// null (an uncertain correction) still removes the superseded row:
+  /// once corrected away, the old value must not keep surfacing either.
+  Future<bool> projectCorrection(
+    BleedingObservation corrected, {
+    required String supersededObservationId,
+  }) async {
+    final projected = await project(corrected);
+    await _repository.deleteCycleLog(supersededObservationId);
+    return projected;
+  }
+
   static FlowLevel? _toFlowLevel(ObservationFlow flow) => switch (flow) {
     ObservationFlow.uncertain => null,
     ObservationFlow.none => FlowLevel.none,

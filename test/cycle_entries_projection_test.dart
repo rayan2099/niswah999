@@ -118,4 +118,62 @@ void main() {
       expect(byDate[DateTime(2026, 9, 2)], 2);
     },
   );
+
+  group('Acceptance-test finding — projectCorrection removes the '
+      'superseded row (a correction must never leave both the old and '
+      'new flow visible as if they were two independent same-day '
+      'reports)', () {
+    test('the superseded observation\'s own prior row is gone, and only '
+        'the corrected flow remains for that day', () async {
+      final projection = CycleEntriesProjection();
+      await projection.project(
+        observation(id: 'obs-1', flow: ObservationFlow.light),
+      );
+
+      var logs = await CycleTrackingRepositoryImpl().getCycleLogs();
+      expect(logs, hasLength(1));
+      expect(logs.single.flow, FlowLevel.light);
+
+      await projection.projectCorrection(
+        observation(id: 'obs-2', flow: ObservationFlow.heavy),
+        supersededObservationId: 'obs-1',
+      );
+
+      logs = await CycleTrackingRepositoryImpl().getCycleLogs();
+      expect(
+        logs,
+        hasLength(1),
+        reason:
+            'exactly one row for the day — not the original PLUS the '
+            'correction stacked as if they were two independent '
+            'reports',
+      );
+      expect(logs.single.flow, FlowLevel.heavy);
+      expect(logs.single.id, 'obs-2');
+    });
+
+    test('a correction to "I\'m not sure" still removes the superseded row '
+        '— the old definite value must not keep surfacing once corrected '
+        'away, even though nothing new is projected in its place', () async {
+      final projection = CycleEntriesProjection();
+      await projection.project(
+        observation(id: 'obs-1', flow: ObservationFlow.medium),
+      );
+      expect(await CycleTrackingRepositoryImpl().getCycleLogs(), hasLength(1));
+
+      final projected = await projection.projectCorrection(
+        observation(id: 'obs-2', flow: ObservationFlow.uncertain),
+        supersededObservationId: 'obs-1',
+      );
+
+      expect(projected, isFalse);
+      expect(
+        await CycleTrackingRepositoryImpl().getCycleLogs(),
+        isEmpty,
+        reason:
+            'no fabricated flow value, and the corrected-away '
+            'original must not linger either',
+      );
+    });
+  });
 }
