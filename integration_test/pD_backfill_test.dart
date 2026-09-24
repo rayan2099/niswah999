@@ -30,6 +30,16 @@ void main() {
     await h.shot('D', 'backfill_sheet');
     if (!openedBackfill) {
       h.note('D ABORTED — could not open the backfill sheet');
+      h.reportResult(
+        PersonaResult(
+          testId: 'D',
+          expectedOutcome:
+              'A missed day is backfilled via the real date picker',
+          actualOutcome: 'Could not open the backfill sheet',
+          status: PersonaStatus.blocked,
+          screenshotRef: 'D_11_backfill_sheet_initial.png',
+        ),
+      );
       return;
     }
 
@@ -38,6 +48,15 @@ void main() {
     await h.settle(1);
     if (!openedDatePicker) {
       h.note('D ABORTED — "Choose a date" did not open the date picker');
+      h.reportResult(
+        PersonaResult(
+          testId: 'D',
+          expectedOutcome:
+              'A missed day is backfilled via the real date picker',
+          actualOutcome: '"Choose a date" did not open the date picker',
+          status: PersonaStatus.blocked,
+        ),
+      );
       return;
     }
 
@@ -50,6 +69,15 @@ void main() {
     final dateField = find.byType(TextField);
     if (dateField.evaluate().isEmpty) {
       h.note('D ABORTED — no date TextField after switching to input mode');
+      h.reportResult(
+        PersonaResult(
+          testId: 'D',
+          expectedOutcome:
+              'A missed day is backfilled via the real date picker',
+          actualOutcome: 'No date TextField after switching to input mode',
+          status: PersonaStatus.blocked,
+        ),
+      );
       return;
     }
 
@@ -60,16 +88,35 @@ void main() {
     await tester.enterText(dateField.first, typed);
     await tester.pump(const Duration(milliseconds: 300));
     h.note('D typed date: $typed');
-    h.note('D tap OK: ${await h.tapVisible(find.text('OK'))}');
+    final tappedOk = await h.tapVisible(find.text('OK'));
+    h.note('D tap OK: $tappedOk');
     await h.settle(1);
-    h.note('D tap Medium: ${await h.tapVisible(find.text('Medium'))}');
-    h.note('D tap Save: ${await h.tapVisible(find.text('Save'))}');
+    final tappedMedium = await h.tapVisible(find.text('Medium'));
+    h.note('D tap Medium: $tappedMedium');
+    final tappedSave = await h.tapVisible(find.text('Save'));
+    h.note('D tap Save: $tappedSave');
     await tester.pump(const Duration(seconds: 5));
     await h.settle(2);
     await h.shot('D', 'after_backfill_save');
+    final uiSequenceComplete = tappedOk && tappedMedium && tappedSave;
     h.note(
-      'D RESULT: SEQUENCE COMPLETE — see host-side SQL check for the '
-      'real PASS/FAIL verdict (a real observation row dated yesterday)',
+      'D RESULT: SEQUENCE ${uiSequenceComplete ? "COMPLETE" : "INCOMPLETE"} '
+      '— see host-side SQL check for the real PASS/FAIL verdict on data '
+      'correctness (a real observation row dated yesterday)',
+    );
+    h.reportResult(
+      PersonaResult(
+        testId: 'D',
+        expectedOutcome: 'A missed day is backfilled via the real date picker',
+        actualOutcome: uiSequenceComplete
+            ? 'Full UI sequence completed (date entered, flow selected, '
+                  'saved); DB-level correctness verified separately via '
+                  'host-side SQL'
+            : 'UI sequence did not complete: tappedOk=$tappedOk '
+                  'tappedMedium=$tappedMedium tappedSave=$tappedSave',
+        status: uiSequenceComplete ? PersonaStatus.pass : PersonaStatus.fail,
+        screenshotRef: 'D_11_backfill_sheet_initial.png',
+      ),
     );
   });
 }

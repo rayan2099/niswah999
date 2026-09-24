@@ -40,6 +40,17 @@ void main() {
 
     if (!openedBackfill) {
       h.note('C ABORTED — could not open the backfill sheet this run');
+      h.reportResult(
+        PersonaResult(
+          testId: 'C',
+          expectedOutcome:
+              'A second same-day observation is added via "Add a missing '
+              'day", targeting today\'s own date',
+          actualOutcome: 'Could not open the backfill sheet',
+          status: PersonaStatus.blocked,
+          screenshotRef: 'C_11_dashboard_before_backfill.png',
+        ),
+      );
       return;
     }
 
@@ -48,6 +59,17 @@ void main() {
     await h.settle(1);
     if (!openedDatePicker) {
       h.note('C ABORTED — "Choose a date" did not open the date picker');
+      h.reportResult(
+        PersonaResult(
+          testId: 'C',
+          expectedOutcome:
+              'A second same-day observation is added via "Add a missing '
+              'day", targeting today\'s own date',
+          actualOutcome: '"Choose a date" did not open the date picker',
+          status: PersonaStatus.blocked,
+          screenshotRef: 'C_12_backfill_sheet.png',
+        ),
+      );
       return;
     }
 
@@ -61,6 +83,16 @@ void main() {
     if (dateField.evaluate().isEmpty) {
       h.note('C ABORTED — no date TextField after switching to input mode');
       await h.shot('C', 'no_date_field');
+      h.reportResult(
+        PersonaResult(
+          testId: 'C',
+          expectedOutcome:
+              'A second same-day observation is added via "Add a missing '
+              'day", targeting today\'s own date',
+          actualOutcome: 'No date TextField after switching to input mode',
+          status: PersonaStatus.blocked,
+        ),
+      );
       return;
     }
 
@@ -70,16 +102,39 @@ void main() {
         '${today.day.toString().padLeft(2, '0')}/${today.year}';
     await tester.enterText(dateField.first, typed);
     await tester.pump(const Duration(milliseconds: 300));
-    h.note('C tap OK: ${await h.tapVisible(find.text('OK'))}');
+    final tappedOk = await h.tapVisible(find.text('OK'));
+    h.note('C tap OK: $tappedOk');
     await h.settle(1);
-    h.note('C tap Heavy: ${await h.tapVisible(find.text('Heavy'))}');
-    h.note('C tap Save: ${await h.tapVisible(find.text('Save'))}');
+    final tappedHeavy = await h.tapVisible(find.text('Heavy'));
+    h.note('C tap Heavy: $tappedHeavy');
+    final tappedSave = await h.tapVisible(find.text('Save'));
+    h.note('C tap Save: $tappedSave');
     await tester.pump(const Duration(seconds: 5));
     await h.settle(2);
     await h.shot('C', 'after_second_save');
+    final uiSequenceComplete = tappedOk && tappedHeavy && tappedSave;
     h.note(
-      'C RESULT: SEQUENCE COMPLETE — see host-side SQL check for '
-      'the real PASS/FAIL verdict (two independent same-day rows)',
+      'C RESULT: SEQUENCE ${uiSequenceComplete ? "COMPLETE" : "INCOMPLETE"} '
+      '— see host-side SQL check for the real PASS/FAIL verdict on data '
+      'correctness (two independent same-day rows)',
+    );
+    h.reportResult(
+      PersonaResult(
+        testId: 'C',
+        expectedOutcome:
+            'A second same-day observation is added via the real "Add a '
+            'missing day" action, targeting today\'s own date, producing '
+            'two independent same-day observation rows',
+        actualOutcome: uiSequenceComplete
+            ? 'Full UI sequence completed (date entered, flow selected, '
+                  'saved); DB-level row-count correctness verified '
+                  'separately via host-side SQL, not from within this '
+                  'iOS-sandboxed test'
+            : 'UI sequence did not complete: tappedOk=$tappedOk '
+                  'tappedHeavy=$tappedHeavy tappedSave=$tappedSave',
+        status: uiSequenceComplete ? PersonaStatus.pass : PersonaStatus.fail,
+        screenshotRef: 'C_13_after_second_save.png',
+      ),
     );
   });
 }

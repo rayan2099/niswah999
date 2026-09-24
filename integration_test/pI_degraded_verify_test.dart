@@ -66,5 +66,20 @@ void main() {
           : 'I RESULT: FAIL — crashed=$crashed showsHonestState='
                 '$showsHonestState claimsObligatory=$claimsObligatory',
     );
+    h.reportResult(
+      PersonaResult(
+        testId: 'I-phase2',
+        expectedOutcome:
+            'A genuinely malformed row (real Postgres insert, an '
+            'unparseable "source" value that no CHECK constraint blocks) '
+            'shows an honest "cannot verify" state — never a crash, never '
+            'a fabricated Fiqh ruling',
+        actualOutcome:
+            'crashed=$crashed showsHonestState=$showsHonestState '
+            'claimsObligatory=$claimsObligatory',
+        status: pass ? PersonaStatus.pass : PersonaStatus.fail,
+        screenshotRef: 'I_phase2_degraded_evidence.png',
+      ),
+    );
   });
 }

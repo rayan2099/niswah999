@@ -49,8 +49,11 @@ void main() {
     // its current value) and confirm the real screen reflects the
     // change.
     final checkinTile = find.text('Daily check-in reminder');
-    h.note('G check-in tile present: ${checkinTile.evaluate().isNotEmpty}');
-    if (checkinTile.evaluate().isNotEmpty) {
+    final tilePresent = checkinTile.evaluate().isNotEmpty;
+    h.note('G check-in tile present: $tilePresent');
+    var toggled = false;
+    String actualOutcome = 'Daily check-in reminder tile not found';
+    if (tilePresent) {
       final switchFinder = find.descendant(
         of: find.ancestor(of: checkinTile, matching: find.byType(Card)),
         matching: find.byType(Switch),
@@ -60,7 +63,23 @@ void main() {
       await h.settle(2);
       final after = (switchFinder.evaluate().first.widget as Switch).value;
       h.note('G check-in reminder toggled: $before -> $after');
+      toggled = before != after;
+      actualOutcome = 'Switch value before=$before after=$after';
     }
     await h.shot('G', 'after_toggle');
+    h.reportResult(
+      PersonaResult(
+        testId: 'G',
+        expectedOutcome:
+            'The real Notification Settings screen shows the daily '
+            'check-in reminder control, and toggling it flips the real '
+            'switch state',
+        actualOutcome: actualOutcome,
+        status: toggled
+            ? PersonaStatus.pass
+            : (tilePresent ? PersonaStatus.fail : PersonaStatus.blocked),
+        screenshotRef: 'G_12_notification_settings.png',
+      ),
+    );
   });
 }

@@ -17,7 +17,19 @@ void main() {
 
     // ignore: avoid_print
     print('BANNER => ${h.bannerText()}');
-    expect(h.bannerText(), contains('SHA:'));
+    final hasSha = h.bannerText().contains('SHA:');
+    h.reportResult(
+      PersonaResult(
+        testId: 'P0',
+        expectedOutcome:
+            'Real app launches and the build-identity banner shows the '
+            'tested SHA and backend host',
+        actualOutcome: 'Banner text: ${h.bannerText()}',
+        status: hasSha ? PersonaStatus.pass : PersonaStatus.fail,
+        screenshotRef: 'P0_01_first_screen.png',
+      ),
+    );
     await h.shot('P0', 'first_screen');
+    expect(hasSha, isTrue, reason: 'Build-identity banner missing SHA:');
   });
 }

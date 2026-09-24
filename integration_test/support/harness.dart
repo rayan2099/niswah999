@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -84,6 +86,73 @@ extension HarnessDump on Harness {
       if (s.trim().isNotEmpty && !seen.contains(s)) seen.add(s);
     }
     note('TEXTS[$label] ${seen.join(' | ')}');
+  }
+}
+
+/// One structured result for one acceptance test, per the acceptance
+/// charter's own required schema. This is the SOLE source of truth for
+/// whether a persona run counts as a pass — never `flutter drive`'s own
+/// process exit code, which stays 0 even when a persona's own checks
+/// fail (every assertion in these tests is a logged, non-throwing
+/// check; see PersonaStatus's own doc comment for why).
+enum PersonaStatus { pass, fail, blocked, skipped }
+
+class PersonaResult {
+  PersonaResult({
+    required this.testId,
+    required this.expectedOutcome,
+    required this.actualOutcome,
+    required this.status,
+    this.screenshotRef,
+  });
+
+  final String testId;
+  final String expectedOutcome;
+  final String actualOutcome;
+  final PersonaStatus status;
+  final String? screenshotRef;
+
+  Map<String, dynamic> toJson({
+    required String testedSha,
+    required String devicePlatform,
+    required String backendEnvironment,
+  }) => {
+    'test_id': testId,
+    'tested_sha': testedSha,
+    'device_platform': devicePlatform,
+    'backend_environment': backendEnvironment,
+    'expected_outcome': expectedOutcome,
+    'actual_outcome': actualOutcome,
+    'status': status.name.toUpperCase(),
+    if (screenshotRef != null) 'screenshot_ref': screenshotRef,
+  };
+}
+
+extension HarnessReport on Harness {
+  /// Writes the one structured result this test is graded on into
+  /// `binding.reportData` — `flutter_driver`'s own host<->guest
+  /// communication channel (`IntegrationTestWidgetsFlutterBinding.
+  /// reportData`), which `test_driver/integration_test.dart`'s
+  /// `responseDataCallback` forwards to a JSON file on the HOST after
+  /// the run completes. `--dart-define=GIT_SHA`/`ENABLE_DIAGNOSTICS_
+  /// SCREEN` are already used elsewhere in this suite for the exact
+  /// same "confirm what was actually run" purpose.
+  void reportResult(PersonaResult result) {
+    const testedSha = String.fromEnvironment(
+      'GIT_SHA',
+      defaultValue: 'unknown',
+    );
+    const backend = String.fromEnvironment(
+      'BACKEND_ENV',
+      defaultValue: 'local-test:127.0.0.1:54321',
+    );
+    final json = result.toJson(
+      testedSha: testedSha,
+      devicePlatform: 'ios-simulator',
+      backendEnvironment: backend,
+    );
+    binding.reportData = json;
+    note('RESULT_JSON=${jsonEncode(json)}');
   }
 }
 

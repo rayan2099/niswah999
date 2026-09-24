@@ -53,6 +53,17 @@ void main() {
 
     if (!signOutTap) {
       h.note('J ABORTED — could not find/tap Sign Out this run');
+      h.reportResult(
+        PersonaResult(
+          testId: 'J',
+          expectedOutcome:
+              'After sign-out, a second real account sees zero trace of '
+              'the first account\'s data',
+          actualOutcome: 'Could not find/tap Sign Out',
+          status: PersonaStatus.blocked,
+          screenshotRef: 'J_11_account_a_dashboard.png',
+        ),
+      );
       return;
     }
 
@@ -77,6 +88,19 @@ void main() {
       leaked
           ? 'J RESULT: FAIL — account B\'s dashboard shows account A\'s data'
           : 'J RESULT: PASS — account B starts clean, no trace of account A',
+    );
+    h.reportResult(
+      PersonaResult(
+        testId: 'J',
+        expectedOutcome:
+            'After sign-out, a second real account sees zero trace of the '
+            'first account\'s data',
+        actualOutcome:
+            'Account B dashboard shows leaked account-A data: '
+            '$leaked',
+        status: leaked ? PersonaStatus.fail : PersonaStatus.pass,
+        screenshotRef: 'J_24_account_b_dashboard.png',
+      ),
     );
   });
 }

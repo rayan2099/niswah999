@@ -25,5 +25,18 @@ void main() {
     await f.startBleedingToday('I');
     await h.shot('I', 'phase1_dashboard');
     h.note('I PHASE 1 COMPLETE — session left signed in on purpose');
+    h.reportResult(
+      PersonaResult(
+        testId: 'I-phase1',
+        expectedOutcome:
+            'A real account is created and a real episode started, with '
+            'the session deliberately left signed in for phase 2',
+        actualOutcome:
+            'Account created ($email), episode started, '
+            'session left active',
+        status: PersonaStatus.pass,
+        screenshotRef: 'I_phase1_dashboard.png',
+      ),
+    );
   });
 }

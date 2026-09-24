@@ -35,6 +35,8 @@ void main() {
     await h.settle(1);
     await h.shot('B', 'dashboard_top');
     h.dumpTexts('B dashboard top');
+    final dashboardTopTexts = h.notes.last;
+    final showsRecorded = dashboardTopTexts.contains('Bleeding recorded');
     final scrollable = tester.state<ScrollableState>(
       find.byType(Scrollable).first,
     );
@@ -62,5 +64,17 @@ void main() {
     await h.settle(3);
     await h.shot('B', 'canonical_calendar');
     h.dumpTexts('B canonical calendar');
+
+    h.reportResult(
+      PersonaResult(
+        testId: 'B',
+        expectedOutcome:
+            'First-ever bleeding episode saves and the dashboard shows '
+            '"Bleeding recorded" (real production copy)',
+        actualOutcome: 'Dashboard top $dashboardTopTexts',
+        status: showsRecorded ? PersonaStatus.pass : PersonaStatus.fail,
+        screenshotRef: 'B_12_dashboard_top.png',
+      ),
+    );
   });
 }
