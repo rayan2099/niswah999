@@ -112,6 +112,124 @@ extension AccountFlow on Flows {
   }
 }
 
+extension ReturningUserFlow on Flows {
+  /// Real onboarding, but answering the last-period-history questions
+  /// with REAL values instead of "I'm not sure": a real start date
+  /// ([startDaysAgo] days ago), "No, it has stopped" + a real end date
+  /// ([endDaysAgo] days ago), plus real usual-duration/usual-cycle-length
+  /// numbers. Drives `record_onboarding_menstrual_history`'s real
+  /// episode+baseline path — a genuinely historical, completed episode,
+  /// never a seeded/injected row. Returns the account's email so a
+  /// caller can also sign back into this exact account later if needed.
+  Future<String> newAccountWithRealHistory(
+    String persona, {
+    int startDaysAgo = 32,
+    int endDaysAgo = 27,
+    int usualDurationDays = 5,
+    int usualCycleLengthDays = 32,
+  }) async {
+    await boot();
+    final email = await signUpWithEmail(persona);
+    h.note('$persona EMAIL $email');
+    await h.tapVisible(find.text('Create Account'));
+    await h.waitFor(
+      find.text('Get Started'),
+      timeout: const Duration(seconds: 25),
+    );
+
+    final skipPreferences = [
+      "I don't know my Madhhab",
+      "I'll decide later",
+      'Continue',
+      'Skip for now',
+    ];
+    for (var i = 0; i < 4; i++) {
+      await h.settle(2);
+      h.dumpTexts('$persona pre-history step $i');
+      for (final label in skipPreferences) {
+        final finder = find.text(label);
+        if (finder.evaluate().isNotEmpty && await h.tapVisible(finder)) break;
+      }
+      if (find
+          .textContaining('When did your last period start?')
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+    }
+
+    final now = DateTime.now();
+    final startDate = now.subtract(Duration(days: startDaysAgo));
+    final endDate = now.subtract(Duration(days: endDaysAgo));
+
+    Future<bool> pickDateViaTextInput(DateTime date) async {
+      await h.settle(1);
+      await h.tapVisible(find.byTooltip('Switch to input'));
+      await h.settle(1);
+      final field = find.byType(TextField);
+      if (field.evaluate().isEmpty) return false;
+      final typed =
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.day.toString().padLeft(2, '0')}/${date.year}';
+      await t.enterText(field.first, typed);
+      await t.pump(const Duration(milliseconds: 300));
+      final tappedOk = await h.tapVisible(find.text('OK'));
+      await h.settle(1);
+      return tappedOk;
+    }
+
+    final openedStartPicker = await h.tapVisible(find.text('Select the date'));
+    h.note('$persona opened start-date picker: $openedStartPicker');
+    final pickedStart = openedStartPicker
+        ? await pickDateViaTextInput(startDate)
+        : false;
+    if (!pickedStart) {
+      h.note('$persona ABORTED — could not pick the real start date');
+      return email;
+    }
+    await h.tapVisible(find.text('Continue'));
+    await h.settle(1);
+
+    final tappedNo = await h.tapVisible(find.text('No, it has stopped'));
+    h.note('$persona tapped "No, it has stopped": $tappedNo');
+    await h.settle(1);
+    if (tappedNo) {
+      final openedEndPicker = await h.tapVisible(find.text('Select the date'));
+      if (openedEndPicker) await pickDateViaTextInput(endDate);
+      await h.tapVisible(find.text('Continue'));
+      await h.settle(1);
+    }
+
+    var durationField = find.byType(TextField);
+    if (durationField.evaluate().isNotEmpty) {
+      await t.enterText(durationField.first, usualDurationDays.toString());
+      await t.pump(const Duration(milliseconds: 300));
+    }
+    await h.tapVisible(find.text('Continue'));
+    await h.settle(1);
+
+    var cycleField = find.byType(TextField);
+    if (cycleField.evaluate().isNotEmpty) {
+      await t.enterText(cycleField.first, usualCycleLengthDays.toString());
+      await t.pump(const Duration(milliseconds: 300));
+    }
+    await h.tapVisible(find.text('Continue'));
+    await h.settle(1);
+
+    for (var i = 0; i < 4; i++) {
+      await h.settle(2);
+      h.dumpTexts('$persona post-history step $i');
+      if (find.text('Get Started').evaluate().isNotEmpty) {
+        await h.tapVisible(find.text('Get Started'));
+        break;
+      }
+      await h.tapVisible(find.text('Continue'));
+    }
+    await h.settle(2);
+    return email;
+  }
+}
+
 extension EpisodeFlow on Flows {
   /// Real Start Bleeding sheet: Today + [flow], Save, then dismiss the
   /// contextual reminder prompt with "Not now" (persona G covers enabling).
