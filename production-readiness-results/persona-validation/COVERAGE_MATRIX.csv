@@ -1,0 +1,102 @@
+feature_id,area,feature,status,evidence_level,persona,notes
+AUTH-01,Auth,Email sign-up,EXECUTED,E2 live,A/B/C/D/E/G/J,real screen every persona setup
+AUTH-02,Auth,Email sign-in,NOT_ATTEMPTED,,,
+AUTH-03,Auth,Phone sign-up (OTP),NOT_ATTEMPTED,,,
+AUTH-04,Auth,Phone sign-in (OTP),NOT_ATTEMPTED,,,
+AUTH-05,Auth,Google sign-in,NOT_ATTEMPTED,,,
+AUTH-06,Auth,Failed sign-in (wrong password),NOT_ATTEMPTED,,,
+AUTH-07,Auth,Network failure during auth,EXECUTED,E2 live,B,"real defect found+fixed, D-003"
+AUTH-08,Auth,Email confirmation pending state,NOT_ATTEMPTED,,,
+AUTH-09,Auth,Session restore on app restart,PARTIAL,observed not asserted,C/D/E/I/J,"observed as a side effect (stale-session reuse bug in the TEST harness, not the app) but never deliberately tested as its own journey"
+AUTH-10,Auth,Sign-out,EXECUTED,E2 live,J,PASS
+AUTH-11,Auth,Account deletion,NOT_ATTEMPTED,,,
+AUTH-12,Auth,Consent gate (Privacy Policy checkbox),EXECUTED,E2 live,all,PASS
+ONB-01,Onboarding,Madhhab explicit selection,NOT_ATTEMPTED,,,"only the ""I don't know"" path was exercised"
+ONB-02,Onboarding,Madhhab unknown -> suggestion flow,EXECUTED,E2 live,all,"only ""I'll decide later"" branch taken; ""Help me choose"" not exercised"
+ONB-03,Onboarding,Marital status,PARTIAL,E2 live,all,"only ""Continue"" (default) tapped; explicit Yes/No not separately verified"
+ONB-04,Onboarding,Location: current location,NOT_ATTEMPTED,,,
+ONB-05,Onboarding,Location: manual city pick,NOT_ATTEMPTED,,,
+ONB-06,Onboarding,Location: skip,EXECUTED,E2 live,all,PASS
+ONB-07,Onboarding,Menstrual history: known last period date,NOT_ATTEMPTED,,,
+ONB-08,Onboarding,Menstrual history: I'm not sure,EXECUTED,E2 live,all,PASS
+ONB-09,Onboarding,Menstrual history: still bleeding now,NOT_ATTEMPTED,,,
+ONB-10,Onboarding,Baseline estimate,NOT_ATTEMPTED,,,"""I'm not sure"" taken every time instead"
+ONB-11,Onboarding,Anonymous mode toggle,EXECUTED,E2 live,all,"default (off) accepted, not explicitly toggled"
+ONB-12,Onboarding,Save failure / retry,NOT_ATTEMPTED,,,
+MENS-01,Menstrual,Start Bleeding,EXECUTED,E2 live,B/C/D/E/G/I/J,PASS
+MENS-02,Menstrual,Daily check-in,EXECUTED,E2 live,C,PASS
+MENS-03,Menstrual,End Bleeding,NOT_ATTEMPTED,,,
+MENS-04,Menstrual,Add a missing day (backfill),EXECUTED,E2 live,C/D,PASS
+MENS-05,Menstrual,Multiple observations same day,EXECUTED,E2 live + real DB,C,"PASS — the charter's own required proof"
+MENS-06,Menstrual,Correct an existing entry,EXECUTED,E2 live + real DB,E,"PASS after fix, D-002"
+MENS-07,Menstrual,Correction conflict resolution,NOT_ATTEMPTED,,,"D7 conflict path requires two concurrent writers; existing widget test (correction_sheet_test.dart) covers structurally, not live"
+MENS-08,Menstrual,Revision history display,PARTIAL,E2 live,E,"day-detail sheet opened and dumped; Superseded/Current chip labels not individually asserted"
+MENS-09,Menstrual,Canonical calendar,EXECUTED,E2 live,B/E,PASS
+MENS-10,Menstrual,Legacy Calendar tab (bottom nav),NOT_ATTEMPTED,,,"opened once in an earlier exploratory run (persona B, wave 3) but not asserted against"
+MENS-11,Menstrual,Insights,NOT_ATTEMPTED,,,"CROSS_SCREEN_CONSISTENCY.md covers its data source structurally, not a live screen visit"
+MENS-12,Menstrual,Evidence-unresolved / insufficient-history states,EXECUTED,E2 live,B,"PASS after fix, D-001"
+MENS-13,Menstrual,Offline write + pending-operation recovery,EXECUTED,E2/E3 (existing suite),F,"cited, not re-run live this wave"
+REM-01,Reminders,Enable/disable daily check-in reminder,EXECUTED,E2 live,G,PASS
+REM-02,Reminders,Change reminder time,PARTIAL,E2 live,G,"screen and value observed (""Reminder time: 6:00 PM / Change""); the Change flow itself not exercised"
+REM-03,Reminders,Notification tap routing,NOT_ATTEMPTED,,,"covered by existing widget tests (dashboard_notification_tap_stream_test.dart), not live"
+PRAY-01,Prayer,Manual city selection,NOT_ATTEMPTED,,,
+PRAY-02,Prayer,Device location for prayer times,NOT_ATTEMPTED,,,
+PRAY-03,Prayer,Location permission denied,NOT_ATTEMPTED,,,
+PRAY-04,Prayer,Prayer logging,NOT_ATTEMPTED,,,
+PRAY-05,Prayer,Timezone change re-derivation,NOT_ATTEMPTED,,,"covered by existing unit tests (notification_timezone_test.dart, device_timezone_test.dart), not live"
+PRAY-06,Prayer,Salah status card states,EXECUTED,E2 live,B,"insufficient-history and unresolved states seen live; obligatory/lifted states not exercised live this wave"
+TTC-01,TTC,Unmarried restriction,NOT_ATTEMPTED,,,
+TTC-02,TTC,Married + TTC enabled,NOT_ATTEMPTED,,,
+TTC-03,TTC,Fertility window display,NOT_ATTEMPTED,,,
+PREG-01,Pregnancy,Setup,NOT_ATTEMPTED,,,
+PREG-02,Pregnancy,Active pregnancy overview,NOT_ATTEMPTED,,,
+PREG-03,Pregnancy,Week progression,NOT_ATTEMPTED,,,
+PREG-04,Pregnancy,Log birth -> Nifas transition,NOT_ATTEMPTED,,,
+PREG-05,Pregnancy,Pregnancy report,NOT_ATTEMPTED,,,
+PREG-06,Pregnancy,AI context includes pregnancy state,NOT_ATTEMPTED,,,
+NIFAS-01,Nifas,Start postpartum,NOT_ATTEMPTED,,,
+NIFAS-02,Nifas,Active Nifas status card,NOT_ATTEMPTED,,,
+NIFAS-03,Nifas,Prayer/fasting status during Nifas,NOT_ATTEMPTED,,,
+NIFAS-04,Nifas,Nifas end/transition,NOT_ATTEMPTED,,,
+WELL-01,Wellbeing,Mood/energy/sleep entry,NOT_ATTEMPTED,,,"card seen on dashboard live but never interacted with"
+WELL-02,Wellbeing,History,NOT_ATTEMPTED,,,
+WELL-03,Wellbeing,Report,NOT_ATTEMPTED,,,
+WELL-04,Wellbeing,Reminder,PARTIAL,E2 live,G,"seen in Notification Settings list, not toggled"
+AI-01,AI,General assistant,NOT_ATTEMPTED,,,
+AI-02,AI,Health assistant (Dr Niswah),NOT_ATTEMPTED,,,"card seen on dashboard live, not opened"
+AI-03,AI,Fiqh advisor,NOT_ATTEMPTED,,,
+AI-04,AI,Dream interpreter,NOT_ATTEMPTED,,,
+AI-05,AI,Conversation history,NOT_ATTEMPTED,,,
+AI-06,AI,Delete conversation,NOT_ATTEMPTED,,,
+AI-07,AI,Backend unavailable,NOT_ATTEMPTED,,,
+AI-08,AI,Malformed response handling,NOT_ATTEMPTED,,,
+AI-09,AI,Citation/source requirements,NOT_ATTEMPTED,,,"content-oracle question — would need qualified review regardless, per charter instruction"
+COMM-01,Community,Create post,NOT_ATTEMPTED,,,
+COMM-02,Community,Anonymous post,NOT_ATTEMPTED,,,
+COMM-03,Community,Search,NOT_ATTEMPTED,,,
+COMM-04,Community,Like,NOT_ATTEMPTED,,,
+COMM-05,Community,Open post detail,NOT_ATTEMPTED,,,
+COMM-06,Community,Delete own post,NOT_ATTEMPTED,,,
+COMM-07,Community,Author preview,NOT_ATTEMPTED,,,
+COMM-08,Community,Message author,NOT_ATTEMPTED,,,
+COMM-09,Community,Empty state,NOT_ATTEMPTED,,,
+COMM-10,Community,Backend failure,NOT_ATTEMPTED,,,
+MSG-01,Messaging,Create/open conversation,NOT_ATTEMPTED,,,
+MSG-02,Messaging,Send message,NOT_ATTEMPTED,,,
+MSG-03,Messaging,Receive message,NOT_ATTEMPTED,,,
+MSG-04,Messaging,Unread state,NOT_ATTEMPTED,,,
+MSG-05,Messaging,History,NOT_ATTEMPTED,,,
+MSG-06,Messaging,Delete conversation,NOT_ATTEMPTED,,,
+MSG-07,Messaging,Cross-account privacy (RLS),NOT_ATTEMPTED,,,"live RLS adversarial matrix exists from an EARLIER, unrelated wave (Hardening 5) for the canonical bleeding tables specifically, not private_messaging"
+RPT-01,Reports,Fiqh report,NOT_ATTEMPTED,,,
+RPT-02,Reports,Doctor report,NOT_ATTEMPTED,,,
+RPT-03,Reports,Wellbeing report,NOT_ATTEMPTED,,,
+RPT-04,Reports,Husband report,NOT_ATTEMPTED,,,
+RPT-05,Reports,JSON data export,NOT_ATTEMPTED,,,
+PROF-01,Profile,Anonymous mode,NOT_ATTEMPTED,,,
+PROF-02,Profile,Notification settings,EXECUTED,E2 live,G,PASS
+PROF-03,Profile,Privacy policy,PARTIAL,E2 live (exploratory wave),X1,"opened and screenshotted during exploration, not asserted against"
+PROF-04,Profile,Account state toggles,NOT_ATTEMPTED,,,"seen listed on Profile screen live (married/pregnant/nifas), not toggled"
+PROF-05,Profile,Delete-account confirmation + completion,NOT_ATTEMPTED,,,
+SYS-01,System,Build identity confirmation,EXECUTED,E2 live,P0,"PASS — banner correctly showed SHA+backend"
+SYS-02,System,Account switch / sign-out data isolation,EXECUTED,E2 live + real DB,J,PASS
