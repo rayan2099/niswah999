@@ -1,0 +1,226 @@
+name: Acceptance dispatcher (manual)
+
+# Manual dispatcher for the persona acceptance suite. It exists on `main`
+# ONLY so GitHub registers a workflow_dispatch entry point (GitHub only
+# offers dispatch for workflow files on the default branch); it contains
+# no app/runtime code. It checks out WHATEVER ref it is given (for example
+# the head SHA of an open PR), runs that ref's own acceptance harness
+# against a disposable local Supabase, and verifies every persona reported
+# PASS. The requested ref's harness includes the production kill switch
+# (scripts/assert_test_backend.py) and refuses any backend that is not
+# loopback or explicitly approved; this workflow only ever provisions and
+# targets a local backend on the runner.
+#
+# The personas are split across parallel shards (each with its own emulator
+# and disposable backend) so the run finishes in a reasonable time; a final
+# job merges every shard's results and runs the verifier over the FULL
+# persona catalogue, so a missing, crashed, skipped or failing persona in any
+# shard fails the run.
+#
+# Nothing here reads a repository secret.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref or full 40-char SHA to run the acceptance suite against
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-${{ github.event.inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.47.0"
+
+jobs:
+  plan:
+    name: Resolve exact SHA and plan shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      shards: ${{ steps.shards.outputs.shards }}
+    steps:
+      - name: Check out the requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Record the exact SHA under test
+        id: sha
+        env:
+          REQ_REF: ${{ github.event.inputs.ref }}
+        run: |
+          SHA="$(git rev-parse HEAD)"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Acceptance run"
+            echo "- requested ref: \`$REQ_REF\`"
+            echo "- **exact SHA under test: \`$SHA\`**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          REQ="$REQ_REF"
+          if printf '%s' "$REQ" | grep -Eq '^[0-9a-f]{40}$' && [ "$REQ" != "$SHA" ]; then
+            echo "::error::requested SHA $REQ but checked out $SHA"; exit 1
+          fi
+
+      - name: Require the acceptance harness in the requested ref
+        run: |
+          for f in scripts/assert_test_backend.py scripts/run_acceptance_suite.sh \
+                   scripts/run_persona_local.sh scripts/provision_local_test_backend.sh \
+                   scripts/verify_acceptance_results.py integration_test/support/harness.dart; do
+            [ -f "$f" ] || { echo "::error::$f is missing in the requested ref — nothing was run"; exit 1; }
+          done
+
+      # Personas are discovered from the requested ref itself (round-robin
+      # over four shards), so the plan can never go stale as personas are added.
+      - name: Plan shards from the ref's persona files
+        id: shards
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import glob, json, os
+          ids = sorted(os.path.basename(f)[:-5] for f in glob.glob("integration_test/p*_test.dart"))
+          n = 4
+          shards = [{"name": f"shard-{i+1}", "only": " ".join(ids[i::n])}
+                    for i in range(n) if ids[i::n]]
+          print("shards=" + json.dumps(shards))
+          PY
+
+  android-acceptance:
+    name: Android emulator — ${{ matrix.shard.name }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.plan.outputs.shards) }}
+    env:
+      TESTED_SHA: ${{ needs.plan.outputs.sha }}
+    steps:
+      - name: Check out the exact SHA under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Pinned: an unpinned CLI on the runner rejected this repo's
+      # supabase/config.toml (unknown keys, older service names for `-x`).
+      # Keep in step with the version the repo is developed with.
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      - name: Provision the disposable local test backend
+        run: bash scripts/provision_local_test_backend.sh
+
+      - name: Point the app at the local backend (emulator alias for the host)
+        run: |
+          ANON="$(supabase status -o env 2>/dev/null | grep '^ANON_KEY=' | sed -E 's/^ANON_KEY="?([^"]*)"?$/\1/')"
+          [ -n "$ANON" ] || { echo "::error::local Supabase did not start"; exit 1; }
+          {
+            echo "APP_ENV=ci-acceptance"
+            echo "SUPABASE_URL=http://10.0.2.2:54321"
+            echo "SUPABASE_ANON_KEY=$ANON"
+            echo "VITE_SUPABASE_URL=http://10.0.2.2:54321"
+            echo "VITE_SUPABASE_ANON_KEY=$ANON"
+            echo "SENTRY_DSN="
+          } > .env
+
+      - name: Production kill switch — refuse any unapproved backend
+        run: python3 scripts/assert_test_backend.py --env-file .env
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # The suite script exits non-zero unless the WHOLE catalogue passed, so
+      # a shard (which runs a subset) is judged by the merge job below, not by
+      # this step; this step only fails if a persona could not even be run.
+      - name: Run this shard's personas on the Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ACCEPTANCE_ONLY: ${{ matrix.shard.only }}
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash scripts/run_acceptance_suite.sh emulator-5554 acceptance/results || true
+
+      - name: Upload this shard's evidence (success AND failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-evidence-${{ matrix.shard.name }}
+          path: |
+            acceptance/results/**
+            acceptance/logs/**
+            acceptance/screenshots/**
+          retention-days: 30
+
+  verify:
+    name: Verify every persona reported PASS (full catalogue)
+    needs: [plan, android-acceptance]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the exact SHA under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - name: Download every shard's evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: acceptance-evidence-shard-*
+          path: shard-evidence
+
+      - name: Merge results
+        run: |
+          mkdir -p acceptance/results acceptance/logs acceptance/screenshots
+          for d in shard-evidence/*/; do
+            [ -d "$d/results" ] && cp -r "$d"/results/. acceptance/results/
+            [ -d "$d/logs" ] && cp -r "$d"/logs/. acceptance/logs/
+            [ -d "$d/screenshots" ] && cp -r "$d"/screenshots/. acceptance/screenshots/
+          done
+          ls acceptance/results | wc -l
+
+      - name: Verifier verdict (also written to the job summary)
+        shell: bash   # explicit so `pipefail` applies: a failing verifier must fail this step
+        run: |
+          python3 scripts/verify_acceptance_results.py acceptance/results integration_test \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the merged evidence for this SHA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-evidence-android-${{ needs.plan.outputs.sha }}
+          path: |
+            acceptance/results/**
+            acceptance/logs/**
+            acceptance/screenshots/**
+          retention-days: 30
