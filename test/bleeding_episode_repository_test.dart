@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/core/utils/app_clock.dart';
 
 import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
@@ -134,26 +135,87 @@ void main() {
   group(
     'BleedingEpisodeRepositoryImpl.localToday (PR #4 hardening, Blocker 7)',
     () {
-      test('is a pure function of the real current instant and an offset', () {
-        final utcNow = DateTime.now().toUtc();
-        final result = BleedingEpisodeRepositoryImpl.localToday(0);
-        expect(result, DateTime(utcNow.year, utcNow.month, utcNow.day));
+      // localToday derives from AppClock.now (default DateTime.now —
+      // production behavior unchanged); pinning it makes every case
+      // exact instead of racing the real wall clock at a day boundary.
+      tearDown(AppClock.reset);
+
+      DateTime at(DateTime instant, int offsetMinutes) {
+        AppClock.now = () => instant;
+        return BleedingEpisodeRepositoryImpl.localToday(offsetMinutes);
+      }
+
+      test('zero offset is the UTC calendar date', () {
+        expect(
+          at(DateTime.utc(2030, 1, 15, 23, 59, 59), 0),
+          DateTime(2030, 1, 15),
+        );
+        expect(at(DateTime.utc(2030, 1, 16), 0), DateTime(2030, 1, 16));
       });
 
-      test(
-        'a positive offset can roll the local date forward relative to UTC',
-        () {
-          // Construct a moment just before UTC midnight, then confirm a
-          // positive offset can land on the *next* UTC calendar day locally.
-          // We can't control real "now", so this asserts the arithmetic
-          // directly rather than depending on wall-clock timing.
-          final utcNow = DateTime.now().toUtc();
-          final local = utcNow.add(const Duration(hours: 14));
-          final expected = DateTime(local.year, local.month, local.day);
-          final result = BleedingEpisodeRepositoryImpl.localToday(14 * 60);
-          expect(result, expected);
-        },
-      );
+      test('a positive offset rolls the local date FORWARD past UTC', () {
+        // 21:07Z is already 00:07 tomorrow in Riyadh (+3) — the exact
+        // wall-clock window in which CI first disagreed with itself.
+        expect(
+          at(DateTime.utc(2030, 1, 15, 21, 7), 3 * 60),
+          DateTime(2030, 1, 16),
+        );
+        expect(
+          at(DateTime.utc(2030, 1, 15, 20, 59, 59), 3 * 60),
+          DateTime(2030, 1, 15),
+        );
+        expect(
+          at(DateTime.utc(2030, 1, 15, 10), 14 * 60),
+          DateTime(2030, 1, 16),
+        );
+      });
+
+      test('a negative offset holds the local date BEHIND UTC', () {
+        expect(
+          at(DateTime.utc(2030, 1, 16, 7, 59, 59), -8 * 60),
+          DateTime(2030, 1, 15),
+        );
+        expect(
+          at(DateTime.utc(2030, 1, 16, 8), -8 * 60),
+          DateTime(2030, 1, 16),
+        );
+        expect(
+          at(DateTime.utc(2030, 1, 16, 10), -11 * 60),
+          DateTime(2030, 1, 15),
+        );
+      });
+
+      test('a half-hour offset lands on the correct side of midnight', () {
+        expect(
+          at(DateTime.utc(2030, 1, 15, 18, 29, 59), 5 * 60 + 30),
+          DateTime(2030, 1, 15),
+        );
+        expect(
+          at(DateTime.utc(2030, 1, 15, 18, 30), 5 * 60 + 30),
+          DateTime(2030, 1, 16),
+        );
+      });
+
+      test('month and year boundaries roll correctly', () {
+        expect(
+          at(DateTime.utc(2030, 12, 31, 21), 3 * 60),
+          DateTime(2031, 1, 1),
+        );
+        expect(at(DateTime.utc(2030, 2, 28, 23), 2 * 60), DateTime(2030, 3, 1));
+      });
+
+      test('with AppClock untouched it is still the real current instant', () {
+        AppClock.reset();
+        final before = DateTime.now().toUtc();
+        final result = BleedingEpisodeRepositoryImpl.localToday(0);
+        final after = DateTime.now().toUtc();
+        // Either side of a possible midnight tick is acceptable — this
+        // only proves the default clock is the real one.
+        expect([
+          DateTime(before.year, before.month, before.day),
+          DateTime(after.year, after.month, after.day),
+        ], contains(result));
+      });
     },
   );
 

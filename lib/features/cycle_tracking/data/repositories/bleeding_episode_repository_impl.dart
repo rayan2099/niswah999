@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/utils/app_clock.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/load_result.dart';
@@ -65,7 +66,11 @@ class BleedingEpisodeRepositoryImpl {
   /// [ObservationSource.userReportedHistorical]) consistently with what
   /// the canonical RPC itself uses for future-date rejection.
   static DateTime localToday(int utcOffsetMinutes) {
-    final nowUtc = DateTime.now().toUtc();
+    // AppClock.now defaults to DateTime.now (identical production
+    // behavior); it is the single controllable clock the notification
+    // coordinator already derives its own `now` from, so a test that
+    // pins it gets one consistent logical "today" on both sides.
+    final nowUtc = AppClock.now().toUtc();
     final local = nowUtc.add(Duration(minutes: utcOffsetMinutes));
     return DateTime(local.year, local.month, local.day);
   }

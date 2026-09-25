@@ -157,8 +157,94 @@ class _FakeUnavailableRepository extends BleedingEpisodeRepositoryImpl {
 /// notifications and structural audit events behind for every day in
 /// the rolling window — proving continuity does not depend on being
 /// reopened once per day.
+/// One pinned instant fed to `AppClock.now` — the SINGLE clock both the
+/// production coordinator (`NotificationRefreshCoordinator`) and
+/// `BleedingEpisodeRepositoryImpl.localToday` derive the logical "today"
+/// from. Dates are in 2030 on purpose: `flutter_local_notifications`
+/// validates every `zonedSchedule` against the REAL wall clock, so every
+/// pinned instant must stay in the real future.
+///
+/// Every scenario is a LOCAL `DateTime(...)`, exactly what production's
+/// `AppClock.now` (default `DateTime.now`) always yields — a UTC-kind
+/// value would be an input production never produces. The machine's own
+/// zone therefore supplies the UTC offset, so running this file under
+/// different `TZ=` values (see scripts/run_notification_clock_matrix.sh)
+/// exercises positive, negative, half-hour and +14 offsets, and the
+/// UTC-date vs local-date disagreement, against the same wall times.
+class _ClockScenario {
+  const _ClockScenario(this.name, this.clock);
+  final String name;
+  final DateTime Function() clock;
+}
+
+final _clockScenarios = <_ClockScenario>[
+  _ClockScenario('09:00', () => DateTime(2030, 1, 15, 9)),
+  _ClockScenario(
+    '17:59:59 (last second before lead time)',
+    () => DateTime(2030, 1, 15, 17, 59, 59),
+  ),
+  _ClockScenario(
+    '18:00:00 (exactly the lead time)',
+    () => DateTime(2030, 1, 15, 18),
+  ),
+  _ClockScenario('20:29:59', () => DateTime(2030, 1, 15, 20, 29, 59)),
+  _ClockScenario(
+    '20:59:59 (last second of default catch-up)',
+    () => DateTime(2030, 1, 15, 20, 59, 59),
+  ),
+  _ClockScenario(
+    '21:00:00 (default catch-up closes)',
+    () => DateTime(2030, 1, 15, 21),
+  ),
+  _ClockScenario(
+    '21:07 (the time of day CI first failed)',
+    () => DateTime(2030, 1, 15, 21, 7),
+  ),
+  _ClockScenario('23:29:59', () => DateTime(2030, 1, 15, 23, 29, 59)),
+  _ClockScenario(
+    '23:30:00 (20:30-lead catch-up closes)',
+    () => DateTime(2030, 1, 15, 23, 30),
+  ),
+  _ClockScenario(
+    '23:59:59 (last second of the day)',
+    () => DateTime(2030, 1, 15, 23, 59, 59),
+  ),
+  _ClockScenario(
+    '00:00:00 (first second of next day)',
+    () => DateTime(2030, 1, 16),
+  ),
+  _ClockScenario('00:00:01', () => DateTime(2030, 1, 16, 0, 0, 1)),
+  _ClockScenario(
+    '2030-12-31 23:59:59 (year boundary)',
+    () => DateTime(2030, 12, 31, 23, 59, 59),
+  ),
+];
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final scenario in _clockScenarios) {
+    group('under pinned clock: ${scenario.name}', () => _suite(scenario));
+  }
+}
+
+void _suite(_ClockScenario scenario) {
+  // Documented production rule (notification_scheduler.dart `_planForDay`):
+  // a default 18:00 reminder whose time has passed gets ONE fixed
+  // catch-up at lead + 3h (21:00); at/after that there is no same-day
+  // reminder — the next day's is the genuine next touchpoint. So today's
+  // slot exists iff the pinned local clock time is before 21:00:00. This
+  // is exact, not a loosened count: 30 window days, or 29 when today's
+  // slot has legitimately closed.
+  bool todaysSlotOpen({int leadSeconds = 18 * 3600}) {
+    final now = scenario.clock();
+    final secondsIntoDay = now.hour * 3600 + now.minute * 60 + now.second;
+    return secondsIntoDay < leadSeconds + 3 * 3600;
+  }
+
+  int firstDayOffset() => todaysSlotOpen() ? 0 : 1;
+  int expectedWindowCount() =>
+      ActiveBleedingReminderScheduler.defaultRollingWindowDays -
+      firstDayOffset();
 
   final zonedScheduleCalls = <Map<dynamic, dynamic>>[];
   final cancelledIds = <int>[];
@@ -177,6 +263,7 @@ void main() {
   final pendingRequests = <int, Map<String, dynamic>>{};
 
   setUp(() async {
+    AppClock.now = scenario.clock;
     SharedPreferences.setMockInitialValues({});
     AndroidFlutterLocalNotificationsPlugin.registerWith();
     zonedScheduleCalls.clear();
@@ -257,7 +344,7 @@ void main() {
     // once, immediately before the single call that consumes it, to
     // keep the two as close together as this design allows.
     final today = BleedingEpisodeRepositoryImpl.localToday(
-      DateTime.now().timeZoneOffset.inMinutes,
+      AppClock.now().timeZoneOffset.inMinutes,
     );
     await NotificationRefreshCoordinator.refresh(
       userId: 'user-1',
@@ -266,11 +353,11 @@ void main() {
     );
 
     final expectedIds = List.generate(
-      ActiveBleedingReminderScheduler.defaultRollingWindowDays,
+      expectedWindowCount(),
       (offset) => ActiveBleedingReminderScheduler.reminderId(
         userId: 'user-1',
         episodeId: 'episode-1',
-        localDay: today.add(Duration(days: offset)),
+        localDay: today.add(Duration(days: offset + firstDayOffset())),
       ),
     ).map((id) => id.toString()).toSet();
 
@@ -296,7 +383,7 @@ void main() {
         'day, covering at least 15 days including the day-seven/day-eight '
         'transition — no second, overlapping mechanism', () async {
       final today = BleedingEpisodeRepositoryImpl.localToday(
-        DateTime.now().timeZoneOffset.inMinutes,
+        AppClock.now().timeZoneOffset.inMinutes,
       );
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
@@ -305,11 +392,11 @@ void main() {
       );
 
       final activeBleedingIds = List.generate(
-        ActiveBleedingReminderScheduler.defaultRollingWindowDays,
+        expectedWindowCount(),
         (offset) => ActiveBleedingReminderScheduler.reminderId(
           userId: 'user-1',
           episodeId: 'episode-1',
-          localDay: today.add(Duration(days: offset)),
+          localDay: today.add(Duration(days: offset + firstDayOffset())),
         ),
       ).toSet();
 
@@ -333,7 +420,7 @@ void main() {
 
       // Day-seven/day-eight transition, and well beyond — at least 15
       // consecutive days, all present, all from the SAME mechanism.
-      for (var day = 0; day < 15; day++) {
+      for (var day = firstDayOffset(); day < 15; day++) {
         final id = ActiveBleedingReminderScheduler.reminderId(
           userId: 'user-1',
           episodeId: 'episode-1',
@@ -353,7 +440,7 @@ void main() {
         'recurring schedule — every one is a plain, exact, one-off '
         'instance for its own specific date', () async {
       final today = BleedingEpisodeRepositoryImpl.localToday(
-        DateTime.now().timeZoneOffset.inMinutes,
+        AppClock.now().timeZoneOffset.inMinutes,
       );
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
@@ -362,11 +449,11 @@ void main() {
       );
 
       final activeBleedingIds = List.generate(
-        ActiveBleedingReminderScheduler.defaultRollingWindowDays,
+        expectedWindowCount(),
         (offset) => ActiveBleedingReminderScheduler.reminderId(
           userId: 'user-1',
           episodeId: 'episode-1',
-          localDay: today.add(Duration(days: offset)),
+          localDay: today.add(Duration(days: offset + firstDayOffset())),
         ),
       ).toSet();
 
@@ -391,7 +478,7 @@ void main() {
 
   group('New critical finding — local notification reconciliation closure', () {
     DateTime today() => BleedingEpisodeRepositoryImpl.localToday(
-      DateTime.now().timeZoneOffset.inMinutes,
+      AppClock.now().timeZoneOffset.inMinutes,
     );
 
     Set<int> windowIds({
@@ -399,11 +486,11 @@ void main() {
       required String episodeId,
       required DateTime start,
     }) => List.generate(
-      ActiveBleedingReminderScheduler.defaultRollingWindowDays,
+      expectedWindowCount(),
       (offset) => ActiveBleedingReminderScheduler.reminderId(
         userId: userId,
         episodeId: episodeId,
-        localDay: start.add(Duration(days: offset)),
+        localDay: start.add(Duration(days: offset + firstDayOffset())),
       ),
     ).toSet();
 
@@ -451,7 +538,10 @@ void main() {
         bleedingRepository: repository,
         preferenceRepository: null,
       );
-      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        hasLength(expectedWindowCount()),
+      );
 
       await setActiveBleedingEnabled(false);
       final unavailableRepository = _FakeUnavailableRepository();
@@ -487,7 +577,10 @@ void main() {
         bleedingRepository: repository,
         preferenceRepository: null,
       );
-      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        hasLength(expectedWindowCount()),
+      );
 
       await NotificationRefreshCoordinator.refresh(
         userId: 'user-1',
@@ -497,7 +590,7 @@ void main() {
 
       expect(
         activeBleedingPendingIds(userId: 'user-1'),
-        hasLength(30),
+        hasLength(expectedWindowCount()),
         reason:
             '"could not verify" must never be treated as "verified: no '
             'open episode" — the honest response is to leave whatever is '
@@ -514,7 +607,10 @@ void main() {
         bleedingRepository: repository,
         preferenceRepository: null,
       );
-      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        hasLength(expectedWindowCount()),
+      );
       expect(repository.getEpisodesForUserCallCount, 0);
 
       repository.episodeHasEnded = true;
@@ -652,10 +748,14 @@ void main() {
       );
       expect(activeBleedingPendingIds(userId: 'user-1'), ids);
 
+      // Tomorrow's slot, not today's: today's own slot legitimately
+      // closes at lead time + 3h (the catch-up rule), so it is not
+      // present under every pinned clock, while tomorrow's is always a
+      // plain future day at exactly the preferred wall-clock time.
       final todaysId = ActiveBleedingReminderScheduler.reminderId(
         userId: 'user-1',
         episodeId: 'episode-1',
-        localDay: day,
+        localDay: day.add(const Duration(days: 1)),
       );
       final firstCall = zonedScheduleCalls.lastWhere(
         (c) => c['id'] == todaysId,
@@ -669,12 +769,13 @@ void main() {
       // component. What must hold regardless of that offset is the
       // *delta* between the default (18:00) and the newly-chosen
       // (20:30) preferred time — exactly 2 hours, 30 minutes later.
-      final firstMinute = int.parse(
-        (firstCall['scheduledDateTime'] as String).substring(14, 16),
-      );
-      final firstHour = int.parse(
-        (firstCall['scheduledDateTime'] as String).substring(11, 13),
-      );
+      int minuteOfDay(Map<dynamic, dynamic> call) {
+        final stamp = call['scheduledDateTime'] as String;
+        return int.parse(stamp.substring(11, 13)) * 60 +
+            int.parse(stamp.substring(14, 16));
+      }
+
+      final firstMinuteOfDay = minuteOfDay(firstCall);
 
       final preferenceRepository = NotificationRepositoryImpl();
       final current = await preferenceRepository.loadPreferences();
@@ -695,30 +796,40 @@ void main() {
       final secondCall = zonedScheduleCalls.lastWhere(
         (c) => c['id'] == todaysId,
       );
-      final secondMinute = int.parse(
-        (secondCall['scheduledDateTime'] as String).substring(14, 16),
-      );
-      final secondHour = int.parse(
-        (secondCall['scheduledDateTime'] as String).substring(11, 13),
-      );
+      final secondMinuteOfDay = minuteOfDay(secondCall);
 
       expect(
-        (secondHour - firstHour) % 24,
-        2,
+        (secondMinuteOfDay - firstMinuteOfDay) % (24 * 60),
+        150,
         reason:
-            'the preferred hour moved from 18:00 to 20:00 — a real, '
-            '2-hour change, regardless of this test environment\'s own '
-            'timezone-fallback offset',
+            'the preferred time moved from 18:00 to 20:30 — exactly 150 '
+            'minutes later, regardless of this test environment\'s own '
+            'timezone-fallback offset (whole-hour or half-hour: the '
+            'absolute :00/:30 fields shift with the offset, the delta '
+            'does not)',
       );
-      expect(firstMinute, 0);
-      expect(secondMinute, 30);
+      // Every day that was pending before is still pending under its
+      // same id (idempotently replaced, never duplicated alongside a
+      // stale copy). The ONLY permitted difference is today's own slot:
+      // moving the lead time from 18:00 to 20:30 also moves today's
+      // catch-up cutoff from 21:00 to 23:30, so a today slot that had
+      // already closed under the old time may legitimately reopen —
+      // exactly when the pinned clock is before 23:30:00.
+      final todayId = ActiveBleedingReminderScheduler.reminderId(
+        userId: 'user-1',
+        episodeId: 'episode-1',
+        localDay: day,
+      );
+      final expectedAfterChange = {
+        ...ids,
+        if (todaysSlotOpen(leadSeconds: 20 * 3600 + 30 * 60)) todayId,
+      };
       expect(
         activeBleedingPendingIds(userId: 'user-1'),
-        ids,
+        expectedAfterChange,
         reason:
-            'the exact same 30 logical days remain pending — an unchanged '
-            'id is idempotently replaced, never duplicated alongside a '
-            'stale copy',
+            'the same logical days remain pending, plus today only if the '
+            'new lead time\'s catch-up window is still open',
       );
     });
 
@@ -880,7 +991,10 @@ void main() {
         episodeId: 'episode-1',
         start: day,
       );
-      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        hasLength(expectedWindowCount()),
+      );
 
       final rejectedId = ids.first;
       rejectCancelIds.add(rejectedId);
@@ -970,7 +1084,10 @@ void main() {
         bleedingRepository: _FakeOpenEpisodeRepository(),
         preferenceRepository: null,
       );
-      expect(activeBleedingPendingIds(userId: 'user-1'), hasLength(30));
+      expect(
+        activeBleedingPendingIds(userId: 'user-1'),
+        hasLength(expectedWindowCount()),
+      );
 
       await NotificationService.instance.cancelAll();
       expect(
