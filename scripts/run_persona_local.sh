@@ -34,6 +34,11 @@ print((m.group(1)+(":"+m.group(2) if m.group(2) else "")) if m else "unknown")
 PY
 )"
 
+# Bounded: a crashed test binary can leave `flutter drive` waiting forever
+# (macOS has no `timeout`). Poll to a deadline, then kill the tree and
+# report a timeout — never a silent hang. Override with
+# PERSONA_TIMEOUT_SECONDS (a cold Android Gradle build alone can be 20 min).
+DEADLINE_SECONDS="${PERSONA_TIMEOUT_SECONDS:-1500}"
 flutter drive \
   --driver=test_driver/integration_test.dart \
   --target="$TARGET" \
@@ -41,4 +46,17 @@ flutter drive \
   --dart-define=GIT_SHA="$(git rev-parse HEAD)" \
   --dart-define=ENABLE_DIAGNOSTICS_SCREEN=true \
   --dart-define=ACCEPTANCE_TEST=true \
-  --dart-define=BACKEND_ENV="local-test:${HOST}"
+  --dart-define=BACKEND_ENV="local-test:${HOST}" &
+DRIVE_PID=$!
+END=$(( $(date +%s) + DEADLINE_SECONDS ))
+while kill -0 "$DRIVE_PID" 2>/dev/null; do
+  if [ "$(date +%s)" -ge "$END" ]; then
+    echo "TIMEOUT: $TARGET did not finish within ${DEADLINE_SECONDS}s — killing it" >&2
+    pkill -TERM -P "$DRIVE_PID" 2>/dev/null || true
+    kill -9 "$DRIVE_PID" 2>/dev/null || true
+    pkill -9 -f "flutter_tools.*drive" 2>/dev/null || true
+    exit 124
+  fi
+  sleep 3
+done
+wait "$DRIVE_PID"

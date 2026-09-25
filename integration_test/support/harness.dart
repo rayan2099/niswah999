@@ -17,6 +17,11 @@ class Harness {
   final WidgetTester tester;
 
   int _shotCounter = 0;
+
+  /// `convertFlutterSurfaceToImage()` asserts if called twice for the same
+  /// surface, so it happens once per process (this integration_test
+  /// version has no revert counterpart).
+  static bool _androidSurfaceConverted = false;
   bool _backendGuardPassed = false;
 
   /// Captures a screenshot named `<persona>_<nn>_<label>`.
@@ -27,8 +32,9 @@ class Harness {
     // Android renders into a platform surface: it must be converted to an
     // image before a screenshot (this integration_test version has no
     // revert counterpart). iOS needs none of it.
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid && !_androidSurfaceConverted) {
       await binding.convertFlutterSurfaceToImage();
+      _androidSurfaceConverted = true;
       await tester.pump();
     }
     await binding.takeScreenshot('${persona}_${n}_$label');
