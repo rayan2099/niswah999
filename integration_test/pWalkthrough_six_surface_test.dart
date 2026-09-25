@@ -122,6 +122,29 @@ void main() {
     h.note('W surface4=$surface4');
     h.note('W surface6=$surface6');
 
+    // Cross-screen consistency verdict for the ONE shared history (a
+    // real reported period ~32 days ago via onboarding + a real current
+    // Day-1 episode): every surface must agree she HAS history.
+    // Regression for the onboarding-history -> legacy contradiction
+    // found by the first run of this very walkthrough.
+    final calendarClaimsNoHistory = surface3.contains(
+      'Log at least two cycle starts',
+    );
+    final insightsClaimsNoHistory =
+        surface4.contains('Log two cycle starts') ||
+        surface4.contains('No cycle history yet');
+    final canonicalKnowsHistory = surface2.contains('Your stated usual period');
+    final consistent =
+        canonicalKnowsHistory &&
+        !calendarClaimsNoHistory &&
+        !insightsClaimsNoHistory;
+    h.note(
+      'W CROSS-SCREEN canonicalKnowsHistory=$canonicalKnowsHistory '
+      'calendarClaimsNoHistory=$calendarClaimsNoHistory '
+      'insightsClaimsNoHistory=$insightsClaimsNoHistory '
+      'consistent=$consistent',
+    );
+
     final crashed = tester.takeException() != null;
     h.note('W crashed=$crashed');
     h.reportResult(
@@ -137,14 +160,18 @@ void main() {
             'crashed=$crashed openedCanonical=$openedCanonical '
             'openedLegacyCalendar=$openedLegacyCalendar '
             'openedInsights=$openedInsights '
-            'openedFiqhReport=$openedFiqhReport — see full per-surface '
+            'openedFiqhReport=$openedFiqhReport '
+            'canonicalKnowsHistory=$canonicalKnowsHistory '
+            'calendarClaimsNoHistory=$calendarClaimsNoHistory '
+            'insightsClaimsNoHistory=$insightsClaimsNoHistory — see full per-surface '
             'text dumps in this run\'s own notes/logs for the '
             'divergence analysis',
         status:
             (!crashed &&
                 openedCanonical &&
                 openedLegacyCalendar &&
-                openedInsights)
+                openedInsights &&
+                consistent)
             ? PersonaStatus.pass
             : PersonaStatus.fail,
         screenshotRef: 'W_surface1_today_top.png',
