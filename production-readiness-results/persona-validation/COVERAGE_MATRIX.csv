@@ -106,7 +106,7 @@ AR-01,Arabic/RTL,"Live Arabic journey: language switch, 5-tab navigation, real s
 AR-02,Arabic/RTL,Layout at 200% text scale (5 tabs) in Arabic,EXECUTED,E2 live (iOS + Android),AR1,no overflow exception on any tab.
 AR-03,Arabic/RTL,RTL directional layout (month controls) and Arabic-Indic date picker,EXECUTED,E2 live (iOS + Android),AR1,month controls follow RTL; date picker cell selected via Arabic digits.
 AR-04,Accessibility,Screen-reader semantics (labels),PARTIAL,E2 live (iOS + Android),AR1,semantic labels asserted for icon buttons and nav; a real VoiceOver/TalkBack pass is a device-only gap.
-SYS-03,System,Whole persona suite on a real Android emulator,EXECUTED,E2 live (Android) local + GitHub-hosted,suite,"local Android emulator: 24/24 personas PASS (2 re-run after a harness fix, see TEST_EXECUTION_REPORT); GitHub-hosted sharded run 36114358622 (earlier SHA, 21 personas): 21/21."
+SYS-03,System,Whole persona suite on a real Android emulator,EXECUTED,E2 live (Android) local + GitHub-hosted,suite,"local Android emulator: 24/24 personas PASS (2 re-run after a harness fix, see TEST_EXECUTION_REPORT); GitHub-hosted sharded run 36189478948 (8b531a8, 25 personas): 25/25."
 SYS-04,System,Production kill switch (harness refuses production/unknown/malformed backend),EXECUTED,unit + host + live,H,3 layers; vectors shared by Dart and Python tests; live refusal + allow proven.
 SYS-05,System,Account deletion leaves no orphan rows,EXECUTED,local DB + live,Batch4 + check_account_deletion_cascade.sh,D-005 fixed; sweep over every public table = 0 orphans.
 JRN-01,Journeys,Guided journeys,BLOCKED,,,GuidedJourneysScreen has no navigation path (F-001).

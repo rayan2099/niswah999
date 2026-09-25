@@ -10,10 +10,11 @@ as PASS on screenshots alone, and unit/widget tests are not personas.
 ## Tested build
 
 - **Branch**: `feat/menstrual-data-integrity` (PR #4, **DRAFT, unmerged**).
-- **Code SHA under test**: `6df0a20…` for the iOS suite (22 of 24 personas) and
-  the Android suite; one later commit (`51b0616`) bounds the GPS wait and
-  hardens the Android location runners, after which the affected personas
-  were re-run (see below). Later commits touch only documentation.
+- **Code SHA under test**: `6df0a20…` for the local iOS suite (22 of 24
+  personas) and the local Android suite; `51b0616` bounds the GPS wait and
+  hardens the Android location runners (affected personas re-run on it);
+  `8b531a8` adds the reminder-time persona and provisioning retry — the
+  hosted 25/25 run is on `8b531a8`. Later commits touch only documentation.
 - **Backend under test**: a disposable **local** Supabase
   (`127.0.0.1:54321`, or `10.0.2.2:54321` from the Android emulator),
   provisioned by `scripts/provision_local_test_backend.sh`. Never production:
@@ -32,7 +33,7 @@ as PASS on screenshots alone, and unit/widget tests are not personas.
 | iOS Simulator, local, full suite | **24/24 PASS** (plus `pR_reminder_time` run individually on both platforms: PASS — added after the full run) — 22 in the full run; 2 (`pBatch7`, `pH`) reported `MISSING_RESULT` for **infrastructure** reasons (the machine lost network during `pub get` for one; a stalled build hit the 1500 s bound for the other) and passed when re-run individually; `p0`, `pAR1`, `pB`, `pL1`, `pL2` were re-run on the final code (see next line). |
 | iOS re-run on final code (`p0`, `pAR1`, `pB`, `pL1`, `pL2`) | see "Final re-runs" below |
 | Android emulator, local, full suite | **24/24 PASS** — 22 in the full run; `pL1`/`pL2` failed there on Android-only harness problems (below), were fixed and re-run through the same suite runner: PASS |
-| GitHub-hosted Android emulators, sharded (`workflow_dispatch` logic via a throwaway push probe, run **36114358622**, 21 personas at that SHA) | **21/21 PASS**, 4 shards + verify job, ~33 min wall |
+| GitHub-hosted Android emulators, sharded (the `workflow_dispatch` logic run through a throwaway push probe) | run **36189478948** on `8b531a8` (+ the workflow file only): **25/25 PASS**, 4 shards + verify job, ~41 min wall. Earlier: **36114358622** (21 personas, 21/21) and **36183491971** (three shards green; one shard failed once at `supabase start` — a transient slow health check, then fixed with a retry and re-proven by 36189478948). |
 | Regular CI on the PR head | Analyze & Test, Build Android, Build iOS, BR-002 migration reproducibility: **all green** |
 
 Android-only harness findings (not app defects, but disclosed):

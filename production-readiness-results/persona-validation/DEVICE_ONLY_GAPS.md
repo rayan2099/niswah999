@@ -36,7 +36,7 @@ document lists specifically what a simulator run cannot prove.
 
 An Android emulator (`Pixel_8`, Android 15, hardware GPU) ran the whole persona
 suite live, and GitHub-hosted emulators (API 34, software GPU, sharded) ran it
-too: 21/21 PASS (run 36114358622). Android compile-only CI is **not** counted
+too: 25/25 PASS (run 36189478948). Android compile-only CI is **not** counted
 as evidence. Still not provable without a physical Android device:
 
 - OEM-specific behaviour (battery optimisation killing reminders, vendor
