@@ -329,6 +329,15 @@ findings that need a founder decision — see "Open findings" below.
   GPU-accelerated emulator; a native permission dialog cannot be tapped
   (set OS permission from the host); `.order()` in supabase-dart defaults
   to **descending** (a test bug, not an app bug).
+- Hardening (no user-visible defect proven, found while driving Android):
+  `Geolocator.getCurrentPosition()` had no time limit, so a granted
+  permission with no GPS fix would leave "Use current location" spinning
+  forever; it is now bounded to 20 s and falls into the existing honest
+  "Unable to get your location" path.
+- Hosted-runner flake: one of four hosted shards failed once at
+  `supabase start` (a slow pg_meta health check); the provisioning script now
+  lists valid service names for the current CLI and retries from a clean stop.
+  The failed run is kept as evidence (36183491971, three other shards green).
 - Disclosure: the D-004 commit (`1686e43`) also contains an unintended,
   whitespace-only reformat of `cycle_segment_planner.dart` and
   `cycle_symptom_decoder.dart`. No behavioural change.
