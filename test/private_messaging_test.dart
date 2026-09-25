@@ -51,6 +51,13 @@ class FakePrivateMessagingRepository implements PrivateMessagingRepositoryBase {
   List<PrivateConversation> conversations;
   Map<String, List<PrivateMessage>> messagesByConversation;
   bool failSends;
+  Map<String, String> displayNames = {};
+
+  @override
+  Future<Map<String, String>> fetchDisplayNames(Set<String> userIds) async => {
+    for (final id in userIds)
+      if (displayNames.containsKey(id)) id: displayNames[id]!,
+  };
 
   int fetchConversationsCalls = 0;
   int fetchMessagesCalls = 0;
@@ -332,84 +339,73 @@ void main() {
       expect(viewModel.isSending, isFalse);
     });
 
-    test(
-      'a send failure is reported via AppErrorReporter, not silently '
-      'swallowed (RR-007)',
-      () async {
-        final repository = FakePrivateMessagingRepository(failSends: true);
-        final viewModel = ChatDetailViewModel(
-          repository: repository,
-          conversationId: 'conv-1',
-          currentUserId: _me,
-        );
-        Object? reported;
-        AppErrorReporter.onReport =
-            (error, stack, {context, feature, retryAttempt, recordId}) {
-              reported = error;
-            };
-        addTearDown(() => AppErrorReporter.onReport = null);
+    test('a send failure is reported via AppErrorReporter, not silently '
+        'swallowed (RR-007)', () async {
+      final repository = FakePrivateMessagingRepository(failSends: true);
+      final viewModel = ChatDetailViewModel(
+        repository: repository,
+        conversationId: 'conv-1',
+        currentUserId: _me,
+      );
+      Object? reported;
+      AppErrorReporter.onReport =
+          (error, stack, {context, feature, retryAttempt, recordId}) {
+            reported = error;
+          };
+      addTearDown(() => AppErrorReporter.onReport = null);
 
-        await viewModel.sendMessage('hi');
+      await viewModel.sendMessage('hi');
 
-        expect(
-          reported,
-          isNotNull,
-          reason: 'previously this failure was surfaced to the user only, '
-              'with zero operator-side visibility',
-        );
-      },
-    );
+      expect(
+        reported,
+        isNotNull,
+        reason:
+            'previously this failure was surfaced to the user only, '
+            'with zero operator-side visibility',
+      );
+    });
 
-    test(
-      'a manual retry after a failed send reuses the same message id — '
-      'so a retry that actually reaches the server does not create a '
-      'duplicate row (RR-007)',
-      () async {
-        final repository = FakePrivateMessagingRepository()
-          ..failNextSend = true;
-        final viewModel = ChatDetailViewModel(
-          repository: repository,
-          conversationId: 'conv-1',
-          currentUserId: _me,
-        );
+    test('a manual retry after a failed send reuses the same message id — '
+        'so a retry that actually reaches the server does not create a '
+        'duplicate row (RR-007)', () async {
+      final repository = FakePrivateMessagingRepository()..failNextSend = true;
+      final viewModel = ChatDetailViewModel(
+        repository: repository,
+        conversationId: 'conv-1',
+        currentUserId: _me,
+      );
 
-        final firstAttempt = await viewModel.sendMessage('hello');
-        expect(firstAttempt, isFalse);
-        final secondAttempt = await viewModel.sendMessage('hello');
-        expect(secondAttempt, isTrue);
+      final firstAttempt = await viewModel.sendMessage('hello');
+      expect(firstAttempt, isFalse);
+      final secondAttempt = await viewModel.sendMessage('hello');
+      expect(secondAttempt, isTrue);
 
-        expect(repository.messageIdsSeen, hasLength(2));
-        expect(repository.messageIdsSeen[0], isNotNull);
-        expect(
-          repository.messageIdsSeen[0],
-          repository.messageIdsSeen[1],
-          reason: 'a retry of the same logical message must reuse the '
-              'same id',
-        );
-      },
-    );
+      expect(repository.messageIdsSeen, hasLength(2));
+      expect(repository.messageIdsSeen[0], isNotNull);
+      expect(
+        repository.messageIdsSeen[0],
+        repository.messageIdsSeen[1],
+        reason:
+            'a retry of the same logical message must reuse the '
+            'same id',
+      );
+    });
 
-    test(
-      'a new message after a successful send gets a fresh id, not the '
-      "previous message's id",
-      () async {
-        final repository = FakePrivateMessagingRepository();
-        final viewModel = ChatDetailViewModel(
-          repository: repository,
-          conversationId: 'conv-1',
-          currentUserId: _me,
-        );
+    test('a new message after a successful send gets a fresh id, not the '
+        "previous message's id", () async {
+      final repository = FakePrivateMessagingRepository();
+      final viewModel = ChatDetailViewModel(
+        repository: repository,
+        conversationId: 'conv-1',
+        currentUserId: _me,
+      );
 
-        await viewModel.sendMessage('first');
-        await viewModel.sendMessage('second');
+      await viewModel.sendMessage('first');
+      await viewModel.sendMessage('second');
 
-        expect(repository.messageIdsSeen, hasLength(2));
-        expect(
-          repository.messageIdsSeen[0],
-          isNot(repository.messageIdsSeen[1]),
-        );
-      },
-    );
+      expect(repository.messageIdsSeen, hasLength(2));
+      expect(repository.messageIdsSeen[0], isNot(repository.messageIdsSeen[1]));
+    });
 
     test('onIncomingMessage appends foreign messages only once', () {
       final repository = FakePrivateMessagingRepository();
@@ -460,15 +456,48 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('user-other'), findsOneWidget);
+      // Regression (found live, Batch 8): the raw account id must never be
+      // the title; with no published name a neutral label is shown.
+      expect(find.text('user-other'), findsNothing);
+      expect(find.text('Private conversation'), findsOneWidget);
 
-      await tester.tap(find.text('user-other'));
+      await tester.tap(find.text('Private conversation'));
       await tester.pumpAndSettle();
 
       // Chat detail screen pushed with the message visible.
       expect(find.byType(ChatDetailScreen), findsOneWidget);
       expect(find.text('Assalamu alaikum'), findsOneWidget);
     });
+
+    testWidgets(
+      'shows the other participant\'s published name, never their id',
+      (tester) async {
+        final repository = FakePrivateMessagingRepository(
+          conversations: [_conversation()],
+          messages: {
+            'conv-1': [_message()],
+          },
+        )..displayNames = {_other: 'Amina'};
+        final viewModel = ConversationsViewModel(
+          repository: repository,
+          currentUserId: _me,
+        );
+        privateMessagingRepositoryOverride = repository;
+
+        await tester.pumpWidget(
+          MaterialApp(home: ConversationsScreen(viewModel: viewModel)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Amina'), findsOneWidget);
+        expect(find.text('user-other'), findsNothing);
+
+        await tester.tap(find.text('Amina'));
+        await tester.pumpAndSettle();
+        // The chat header carries the same name (and never the id).
+        expect(find.text('Amina'), findsOneWidget);
+        expect(find.text('user-other'), findsNothing);
+      },
+    );
 
     testWidgets('shows empty state when no conversations exist', (
       tester,
@@ -578,6 +607,10 @@ void main() {
 }
 
 class _FailingRepository implements PrivateMessagingRepositoryBase {
+  @override
+  Future<Map<String, String>> fetchDisplayNames(Set<String> userIds) async =>
+      const {};
+
   @override
   Future<List<PrivateConversation>> fetchConversations() async {
     throw const PrivateMessagingException('network down');

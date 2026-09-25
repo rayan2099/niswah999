@@ -14,6 +14,7 @@ class ConversationsViewModel extends ChangeNotifier {
   }) : _repository = repository;
 
   List<PrivateConversation> conversations = [];
+  Map<String, String> displayNames = const {};
   bool isLoading = false;
   String? errorMessage;
 
@@ -23,6 +24,9 @@ class ConversationsViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       conversations = await _repository.fetchConversations();
+      displayNames = await _repository.fetchDisplayNames({
+        for (final c in conversations) c.otherParticipant(currentUserId),
+      });
     } catch (e) {
       errorMessage = e.toString();
     } finally {
@@ -30,6 +34,10 @@ class ConversationsViewModel extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// The published display name of the other participant, if any.
+  String? displayNameFor(PrivateConversation conversation) =>
+      displayNames[conversation.otherParticipant(currentUserId)];
 
   /// Opens (or creates) a conversation with [otherUserId] and returns it.
   Future<PrivateConversation?> startConversation(String otherUserId) async {

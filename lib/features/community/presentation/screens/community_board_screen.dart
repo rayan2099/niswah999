@@ -163,6 +163,7 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
           builder: (_) => ChatDetailScreen(
             conversation: conversation,
             currentUserId: userId,
+            otherDisplayName: post.authorName,
           ),
         ),
       );
@@ -531,7 +532,10 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
                                 child: Center(
                                   child: CircularProgressIndicator(
                                     color: palette.blush,
-                                    semanticsLabel: _co('Loading more posts', 'جارٍ تحميل المزيد'),
+                                    semanticsLabel: _co(
+                                      'Loading more posts',
+                                      'جارٍ تحميل المزيد',
+                                    ),
                                   ),
                                 ),
                               );
