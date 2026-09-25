@@ -23,6 +23,8 @@ void main() {
   ) async {
     app.main();
     final h = Harness(binding, tester);
+    // Production kill switch — before ANY sign-up, fixture or action.
+    if (!await h.guardBackend('H')) return;
     final f = Flows(h);
 
     await f.newAccountWithRealHistory('H');

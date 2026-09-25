@@ -27,6 +27,10 @@ trap 'rm -f "$LOG_FILE"' EXIT
 
 cd "$(dirname "$0")/.."
 
+# Production kill switch — before the app is even installed. Exits
+# non-zero, creating nothing, unless .env points at an approved backend.
+python3 scripts/assert_test_backend.py --env-file .env
+
 xcrun simctl uninstall "$UDID" com.niswah.niswah 2>/dev/null || true
 rm -f build/integration_response_data.json
 
@@ -36,6 +40,7 @@ flutter drive \
   -d "$UDID" \
   --dart-define=GIT_SHA="$(git rev-parse HEAD)" \
   --dart-define=ENABLE_DIAGNOSTICS_SCREEN=true \
+  --dart-define=ACCEPTANCE_TEST=true \
   --dart-define=BACKEND_ENV=local-test:127.0.0.1:54321 \
   > "$LOG_FILE" 2>&1 &
 DRIVE_PID=$!

@@ -12,6 +12,8 @@ void main() {
   ) async {
     app.main();
     final h = Harness(binding, tester);
+    // Production kill switch — before ANY sign-up, fixture or action.
+    if (!await h.guardBackend('P0')) return;
     await tester.pump(const Duration(seconds: 5));
     await h.settle();
 

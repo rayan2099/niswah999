@@ -54,6 +54,8 @@ void main() {
   ) async {
     app.main();
     final h = Harness(binding, tester);
+    // Production kill switch — before ANY sign-up, fixture or action.
+    if (!await h.guardBackend('F')) return;
     final f = Flows(h);
     final email = await f.newAccountOnDashboard('F');
     h.note('F EMAIL $email');

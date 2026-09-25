@@ -6,7 +6,10 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'core/auth/auth_controller.dart';
+import 'core/config/acceptance_gate.dart';
 import 'core/config/app_environment.dart';
+import 'core/config/build_info.dart';
+import 'core/config/test_backend_gate.dart';
 import 'core/errors/app_error_reporter.dart';
 import 'core/localization/app_locale_controller.dart';
 import 'core/network/supabase_client.dart';
@@ -57,6 +60,19 @@ Future<void> main() async {
     AppErrorReporter.report(error, stack, context: 'startup config load');
     runApp(_StartupErrorApp(error: error));
     return;
+  }
+
+  // Production-environment kill switch: an acceptance/persona build
+  // refuses any backend that is not explicitly approved for testing,
+  // BEFORE Supabase or Sentry initialize — so a refused run creates no
+  // account, performs no write and makes no network call. Ordinary
+  // (non-acceptance) builds are unaffected.
+  if (BuildInfo.acceptanceMode) {
+    final verdict = AcceptanceGate.currentVerdict();
+    if (!verdict.allowed) {
+      runApp(_AcceptanceBlockedApp(verdict: verdict));
+      return;
+    }
   }
 
   // `options.dsn` left empty (no Sentry project configured yet, e.g. local
@@ -183,6 +199,32 @@ SentryEvent? _scrubBeforeSend(SentryEvent event) {
 
 /// Shown only when startup-critical config fails to load — replaces an
 /// indefinite native-splash hang with a visible, minimal error state.
+/// Shown INSTEAD of the app when an acceptance build is pointed at a
+/// backend that is production or otherwise not approved for testing.
+/// Displays only the safe host identifier and the reason — never a key.
+class _AcceptanceBlockedApp extends StatelessWidget {
+  const _AcceptanceBlockedApp({required this.verdict});
+  final BackendGateVerdict verdict;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    home: Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'BLOCKED: acceptance run refused.\n'
+            'Backend host: ${verdict.host}\n'
+            'Reason: ${verdict.reason}',
+            key: const Key('acceptance_blocked_text'),
+            textDirection: TextDirection.ltr,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _StartupErrorApp extends StatelessWidget {
   const _StartupErrorApp({required this.error});
 

@@ -11,6 +11,7 @@ class Flows {
   WidgetTester get t => h.tester;
 
   Future<void> boot({bool english = true}) async {
+    await h.requireApprovedBackend();
     await t.pump(const Duration(seconds: 5));
     await h.settle();
     if (english) {
@@ -30,6 +31,7 @@ class Flows {
   }
 
   Future<String> signUpWithEmail(String persona) async {
+    await h.requireApprovedBackend();
     await acceptConsent();
     await h.tapVisible(find.text('Email'));
     await h.settle();

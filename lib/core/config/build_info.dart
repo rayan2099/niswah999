@@ -15,4 +15,13 @@ class BuildInfo {
   static const bool diagnosticsEnabled = bool.fromEnvironment(
     'ENABLE_DIAGNOSTICS_SCREEN',
   );
+
+  /// True only for builds made by the acceptance harness/CI
+  /// (`--dart-define=ACCEPTANCE_TEST=true`). In such a build, `main()`
+  /// runs [TestBackendGate] before Supabase or Sentry initialize and
+  /// refuses any backend that is not explicitly approved for testing.
+  /// This define can only ever make the app STRICTER; there is no define
+  /// that disables the gate — and the persona harness itself refuses to
+  /// run in a build that lacks it.
+  static const bool acceptanceMode = bool.fromEnvironment('ACCEPTANCE_TEST');
 }

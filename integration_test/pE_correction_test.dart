@@ -17,6 +17,8 @@ void main() {
       'consistency fix)', (tester) async {
     app.main();
     final h = Harness(binding, tester);
+    // Production kill switch — before ANY sign-up, fixture or action.
+    if (!await h.guardBackend('E')) return;
     final f = Flows(h);
     final email = await f.newAccountOnDashboard('E');
     h.note('LOOKUP_EMAIL=$email');

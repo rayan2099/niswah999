@@ -67,6 +67,9 @@ jobs:
           SENTRY_DSN=
           EOF
 
+      - name: Production kill switch — refuse any unapproved backend
+        run: python3 scripts/assert_test_backend.py --env-file .env
+
       - name: Boot an iOS Simulator
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j \
@@ -91,6 +94,7 @@ jobs:
               -d "$DEVICE_ID" \
               --dart-define=GIT_SHA=${{ github.sha }} \
               --dart-define=ENABLE_DIAGNOSTICS_SCREEN=true \
+              --dart-define=ACCEPTANCE_TEST=true \
               --dart-define=BACKEND_ENV=local-test:127.0.0.1:54321
             drive_exit=$?
             set -e

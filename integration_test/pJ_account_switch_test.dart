@@ -17,6 +17,8 @@ void main() {
       'the first account\'s data', (tester) async {
     app.main();
     final h = Harness(binding, tester);
+    // Production kill switch — before ANY sign-up, fixture or action.
+    if (!await h.guardBackend('J')) return;
     final f = Flows(h);
     final emailA = await f.newAccountOnDashboard('J1');
     h.note('LOOKUP_EMAIL_A=$emailA');

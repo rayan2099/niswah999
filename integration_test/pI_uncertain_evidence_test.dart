@@ -36,6 +36,8 @@ void main() {
     (tester) async {
       app.main();
       final h = Harness(binding, tester);
+      // Production kill switch — before ANY sign-up, fixture or action.
+      if (!await h.guardBackend('I')) return;
       final f = Flows(h);
       final email = await f.newAccountOnDashboard('I');
       h.note('LOOKUP_EMAIL=$email');

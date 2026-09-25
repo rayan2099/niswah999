@@ -29,6 +29,8 @@ void main() {
       'synthetic account and history)', (tester) async {
     app.main();
     final h = Harness(binding, tester);
+    // Production kill switch — before ANY sign-up, fixture or action.
+    if (!await h.guardBackend('W-six-surface')) return;
     final f = Flows(h);
 
     await f.newAccountWithRealHistory('W');

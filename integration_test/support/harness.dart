@@ -1,8 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:niswah/core/config/acceptance_gate.dart';
+import 'package:niswah/core/config/build_info.dart';
 
 /// Shared UI-acceptance helpers. Everything here drives the REAL app
 /// (`main()`), never a replacement widget.
@@ -13,6 +16,7 @@ class Harness {
   final WidgetTester tester;
 
   int _shotCounter = 0;
+  bool _backendGuardPassed = false;
 
   /// Captures a screenshot named `<persona>_<nn>_<label>`.
   Future<void> shot(String persona, String label) async {
@@ -168,5 +172,76 @@ extension HarnessScroll on Harness {
     final state = tester.state<ScrollableState>(finder.first);
     state.position.jumpTo(0);
     await tester.pump(const Duration(milliseconds: 400));
+  }
+}
+
+/// Production-environment kill switch, harness side. See
+/// `lib/core/config/test_backend_gate.dart` (classifier) and `main.dart`
+/// (which already refuses to initialize Supabase/Sentry for a refused
+/// backend in an acceptance build) — this is the persona-facing layer.
+extension HarnessBackendGuard on Harness {
+  /// MUST be the first thing a persona does after building the Harness,
+  /// before any sign-up, fixture, seed or action. Returns true only when
+  /// this is an acceptance build AND its backend is loopback or
+  /// explicitly approved. Otherwise it reports BLOCKED (a non-PASS the
+  /// host-side verifier fails on) and returns false — the caller must
+  /// `return` immediately; nothing has been created or written.
+  ///
+  /// There is no parameter, define or environment switch that skips this.
+  Future<bool> guardBackend(String testId) async {
+    // Personas call `app.main()` un-awaited, so the app's own `.env`
+    // load may still be in flight. Wait for it (bounded) — and if it
+    // never arrives, that is a REFUSAL, not an assumption of safety.
+    for (var i = 0; i < 80 && !dotenv.isInitialized; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    if (!BuildInfo.acceptanceMode) {
+      _blockBackend(
+        testId,
+        'this build was not made with --dart-define=ACCEPTANCE_TEST=true, '
+            'so the production kill switch cannot vouch for its backend',
+        'unknown',
+      );
+      return false;
+    }
+    final verdict = AcceptanceGate.currentVerdict();
+    if (!verdict.allowed) {
+      _blockBackend(testId, verdict.reason, verdict.host);
+      return false;
+    }
+    note('BACKEND GATE: ALLOWED ${verdict.host}');
+    _backendGuardPassed = true;
+    return true;
+  }
+
+  /// Last-resort check for code paths that create accounts (see
+  /// `Flows.boot`): a persona that forgot [guardBackend] still cannot
+  /// reach signup against an unapproved backend. Throws (hard-failing
+  /// the run non-zero) rather than continuing.
+  Future<void> requireApprovedBackend() async {
+    if (_backendGuardPassed) return;
+    if (!await guardBackend('unguarded-persona')) {
+      throw StateError(
+        'Refusing to run: backend not approved for acceptance testing. '
+        'Persona must call guardBackend() first.',
+      );
+    }
+  }
+
+  void _blockBackend(String testId, String reason, String host) {
+    note('BACKEND GATE: REFUSED $host — $reason');
+    reportResult(
+      PersonaResult(
+        testId: testId,
+        expectedOutcome:
+            'The acceptance harness runs only against loopback or an '
+            'explicitly approved non-production test backend',
+        actualOutcome:
+            'BLOCKED by the production kill switch. Backend host: '
+            '$host. Reason: $reason. No account was created and nothing '
+            'was written.',
+        status: PersonaStatus.blocked,
+      ),
+    );
   }
 }

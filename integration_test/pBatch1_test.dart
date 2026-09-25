@@ -21,6 +21,8 @@ void main() {
       'city, account toggles', (tester) async {
     app.main();
     final h = Harness(binding, tester);
+    // Production kill switch — before ANY sign-up, fixture or action.
+    if (!await h.guardBackend('Batch1')) return;
     final f = Flows(h);
     final email = await f.newAccountOnDashboard('K');
     h.note('K EMAIL $email');
