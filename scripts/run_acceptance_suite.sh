@@ -32,11 +32,32 @@ for f in integration_test/p*_test.dart; do
   fi
   echo "::group::$id"
   rm -f build/integration_response_data.json
+  # Personas that need an OS-level precondition the test cannot set itself
+  # (a native permission dialog cannot be tapped from a Flutter test). The
+  # permission must be set AFTER the app is installed and survive the drive's
+  # own reinstall, so the app is installed first if needed (a throwaway
+  # warm-up run of p0) and the persona is then run with --keep-app.
+  KEEP=""
+  case "$id" in
+    pL1_*|pL2_*)
+      mode=grant; [ "${id#pL2_}" != "$id" ] && mode=revoke
+      installed=0
+      case "$DEVICE" in
+        emulator-*) adb -s "$DEVICE" shell pm list packages 2>/dev/null | grep -q com.niswah.niswah && installed=1 ;;
+        *) xcrun simctl get_app_container "$DEVICE" com.niswah.niswah >/dev/null 2>&1 && installed=1 ;;
+      esac
+      if [ "$installed" = 0 ]; then
+        bash scripts/run_persona_local.sh "$DEVICE" integration_test/p0_build_identity_test.dart \
+          > "acceptance/logs/${id}_warmup.log" 2>&1 || true
+      fi
+      bash scripts/set_location_permission.sh "$DEVICE" "$mode" || true
+      KEEP="--keep-app" ;;
+  esac
   if [ "$id" = "pF_offline_save_test" ]; then
     bash scripts/run_persona_f_offline.sh "$DEVICE" > "acceptance/logs/$id.log" 2>&1
   else
     SHOT_DIR=acceptance/screenshots/suite \
-      bash scripts/run_persona_local.sh "$DEVICE" "$f" > "acceptance/logs/$id.log" 2>&1
+      bash scripts/run_persona_local.sh "$DEVICE" "$f" $KEEP > "acceptance/logs/$id.log" 2>&1
   fi
   drive_exit=$?
   tail -n 40 "acceptance/logs/$id.log" | grep -E "RESULT_JSON|BACKEND GATE|F RESULT|HOST DB" | cut -c1-300 || true
