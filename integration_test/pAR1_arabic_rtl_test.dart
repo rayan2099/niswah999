@@ -66,6 +66,7 @@ void main() {
       'المجتمع': 'community',
       'الملف الشخصي': 'profile',
     };
+    final englishLeaks = <String>[];
     var tabsOk = true;
     var rtlEverywhere = true;
     for (final entry in tabLabels.entries) {
@@ -76,6 +77,14 @@ void main() {
       final ok = tapped && body.contains(entry.key);
       final rtl = isRtl();
       tabsOk = tabsOk && ok;
+      for (final w in const [
+        'Expected Haid',
+        'Tahara',
+        'Insights',
+        'Community',
+      ]) {
+        if (body.contains(w)) englishLeaks.add('${entry.value}:$w');
+      }
       rtlEverywhere = rtlEverywhere && rtl;
       h.note('AR tab ${entry.value}: tapped=$tapped labelSeen=$ok rtl=$rtl');
       await h.shot('AR', 'tab_${entry.value}');
@@ -104,7 +113,8 @@ void main() {
     await h.scrollToTop();
     final savedAr = await texts('AR dashboard after saving');
     final savedShown =
-        savedAr.contains('تم تسجيل النزيف') || savedAr.contains('المتابعة اليومية');
+        savedAr.contains('تم تسجيل النزيف') ||
+        savedAr.contains('المتابعة اليومية');
     h.note('AR save: sheetArabic=$sheetIsArabic savedShown=$savedShown');
     await h.shot('AR', 'after_save');
 
@@ -119,7 +129,10 @@ void main() {
       final loc = MaterialLocalizations.of(tester.element(dialog.first));
       final dayText = loc.formatDecimal(DateTime.now().day);
       h.note('AR date picker shows Arabic-Indic day text "$dayText"');
-      final cell = find.descendant(of: dialog.first, matching: find.text(dayText));
+      final cell = find.descendant(
+        of: dialog.first,
+        matching: find.text(dayText),
+      );
       if (cell.evaluate().isNotEmpty) {
         await h.tapVisible(cell.last);
         await h.settle(1);
@@ -157,7 +170,8 @@ void main() {
       await h.settle(1);
       await texts('AR after typing Arabic');
       typedArabic =
-          tester.widget<TextField>(search.first).controller?.text == 'نص تجريبي';
+          tester.widget<TextField>(search.first).controller?.text ==
+          'نص تجريبي';
     }
     h.note('AR keyboard: arabic text accepted and shown=$typedArabic');
 
@@ -197,9 +211,11 @@ void main() {
       await h.tapVisible(find.text(tab), last: true);
       await h.settle(2);
       final ex = tester.takeException();
-      if (ex != null) overflowed.add('$tab: ${ex.toString().split('\n').first}');
+      if (ex != null)
+        overflowed.add('$tab: ${ex.toString().split('\n').first}');
       await h.shot('AR', 'scale2_${tabLabels[tab]}');
     }
+
     for (final tab in tabLabels.keys) {
       await sweep(tab);
     }
@@ -248,6 +264,7 @@ void main() {
         backAtDashboard &&
         monthControlsRtl &&
         overflowed.isEmpty &&
+        englishLeaks.isEmpty &&
         unlabeledIconButtons == 0 &&
         navLabelled;
     h.reportResult(
@@ -263,7 +280,7 @@ void main() {
             'tabs=$tabsOk rtl=$rtlEverywhere save(sheetAr=$sheetIsArabic '
             'shown=$savedShown) datePicker=$pickedDate keyboard=$typedArabic '
             'back=$backAtDashboard monthControlsRtl=$monthControlsRtl '
-            'overflowAt200=${overflowed.length} $overflowed '
+            'overflowAt200=${overflowed.length} $overflowed englishLeaks=$englishLeaks '
             'unlabeledIconButtons=$unlabeledIconButtons/$totalIconButtons '
             'navLabelled=$navLabelled',
         status: pass ? PersonaStatus.pass : PersonaStatus.fail,

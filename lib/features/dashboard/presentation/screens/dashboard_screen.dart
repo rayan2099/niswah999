@@ -1315,19 +1315,40 @@ class _PregnancyOverview extends StatelessWidget {
   final VoidCallback onOpenDoctor;
   final VoidCallback onLogBirth;
 
-  static (String, String) _stage(int week) => switch (week) {
-    <= 4 => ('مرحلة النطفة', 'بحجم حبة الخشخاش'),
-    <= 8 => ('مرحلة العلقة', 'بحجم حبة الفاصولياء'),
-    <= 12 => ('مرحلة المضغة', 'بحجم حبة الليمون'),
-    <= 16 => ('الثلث الأول', 'بحجم ثمرة الأفوكادو'),
-    <= 26 => ('الثلث الثاني', 'بحجم ثمرة الموز'),
-    _ => ('الثلث الثالث', 'بحجم ثمرة البطيخ'),
-  };
+  static (String, String) _stage(int week, {required bool isArabic}) {
+    final (ar, en) = switch (week) {
+      <= 4 => (
+        ('مرحلة النطفة', 'بحجم حبة الخشخاش'),
+        ('Nutfah stage', 'Size of a poppy seed'),
+      ),
+      <= 8 => (
+        ('مرحلة العلقة', 'بحجم حبة الفاصولياء'),
+        ('Alaqah stage', 'Size of a bean'),
+      ),
+      <= 12 => (
+        ('مرحلة المضغة', 'بحجم حبة الليمون'),
+        ('Mudghah stage', 'Size of a lemon'),
+      ),
+      <= 16 => (
+        ('الثلث الأول', 'بحجم ثمرة الأفوكادو'),
+        ('First trimester', 'Size of an avocado'),
+      ),
+      <= 26 => (
+        ('الثلث الثاني', 'بحجم ثمرة الموز'),
+        ('Second trimester', 'Size of a banana'),
+      ),
+      _ => (
+        ('الثلث الثالث', 'بحجم ثمرة البطيخ'),
+        ('Third trimester', 'Size of a watermelon'),
+      ),
+    };
+    return isArabic ? ar : en;
+  }
 
   @override
   Widget build(BuildContext context) {
     final isArabic = AppLocaleController.instance.isArabic;
-    final (stageName, sizeName) = _stage(week);
+    final (stageName, sizeName) = _stage(week, isArabic: isArabic);
     final remainingWeeks = math.max(0, 40 - week);
     final daysToBirth = remainingWeeks * 7;
     final progressPercent = ((week / 40) * 100).round();

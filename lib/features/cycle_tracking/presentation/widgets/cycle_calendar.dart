@@ -169,20 +169,23 @@ class CycleCalendar extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              const _CalendarLegend(
+              // Deliberately NOT const: a const chip is skipped when the
+              // parent rebuilds, so it kept its old language after a live
+              // language switch (found live in the Arabic persona).
+              _CalendarLegend(
                 labelEn: 'Haid',
                 labelAr: 'حيض',
                 color: AppColors.haid,
                 foreground: Colors.white,
               ),
-              const _CalendarLegend(
+              _CalendarLegend(
                 labelEn: 'Expected Haid',
                 labelAr: 'حيض متوقع',
                 color: Color(0xFFFFF1F2),
                 foreground: AppColors.haid,
                 outlined: true,
               ),
-              const _CalendarLegend(
+              _CalendarLegend(
                 labelEn: 'Tahara',
                 labelAr: 'طهارة',
                 color: Color(0xFFE6F7F2),

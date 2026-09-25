@@ -143,6 +143,129 @@ registered", "Password too short") are not.
 
 ---
 
+## D-004 — P1 — Calendar/Insights said "no history" for an onboarding-reported period (cross-screen contradiction)
+
+**Found via**: the six-surface acceptance walkthrough (one account, one
+shared history), live on iOS.
+
+**Symptom**: canonical surfaces (Today, the canonical Calendar, the
+episode history) knew the returning woman's reported period, while the
+bottom-nav Calendar said "Log at least two cycle starts" and Insights
+said "No cycle history yet" for the same account.
+
+**Root cause**: `record_onboarding_menstrual_history` persists a canonical
+episode whose start observation is `flow=uncertain` (flow is never asked in
+onboarding) plus a closing `flow=none`. `CycleEntriesProjection` correctly
+never projects an uncertain flow, so the legacy `cycle_entries` model had
+nothing, and both legacy screens read only that model.
+
+**Fix** (canonical stays authoritative; no fabricated daily row):
+`CycleCalculationService.calculate` accepts `CanonicalEpisodeTiming`
+(episode start/end **dates** only), merged with log-derived starts (dedupe
+within a day, log-derived wins); the legacy Calendar and Insights pass the
+canonical episodes in; Insights lists them as "Reported period" rows.
+Commit `1686e43`.
+
+**Regression tests**: `test/cycle_calculation_canonical_episodes_test.dart`,
+`test/legacy_screens_canonical_history_test.dart`.
+
+**Reverified**: live, six-surface walkthrough (iOS and Android): all six
+surfaces agree.
+
+**Status**: FIXED.
+
+---
+
+## D-005 — P3 — `ai_rate_limit_counters` outlived a deleted account (retention/erasure)
+
+**Found via**: the production test-account cleanup analysis, then confirmed
+in a local behavioural test.
+
+**Root cause**: `ai_rate_limit_counters.user_id` had no foreign key to
+`auth.users`, so `delete_my_account()` (which deletes the auth user and
+relies on 27 cascading tables) left the user's counter rows behind.
+
+**Fix**: migration `20260925100000_ai_rate_limit_counters_deleted_with_user.sql`
+(trigger on `auth.users` + a one-time orphan cleanup). Commit `1c84e6f`.
+
+**Regression test**: `scripts/check_account_deletion_cascade.sh` (also run
+by `scripts/validate_migrations.sh` in CI) + a row in
+`scripts/verify_schema_contract.sql`. Live: Batch 4 deletes a real account
+in the app; a sweep over every public table with `user_id` finds **0
+orphan rows**.
+
+**Status**: FIXED. (The one production test account is a separate,
+still-OUTSTANDING operational item — see
+`PRODUCTION_TEST_ACCOUNT_CLEANUP.md`.)
+
+---
+
+## D-006 — P1 — After an offline start replayed, Today stayed stale and showed "Salah is obligatory" while bleeding
+
+**Found via**: Persona F executed end to end live (offline save -> pending
+-> reconnect -> replay).
+
+**Symptom**: the canonical episode existed after replay, but the dashboard
+never refreshed: Today showed no episode and the prayer card kept "Salah is
+obligatory" for a woman who was bleeding (a Fiqh-relevant stale window);
+the legacy `cycle_entries` model never received the replayed observation
+(interactive saves do); a still-open "Saved on device - syncing." sheet
+stayed stale.
+
+**Fix**: `reconcilePendingOperations` projects every replayed observation
+into the legacy model exactly like the interactive paths and announces
+completion via `reconcileCompletions`; the dashboard and the queued
+sheets listen. Commit `b9be07d`.
+
+**Regression tests**: `test/bleeding_reconcile_signal_test.dart` + the live
+Persona F (asserts pending -> 0, exactly one episode + one observation via
+the app's repository **and** independent host SQL, no "Salah is
+obligatory", Today synced).
+
+**Status**: FIXED, re-verified live on iOS **and on Android**.
+
+---
+
+## D-007 — P2 — Private-message inbox and chat header displayed the other person's raw account id
+
+**Found via**: Batch 8, two real accounts exchanging messages (live,
+Android).
+
+**Symptom**: the conversation title was the other participant's UUID
+(e.g. `c68ec844-4381-…`), in both the inbox and the chat header.
+
+**Fix**: `conversationTitle()` shows only a display name the other person
+already publishes on a non-anonymous community post
+(`fetchDisplayNames`), otherwise a neutral "Private conversation" label —
+never an id. Anonymous authors therefore stay anonymous.
+
+**Regression tests**: `test/private_messaging_test.dart` (no id shown; name
+shown when published) + live Batch 8 asserts no UUID in inbox/thread.
+
+**Status**: FIXED, re-verified live on Android.
+
+---
+
+## D-008 — P2 — Community composer/feed leaked a raw exception and the backend URL on failure
+
+**Found via**: the real-outage persona (COMM-10), live on iOS.
+
+**Symptom**: a failed publish rendered `ClientException: Connection reset
+by peer, uri=http://…/rest/v1/community_posts?select=%2A` inside the
+composer (internal URL, table and driver detail shown to the user).
+
+**Fix**: the community view models report the exception through
+`AppErrorReporter` and show a localized friendly message
+(`communityErrorMessage`).
+
+**Regression test**: `test/community_repository_idempotency_test.dart`
+("a failed publish shows a friendly message, not the exception/URL") +
+live persona O (no raw leak; retry publishes exactly one post).
+
+**Status**: FIXED, re-verified live on iOS.
+
+---
+
 ## Summary
 
 | ID | Severity | Area | Status |
@@ -150,9 +273,15 @@ registered", "Password too short") are not.
 | D-001 | P1 | Menstrual / Fiqh status | Fixed, regression-tested, re-verified live |
 | D-002 | P1 | Cross-screen consistency (correction projection) | Fixed, regression-tested, re-verified live against a real database |
 | D-003 | P2 | Auth error handling | Fixed, regression-tested |
+| D-004 | P1 | Cross-screen: legacy Calendar/Insights vs onboarding history | Fixed, regression-tested, re-verified live (iOS + Android) |
+| D-005 | P3 | Account-deletion retention (`ai_rate_limit_counters`) | Fixed, regression-tested, verified live (0 orphans) |
+| D-006 | P1 | Offline replay left Today stale / wrong ruling / legacy unprojected | Fixed, regression-tested, re-verified live (iOS + Android) |
+| D-007 | P2 | Messaging: raw account id shown as conversation title | Fixed, regression-tested, re-verified live |
+| D-008 | P2 | Community: raw exception + backend URL shown on failure | Fixed, regression-tested, re-verified live |
 
-No P0 defects found. No defects were left open, deferred, or worked
-around by narrowing the test oracle.
+No P0 defects found. No defect was worked around by narrowing the test
+oracle. Open items are **not defects in a fixed sense** but product
+findings that need a founder decision — see "Open findings" below.
 
 ## Findings that are NOT defects (disclosed, not fixed)
 
@@ -172,3 +301,34 @@ around by narrowing the test oracle.
   not a gap — but it means Persona I's live-injection approach could
   not produce a real malformed row against this schema; see
   `PERSONA_CATALOG.md`'s own note on Persona I.
+
+## Open findings (need a product decision — NOT fixed, NOT hidden)
+
+- **F-001 (P2) — features that exist in code but cannot be reached by any
+  user.** Reference analysis of `lib/` shows no navigation path to:
+  `GuidedJourneysScreen`, `ResourceLibraryScreen`, `GhuslGuideScreen`,
+  `AccountSettingsScreen`, `settings_screen.dart`, and
+  `PrayerTrackingScreen`. Consequence: **prayer logging (PRAY-04,
+  `togglePrayerStatus`) is not reachable from the running app**, and the
+  Ghusl guide/library/journeys cannot be opened. They are recorded as
+  BLOCKED/unreachable (not PASS, not "untested"). Decision needed: wire
+  them in or remove them.
+- **F-002 (P3) — MSG-06 has no implementation.** There is no delete-
+  conversation UI or repository method. Recorded NOT IMPLEMENTED.
+
+## Test-infrastructure findings (not product defects; fixed in the harness)
+
+- The notification continuity test read the real wall clock (18:00 lead
+  time + 21:00 catch-up cutoff), so 9 assertions failed depending on the
+  hour CI ran. Fixed with one controlled clock (`AppClock.now`), 13 pinned
+  local-clock scenarios and a 7-timezone matrix; expected counts unchanged.
+- A persona's hard `expect()` crashes the whole binary (use logged
+  booleans + `reportResult`); `pumpAndSettle` can hang; paused/hidden
+  lifecycle disables frames (dispatch the lifecycle chain back-to-back);
+  Android needs one `convertFlutterSurfaceToImage()` per process and a
+  GPU-accelerated emulator; a native permission dialog cannot be tapped
+  (set OS permission from the host); `.order()` in supabase-dart defaults
+  to **descending** (a test bug, not an app bug).
+- Disclosure: the D-004 commit (`1686e43`) also contains an unintended,
+  whitespace-only reformat of `cycle_segment_planner.dart` and
+  `cycle_symptom_decoder.dart`. No behavioural change.
