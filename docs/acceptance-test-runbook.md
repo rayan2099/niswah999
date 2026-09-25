@@ -34,8 +34,9 @@ flag, define or environment variable that widens or disables the gate.
 1. **Host, before anything is built** —
    `python3 scripts/assert_test_backend.py [--env-file .env]` exits **3**
    with `BLOCKED` when the backend is not approved. It is the first step
-   of `scripts/run_persona_local.sh`, `scripts/run_persona_f_offline.sh`
-   and `.github/workflows/acceptance.yml`.
+   of `scripts/run_persona_local.sh`, `scripts/run_persona_f_offline.sh`,
+   `scripts/run_persona_outage.sh`, `scripts/run_acceptance_suite.sh` and the
+   acceptance dispatcher workflow (see "Running the whole suite").
 2. **App, before Supabase/Sentry initialize** — a build made with
    `--dart-define=ACCEPTANCE_TEST=true` runs the gate in `main()` right
    after config load. A refusal shows a `BLOCKED: acceptance run refused`
@@ -83,3 +84,40 @@ continuity suite under seven machine time zones (UTC, +3, +5:30,
 (`AppClock.now`, which `BleedingEpisodeRepositoryImpl.localToday` and the
 notification coordinator both read) across the reminder-lead-time and
 day boundaries.
+
+## Running the whole suite
+
+### Locally (iOS Simulator or Android emulator)
+
+`scripts/local_env.sh use ios|android` points `.env` at the local backend
+(restore the real config afterwards with `scripts/local_env.sh restore`).
+Then `scripts/run_acceptance_suite.sh <device-id> [results-dir]` runs every
+`integration_test/p*_test.dart` and lets `scripts/verify_acceptance_results.py`
+decide the exit code (a crashed, missing, BLOCKED or FAIL persona fails it).
+
+Special runners, called by the suite automatically:
+
+- `pF_*` -> `scripts/run_persona_f_offline.sh` (real backend outage +
+  host-side SQL verification).
+- `pO_*` -> `scripts/run_persona_outage.sh` (generic outage runner: the test
+  prints `OUTAGE START n` / `OUTAGE END n`; the host stops/starts the local
+  backend).
+- `pL1_*` / `pL2_*` -> `scripts/set_location_permission.sh` sets the OS
+  location permission before launch (a native dialog cannot be tapped).
+
+Not in the suite (need a differently-configured backend), run explicitly:
+
+- `scripts/run_auth08_confirmations.sh <device-id>` -> AUTH-08, email
+  confirmation (local GoTrue with confirmations ON + real mailbox link);
+  restores the stack afterwards.
+
+### On GitHub (Android emulators, no secrets, disposable local backend)
+
+`.github/workflows/acceptance-dispatch.yml` (manual `workflow_dispatch`,
+input `ref`) checks out the exact SHA, runs the suite sharded across four
+Android emulator jobs and verifies the whole catalogue in a final job.
+GitHub only offers `workflow_dispatch` for workflow files on the default
+branch, so this file lives in its own infrastructure PR against `main`
+(separate from the feature PR). iOS cannot run there: GitHub's macOS
+runners are virtualised Apple-silicon machines without Docker, so a local
+Supabase cannot run next to the iOS Simulator; iOS evidence stays local.
