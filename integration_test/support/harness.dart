@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -152,7 +153,7 @@ extension HarnessReport on Harness {
     );
     final json = result.toJson(
       testedSha: testedSha,
-      devicePlatform: 'ios-simulator',
+      devicePlatform: Platform.isAndroid ? 'android-emulator' : 'ios-simulator',
       backendEnvironment: backend,
     );
     binding.reportData = json;

@@ -17,7 +17,10 @@ cd "$(dirname "$0")/.."
 python3 scripts/assert_test_backend.py --env-file .env
 
 if [ "$KEEP" != "--keep-app" ]; then
-  xcrun simctl uninstall "$UDID" com.niswah.niswah 2>/dev/null || true
+  case "$UDID" in
+    emulator-*) adb -s "$UDID" uninstall com.niswah.niswah >/dev/null 2>&1 || true ;;
+    *) xcrun simctl uninstall "$UDID" com.niswah.niswah 2>/dev/null || true ;;
+  esac
 fi
 rm -f build/integration_response_data.json
 

@@ -188,3 +188,15 @@ SELECT 'FUNCTION BODY', 'create_user_profile.sets_madhhab_selection_state_unset'
              AND pg_get_functiondef(p.oid) ILIKE '%''unset''%'
             THEN 'OK' ELSE 'FAIL - DOES NOT SET madhhab_selection_state TO unset' END
 FROM pg_proc p WHERE p.proname = 'create_user_profile';
+
+-- Account deletion: ai_rate_limit_counters has no FK to auth.users, so a
+-- trigger must remove a deleted user's counters or they outlive the
+-- account (acceptance-testing wave, 2026-09-25). The behavioral proof is
+-- scripts/check_account_deletion_cascade.sh (run by validate_migrations.sh).
+SELECT 'TRIGGER' AS object_type,
+       'auth.users.ai_rate_limit_counters_delete_with_user' AS name,
+       CASE WHEN EXISTS (
+         SELECT 1 FROM pg_trigger t
+         WHERE t.tgname = 'ai_rate_limit_counters_delete_with_user'
+           AND t.tgrelid = 'auth.users'::regclass AND NOT t.tgisinternal
+       ) THEN 'OK' ELSE 'FAIL - ai_rate_limit_counters rows would outlive a deleted account' END AS status;
