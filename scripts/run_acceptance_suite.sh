@@ -22,6 +22,14 @@ mkdir -p "$OUT" acceptance/logs acceptance/screenshots/suite
 
 for f in integration_test/p*_test.dart; do
   id="$(basename "$f" .dart)"
+  # Optional subset (space-separated id prefixes), used only to time/probe a
+  # new runner. The verifier still judges the full catalogue, so a subset
+  # run can never be mistaken for a passing suite.
+  if [ -n "${ACCEPTANCE_ONLY:-}" ]; then
+    keep=0
+    for pre in $ACCEPTANCE_ONLY; do case "$id" in "$pre"*) keep=1 ;; esac; done
+    [ "$keep" = 1 ] || continue
+  fi
   echo "::group::$id"
   rm -f build/integration_response_data.json
   if [ "$id" = "pF_offline_save_test" ]; then
