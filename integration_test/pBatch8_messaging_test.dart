@@ -85,6 +85,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await h.tapVisible(find.byType(Switch)); // default anonymous -> named
     await h.settle(1);
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump(const Duration(milliseconds: 800));
     await h.tapVisible(find.text('Publish post'));
     await tester.pump(const Duration(seconds: 4));
     await h.settle(2);

@@ -72,6 +72,8 @@ void main() {
           await h.settle(1);
         }
       }
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump(const Duration(milliseconds: 800));
       final tapped = await h.tapVisible(find.text('Publish post'));
       await tester.pump(const Duration(seconds: 4));
       await h.settle(2);
