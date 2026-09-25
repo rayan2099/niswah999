@@ -17,6 +17,12 @@ case "$DEVICE" in
     else
       adb -s "$DEVICE" shell pm revoke "$PKG" android.permission.ACCESS_FINE_LOCATION || true
       adb -s "$DEVICE" shell pm revoke "$PKG" android.permission.ACCESS_COARSE_LOCATION || true
+      # A merely revoked permission makes Android show a NATIVE prompt when the
+      # app asks, which a Flutter test cannot answer. USER_FIXED is the state
+      # after "Don't allow" + "don't ask again": the app sees deniedForever and
+      # no prompt is shown.
+      adb -s "$DEVICE" shell pm set-permission-flags "$PKG" android.permission.ACCESS_FINE_LOCATION user-fixed || true
+      adb -s "$DEVICE" shell pm set-permission-flags "$PKG" android.permission.ACCESS_COARSE_LOCATION user-fixed || true
     fi ;;
   *)
     if [ "$MODE" = grant ]; then

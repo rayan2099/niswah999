@@ -41,17 +41,32 @@ for f in integration_test/p*_test.dart; do
   case "$id" in
     pL1_*|pL2_*)
       mode=grant; [ "${id#pL2_}" != "$id" ] && mode=revoke
-      installed=0
+      APK=build/app/outputs/flutter-apk/app-debug.apk
       case "$DEVICE" in
-        emulator-*) adb -s "$DEVICE" shell pm list packages 2>/dev/null | grep -q com.niswah.niswah && installed=1 ;;
-        *) xcrun simctl get_app_container "$DEVICE" com.niswah.niswah >/dev/null 2>&1 && installed=1 ;;
+        emulator-*)
+          # `flutter drive` uninstalls the app when it finishes, and a runtime
+          # permission can only be set on an INSTALLED app. Build/install it
+          # explicitly (a throwaway warm-up run of p0 produces the APK).
+          if [ ! -f "$APK" ]; then
+            bash scripts/run_persona_local.sh "$DEVICE" integration_test/p0_build_identity_test.dart \
+              > "acceptance/logs/${id}_warmup.log" 2>&1 || true
+          fi
+          adb -s "$DEVICE" install -r -t "$APK" >/dev/null 2>&1 || true ;;
+        *)
+          if ! xcrun simctl get_app_container "$DEVICE" com.niswah.niswah >/dev/null 2>&1; then
+            bash scripts/run_persona_local.sh "$DEVICE" integration_test/p0_build_identity_test.dart \
+              > "acceptance/logs/${id}_warmup.log" 2>&1 || true
+          fi ;;
       esac
-      if [ "$installed" = 0 ]; then
-        bash scripts/run_persona_local.sh "$DEVICE" integration_test/p0_build_identity_test.dart \
-          > "acceptance/logs/${id}_warmup.log" 2>&1 || true
-      fi
       bash scripts/set_location_permission.sh "$DEVICE" "$mode" || true
-      KEEP="--keep-app" ;;
+      KEEP="--keep-app"
+      # An emulator only delivers a fresh GPS fix when one is injected while
+      # the app is asking; keep injecting one for the duration of the run.
+      case "$DEVICE:$mode" in
+        emulator-*:grant)
+          ( while true; do adb -s "$DEVICE" emu geo fix 46.6753 24.7136 >/dev/null 2>&1; sleep 2; done ) &
+          GEO_PID=$! ;;
+      esac ;;
   esac
   if [ "$id" = "pF_offline_save_test" ]; then
     bash scripts/run_persona_f_offline.sh "$DEVICE" > "acceptance/logs/$id.log" 2>&1
@@ -63,6 +78,7 @@ for f in integration_test/p*_test.dart; do
       bash scripts/run_persona_local.sh "$DEVICE" "$f" $KEEP > "acceptance/logs/$id.log" 2>&1
   fi
   drive_exit=$?
+  if [ -n "${GEO_PID:-}" ]; then kill "$GEO_PID" 2>/dev/null; wait "$GEO_PID" 2>/dev/null; GEO_PID=""; fi
   tail -n 40 "acceptance/logs/$id.log" | grep -E "RESULT_JSON|BACKEND GATE|F RESULT|HOST DB" | cut -c1-300 || true
   if [ -f build/integration_response_data.json ]; then
     cp build/integration_response_data.json "$OUT/$id.json"
