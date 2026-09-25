@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../../data/repositories/community_repository_impl.dart';
 import '../../domain/entities/community_post.dart';
 import '../../domain/repositories/community_repository.dart';
+import 'community_error_message.dart';
 
 class CommunityFeedViewModel extends ChangeNotifier {
   CommunityFeedViewModel({
@@ -59,8 +60,12 @@ class CommunityFeedViewModel extends ChangeNotifier {
       posts = page.posts;
       hasMore = page.hasMore;
       _cursor = posts.isEmpty ? null : posts.last.createdAt;
-    } catch (error) {
-      errorMessage = error.toString();
+    } catch (error, stack) {
+      errorMessage = communityErrorMessage(
+        error,
+        stack,
+        context: 'CommunityFeedViewModel.loadPosts',
+      );
     } finally {
       isLoading = false;
       notifyListeners();
@@ -87,8 +92,12 @@ class CommunityFeedViewModel extends ChangeNotifier {
       } else {
         hasMore = false;
       }
-    } catch (error) {
-      errorMessage = error.toString();
+    } catch (error, stack) {
+      errorMessage = communityErrorMessage(
+        error,
+        stack,
+        context: 'CommunityFeedViewModel.loadMore',
+      );
     } finally {
       isLoadingMore = false;
       notifyListeners();
@@ -160,8 +169,12 @@ class CommunityFeedViewModel extends ChangeNotifier {
       posts = [created, ...posts];
       _pendingPostId = null;
       return true;
-    } catch (error) {
-      errorMessage = error.toString();
+    } catch (error, stack) {
+      errorMessage = communityErrorMessage(
+        error,
+        stack,
+        context: 'CommunityFeedViewModel.createPost',
+      );
       return false;
     } finally {
       isSubmitting = false;

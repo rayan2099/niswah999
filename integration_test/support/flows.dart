@@ -129,6 +129,7 @@ extension ReturningUserFlow on Flows {
     int endDaysAgo = 27,
     int usualDurationDays = 5,
     int usualCycleLengthDays = 32,
+    Future<void> Function()? beforeFinish,
   }) async {
     await boot();
     final email = await signUpWithEmail(persona);
@@ -222,6 +223,7 @@ extension ReturningUserFlow on Flows {
       await h.settle(2);
       h.dumpTexts('$persona post-history step $i');
       if (find.text('Get Started').evaluate().isNotEmpty) {
+        await beforeFinish?.call();
         await h.tapVisible(find.text('Get Started'));
         break;
       }

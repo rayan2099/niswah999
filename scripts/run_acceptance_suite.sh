@@ -55,6 +55,9 @@ for f in integration_test/p*_test.dart; do
   esac
   if [ "$id" = "pF_offline_save_test" ]; then
     bash scripts/run_persona_f_offline.sh "$DEVICE" > "acceptance/logs/$id.log" 2>&1
+  elif [ "$id" = "pO_outage_honesty_test" ]; then
+    SHOT_DIR=acceptance/screenshots/suite \
+      bash scripts/run_persona_outage.sh "$DEVICE" "$f" > "acceptance/logs/$id.log" 2>&1
   else
     SHOT_DIR=acceptance/screenshots/suite \
       bash scripts/run_persona_local.sh "$DEVICE" "$f" $KEEP > "acceptance/logs/$id.log" 2>&1
