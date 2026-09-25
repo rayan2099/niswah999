@@ -1,90 +1,129 @@
 # Test Execution Report — Niswah Acceptance Testing, PR #4
 
+Status vocabulary (used separately everywhere, never blended):
+**EXECUTED** = live run against the real compiled app with state-changing
+assertions (UI *and* persisted state); **PARTIAL** = some live evidence, not a
+full assertion-based pass; **BLOCKED** = cannot be executed here for a stated
+external/structural reason; **NOT_ATTEMPTED** = not run. Nothing is reported
+as PASS on screenshots alone, and unit/widget tests are not personas.
+
 ## Tested build
 
-- **Branch**: `feat/menstrual-data-integrity`
-- **SHA tested against (session start)**: `8eaca1007de1fb3c21e2f648beec5157821ccca3`
-- **`main` SHA (unrelated, frozen)**: `e4cc02e28c8df7220ed21090e3634311e1a3a28d`
-- **Backend under test**: a disposable LOCAL Supabase instance
-  (`http://127.0.0.1:54321`), provisioned by
-  `scripts/provision_local_test_backend.sh` from the canonical baseline
-  + every active migration — never production. The app's real `.env`
-  was backed up before each session and restored immediately after;
-  `git status .env` was confirmed clean (matches the committed/
-  gitignored real config) before finishing.
-- **Device**: iOS Simulator, iPhone 15 Pro, iOS 17.5. Android was NOT
-  exercised this wave (see `DEVICE_ONLY_GAPS.md`).
-- **Automation**: Flutter `integration_test` + `flutter_driver`
-  (`flutter drive`), driving the real compiled app — never a test-only
-  replacement widget. Maestro was not installed/used.
+- **Branch**: `feat/menstrual-data-integrity` (PR #4, **DRAFT, unmerged**).
+- **Code SHA under test**: `6df0a20…` for the iOS suite (22 of 24 personas) and
+  the Android suite; one later commit (`51b0616`) bounds the GPS wait and
+  hardens the Android location runners, after which the affected personas
+  were re-run (see below). Later commits touch only documentation.
+- **Backend under test**: a disposable **local** Supabase
+  (`127.0.0.1:54321`, or `10.0.2.2:54321` from the Android emulator),
+  provisioned by `scripts/provision_local_test_backend.sh`. Never production:
+  a three-layer kill switch (host script, `main()` before Supabase/Sentry
+  init, persona harness) refuses production/unknown/malformed backends.
+- **Devices**: iOS Simulator (iPhone, iOS 17.5, local); Android emulator
+  Pixel_8, Android 15, hardware GPU (local); GitHub-hosted Android emulators
+  (API 34, software GPU) via the sharded dispatcher probe.
+- **Automation**: Flutter `integration_test` + `flutter drive`; results are
+  structured JSON judged by `scripts/verify_acceptance_results.py`.
 
-## Coverage numerator/denominator (see `COVERAGE_MATRIX.csv` for the
-row-by-row source of truth)
+## Suite results (personas)
 
-| Metric | Count |
+| Where | Result |
 |---|---|
-| Total inventoried features/journeys (`FEATURE_INVENTORY.md`) | **101** |
-| EXECUTED (full live pass/fail evidence) | **21** |
-| PARTIAL (some live evidence, not a full assertion-based pass) | **6** |
-| NOT_ATTEMPTED | **74** |
-| **Executed + Partial as a fraction of total** | **27 / 101 (≈27%)** |
-| **Fully executed (excluding partial) as a fraction of total** | **21 / 101 (≈21%)** |
+| iOS Simulator, local, full suite | **24/24 PASS** (plus `pR_reminder_time` run individually on both platforms: PASS — added after the full run) — 22 in the full run; 2 (`pBatch7`, `pH`) reported `MISSING_RESULT` for **infrastructure** reasons (the machine lost network during `pub get` for one; a stalled build hit the 1500 s bound for the other) and passed when re-run individually; `p0`, `pAR1`, `pB`, `pL1`, `pL2` were re-run on the final code (see next line). |
+| iOS re-run on final code (`p0`, `pAR1`, `pB`, `pL1`, `pL2`) | see "Final re-runs" below |
+| Android emulator, local, full suite | **24/24 PASS** — 22 in the full run; `pL1`/`pL2` failed there on Android-only harness problems (below), were fixed and re-run through the same suite runner: PASS |
+| GitHub-hosted Android emulators, sharded (`workflow_dispatch` logic via a throwaway push probe, run **36114358622**, 21 personas at that SHA) | **21/21 PASS**, 4 shards + verify job, ~33 min wall |
+| Regular CI on the PR head | Analyze & Test, Build Android, Build iOS, BR-002 migration reproducibility: **all green** |
 
-**This is not a claim of comprehensive coverage.** 74 of 101 inventoried
-features were not attempted this wave. The 27 that were attempted were
-chosen to prioritize, per the charter's own explicit instruction, the
-incomplete menstrual personas (C, E, F, H, I, J) first, plus the
-already-partially-covered ones (A, B, D, G) that this wave's earlier
-work had established.
+Android-only harness findings (not app defects, but disclosed):
+1. A merely *revoked* location permission makes Android raise a **native
+   prompt** no Flutter test can answer -> the denied persona now uses the
+   `USER_FIXED` ("don't allow, don't ask again") state.
+2. `flutter drive` **uninstalls the app when it finishes**, so a runtime
+   permission cannot be set on it afterwards -> the suite installs the APK
+   explicitly before `pm grant`.
+3. An emulator only delivers a fresh GPS fix when one is injected while the
+   app is asking -> a fix is injected for the duration of the run. The wait
+   itself is now bounded (20 s) in the app so a granted permission with no fix
+   shows an honest error instead of spinning forever.
+4. Long sessions wedged the local emulator and (separately) Docker Desktop on
+   this machine (low free memory/disk); both were restarted, the local
+   database volume was intact (verified: 133 accounts, 0 orphans), and the
+   affected runs were repeated. No result was carried over from a wedged run.
+
+## Coverage numerator/denominator (`COVERAGE_MATRIX.csv` is the source of truth)
+
+| Status | Count | of 114 |
+|---|---|---|
+| **EXECUTED** | **78** | 68% |
+| PARTIAL | 13 | 11% |
+| BLOCKED | 16 | 14% |
+| NOT_ATTEMPTED | 7 | 6% |
+
+The denominator grew from 101 to **114** because executing Phases 3–4 added
+rows the first inventory pass missed (Madhhab guided flow, Arabic/RTL and
+accessibility, three system rows) and four features that have **no navigation
+path** in the shipped app. They are counted as BLOCKED rather than dropped.
+
+- **BLOCKED (16)**: phone OTP and Google sign-in (external providers); real AI
+  answers/history/citations (need a model backend + qualified review; only
+  transport/honest failure is claimed); prayer logging, guided journeys,
+  resource library, Ghusl guide, Account/Settings screens (unreachable —
+  `DEFECT_REGISTER.md` F-001); delete-conversation (not implemented — F-002).
+- **PARTIAL (13)**: session restore across launches (harness limit), revision
+  chips, fertility-window values, pregnancy progression,
+  the five report/export surfaces (open with real content; figures not
+  compared with an oracle), Nifas fasting status (prayer status is asserted),
+  wellbeing reminder, screen-reader semantics
+  (labels only; real VoiceOver/TalkBack is device-only).
+- **NOT_ATTEMPTED (7)**: correction conflict resolution (needs two
+  concurrent writers), notification-tap routing, timezone re-derivation,
+  pregnancy report, pregnancy AI context, wellbeing history, malformed AI
+  response.
 
 ## Persona results
 
-See `PERSONA_CATALOG.md` for the full table. Summary:
+See `PERSONA_CATALOG.md`. All charter personas A–J plus the six-surface
+walkthrough, Phase 3 batches 1–8, location (L1/L2), Madhhab (M), outage (O)
+and the live Arabic journey (AR1) pass on iOS and Android; AUTH-08 passes on
+iOS (needs a confirmations-ON backend, outside the main suite).
 
-- **PASS, live-verified**: A, B, C, D, E, G, J (7 of 10 charter personas)
-- **PASS, cited from existing automated suite, not re-run live this
-  wave**: F, I (2 of 10)
-- **NOT ATTEMPTED**: H (1 of 10)
+## Defects found and fixed (`DEFECT_REGISTER.md`)
 
-No persona is reported as PASS on partial/flaky/blocked evidence — see
-"Honest accounting of flakiness" below for what was discarded/redone
-rather than reported as a false pass.
-
-## Defects found and fixed (see `DEFECT_REGISTER.md` for full detail)
-
-| ID | Severity | Summary | Status |
+| ID | Sev | Summary | Status |
 |---|---|---|---|
-| D-001 | P1 | First-ever period showed "Unable to verify" (data-failure copy) instead of an honest "not enough history yet" | Fixed, regression-tested, re-verified live |
-| D-002 | P1 | A correction never reached the legacy `cycle_entries` projection; fixing that naively then left two rows for one day | Fixed, regression-tested, re-verified live against a real database |
-| D-003 | P2 | A network failure during sign-up showed the raw exception, including the backend's own host and port | Fixed, regression-tested |
+| D-001 | P1 | "Unable to verify" shown for a first-ever period | Fixed, re-verified |
+| D-002 | P1 | Correction never reached the legacy projection | Fixed, re-verified |
+| D-003 | P2 | Raw exception + host/port on sign-up network failure | Fixed |
+| D-004 | P1 | Legacy Calendar/Insights said "no history" for an onboarding-reported period | Fixed, live (iOS+Android) |
+| D-005 | P3 | `ai_rate_limit_counters` outlived a deleted account | Fixed, 0 orphans live |
+| D-006 | P1 | Offline replay left Today stale / "Salah is obligatory" while bleeding | Fixed, live (iOS+Android) |
+| D-007 | P2 | Messaging showed the other user's raw account id | Fixed, live |
+| D-008 | P2 | Community leaked a raw exception + backend URL on failure | Fixed, live |
+| D-009 | P3 | English pregnancy card showed Arabic text | Fixed, regression test |
+| D-010 | P3 | Calendar legend stayed English after a live switch to Arabic | Fixed, regression test |
+| — | — | GPS wait unbounded (spinner forever with no fix) | Hardened (20 s limit) |
 
-No P0 defects found. No defect was worked around by narrowing what the
-test checks for — see `DEFECT_REGISTER.md`'s own closing note.
+Open product findings (no fix, need a decision): F-001 six unreachable
+screens (prayer logging unreachable), F-002 no delete-conversation.
+**Open operational item**: the one production test account
+(`I.1790267697321@example.test`) is **still outstanding** — deletion needs a
+founder-provided admin path (`PRODUCTION_TEST_ACCOUNT_CLEANUP.md`).
 
-## Cross-screen consistency (see `CROSS_SCREEN_CONSISTENCY.md`)
+## Cross-screen consistency
 
-The write-path consistency question (does a correction/second
-observation reach every table it should) was verified live via direct,
-independent SQL checks — this is what D-002 was found and fixed
-through. The full six-surface READ-side walkthrough (opening Today,
-canonical calendar, legacy Calendar tab, Insights, Fiqh/prayer status,
-and export/report screens in sequence for one shared synthetic history)
-was **not** completed this wave.
+See `CROSS_SCREEN_CONSISTENCY.md`: the six-surface walkthrough failed before
+D-004 and passes after (iOS and Android); four contradictions were found and
+fixed (D-002, D-004, D-006, D-010).
 
 ## Regression suite (full repo)
 
-- `dart format --set-exit-if-changed`: clean on every file this wave
-  touched.
-- `flutter analyze lib/`: 25 pre-existing infos, zero new issues, zero
-  errors.
-- `flutter test` (full suite, run after all fixes): **754 tests, 10
-  failures** — the identical 10 golden/parity-image failures already
-  on file from the true merge-base comparison in an earlier wave (see
-  `docs/menstrual-data-integrity-contract.md` §11's own Fix 6). **Zero
-  new regressions.**
-- `scripts/validate_migrations.sh` (BR-002): not re-run locally this
-  wave (no SQL/migrations touched); last confirmed passing in CI at
-  the prior wave's SHA — see that wave's own report.
+- `flutter analyze lib/`: no new issues vs the baseline of 25 pre-existing infos.
+- `flutter test`: see "Final re-runs" (the 10 macOS-only golden/parity image
+  failures are pre-existing and pass on the Linux CI runner).
+- Notification continuity: 13 pinned clocks x 7 time zones, exact counts
+  unchanged (the earlier red CI was a real-wall-clock dependency, fixed with a
+  single controlled clock — not loosened, retried or excluded).
 
 ## Honest accounting of flakiness encountered and resolved this wave
 
@@ -142,21 +181,13 @@ Every one of these was root-caused and either fixed or the plan was
 changed and disclosed — never silently retried until something looked
 like a pass.
 
-## Deferred / not attempted this wave
+## Deferred / not attempted
 
-- Persona H (returning user, historical/predicted data).
-- The full Section 4 broader-product sweep beyond Auth/Onboarding-
-  default-path/Reminders (Prayer, TTC, Pregnancy, Nifas, Wellbeing, AI,
-  Community, Messaging, Reports, most of Profile) — see
-  `COVERAGE_MATRIX.csv`.
-- Bilingual (Arabic) live re-verification of this wave's own journeys —
-  see `DEVICE_ONLY_GAPS.md`.
-- Android live execution — see `DEVICE_ONLY_GAPS.md`.
-- The full six-surface cross-screen READ-side walkthrough with one
-  shared synthetic history — see `CROSS_SCREEN_CONSISTENCY.md`.
-- A live, paired-screenshot before/after comparison against a running
-  `main` build — see `BEFORE_AFTER_COMPARISON.md` (the structural
-  comparison was completed; the visual one was not).
-- CI validation of the new `acceptance.yml` workflow — the file is
-  real, runnable infrastructure, but has not itself been triggered and
-  watched to completion in GitHub's own environment this wave.
+Listed in the NOT_ATTEMPTED and BLOCKED bullets above. Additionally:
+
+- A live paired-screenshot comparison against a running `main` build.
+- iOS-in-CI: GitHub macOS runners have no Docker, so a local Supabase cannot
+  run beside the iOS Simulator there; iOS evidence is local by design.
+- E4 (physical device) — a separate gate, not claimed anywhere (`DEVICE_ONLY_GAPS.md`).
+- Disclosure: commit `1686e43` also carries an unintended whitespace-only
+  reformat of two unrelated files (no behavioural change).

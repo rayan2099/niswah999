@@ -23,7 +23,7 @@ the charter asks to be tested.
 | AUTH-08 | Auth | Email confirmation pending state | `sign_in_screen.dart` |
 | AUTH-09 | Auth | Session restore on app restart | `main.dart` (`_buildHome`), `auth_controller.dart` |
 | AUTH-10 | Auth | Sign-out | `profile_screen.dart`, `auth_controller.dart` |
-| AUTH-11 | Auth | Account deletion | `account_settings_screen.dart` |
+| AUTH-11 | Auth | Account deletion | `profile_screen.dart` (the reachable path; `account_settings_screen.dart` has no navigation path) |
 | AUTH-12 | Auth | Consent gate (Privacy Policy checkbox) | `sign_in_screen.dart` |
 | ONB-01 | Onboarding | Madhhab: explicit selection | `onboarding_screen.dart` |
 | ONB-02 | Onboarding | Madhhab: "I don't know" → suggestion flow | `onboarding_screen.dart`, `madhhab_resolution_screen.dart` |
@@ -111,14 +111,30 @@ the charter asks to be tested.
 | PROF-02 | Profile | Notification settings | `notification_settings_screen.dart` |
 | PROF-03 | Profile | Privacy policy | `privacy_policy_screen.dart` |
 | PROF-04 | Profile | Account state toggles (married/pregnant/nifas) | `profile_screen.dart` |
-| PROF-05 | Profile | Delete-account confirmation + completion | `account_settings_screen.dart` |
+| PROF-05 | Profile | Delete-account confirmation + completion | `profile_screen.dart` |
 | SYS-01 | System | Build identity confirmation (SHA/backend) | `diagnostics_banner.dart`, `build_info.dart` |
 | SYS-02 | System | Account switch / sign-out data isolation | `auth_controller.dart` (`cancelAll`, secure-storage cleanup) |
+| MAD-01 | Madhhab | Guided suggestion stored only after the user confirms it | `madhhab_resolution_screen.dart`, `onboarding_screen.dart` |
+| MAD-02 | Madhhab | Declining the suggestion stores nothing | `onboarding_screen.dart` |
+| AR-01 | Arabic/RTL | Live Arabic journey (switch, 5 tabs, save, date picker, keyboard, back) | whole app |
+| AR-02 | Arabic/RTL | 200% text scale layout in Arabic | whole app |
+| AR-03 | Arabic/RTL | RTL directional layout + Arabic-Indic date picker | calendar, pickers |
+| AR-04 | Accessibility | Screen-reader semantics (labels) | whole app |
+| SYS-03 | System | Whole persona suite on a real Android emulator | `scripts/run_acceptance_suite.sh` |
+| SYS-04 | System | Production kill switch | `test_backend_gate.dart`, `assert_test_backend.py` |
+| SYS-05 | System | Account deletion leaves no orphan rows | `delete_my_account()` + migrations |
+| JRN-01 | Journeys | Guided journeys | `guided_journeys_screen.dart` — **no navigation path** |
+| LIB-01 | Library | Educational resource library | `resource_library_screen.dart` — **no navigation path** |
+| GHU-01 | Fiqh | Ghusl guide | `ghusl_guide_screen.dart` — **no navigation path** |
+| SET-01 | Settings | Account/Settings screens | `account_settings_screen.dart`, `settings_screen.dart` — **no navigation path** |
 
-**Total inventoried features/journeys: 101** (counted directly from the
-table rows above — `COVERAGE_MATRIX.csv` is the authoritative row-for-row
-match to this list; an earlier draft of this line understated the count).
+**Total inventoried features/journeys: 114** (101 from the original
+directory/grep pass + 13 added while executing Phases 3-4: the Madhhab
+guided flow, the live Arabic/RTL/accessibility rows, three system rows and
+the four features that turned out to have **no navigation path** in the
+shipped app — they are counted, marked BLOCKED, and listed in
+`DEFECT_REGISTER.md` F-001 rather than being dropped from the denominator).
+`COVERAGE_MATRIX.csv` is the authoritative row-for-row match to this list.
 
-This list is itself a first pass, built from directory/file structure and
-grep, not from a full manual UX audit — treat the count as a working
-denominator, not an audited final one.
+This list is still a working denominator built from directory/file
+structure, grep and reachability analysis, not an audited final one.

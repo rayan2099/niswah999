@@ -14,7 +14,7 @@ AUTH-12,Auth,Consent gate (Privacy Policy checkbox),EXECUTED,E2 live,all,PASS
 ONB-01,Onboarding,Madhhab explicit selection,EXECUTED,E2 live (iOS + Android),Batch2 / M,explicit Hanafi persisted in users.madhhab and shown; guided path covered by MAD-01.
 ONB-02,Onboarding,Madhhab unknown -> suggestion flow,EXECUTED,E2 live,all,"only ""I'll decide later"" branch taken; ""Help me choose"" not exercised"
 ONB-03,Onboarding,Marital status,EXECUTED,E2 live (iOS + Android),Batch2,explicit Yes taken; married switch on and persisted.
-ONB-04,Onboarding,Location: current location,EXECUTED,E2 live (iOS),L1,"with OS permission granted, ""Use current location"" gets a real fix, advances, Profile shows the device location."
+ONB-04,Onboarding,Location: current location,EXECUTED,E2 live (iOS + Android),L1,"with OS permission granted, ""Use current location"" gets a real fix, advances, Profile shows the device location (Android: host injects a GPS fix; the GPS wait is now time-bounded)."
 ONB-05,Onboarding,Location: manual city pick,EXECUTED,E2 live (iOS + Android),Batch2,manual city (Riyadh) reflected in Profile.
 ONB-06,Onboarding,Location: skip,EXECUTED,E2 live,all,PASS
 ONB-07,Onboarding,Menstrual history: known last period date,EXECUTED,E2 live (iOS + Android),H / B2,known real last-period date taken and persisted as a canonical episode.
@@ -22,7 +22,7 @@ ONB-08,Onboarding,Menstrual history: I'm not sure,EXECUTED,E2 live,all,PASS
 ONB-09,Onboarding,Menstrual history: still bleeding now,EXECUTED,E2 live (iOS + Android),Batch2,"""still bleeding"" produces an open episode shown on Today."
 ONB-10,Onboarding,Baseline estimate,EXECUTED,E2 live (iOS + Android),H,real usual-duration / cycle-length values persisted as baseline.
 ONB-11,Onboarding,Anonymous mode toggle,EXECUTED,E2 live (iOS + Android),Batch2,Anonymous Mode ON in onboarding is persisted (users.anonymous_mode).
-ONB-12,Onboarding,Save failure / retry,EXECUTED,E2 live (iOS),O,"real outage during the final save: honest error, answers kept, ""Try again""; after reconnect the same answers save exactly once (1 episode)."
+ONB-12,Onboarding,Save failure / retry,EXECUTED,E2 live (iOS + Android),O,"real outage during the final save: honest error, answers kept, ""Try again""; after reconnect the same answers save exactly once (1 episode)."
 MENS-01,Menstrual,Start Bleeding,EXECUTED,E2 live,B/C/D/E/G/I/J,PASS
 MENS-02,Menstrual,Daily check-in,EXECUTED,E2 live,C,PASS
 MENS-03,Menstrual,End Bleeding,EXECUTED,E2 live,Batch1,"PASS — real Period Ended sheet, Today chip, Save; dashboard reflected the ended episode"
@@ -37,11 +37,11 @@ MENS-11,Menstrual,Insights,EXECUTED,E2 live,W (six-surface walkthrough),"PASS st
 MENS-12,Menstrual,Evidence-unresolved / insufficient-history states,EXECUTED,E2 live,B,"PASS after fix, D-001"
 MENS-13,Menstrual,Offline write + pending-operation recovery,EXECUTED,E2 live (iOS + Android) + host SQL,F,full sequence: offline save -> pending visible -> restore -> replay -> exactly 1 episode + 1 observation (repo AND host SQL) -> pending cleared -> Today synced. Fixed D-006 on the way.
 REM-01,Reminders,Enable/disable daily check-in reminder,EXECUTED,E2 live,G,PASS
-REM-02,Reminders,Change reminder time,PARTIAL,E2 live,G,"screen and value observed (""Reminder time: 6:00 PM / Change""); the Change flow itself not exercised"
+REM-02,Reminders,Change reminder time,EXECUTED,E2 live (iOS + Android),R2,Change -> real Material time picker -> 7:30 PM shown -> still 7:30 PM after leaving and reopening Notification settings (persisted).
 REM-03,Reminders,Notification tap routing,NOT_ATTEMPTED,,,"covered by existing widget tests (dashboard_notification_tap_stream_test.dart), not live"
 PRAY-01,Prayer,Manual city selection,EXECUTED,E2 live,Batch1,"PASS — real Change City sheet on Profile, selected Jeddah, applied"
-PRAY-02,Prayer,Device location for prayer times,EXECUTED,E2 live (iOS),L1,permission granted: device fix used for prayer location.
-PRAY-03,Prayer,Location permission denied,EXECUTED,E2 live (iOS),L2,"permission denied: honest inline message, no crash, manual city still works."
+PRAY-02,Prayer,Device location for prayer times,EXECUTED,E2 live (iOS + Android),L1,permission granted: device fix used for prayer location.
+PRAY-03,Prayer,Location permission denied,EXECUTED,E2 live (iOS + Android),L2,"permission denied: honest inline message, no crash, manual city still works (Android uses the USER_FIXED ""don't ask again"" state because a plain revoke raises an unanswerable native prompt)."
 PRAY-04,Prayer,Prayer logging,BLOCKED,,,"Prayer logging (togglePrayerStatus) is only reachable through PrayerTrackingScreen, which no navigation path opens — see DEFECT_REGISTER F-001. Not a test gap: the feature is unreachable in the shipped app."
 PRAY-05,Prayer,Timezone change re-derivation,NOT_ATTEMPTED,,,"covered by existing unit tests (notification_timezone_test.dart, device_timezone_test.dart), not live"
 PRAY-06,Prayer,Salah status card states,EXECUTED,E2 live,B,insufficient-history and unresolved states seen live; obligatory/lifted states not exercised live this wave
@@ -56,7 +56,7 @@ PREG-05,Pregnancy,Pregnancy report,NOT_ATTEMPTED,,,
 PREG-06,Pregnancy,AI context includes pregnancy state,NOT_ATTEMPTED,,,
 NIFAS-01,Nifas,Start postpartum,EXECUTED,E2 live (iOS + Android),Batch3,"Nifas starts after birth (""Nifas tracking started"")."
 NIFAS-02,Nifas,Active Nifas status card,EXECUTED,E2 live (iOS + Android),Batch3,active Nifas card on Today.
-NIFAS-03,Nifas,Prayer/fasting status during Nifas,NOT_ATTEMPTED,,,
+NIFAS-03,Nifas,Prayer/fasting status during Nifas,PARTIAL,E2 live (iOS + Android),Batch3,the active Nifas card states salah is lifted while bleeding continues (asserted); fasting status is not separately asserted.
 NIFAS-04,Nifas,Nifas end/transition,EXECUTED,E2 live (iOS + Android),Batch3,turning Nifas off removes the Nifas state.
 WELL-01,Wellbeing,Mood/energy/sleep entry,EXECUTED,E2 live (iOS + Android) + server row,Batch6,"the Log button is an OutlinedButton (earlier attempt tapped the label text); sheet -> ""Save check-in"" -> snackbar + wellbeing_logs row."
 WELL-02,Wellbeing,History,NOT_ATTEMPTED,,,
@@ -80,14 +80,14 @@ COMM-06,Community,Delete own post,EXECUTED,E2 live (iOS + Android),Batch5,delete
 COMM-07,Community,Author preview,EXECUTED,E2 live (iOS + Android),Batch8,author preview sheet shows the author and their public post count.
 COMM-08,Community,Message author,EXECUTED,E2 live (iOS + Android),Batch8,"""Connect"" opens a private conversation with the author."
 COMM-09,Community,Empty state,EXECUTED,E2 live (iOS + Android),Batch5,"empty state (""No posts here yet"") shown for a fresh feed."
-COMM-10,Community,Backend failure,EXECUTED,E2 live (iOS),O,"real outage: publish fails with a friendly message (D-008 fixed), nothing shown as posted; after reconnect exactly one post."
-MSG-01,Messaging,Create/open conversation,EXECUTED,E2 live (Android),Batch8,conversation created by messaging a named author.
-MSG-02,Messaging,Send message,EXECUTED,E2 live (Android),Batch8,message persisted with the sender id and is_read=false.
-MSG-03,Messaging,Receive message,EXECUTED,E2 live (Android),Batch8,the other account signs in and sees the message.
-MSG-04,Messaging,Unread state,EXECUTED,E2 live (Android),Batch8,unread count 1 -> 0 after opening the thread.
-MSG-05,Messaging,History,EXECUTED,E2 live (Android),Batch8,"both messages present, ordered, after a reply."
+COMM-10,Community,Backend failure,EXECUTED,E2 live (iOS + Android),O,"real outage: publish fails with a friendly message (D-008 fixed), nothing shown as posted; after reconnect exactly one post."
+MSG-01,Messaging,Create/open conversation,EXECUTED,E2 live (iOS + Android),Batch8,conversation created by messaging a named author.
+MSG-02,Messaging,Send message,EXECUTED,E2 live (iOS + Android),Batch8,message persisted with the sender id and is_read=false.
+MSG-03,Messaging,Receive message,EXECUTED,E2 live (iOS + Android),Batch8,the other account signs in and sees the message.
+MSG-04,Messaging,Unread state,EXECUTED,E2 live (iOS + Android),Batch8,unread count 1 -> 0 after opening the thread.
+MSG-05,Messaging,History,EXECUTED,E2 live (iOS + Android),Batch8,"both messages present, ordered, after a reply."
 MSG-06,Messaging,Delete conversation,BLOCKED,,,no delete-conversation UI or repository method exists (DEFECT_REGISTER F-002).
-MSG-07,Messaging,Cross-account privacy (RLS),EXECUTED,E2 live (Android) + RLS,Batch8,a third real account reads 0 conversations/0 messages of the pair and its insert (incl. forging the other user as sender) is rejected by RLS.
+MSG-07,Messaging,Cross-account privacy (RLS),EXECUTED,E2 live (iOS + Android) + RLS,Batch8,a third real account reads 0 conversations/0 messages of the pair and its insert (incl. forging the other user as sender) is rejected by RLS.
 RPT-01,Reports,Fiqh report,PARTIAL,E2 live (iOS + Android),Batch6,"Fiqh report/export opens for an account with real data, no crash, non-trivial content; figures not verified against an independent oracle."
 RPT-02,Reports,Doctor report,PARTIAL,E2 live (iOS + Android),Batch6,"Doctor report/export opens for an account with real data, no crash, non-trivial content; figures not verified against an independent oracle."
 RPT-03,Reports,Wellbeing report,PARTIAL,E2 live (iOS + Android),Batch6,"Wellbeing report/export opens for an account with real data, no crash, non-trivial content; figures not verified against an independent oracle."
@@ -100,13 +100,13 @@ PROF-04,Profile,Account state toggles,EXECUTED,E2 live,Batch1,"PASS — ""I am m
 PROF-05,Profile,Delete-account confirmation + completion,EXECUTED,E2 live (iOS + Android),Batch4,same evidence as AUTH-11.
 SYS-01,System,Build identity confirmation,EXECUTED,E2 live,P0,PASS — banner correctly showed SHA+backend
 SYS-02,System,Account switch / sign-out data isolation,EXECUTED,E2 live + real DB,J,PASS
-MAD-01,Madhhab,Guided suggestion is stored only after the user confirms it,EXECUTED,E2 live (iOS),M,suggestion shown (Egypt -> Shafi'i etc); NOTHING stored before confirming; confirming stores exactly that madhhab.
-MAD-02,Madhhab,Declining the suggestion stores nothing,EXECUTED,E2 live (iOS),M,"""None of these - I'll decide later"": users.madhhab stays null."
+MAD-01,Madhhab,Guided suggestion is stored only after the user confirms it,EXECUTED,E2 live (iOS + Android),M,suggestion shown (Egypt -> Shafi'i etc); NOTHING stored before confirming; confirming stores exactly that madhhab.
+MAD-02,Madhhab,Declining the suggestion stores nothing,EXECUTED,E2 live (iOS + Android),M,"""None of these - I'll decide later"": users.madhhab stays null."
 AR-01,Arabic/RTL,"Live Arabic journey: language switch, 5-tab navigation, real save, date picker, keyboard, back",EXECUTED,E2 live (iOS + Android),AR1,"account onboarded in English, language switched from Profile, everything after exercised in Arabic on the real app (not widget tests)."
 AR-02,Arabic/RTL,Layout at 200% text scale (5 tabs) in Arabic,EXECUTED,E2 live (iOS + Android),AR1,no overflow exception on any tab.
 AR-03,Arabic/RTL,RTL directional layout (month controls) and Arabic-Indic date picker,EXECUTED,E2 live (iOS + Android),AR1,month controls follow RTL; date picker cell selected via Arabic digits.
 AR-04,Accessibility,Screen-reader semantics (labels),PARTIAL,E2 live (iOS + Android),AR1,semantic labels asserted for icon buttons and nav; a real VoiceOver/TalkBack pass is a device-only gap.
-SYS-03,System,Whole persona suite on a real Android emulator,EXECUTED,E2 live (Android) local + GitHub-hosted,suite,local: 12/12 (+ 8 later personas); GitHub-hosted sharded run 36114358622: 21/21.
+SYS-03,System,Whole persona suite on a real Android emulator,EXECUTED,E2 live (Android) local + GitHub-hosted,suite,"local Android emulator: 24/24 personas PASS (2 re-run after a harness fix, see TEST_EXECUTION_REPORT); GitHub-hosted sharded run 36114358622 (earlier SHA, 21 personas): 21/21."
 SYS-04,System,Production kill switch (harness refuses production/unknown/malformed backend),EXECUTED,unit + host + live,H,3 layers; vectors shared by Dart and Python tests; live refusal + allow proven.
 SYS-05,System,Account deletion leaves no orphan rows,EXECUTED,local DB + live,Batch4 + check_account_deletion_cascade.sh,D-005 fixed; sweep over every public table = 0 orphans.
 JRN-01,Journeys,Guided journeys,BLOCKED,,,GuidedJourneysScreen has no navigation path (F-001).

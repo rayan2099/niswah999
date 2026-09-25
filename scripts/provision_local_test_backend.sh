@@ -30,8 +30,19 @@ docker volume ls --filter "name=supabase" --format "{{.Name}}" | xargs -r docker
 # Only the services the Flutter client actually needs (db, auth, rest, kong);
 # analytics/vector/studio/etc. are log/UI sidecars that time out in
 # constrained environments and are irrelevant to app behavior.
-SUPABASE_ACCESS_TOKEN="$DUMMY_TOKEN" supabase start \
-  -x analytics,vector,studio,imgproxy,edge-runtime,functions,realtime,storage,inbucket,meta
+# Service names differ between CLI versions and an unknown name is only a
+# warning, so both the older and the current names are listed. (With the old
+# names alone, CLI 2.109 still started pg_meta/analytics/storage, and a slow
+# pg_meta health check then failed a whole start on a hosted runner.)
+EXCLUDE="analytics,vector,studio,imgproxy,edge-runtime,functions,realtime,storage,inbucket,meta,logflare,storage-api,postgres-meta,supavisor"
+# `supabase start` occasionally fails a container health check on a cold or
+# loaded machine; retry from a clean stop (this is a disposable backend).
+for attempt in 1 2 3; do
+  if SUPABASE_ACCESS_TOKEN="$DUMMY_TOKEN" supabase start -x "$EXCLUDE"; then break; fi
+  echo "supabase start failed (attempt $attempt/3)"
+  [ "$attempt" = 3 ] && exit 1
+  SUPABASE_ACCESS_TOKEN="$DUMMY_TOKEN" supabase stop --no-backup >/dev/null 2>&1 || true
+done
 
 docker cp supabase/canonical_baseline/00_public_baseline_draft.sql "$DB_CONTAINER:/tmp/baseline.sql"
 docker exec "$DB_CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 -f /tmp/baseline.sql >/dev/null

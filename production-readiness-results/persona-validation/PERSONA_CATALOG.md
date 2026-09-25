@@ -1,49 +1,60 @@
 # Persona Catalog — Niswah Acceptance Testing
 
-Personas A–J are the charter-mandated menstrual-tracking personas.
-Personas K+ extend into the broader product surface, added this wave to
-begin (not complete) the Section 4 sweep. Each entry states what was
-actually executed, on what evidence level, and what remains.
+Every persona is a Flutter `integration_test` run against the **real compiled
+app** and a **disposable local Supabase** (never production — the kill switch
+refuses anything else), reporting one structured `PASS/FAIL/BLOCKED/SKIPPED`
+result that `scripts/verify_acceptance_results.py` judges. "PASS" requires
+state-changing assertions (UI **and** persisted state), not screenshots.
+A unit or widget test is not a persona and is not counted here.
 
-| ID | Persona | Executed? | Evidence level | Result |
+Platforms: **iOS** = iOS Simulator (local); **Android** = Pixel_8 emulator
+(local, hardware GPU) and GitHub-hosted API-34 emulators (sharded run
+36114358622, 21/21 PASS). A persona marked iOS-only has not been run on
+Android yet.
+
+## Menstrual-data personas (charter A–J)
+
+| ID | Persona | iOS | Android | Notes |
 |---|---|---|---|---|
-| A | New user, unknown Madhhab, zero history | Yes | E2 live (iOS Simulator, real screens) | **PASS** |
-| B | First bleeding episode, one observation | Yes | E2 live | **PASS** (1 defect found+fixed — see DEFECT_REGISTER.md D-001) |
-| C | Active episode, multiple same-day observations | Yes | E2 live + real DB verification | **PASS** |
-| D | Missed check-ins, later backfill | Yes | E2 live (real Material date picker, keyboard-entry mode) | **PASS** |
-| E | Incorrect entry, correction, revision history | Yes | E2 live + real DB verification | **PASS** (1 defect found+fixed — see D-002) |
-| F | Offline user, pending observation, recovery | Not re-run live this wave | E2/E3 — cited from existing `test/pending_bleeding_operation_store_test.dart` (28 tests, all 4 operation types, passing) | **PASS (existing suite)** — no NEW live-device airplane-mode run this wave |
-| G | Changing/disabling daily reminders | Yes | E2 live (real Notification Settings screen, real toggle) | **PASS** |
-| H | Returning user, historical/estimated/predicted data | **Not attempted** | — | **NOT ATTEMPTED** |
-| I | Unavailable/degraded canonical evidence | Attempted, blocked; cited from existing suite | E2 — cited from `test/dashboard_canonical_degraded_evidence_test.dart` (F5(B)/F5(C), passing) | **BLOCKED live / PASS (existing suite)** — see below |
-| J | Switching between two accounts | Yes | E2 live + real DB verification | **PASS** |
+| A | New user, unknown Madhhab, zero history | PASS | PASS | (P0/B setup path) |
+| B | First bleeding episode, one observation | PASS | PASS | D-001 found + fixed |
+| C | Active episode, multiple same-day observations | PASS | PASS | real DB rows verified |
+| D | Missed check-ins, later backfill | PASS | PASS | real date picker |
+| E | Incorrect entry, correction, revision history | PASS | PASS | D-002 found + fixed |
+| F | Offline save -> pending -> reconnect -> replay | PASS | PASS | real backend outage; exactly 1 episode + 1 observation (repo AND host SQL); D-006 found + fixed |
+| G | Changing/disabling daily reminders | PASS | PASS | toggle only; time change = REM-02 PARTIAL |
+| H | Returning user with real historical data | PASS | PASS | real dates + baseline values |
+| I | Degraded/uncertain evidence | PASS | PASS | `flow=uncertain` daily check-in (the schema CHECK-constrains every enum, so a malformed row cannot be injected — a stronger guarantee than assumed) |
+| J | Switching between two accounts | PASS | PASS | no trace of account 1 |
+| W | Six-surface walkthrough (one account, one shared history) | PASS | PASS | FAILED before D-004 |
 
-**Persona I note**: the original plan was to insert a row with a
-deliberately unparseable `source` value directly via SQL against the
-disposable local database, forcing a live `LoadDegraded` read. On
-execution, the live database rejected it —
-`bleeding_observations_source_check` (and equivalent CHECK constraints
-on every other enum column, confirmed via `\d bleeding_observations`)
-reject any value outside the exact set the Dart client also accepts.
-This is a genuinely stronger data-integrity guarantee than assumed
-going in, not a defect — but it means the live-injection approach
-cannot produce a real malformed row against this schema. Live
-verification for Persona I was not completed this wave; the existing
-widget-level coverage (a mocked repository returning `LoadDegraded`/
-`LoadUnavailable`, already passing) is the evidence on file.
+## Phase 3 breadth personas
 
-## Extended (Section 4) personas — first pass only, not a full sweep
-
-| ID | Area | Executed? | Result |
+| ID | Covers | iOS | Android |
 |---|---|---|---|
-| K | Auth: sign-up (email) | Yes, as part of every menstrual persona's setup | **PASS** |
-| L | Auth: sign-out | Yes (Persona J) | **PASS** |
-| M | Auth: network failure during sign-up | Yes (found live, in Persona B's own run) | **PASS (after fix — D-003)** |
-| N | Reminders: enable/disable, change time | Yes (Persona G) | **PASS** |
+| P0 | Build identity / backend banner | PASS | PASS |
+| Batch1 | Auth error paths (AUTH-02/06), MENS-03, PRAY-01, PROF-04, PREG-01/02 | PASS | PASS |
+| Batch2 | Explicit onboarding answers: Madhhab, married, city, still-bleeding, Anonymous Mode | PASS | PASS |
+| Batch3 | TTC (unmarried restriction, married chance, off), pregnancy, birth -> Nifas, Nifas end | PASS | PASS |
+| Batch4 | Anonymous Mode, Privacy Policy, **account deletion** (server rejects credentials; 0 orphans) | PASS | PASS |
+| Batch5 | Community: create, anonymous/named, search, like, detail, delete own post (server rows) | PASS | PASS |
+| Batch6 | Wellbeing check-in (+server row), Fiqh/Doctor/Wellbeing/Husband reports, JSON export | PASS | PASS |
+| Batch7 | AI assistants degrade honestly with the AI backend unreachable | PASS | PASS |
+| Batch8 | Author preview, private messaging between two accounts, unread -> read, history, RLS vs a third account | (runs in suite) | PASS |
+| L1 / L2 | Location permission granted / denied (host sets the OS permission) | PASS | (in suite; emulator geo-fix path) |
+| M | Guided Madhhab suggestion never assumed (confirm stores it; decline stores nothing) | PASS | (in suite) |
+| O | Real outage: onboarding save retry (ONB-12) + community failure (COMM-10) | PASS | (in suite) |
+| R2 | Change the reminder time in the real time picker; persists after reopening (REM-02) | PASS | PASS |
+| AR1 | **Live Arabic RTL journey** incl. 200% text scale, RTL controls, no English leaks | PASS | PASS |
+| AUTH08 | Email confirmation (outside the main suite: needs a confirmations-ON backend; `scripts/run_auth08_confirmations.sh`) | PASS | — |
 
-Every other Section 4 area (Onboarding sub-flows beyond the default
-path, Prayer/location, TTC, Pregnancy, Nifas, Wellbeing, AI, Community,
-Messaging, Reports, Profile/privacy beyond notification settings) is
-**NOT ATTEMPTED** this wave. See `COVERAGE_MATRIX.csv` for the
-feature-by-feature breakdown and `TEST_EXECUTION_REPORT.md` for the
-honest numerator/denominator.
+"(in suite)" = part of the current full-suite run recorded in
+`TEST_EXECUTION_REPORT.md`; that report states which final results exist.
+
+## Not personas (recorded so nothing is silently skipped)
+
+- Phone OTP / Google sign-in: BLOCKED — need real providers.
+- Real AI answers / citations / history: BLOCKED — need a model backend and
+  qualified content review; only transport + honest failure is claimed.
+- Physical-device gaps: see `DEVICE_ONLY_GAPS.md` (separate E4 gate).
+- Unreachable features (no navigation path): see `DEFECT_REGISTER.md` F-001.

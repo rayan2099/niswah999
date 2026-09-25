@@ -53,6 +53,26 @@ does not exist on `main`. A true paired-screenshot comparison remains a
 real gap, listed in `TEST_EXECUTION_REPORT.md`'s own deferred-work
 section.
 
+## Acceptance-program fixes: what changes for a user relative to `main`
+
+Verified against `origin/main` source (`git show origin/main:<path>`), so
+"main has it" is a fact, not an assumption.
+
+| Defect | On `main`? | Before (main) | After (PR #4 head) |
+|---|---|---|---|
+| D-007 messaging title | **Yes** — `conversations_screen.dart` renders `otherParticipant(...)` (the raw id) | Inbox and chat header show the other person's UUID | Their published name, else "Private conversation"; never an id |
+| D-008 community failure text | **Yes** — the feed/detail view models store `error.toString()` (3 sites) | A failed post shows `ClientException ... uri=http://.../rest/v1/community_posts` | A friendly, localized "couldn't complete that — check your connection" |
+| D-009 English pregnancy card | **Yes** — Arabic-only stage/size strings in `_PregnancyOverview` | English UI shows "مرحلة المضغة · بحجم حبة الليمون" | English stage/size text; Arabic unchanged |
+| D-010 legend after language switch | **Yes** — the legend chips are `const` | After switching to Arabic the legend keeps "Haid / Expected Haid / Tahara" until restart | Follows the switch immediately |
+| D-004 legacy screens vs onboarding history | No — onboarding history capture does not exist on `main` | n/a | Calendar/Insights agree with Today for a period reported in onboarding |
+| D-006 offline replay | No — the offline pending/replay path is a PR #4 feature | n/a | Replayed save refreshes Today/prayer card/legacy model with no manual step |
+| D-005 deletion retention | **Yes** — `ai_rate_limit_counters` never had a foreign key | Account deletion leaves the user's rate-limit counter rows | Removed with the account (trigger + one-time cleanup) |
+
+The live paired-screenshot comparison against a running `main` build is
+still **not produced**; the table above is source-verified and the
+regression tests fail on the old code and pass on the new (proved for
+D-009 and D-010 by running the new tests against the reverted file).
+
 ## What is internal-only (no user-visible difference)
 
 - The `cycle_entries` projection bridge itself — invisible to a user;

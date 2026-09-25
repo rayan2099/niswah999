@@ -32,46 +32,39 @@ document lists specifically what a simulator run cannot prove.
   logic described in the earlier notification-focused waves on this PR.
 - **Real battery/thermal/performance behavior** under sustained use.
 
-## Android-specific gaps this wave
+## Android
 
-An Android emulator (`Pixel_8` AVD) is present and was confirmed
-bootable in this environment, but **no Android run was executed this
-wave** — every persona above ran on iOS Simulator only. This is a real,
-disclosed gap, not inferred-safe from a successful Android compile (the
-existing CI `Build Android` job is a compile-correctness check only,
-explicitly not persona-suite evidence — see `TEST_EXECUTION_REPORT.md`).
-Specifically untested on Android:
-- The native Android date-picker interaction pattern (Persona D relied
-  on iOS's specific "Switch to input" `DatePickerDialog` affordance;
-  Android's own Material date picker has a different, though similar,
-  interaction).
-- Android's own notification-permission model (`POST_NOTIFICATIONS`
-  runtime permission, Android 13+) versus iOS's.
-- Android back-button/back-gesture behavior on any of the sheets/dialogs
-  exercised this wave.
-- Android-specific keyboard/IME behavior on the sign-up form.
+An Android emulator (`Pixel_8`, Android 15, hardware GPU) ran the whole persona
+suite live, and GitHub-hosted emulators (API 34, software GPU, sharded) ran it
+too: 21/21 PASS (run 36114358622). Android compile-only CI is **not** counted
+as evidence. Still not provable without a physical Android device:
 
-## Bilingual (Arabic RTL) gaps this wave
+- OEM-specific behaviour (battery optimisation killing reminders, vendor
+  keyboards/IMEs, gesture-navigation variants).
+- The real `POST_NOTIFICATIONS` runtime dialog and delivery timing.
+- Real GPS (the location personas set the OS permission from the host and use
+  a fixed fix; on Android that persona is exercised via the emulator geo fix
+  in `scripts/set_location_permission.sh`).
+- Real Play services sign-in (Google) and SMS OTP (phone) — external
+  providers, recorded BLOCKED.
 
-Every live persona run this wave used the English UI path (the
-`Flows.boot(english: true)` default). Arabic-language correctness for
-the specific journeys exercised live this wave (sign-up, onboarding,
-Start Bleeding, backfill, correction, notification settings, account
-switch) was **not** re-verified live in Arabic. Existing, already-
-passing widget-level Arabic/RTL coverage exists for several of the
-individual sheets involved (e.g. `correction_sheet_test.dart`'s own
-"Arabic: the sheet renders RTL with the Arabic labels" test,
-`sign_in_rtl_test.dart`), but a live, full-journey Arabic run — the
-level of evidence the charter asks for — was not performed this wave.
+## Bilingual (Arabic RTL)
+
+A **live** Arabic journey now exists (`pAR1_arabic_rtl_test`, iOS and
+Android): language switch from Profile, five-tab navigation, a real save in
+Arabic, the date picker with Arabic digits, Arabic keyboard entry, back
+navigation, RTL month controls, no overflow at 200% text scale on any tab,
+no English leaks per tab, semantic labels on icon buttons. It found D-009 and
+D-010. Not provable in an emulator: a real VoiceOver/TalkBack reading order
+and Arabic text shaping on physical fonts/hardware keyboards.
 
 ## What IS claimed
 
 - E2 (automated, live against a real compiled app and a real, disposable
   Postgres database) for the personas and features marked EXECUTED in
   `COVERAGE_MATRIX.csv`.
-- E2/E3 (existing suite, live-Postgres-verified in earlier waves) for
-  Persona F (offline/pending) and Persona I (degraded evidence), cited
-  rather than re-demonstrated live this wave.
+- E2 for Persona F (offline/pending/replay) and Persona I (degraded
+  evidence) executed live on iOS and Android in this program.
 
 No E4 evidence is claimed for any item in this document or this wave's
 work as a whole.

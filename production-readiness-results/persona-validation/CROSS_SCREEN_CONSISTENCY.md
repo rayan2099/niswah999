@@ -75,24 +75,35 @@ re-reads `bleeding_observations` directly after every save, so it is
 never affected by a projection gap (including the one D-002 fixed) —
 only the LEGACY screens were ever at risk.
 
-## Live verification performed this wave
+## Live verification performed
 
 | Check | Method | Result |
 |---|---|---|
 | Correction updates canonical revision chain | Live UI + direct SQL on `bleeding_observations` | PASS — original + correction rows, `supersedes_id` correctly linked |
 | Correction updates legacy projection | Live UI + direct SQL on `cycle_entries` | PASS (after D-002 fix) — exactly one row, corrected value |
 | Same-day multiple observations (Persona C) persist as genuinely independent rows | Live UI + direct SQL | PASS — two rows, two distinct flow values, no false "latest wins" collapse |
-| Dashboard "Today" ring reflects the same episode a fresh Insights/Calendar-tab visit would see | **Not executed this wave** | Insights and the Calendar tab were never opened live this wave (see `COVERAGE_MATRIX.csv`, MENS-10/MENS-11) — this specific pairwise comparison is a real gap, not a claimed PASS |
+| **Six surfaces, one account, one shared history** (Today, canonical Calendar, legacy Calendar tab, Insights, Fiqh/prayer status, reports) | `pWalkthrough_six_surface_test` — asserts every surface against the same account | **FAIL before D-004, PASS after** (iOS and Android). Before the fix the legacy Calendar said "Log at least two cycle starts" and Insights said "No cycle history yet" for an account whose onboarding-reported period Today/canonical Calendar already showed. |
+| Onboarding-reported period is visible on the legacy screens **without** making `cycle_entries` authoritative and **without** fabricating a daily observation | Widget tests (`cycle_calculation_canonical_episodes_test`, `legacy_screens_canonical_history_test`) + the live walkthrough | PASS — legacy screens read episode start/end dates only; the projection still never writes an `uncertain` flow |
+| Offline start, replayed after reconnect, reaches every surface (Today, Fiqh card, legacy model) with no manual refresh | Persona F (iOS + Android) + host SQL | PASS after D-006. Before the fix Today stayed stale and the prayer card kept "Salah is obligatory" for a woman who was bleeding. |
+| Account switch leaves no trace of the previous account | Persona J (iOS + Android) | PASS |
+| Account deletion removes the account from every table | Batch 4 live deletion + a sweep of every public table with `user_id` | PASS — 0 orphan rows (D-005 fixed) |
+| Private messaging: what the sender sees equals what the recipient sees, and a third account sees nothing | Batch 8 (two + one real accounts, RLS) | PASS |
+| Language: a live switch English -> Arabic reaches every visible label | Arabic persona scanning each tab | Two leaks found and fixed: D-009 (Arabic in the English pregnancy card), D-010 (legend chips stayed English after a live switch) |
+
+## Contradictions found (all fixed)
+
+1. D-002 — correction not reaching the legacy projection.
+2. D-004 — legacy Calendar/Insights denying history the canonical surfaces show.
+3. D-006 — stale Today / wrong ruling after an offline replay.
+4. D-010 — a live language switch not reaching const chips.
 
 ## What remains unverified
 
-The charter's own six-surface list (Today, canonical calendar, legacy
-Calendar tab, Insights, Fiqh/prayer-status, export/report surfaces) was
-**not** fully walked live with one shared synthetic history this wave.
-What was verified live is the **write path** consistency (does a
-correction/second observation reach every table it should) via direct
-database checks — which is the mechanism that would cause any
-cross-screen contradiction in the first place. The **read-side**
-walkthrough (opening all six screens in sequence for one account and
-screenshotting/asserting each) was not completed and should be treated
-as the next step, not as done.
+- Real-device timing (OS background delivery of reminders) and physical
+  screen-reader behaviour — see `DEVICE_ONLY_GAPS.md`.
+- Report/export **figures** were confirmed to render for an account with
+  real data, but were not compared against an independent oracle.
+- The `CycleEntriesProjection` deliberately still never projects an
+  `uncertain` flow; the legacy Calendar therefore shows onboarding-reported
+  periods as "Reported period" rows/timing, not as coloured daily flow.
+  That is the intended, non-fabricating behaviour.

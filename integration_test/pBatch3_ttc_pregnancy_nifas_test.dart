@@ -140,6 +140,7 @@ void main() {
     final nifasStarted =
         todayNifas.contains('NIFAS') &&
         todayNifas.contains('Nifas tracking started') &&
+        todayNifas.contains('salah is lifted while bleeding continues') &&
         !todayNifas.contains('Log birth & start Nifas');
     h.note('T PREG-04/NIFAS-01/02 tappedBirth=$tappedBirth nifas=$nifasStarted');
     await h.shot('T', 'today_nifas');
