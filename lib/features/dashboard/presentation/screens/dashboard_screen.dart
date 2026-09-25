@@ -307,6 +307,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _tapSubscription = NotificationService.instance.onTap.listen(
       (_) => _consumeNotificationTap(),
     );
+    // A background reconcile (app start/resume) can persist a queued
+    // offline operation while this screen is already showing — refresh
+    // instead of leaving canonical status, the Fiqh card and the legacy
+    // read model stale until some unrelated action happens to reload.
+    BleedingEpisodeRepositoryImpl.reconcileCompletions.addListener(
+      _onReconcileCompleted,
+    );
+  }
+
+  void _onReconcileCompleted() {
+    if (!mounted) return;
+    unawaited(_viewModel.loadLogs());
+    setState(() => _missedCheckinRefreshToken++);
+    unawaited(_refreshCanonicalStatus());
   }
 
   /// Commit F1 — re-fetched at the same points [_missedCheckinRefreshToken]
@@ -518,6 +532,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    BleedingEpisodeRepositoryImpl.reconcileCompletions.removeListener(
+      _onReconcileCompleted,
+    );
     _fiqhRefreshTimer?.cancel();
     unawaited(_tapSubscription?.cancel());
     super.dispose();

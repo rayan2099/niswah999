@@ -59,6 +59,38 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
   // retry as the *same* logical action instead of a new one.
   final String _clientOperationId = const Uuid().v4();
 
+  /// True only once THIS sheet's operation was queued on-device because
+  /// the save could not reach the server ("Saved on device — syncing.").
+  bool _queuedOffline = false;
+
+  @override
+  void initState() {
+    super.initState();
+    BleedingEpisodeRepositoryImpl.reconcileCompletions.addListener(
+      _onReconciled,
+    );
+  }
+
+  @override
+  void dispose() {
+    BleedingEpisodeRepositoryImpl.reconcileCompletions.removeListener(
+      _onReconciled,
+    );
+    super.dispose();
+  }
+
+  /// A background reconcile (app resume/start) may persist this sheet's
+  /// own queued operation while the sheet is still open showing
+  /// "Saved on device — syncing." Once it has, that message is stale:
+  /// close as a success so the caller runs its normal post-save refresh.
+  Future<void> _onReconciled() async {
+    if (!mounted || !_queuedOffline) return;
+    final stillPending = (await PendingBleedingOperationStore.loadPending())
+        .any((operation) => operation.operationId == _clientOperationId);
+    if (stillPending || !mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
   bool get _arabic => AppLocaleController.instance.isArabic;
 
   Future<void> _pickOtherDate() async {
@@ -169,6 +201,7 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
       if (!mounted) return;
       setState(() {
         _saving = false;
+        _queuedOffline = true;
         _errorMessage = _t(
           'Saved on device — syncing.',
           'تم الحفظ على الجهاز — جارٍ المزامنة.',
@@ -334,6 +367,38 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
 
   final String _clientOperationId = const Uuid().v4();
 
+  /// True only once THIS sheet's operation was queued on-device because
+  /// the save could not reach the server ("Saved on device — syncing.").
+  bool _queuedOffline = false;
+
+  @override
+  void initState() {
+    super.initState();
+    BleedingEpisodeRepositoryImpl.reconcileCompletions.addListener(
+      _onReconciled,
+    );
+  }
+
+  @override
+  void dispose() {
+    BleedingEpisodeRepositoryImpl.reconcileCompletions.removeListener(
+      _onReconciled,
+    );
+    super.dispose();
+  }
+
+  /// A background reconcile (app resume/start) may persist this sheet's
+  /// own queued operation while the sheet is still open showing
+  /// "Saved on device — syncing." Once it has, that message is stale:
+  /// close as a success so the caller runs its normal post-save refresh.
+  Future<void> _onReconciled() async {
+    if (!mounted || !_queuedOffline) return;
+    final stillPending = (await PendingBleedingOperationStore.loadPending())
+        .any((operation) => operation.operationId == _clientOperationId);
+    if (stillPending || !mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
   bool get _arabic => AppLocaleController.instance.isArabic;
 
   Future<void> _pickOtherDate() async {
@@ -448,6 +513,7 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
       // before this RPC), so this is never "Could not save."
       setState(() {
         _saving = false;
+        _queuedOffline = true;
         _errorMessage = _t(
           'Saved on device — syncing.',
           'تم الحفظ على الجهاز — جارٍ المزامنة.',

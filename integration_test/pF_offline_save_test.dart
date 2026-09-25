@@ -1,67 +1,68 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:niswah/core/network/supabase_client.dart';
+import 'package:niswah/features/cycle_tracking/data/local/pending_bleeding_operation_store.dart';
+import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'package:niswah/main.dart' as app;
 
 import 'support/flows.dart';
 import 'support/harness.dart';
 
-/// Persona F — offline save / pending state, live against a REAL backend
-/// outage (see `scripts/run_persona_f_offline.sh`, which stops/restarts
-/// the local Supabase backend host-side around this test's own "F READY
-/// FOR OUTAGE" marker — never a mocked/injected offline flag).
+/// Persona F — offline save, pending state, reconnection, replay. ONE
+/// continuous app session against a REAL backend outage orchestrated
+/// host-side by `scripts/run_persona_f_offline.sh` (it stops/restarts the
+/// local Supabase backend on this test's two marker lines — never a
+/// mocked/injected offline flag).
 ///
-/// Scope, disclosed honestly: this proves the SAVE half of "offline
-/// save, pending state, reconnection" — `start_bleeding_sheet.dart`'s
-/// `savePending()` commits before the RPC is attempted, so a real
-/// network failure here must surface the sheet's own honest "Saved on
-/// device — syncing." copy, never a crash or a raw exception.
+/// Sequence asserted: offline save -> pending state visible (UI copy AND
+/// the on-device pending store) -> connectivity restored -> the app's real
+/// resume trigger (`main.dart`'s `didChangeAppLifecycleState(resumed)` ->
+/// `reconcilePendingOperations()`) -> pending operation cleared -> exactly
+/// ONE persisted canonical episode and observation (idempotent replay, no
+/// duplicate) -> UI reflects the synced state.
 ///
-/// The RECONNECTION half (does `main.dart`'s automatic
-/// `reconcilePendingOperations()` actually replay this into a real
-/// synced episode) was attempted live this same session and is NOT
-/// included here — disclosed as a genuine test-infrastructure blocker,
-/// not swept under this test's own PASS:
-///   - A cross-`flutter drive`-invocation design (sign up while the
-///     backend is up, relaunch while it's down, restart it, relaunch
-///     again) was tried first and disproved: a relaunched process shows
-///     the sign-up screen again regardless of backend state, so the
-///     simulator's Keychain session does not reliably persist across
-///     separate `flutter drive` invocations here.
-///   - A single-continuous-session redesign using
-///     `binding.handleAppLifecycleStateChanged` to simulate a real
-///     app pause/resume (the actual trigger `main.dart` listens for)
-///     was tried next. `AppLifecycleListener`'s own state machine
-///     rejected a direct resumed->paused jump (fixed: the full
-///     resumed->inactive->hidden->paused->hidden->inactive->resumed
-///     chain a real backgrounding sends). With that fixed, the test
-///     still hung for 180s+ with zero further output immediately after
-///     the transition, cause undetermined without VM-service-level
-///     debugging (not safe to leave in the automated suite: a hang
-///     here would stall the whole acceptance CI job, which has no
-///     per-test bounded-kill mechanism the way the local orchestration
-///     script does).
-/// `reconcilePendingOperations()` itself is a real, existing code path
-/// (confirmed by reading `main.dart`/`bleeding_episode_repository_impl.
-/// dart`), so this is a test-harness gap, not a claim that reconnection
-/// itself is broken — a follow-up session should attach DevTools/
-/// Observatory to root-cause the hang rather than guess blind from logs.
+/// ROOT CAUSE of the earlier "reconnect hangs" blocker (it was this
+/// harness, not the app): `AppLifecycleState.hidden`/`paused` set
+/// `SchedulerBinding.framesEnabled = false` and `scheduleFrame()` then
+/// returns early (flutter/lib/src/scheduler/binding.dart), so an
+/// `await tester.pump()` placed BETWEEN the paused and resumed
+/// transitions waits for a frame that can never be produced — a silent,
+/// permanent hang. The lifecycle chain therefore has to be dispatched
+/// back-to-back with no frame await until `resumed` re-enables frames.
+/// (An earlier direct resumed->paused jump also tripped
+/// `AppLifecycleListener`'s legal-transition assertion; the real chain is
+/// resumed->inactive->hidden->paused->hidden->inactive->resumed.)
+///
+/// A cross-`flutter drive`-invocation design (relaunch the process while
+/// offline) is not used: a relaunched `flutter drive` process starts with
+/// its app data cleared (the language preference and Supabase session are
+/// gone, so the sign-up screen returns), so session persistence across
+/// invocations cannot be relied on here.
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Persona F: starting a period during a real backend outage shows '
-      'an honest pending state, never a crash, never a raw exception', (
-    tester,
-  ) async {
+  const expected =
+      'Starting a period during a real backend outage shows an honest '
+      '"saved on device, syncing" pending state (never a crash or raw '
+      'exception); on reconnect the pending operation is replayed into '
+      'exactly one canonical episode, the pending record clears, and '
+      'the UI reflects the synced state';
+
+  testWidgets('Persona F: offline save, pending state, reconnection replay, no '
+      'duplicate', (tester) async {
     app.main();
     final h = Harness(binding, tester);
-    // Production kill switch — before ANY sign-up, fixture or action.
     if (!await h.guardBackend('F')) return;
     final f = Flows(h);
     final email = await f.newAccountOnDashboard('F');
-    h.note('F EMAIL $email');
+    h.note('LOOKUP_EMAIL=$email');
     await h.shot('F', 'dashboard_backend_up');
 
-    // Marker: host stops the backend now.
+    // ---- 1. real outage: host stops the backend on this marker ----
     h.note('F READY FOR OUTAGE');
     await tester.pump(const Duration(seconds: 6));
     await h.settle(2);
@@ -73,10 +74,7 @@ void main() {
       h.reportResult(
         PersonaResult(
           testId: 'F',
-          expectedOutcome:
-              'Starting a period during a real backend outage shows '
-              'an honest pending state, never a crash or raw '
-              'exception',
+          expectedOutcome: expected,
           actualOutcome: 'Could not open the Period Started sheet',
           status: PersonaStatus.blocked,
         ),
@@ -87,16 +85,14 @@ void main() {
     await h.tapVisible(find.text('Medium'));
     final tappedSave = await h.tapVisible(find.text('Save'));
     h.note('F tapped Save (backend down): $tappedSave');
-    // A real connection attempt against a stopped backend takes
-    // longer than a normal round trip (TCP refusal/timeout) —
-    // settle generously.
     await tester.pump(const Duration(seconds: 10));
     await h.settle(3);
     await h.shot('F', 'after_save_attempt_offline');
     h.dumpTexts('F after Save attempt (backend down)');
     final offlineTexts = h.notes.last;
 
-    final crashed = tester.takeException() != null;
+    // ---- 2. pending state visible: UI copy AND on-device store ----
+    final crashedOffline = tester.takeException() != null;
     final showsHonestPending =
         offlineTexts.contains('Saved on device') ||
         offlineTexts.contains('تم الحفظ على الجهاز');
@@ -104,40 +100,157 @@ void main() {
         offlineTexts.contains('SocketException') ||
         offlineTexts.contains('Connection refused') ||
         offlineTexts.contains('ClientException');
-    final pass = !crashed && showsHonestPending && !showsRawException;
+    final pendingWhileOffline =
+        (await PendingBleedingOperationStore.loadPending()).length;
     h.note(
-      'F crashed=$crashed showsHonestPending=$showsHonestPending '
-      'showsRawException=$showsRawException',
+      'F offline: crashed=$crashedOffline honestPending='
+      '$showsHonestPending rawException=$showsRawException '
+      'pendingOps=$pendingWhileOffline',
     );
+
+    // ---- 3. restore connectivity: host restarts the backend ----
+    h.note('F READY FOR RECONNECT');
+    final authHealth = Uri.parse(
+      '${dotenv.env['SUPABASE_URL']}/auth/v1/health',
+    );
+    var backendBack = false;
+    for (var i = 0; i < 90 && !backendBack; i++) {
+      await tester.pump(const Duration(seconds: 1));
+      try {
+        final client = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 2);
+        final response = await (await client.getUrl(authHealth)).close();
+        await response.drain<void>();
+        client.close(force: true);
+        backendBack = response.statusCode == 200;
+      } catch (_) {
+        backendBack = false;
+      }
+    }
+    h.note('F backend reachable again: $backendBack');
+
+    // ---- 4. the app's real resume trigger -> reconcile ----
+    // Dispatched back-to-back: NO frame await between `hidden`/`paused`
+    // and `resumed` (frames are disabled in between; see class doc).
+    for (final state in const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      binding.handleAppLifecycleStateChanged(state);
+    }
+    h.note('F resume chain dispatched (real reconcile trigger)');
+
+    // ---- 5. pending cleared ----
+    var pendingAfter = pendingWhileOffline;
+    for (var i = 0; i < 40 && pendingAfter > 0; i++) {
+      await tester.pump(const Duration(seconds: 1));
+      pendingAfter = (await PendingBleedingOperationStore.loadPending()).length;
+    }
+    h.note('F pending ops after reconnect: $pendingAfter');
+
+    // ---- 6. exactly one canonical record, no duplicate ----
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    var episodeCount = -1;
+    var observationCount = -1;
+    if (userId != null) {
+      final repo = BleedingEpisodeRepositoryImpl();
+      final episodes = (await repo.getEpisodesForUser(userId)).dataOrNull;
+      episodeCount = episodes?.length ?? -1;
+      if (episodes != null && episodes.length == 1) {
+        observationCount =
+            (await repo.getObservationsForEpisode(episodes.first.id!))
+                .dataOrNull
+                ?.length ??
+            -1;
+      }
+    }
+    h.note(
+      'F canonical: episodes=$episodeCount observations='
+      '$observationCount',
+    );
+
+    // ---- 7. UI reflects the synced state (as a real user would: close
+    // the stale sheet, look at Today) ----
+    await tester.pump(const Duration(seconds: 2));
+    await h.shot('F', 'after_reconnect_sheet');
+    h.dumpTexts('F after reconnect (sheet may still be open)');
+    final sheetStillShowsPending = h.notes.last.contains('Saved on device');
+    // Tap the scrim above the bottom sheet to dismiss it.
+    await tester.tapAt(const Offset(195, 60));
+    await tester.pump(const Duration(seconds: 2));
+    await h.settle(2);
+    await h.scrollToTop();
+    await h.settle(1);
+    await h.shot('F', 'after_reconnect_today');
+    h.dumpTexts('F Today after reconnect');
+    var todayTexts = h.notes.last;
+    var showsSyncedEpisode =
+        todayTexts.contains('Bleeding recorded') ||
+        todayTexts.contains('Day 1 of this record');
+    var neededManualRefresh = false;
+    if (!showsSyncedEpisode) {
+      // A real user switches tabs / pulls to refresh.
+      neededManualRefresh = true;
+      await h.tapVisible(find.text('Calendar'));
+      await h.settle(2);
+      await h.tapVisible(find.text('Today'), last: true);
+      await h.settle(3);
+      h.dumpTexts('F Today after tab round trip');
+      todayTexts = h.notes.last;
+      showsSyncedEpisode =
+          todayTexts.contains('Bleeding recorded') ||
+          todayTexts.contains('Day 1 of this record');
+    }
+    // The replayed episode must never leave the prayer card claiming
+    // "Salah is obligatory" for a woman who is bleeding.
+    final claimsObligatory = todayTexts.contains('Salah is obligatory');
+    h.note(
+      'F UI: syncedEpisodeShown=$showsSyncedEpisode '
+      'claimsObligatory=$claimsObligatory '
+      'neededManualRefresh=$neededManualRefresh '
+      'sheetStillShowedPendingAfterSync=$sheetStillShowsPending',
+    );
+
+    final crashed = tester.takeException() != null;
+    final pass =
+        !crashedOffline &&
+        !crashed &&
+        showsHonestPending &&
+        !showsRawException &&
+        pendingWhileOffline == 1 &&
+        backendBack &&
+        pendingAfter == 0 &&
+        episodeCount == 1 &&
+        observationCount == 1 &&
+        showsSyncedEpisode &&
+        !claimsObligatory &&
+        !neededManualRefresh;
     h.note(
       pass
-          ? 'F RESULT: PASS — a real backend outage produced an '
-                'honest "saved on device, syncing" pending state, '
-                'never a crash, never a raw exception. Reconnection '
-                'replay NOT verified live this run — see this '
-                'file\'s own doc comment for the disclosed blocker.'
-          : 'F RESULT: FAIL — crashed=$crashed showsHonestPending='
-                '$showsHonestPending showsRawException='
-                '$showsRawException',
+          ? 'F RESULT: PASS — offline save shown honestly and queued '
+                '(1 pending op), then replayed on reconnect into exactly '
+                'one episode/one observation, pending cleared, UI synced'
+          : 'F RESULT: FAIL — see F offline/canonical/UI lines above',
     );
-
-    // Marker: host restarts the backend now (state hygiene for
-    // whatever runs next — this test itself does not verify
-    // reconnection; see the doc comment above).
-    h.note('F READY FOR RECONNECT');
-
     h.reportResult(
       PersonaResult(
         testId: 'F',
-        expectedOutcome:
-            'Starting a period during a real backend outage shows an '
-            'honest "saved on device, syncing" pending state, never '
-            'a crash or raw exception',
+        expectedOutcome: expected,
         actualOutcome:
-            'crashed=$crashed showsHonestPending=$showsHonestPending '
-            'showsRawException=$showsRawException',
+            'offline: crashed=$crashedOffline honestPending='
+            '$showsHonestPending rawException=$showsRawException '
+            'pendingOps=$pendingWhileOffline | reconnect: '
+            'backendBack=$backendBack pendingAfter=$pendingAfter '
+            'episodes=$episodeCount observations=$observationCount | UI: '
+            'syncedEpisodeShown=$showsSyncedEpisode '
+            'neededManualRefresh=$neededManualRefresh '
+            'crashed=$crashed',
         status: pass ? PersonaStatus.pass : PersonaStatus.fail,
-        screenshotRef: 'F_after_save_attempt_offline.png',
+        screenshotRef: 'F_after_reconnect_today.png',
       ),
     );
   });

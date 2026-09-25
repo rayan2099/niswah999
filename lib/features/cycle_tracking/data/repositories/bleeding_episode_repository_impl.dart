@@ -1,4 +1,5 @@
 import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
@@ -8,6 +9,7 @@ import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/load_result.dart';
 import '../local/pending_bleeding_operation_store.dart';
+import 'cycle_entries_projection.dart';
 
 /// Thrown by [BleedingEpisodeRepositoryImpl.startEpisode] specifically
 /// when the user already has an open episode — the database's
@@ -828,13 +830,19 @@ class BleedingEpisodeRepositoryImpl {
   /// operations indefinitely").
   Future<void> reconcilePendingOperations({bool forceAll = false}) async {
     final pending = await PendingBleedingOperationStore.loadPending();
+    var clearedAny = false;
     for (final operation in pending) {
       if (!forceAll && !operation.eligibleForAutomaticRetry) continue;
+      // Set by the cases below when the replay produced an observation
+      // the interactive path would have mirrored into the legacy read
+      // model; see [_projectReplayedObservation].
+      String? replayedObservationId;
+      String? supersededObservationId;
       try {
         switch (operation.type) {
           case PendingBleedingOperationType.startEpisode:
             final params = operation.params;
-            await startEpisode(
+            final started = await startEpisode(
               clientOperationId: operation.operationId,
               startDate: DateTime.parse(params['startDate'] as String),
               startPrecision: ObservationPrecision.parse(
@@ -847,6 +855,7 @@ class BleedingEpisodeRepositoryImpl {
               timezone: params['timezone'] as String?,
               utcOffsetMinutes: params['utcOffsetMinutes'] as int,
             );
+            replayedObservationId = started.observation.id;
           case PendingBleedingOperationType.endEpisode:
             final params = operation.params;
             final endResult = await endEpisode(
@@ -874,6 +883,7 @@ class BleedingEpisodeRepositoryImpl {
                 'endEpisode reconciliation did not complete — leaving pending.',
               );
             }
+            replayedObservationId = endResult.closingObservationId;
           case PendingBleedingOperationType.onboardingHistory:
             // Hardening 1: the onboarding screen persisted this *before*
             // ever calling record_onboarding_menstrual_history — reaching
@@ -976,6 +986,7 @@ class BleedingEpisodeRepositoryImpl {
                 'leaving pending.',
               );
             }
+            replayedObservationId = observationResult;
           case PendingBleedingOperationType.correction:
             // D7: a conflict here means someone/something else already
             // superseded this exact target since it was queued — this is
@@ -1011,6 +1022,8 @@ class BleedingEpisodeRepositoryImpl {
                 'leaving pending.',
               );
             }
+            replayedObservationId = correctionResult;
+            supersededObservationId = params['supersedesId'] as String?;
           case PendingBleedingOperationType.baselineEstimate:
             final params = operation.params;
             final baselineResult =
@@ -1028,6 +1041,13 @@ class BleedingEpisodeRepositoryImpl {
             }
         }
         await PendingBleedingOperationStore.clearPending(operation.operationId);
+        clearedAny = true;
+        if (replayedObservationId != null) {
+          await _projectReplayedObservation(
+            replayedObservationId,
+            supersededObservationId: supersededObservationId,
+          );
+        }
       } catch (error, stack) {
         // Left pending — the next reconciliation attempt (next app start)
         // will retry it. Reported so a persistently-failing reconcile is
@@ -1050,6 +1070,50 @@ class BleedingEpisodeRepositoryImpl {
           ),
         );
       }
+    }
+    // Only after every projection above has run, so a listener that
+    // refreshes reads the fully-reconciled state.
+    if (clearedAny) reconcileCompletions.value++;
+  }
+
+  /// Bumped once each time a reconcile pass durably persisted (and
+  /// cleared) at least one queued operation. The reconcile runs in the
+  /// background (app start/resume), completely outside any screen — the
+  /// dashboard and any still-open "Saved on device — syncing" sheet listen
+  /// to this so they reflect the now-synced state instead of staying
+  /// stale until some unrelated action happens to refresh them.
+  static final ValueNotifier<int> reconcileCompletions = ValueNotifier<int>(0);
+
+  /// The interactive save paths mirror a new observation into the legacy
+  /// `cycle_entries` read model (best effort, [CycleEntriesProjection]);
+  /// a replay after an outage must do the same or the legacy consumers
+  /// (Calendar, Insights, AI context) never learn the episode exists.
+  /// Never authoritative and never fatal: a failure here does not undo the
+  /// canonical save, exactly like the interactive path.
+  Future<void> _projectReplayedObservation(
+    String observationId, {
+    String? supersededObservationId,
+  }) async {
+    try {
+      final userId = _client?.auth.currentUser?.id;
+      if (userId == null) return;
+      final observations =
+          (await getAllObservationsForUser(userId)).dataOrNull ?? const [];
+      final replayed = observations
+          .where((o) => o.id == observationId)
+          .firstOrNull;
+      if (replayed == null) return;
+      final projection = CycleEntriesProjection();
+      if (supersededObservationId == null) {
+        await projection.project(replayed);
+      } else {
+        await projection.projectCorrection(
+          replayed,
+          supersededObservationId: supersededObservationId,
+        );
+      }
+    } catch (_) {
+      // Reported internally by the projection's own repository calls.
     }
   }
 

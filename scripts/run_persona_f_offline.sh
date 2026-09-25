@@ -11,12 +11,11 @@
 # local Supabase backend around them — a genuine outage, never a
 # mocked/injected offline flag.
 #
-# Reconnection replay (does the pending operation actually get synced
-# once the backend comes back) is NOT verified by this test — see its
-# own doc comment for the disclosed test-infrastructure blocker found
-# this session (`binding.handleAppLifecycleStateChanged` hangs here for
-# an undetermined reason even after fixing an illegal state-transition
-# assertion).
+# The test itself asserts the full sequence: offline save -> pending state
+# visible -> connectivity restored -> the app's real resume trigger ->
+# pending cleared -> exactly one canonical episode+observation -> UI
+# synced. This script then independently re-verifies the persisted rows
+# with host-side SQL, and bounds the wait so a hang can never stall a run.
 #
 # Usage: scripts/run_persona_f_offline.sh <simulator-udid>
 set -euo pipefail
@@ -71,7 +70,27 @@ done
 echo "==> Restarting the local backend..."
 docker start supabase_db_Niswah supabase_auth_Niswah supabase_rest_Niswah supabase_kong_Niswah
 
-wait "$DRIVE_PID"
-DRIVE_EXIT=$?
+# Bounded wait for the test to finish its own replay assertions.
+DEADLINE=$(( $(date +%s) + 240 ))
+while kill -0 "$DRIVE_PID" 2>/dev/null; do
+  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    echo "==> TIMEOUT: flutter drive did not finish within 240s of reconnect - killing it" >&2
+    kill -9 "$DRIVE_PID" 2>/dev/null || true
+    pkill -9 -f "Runner.app/Runner" 2>/dev/null || true
+    cat "$LOG_FILE"
+    exit 124
+  fi
+  sleep 2
+done
+set +e; wait "$DRIVE_PID"; DRIVE_EXIT=$?; set -e
 cat "$LOG_FILE"
+
+# Independent host-side verification of what actually persisted.
+EMAIL="$(grep -o 'LOOKUP_EMAIL=[^ ]*' "$LOG_FILE" | head -1 | cut -d= -f2)"
+if [ -z "$EMAIL" ]; then echo "HOST DB VERIFY: no LOOKUP_EMAIL in log" >&2; exit 1; fi
+COUNTS="$(docker exec -i supabase_db_Niswah psql -U postgres -d postgres -At -F' ' -c "
+  select (select count(*) from bleeding_episodes e join auth.users u on u.id=e.user_id where u.email=lower('$EMAIL')),
+         (select count(*) from bleeding_observations o join auth.users u on u.id=o.user_id where u.email=lower('$EMAIL'));")"
+echo "HOST DB VERIFY ($EMAIL): episodes observations = $COUNTS"
+if [ "$COUNTS" != "1 1" ]; then echo "HOST DB VERIFY FAILED: expected exactly '1 1'" >&2; exit 1; fi
 exit "$DRIVE_EXIT"
