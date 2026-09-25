@@ -24,6 +24,13 @@ class Harness {
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     _shotCounter++;
     final n = _shotCounter.toString().padLeft(2, '0');
+    // Android renders into a platform surface: it must be converted to an
+    // image before a screenshot (this integration_test version has no
+    // revert counterpart). iOS needs none of it.
+    if (Platform.isAndroid) {
+      await binding.convertFlutterSurfaceToImage();
+      await tester.pump();
+    }
     await binding.takeScreenshot('${persona}_${n}_$label');
   }
 

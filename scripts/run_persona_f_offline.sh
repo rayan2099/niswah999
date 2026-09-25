@@ -29,8 +29,12 @@ cd "$(dirname "$0")/.."
 # Production kill switch — before the app is even installed. Exits
 # non-zero, creating nothing, unless .env points at an approved backend.
 python3 scripts/assert_test_backend.py --env-file .env
+BACKEND_HOST="$(python3 -c "import re;u=[l.split('=',1)[1].strip() for l in open('.env') if l.startswith('SUPABASE_URL=')][0];print(re.match(r'https?://([^/@]+)',u).group(1))")"
 
-xcrun simctl uninstall "$UDID" com.niswah.niswah 2>/dev/null || true
+case "$UDID" in
+  emulator-*) adb -s "$UDID" uninstall com.niswah.niswah >/dev/null 2>&1 || true ;;
+  *) xcrun simctl uninstall "$UDID" com.niswah.niswah 2>/dev/null || true ;;
+esac
 rm -f build/integration_response_data.json
 
 flutter drive \
@@ -40,7 +44,7 @@ flutter drive \
   --dart-define=GIT_SHA="$(git rev-parse HEAD)" \
   --dart-define=ENABLE_DIAGNOSTICS_SCREEN=true \
   --dart-define=ACCEPTANCE_TEST=true \
-  --dart-define=BACKEND_ENV=local-test:127.0.0.1:54321 \
+  --dart-define=BACKEND_ENV="local-test:${BACKEND_HOST}" \
   > "$LOG_FILE" 2>&1 &
 DRIVE_PID=$!
 
