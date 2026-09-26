@@ -219,3 +219,11 @@ FROM (VALUES
   ('prayer_log','user_id'), ('community_posts','user_id'),
   ('chat_threads','user_id'), ('chat_messages','user_id')
 ) AS v(tbl, col);
+
+-- MENS-07: two concurrent corrections of the same observation must
+-- serialize so the loser gets NW409 (a resolvable conflict), not a raw
+-- unique-index error. Behavioural proof: integration_test/pBatch12.
+SELECT 'FUNCTION BODY' AS object_type, 'correct_observation.locks_its_target_row' AS name,
+       CASE WHEN pg_get_functiondef(p.oid) ~* 'FOR UPDATE'
+            THEN 'OK' ELSE 'FAIL - concurrent corrections are not serialized (loser gets 23505, not NW409)' END AS status
+FROM pg_proc p WHERE p.proname = 'correct_observation';
