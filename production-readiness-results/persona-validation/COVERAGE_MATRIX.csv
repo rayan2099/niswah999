@@ -1,0 +1,115 @@
+feature_id,area,feature,status,evidence_level,persona,notes
+AUTH-01,Auth,Email sign-up,EXECUTED,E2 live,A/B/C/D/E/G/J,real screen every persona setup
+AUTH-02,Auth,Email sign-in,EXECUTED,E2 live,Batch1,"PASS — real sign-out then real sign-in with the correct password reached the dashboard (""Welcome back!"")"
+AUTH-03,Auth,Phone sign-up (OTP),BLOCKED,,,"needs a real SMS provider (phone OTP); not available on a disposable local backend. Not exercised, not claimed."
+AUTH-04,Auth,Phone sign-in (OTP),BLOCKED,,,needs a real SMS provider (phone OTP); not available on a disposable local backend.
+AUTH-05,Auth,Google sign-in,BLOCKED,,,needs real Google OAuth credentials/consent; not available on a disposable local backend.
+AUTH-06,Auth,Failed sign-in (wrong password),EXECUTED,E2 live,Batch1,"PASS — real Supabase ""Invalid login credentials"" error shown, stayed on sign-in, no crash"
+AUTH-07,Auth,Network failure during auth,EXECUTED,E2 live,B,"real defect found+fixed, D-003"
+AUTH-08,Auth,Email confirmation pending state,EXECUTED,E2 live (iOS) + real mailbox,AUTH08 (scripts/run_auth08_confirmations.sh),"sign-up shows ""Check your email"" with no session; sign-in before confirming refused (""not confirmed""); the real confirmation link from the local mailbox then allows sign-in and reaches onboarding. Needs a confirmations-ON backend so it is outside the main suite."
+AUTH-09,Auth,Session restore on app restart,PARTIAL,observed not asserted,C/D/E/I/J,"a relaunched `flutter drive` process starts with app data cleared, so cross-launch session restore cannot be exercised by this harness; needs a physical-device / manual pass (see DEVICE_ONLY_GAPS)."
+AUTH-10,Auth,Sign-out,EXECUTED,E2 live,J,PASS
+AUTH-11,Auth,Account deletion,EXECUTED,E2 live (iOS + Android) + host SQL,Batch4,"confirm dialog -> real deletion -> signed out, session gone, server REJECTS the same credentials; independent sweep of every public table with user_id: 0 orphan rows."
+AUTH-12,Auth,Consent gate (Privacy Policy checkbox),EXECUTED,E2 live,all,PASS
+ONB-01,Onboarding,Madhhab explicit selection,EXECUTED,E2 live (iOS + Android),Batch2 / M,explicit Hanafi persisted in users.madhhab and shown; guided path covered by MAD-01.
+ONB-02,Onboarding,Madhhab unknown -> suggestion flow,EXECUTED,E2 live,all,"only ""I'll decide later"" branch taken; ""Help me choose"" not exercised"
+ONB-03,Onboarding,Marital status,EXECUTED,E2 live (iOS + Android),Batch2,explicit Yes taken; married switch on and persisted.
+ONB-04,Onboarding,Location: current location,EXECUTED,E2 live (iOS + Android),L1,"with OS permission granted, ""Use current location"" gets a real fix, advances, Profile shows the device location (Android: host injects a GPS fix; the GPS wait is now time-bounded)."
+ONB-05,Onboarding,Location: manual city pick,EXECUTED,E2 live (iOS + Android),Batch2,manual city (Riyadh) reflected in Profile.
+ONB-06,Onboarding,Location: skip,EXECUTED,E2 live,all,PASS
+ONB-07,Onboarding,Menstrual history: known last period date,EXECUTED,E2 live (iOS + Android),H / B2,known real last-period date taken and persisted as a canonical episode.
+ONB-08,Onboarding,Menstrual history: I'm not sure,EXECUTED,E2 live,all,PASS
+ONB-09,Onboarding,Menstrual history: still bleeding now,EXECUTED,E2 live (iOS + Android),Batch2,"""still bleeding"" produces an open episode shown on Today."
+ONB-10,Onboarding,Baseline estimate,EXECUTED,E2 live (iOS + Android),H,real usual-duration / cycle-length values persisted as baseline.
+ONB-11,Onboarding,Anonymous mode toggle,EXECUTED,E2 live (iOS + Android),Batch2,Anonymous Mode ON in onboarding is persisted (users.anonymous_mode).
+ONB-12,Onboarding,Save failure / retry,EXECUTED,E2 live (iOS + Android),O,"real outage during the final save: honest error, answers kept, ""Try again""; after reconnect the same answers save exactly once (1 episode)."
+MENS-01,Menstrual,Start Bleeding,EXECUTED,E2 live,B/C/D/E/G/I/J,PASS
+MENS-02,Menstrual,Daily check-in,EXECUTED,E2 live,C,PASS
+MENS-03,Menstrual,End Bleeding,EXECUTED,E2 live,Batch1,"PASS — real Period Ended sheet, Today chip, Save; dashboard reflected the ended episode"
+MENS-04,Menstrual,Add a missing day (backfill),EXECUTED,E2 live,C/D,PASS
+MENS-05,Menstrual,Multiple observations same day,EXECUTED,E2 live + real DB,C,PASS — the charter's own required proof
+MENS-06,Menstrual,Correct an existing entry,EXECUTED,E2 live + real DB,E,"PASS after fix, D-002"
+MENS-07,Menstrual,Correction conflict resolution,NOT_ATTEMPTED,,,"D7 conflict path requires two concurrent writers; existing widget test (correction_sheet_test.dart) covers structurally, not live"
+MENS-08,Menstrual,Revision history display,PARTIAL,E2 live,E,day-detail sheet opened and dumped; Superseded/Current chip labels not individually asserted
+MENS-09,Menstrual,Canonical calendar,EXECUTED,E2 live,B/E,PASS
+MENS-10,Menstrual,Legacy Calendar tab (bottom nav),EXECUTED,E2 live,W (six-surface walkthrough),"PASS structurally (renders, no crash) — but see the cross-screen finding: for a returning user with real onboarding-reported history, this tab said ""Log at least two cycle starts"" even though the canonical calendar already showed real history for the same account. Logged for Phase 6/DEFECT_REGISTER.md, not fixed yet"
+MENS-11,Menstrual,Insights,EXECUTED,E2 live,W (six-surface walkthrough),"PASS structurally (renders, no crash) — same cross-screen divergence as MENS-10: showed ""Insufficient data / Log two cycle starts to enable predictions"" for an account whose canonical history was already real"
+MENS-12,Menstrual,Evidence-unresolved / insufficient-history states,EXECUTED,E2 live,B,"PASS after fix, D-001"
+MENS-13,Menstrual,Offline write + pending-operation recovery,EXECUTED,E2 live (iOS + Android) + host SQL,F,full sequence: offline save -> pending visible -> restore -> replay -> exactly 1 episode + 1 observation (repo AND host SQL) -> pending cleared -> Today synced. Fixed D-006 on the way.
+REM-01,Reminders,Enable/disable daily check-in reminder,EXECUTED,E2 live,G,PASS
+REM-02,Reminders,Change reminder time,EXECUTED,E2 live (iOS + Android),R2,Change -> real Material time picker -> 7:30 PM shown -> still 7:30 PM after leaving and reopening Notification settings (persisted).
+REM-03,Reminders,Notification tap routing,NOT_ATTEMPTED,,,"covered by existing widget tests (dashboard_notification_tap_stream_test.dart), not live"
+PRAY-01,Prayer,Manual city selection,EXECUTED,E2 live,Batch1,"PASS — real Change City sheet on Profile, selected Jeddah, applied"
+PRAY-02,Prayer,Device location for prayer times,EXECUTED,E2 live (iOS + Android),L1,permission granted: device fix used for prayer location.
+PRAY-03,Prayer,Location permission denied,EXECUTED,E2 live (iOS + Android),L2,"permission denied: honest inline message, no crash, manual city still works (Android uses the USER_FIXED ""don't ask again"" state because a plain revoke raises an unanswerable native prompt)."
+PRAY-04,Prayer,Prayer logging,BLOCKED,,,"Prayer logging (togglePrayerStatus) is only reachable through PrayerTrackingScreen, which no navigation path opens — see DEFECT_REGISTER F-001. Not a test gap: the feature is unreachable in the shipped app."
+PRAY-05,Prayer,Timezone change re-derivation,NOT_ATTEMPTED,,,"covered by existing unit tests (notification_timezone_test.dart, device_timezone_test.dart), not live"
+PRAY-06,Prayer,Salah status card states,EXECUTED,E2 live,B,insufficient-history and unresolved states seen live; obligatory/lifted states not exercised live this wave
+TTC-01,TTC,Unmarried restriction,EXECUTED,E2 live (iOS + Android),Batch3,"TTC on while unmarried shows the ""Turn on I am married"" restriction, no pregnancy chance."
+TTC-02,TTC,Married + TTC enabled,EXECUTED,E2 live (iOS + Android),Batch3,"married + TTC shows ""Chance of pregnancy""; TTC off removes it."
+TTC-03,TTC,Fertility window display,PARTIAL,E2 live (iOS + Android),Batch3,pregnancy-chance card asserted; the fertility-window dates/values are not verified against an oracle.
+PREG-01,Pregnancy,Setup,EXECUTED,E2 live,Batch1,"PASS — real ""I am currently pregnant"" toggle opened the Pregnancy Setup sheet, Activate Pregnancy Tracking succeeded"
+PREG-02,Pregnancy,Active pregnancy overview,EXECUTED,E2 live,Batch1,"PASS — Profile shows ""Pregnancy tracking is active (week 1)"" after activation; full dashboard pregnancy overview card not separately asserted"
+PREG-03,Pregnancy,Week progression,PARTIAL,E2 live (iOS + Android),Batch3,week 12 shown for a 12-week pregnancy; progression over time not exercised.
+PREG-04,Pregnancy,Log birth -> Nifas transition,EXECUTED,E2 live (iOS + Android),Batch3,logging birth ends pregnancy and starts Nifas on Today.
+PREG-05,Pregnancy,Pregnancy report,NOT_ATTEMPTED,,,
+PREG-06,Pregnancy,AI context includes pregnancy state,NOT_ATTEMPTED,,,
+NIFAS-01,Nifas,Start postpartum,EXECUTED,E2 live (iOS + Android),Batch3,"Nifas starts after birth (""Nifas tracking started"")."
+NIFAS-02,Nifas,Active Nifas status card,EXECUTED,E2 live (iOS + Android),Batch3,active Nifas card on Today.
+NIFAS-03,Nifas,Prayer/fasting status during Nifas,PARTIAL,E2 live (iOS + Android),Batch3,the active Nifas card states salah is lifted while bleeding continues (asserted); fasting status is not separately asserted.
+NIFAS-04,Nifas,Nifas end/transition,EXECUTED,E2 live (iOS + Android),Batch3,turning Nifas off removes the Nifas state.
+WELL-01,Wellbeing,Mood/energy/sleep entry,EXECUTED,E2 live (iOS + Android) + server row,Batch6,"the Log button is an OutlinedButton (earlier attempt tapped the label text); sheet -> ""Save check-in"" -> snackbar + wellbeing_logs row."
+WELL-02,Wellbeing,History,NOT_ATTEMPTED,,,
+WELL-03,Wellbeing,Report,PARTIAL,E2 live (iOS + Android),Batch6,report opens with real content; figures not verified against an oracle.
+WELL-04,Wellbeing,Reminder,PARTIAL,E2 live,G,"seen in Notification Settings list, not toggled"
+AI-01,AI,General assistant,BLOCKED,,,real model answers need a model backend and qualified content review; the local backend deliberately has no Edge Functions/credentials. Transport/error handling is covered by AI-07.
+AI-02,AI,Health assistant (Dr Niswah),BLOCKED,,,real model answers need a model backend and qualified content review; the local backend deliberately has no Edge Functions/credentials. Transport/error handling is covered by AI-07.
+AI-03,AI,Fiqh advisor,BLOCKED,,,real model answers need a model backend and qualified content review; the local backend deliberately has no Edge Functions/credentials. Transport/error handling is covered by AI-07.
+AI-04,AI,Dream interpreter,BLOCKED,,,real model answers need a model backend and qualified content review; the local backend deliberately has no Edge Functions/credentials. Transport/error handling is covered by AI-07.
+AI-05,AI,Conversation history,BLOCKED,,,history exists only after a real AI reply; no model backend locally.
+AI-06,AI,Delete conversation,BLOCKED,,,same as AI-05.
+AI-07,AI,Backend unavailable,EXECUTED,E2 live (iOS + Android),Batch7,"Dr Niswah, Fiqh advisor and Dream interpreter each open, accept a prompt and fail HONESTLY (""could not be sent""/""could not be interpreted""), no raw exception, no fabricated answer, app usable."
+AI-08,AI,Malformed response handling,NOT_ATTEMPTED,,,
+AI-09,AI,Citation/source requirements,BLOCKED,,,content oracle: needs qualified review.
+COMM-01,Community,Create post,EXECUTED,E2 live (iOS + Android),Batch5,post appears in the feed AND as a community_posts row (anonymous by default)
+COMM-02,Community,Anonymous post,EXECUTED,E2 live (iOS + Android),Batch5,anonymous vs named post both persisted with the right is_anonymous
+COMM-03,Community,Search,EXECUTED,E2 live (iOS + Android),Batch5,search filters the feed
+COMM-04,Community,Like,EXECUTED,E2 live (iOS + Android),Batch5,like persists in community_likes
+COMM-05,Community,Open post detail,EXECUTED,E2 live (iOS + Android),Batch5,detail screen opens
+COMM-06,Community,Delete own post,EXECUTED,E2 live (iOS + Android),Batch5,delete own post removes the server row and the feed entry
+COMM-07,Community,Author preview,EXECUTED,E2 live (iOS + Android),Batch8,author preview sheet shows the author and their public post count.
+COMM-08,Community,Message author,EXECUTED,E2 live (iOS + Android),Batch8,"""Connect"" opens a private conversation with the author."
+COMM-09,Community,Empty state,EXECUTED,E2 live (iOS + Android),Batch5,"empty state (""No posts here yet"") shown for a fresh feed."
+COMM-10,Community,Backend failure,EXECUTED,E2 live (iOS + Android),O,"real outage: publish fails with a friendly message (D-008 fixed), nothing shown as posted; after reconnect exactly one post."
+MSG-01,Messaging,Create/open conversation,EXECUTED,E2 live (iOS + Android),Batch8,conversation created by messaging a named author.
+MSG-02,Messaging,Send message,EXECUTED,E2 live (iOS + Android),Batch8,message persisted with the sender id and is_read=false.
+MSG-03,Messaging,Receive message,EXECUTED,E2 live (iOS + Android),Batch8,the other account signs in and sees the message.
+MSG-04,Messaging,Unread state,EXECUTED,E2 live (iOS + Android),Batch8,unread count 1 -> 0 after opening the thread.
+MSG-05,Messaging,History,EXECUTED,E2 live (iOS + Android),Batch8,"both messages present, ordered, after a reply."
+MSG-06,Messaging,Delete conversation,BLOCKED,,,no delete-conversation UI or repository method exists (DEFECT_REGISTER F-002).
+MSG-07,Messaging,Cross-account privacy (RLS),EXECUTED,E2 live (iOS + Android) + RLS,Batch8,a third real account reads 0 conversations/0 messages of the pair and its insert (incl. forging the other user as sender) is rejected by RLS.
+RPT-01,Reports,Fiqh report,PARTIAL,E2 live (iOS + Android),Batch6,"Fiqh report/export opens for an account with real data, no crash, non-trivial content; figures not verified against an independent oracle."
+RPT-02,Reports,Doctor report,PARTIAL,E2 live (iOS + Android),Batch6,"Doctor report/export opens for an account with real data, no crash, non-trivial content; figures not verified against an independent oracle."
+RPT-03,Reports,Wellbeing report,PARTIAL,E2 live (iOS + Android),Batch6,"Wellbeing report/export opens for an account with real data, no crash, non-trivial content; figures not verified against an independent oracle."
+RPT-04,Reports,Husband report,PARTIAL,E2 live (iOS + Android),Batch6,"Husband report/export opens for an account with real data, no crash, non-trivial content; figures not verified against an independent oracle."
+RPT-05,Reports,JSON data export,PARTIAL,E2 live (iOS + Android),Batch6,"JSON export report/export opens for an account with real data, no crash, non-trivial content; figures not verified against an independent oracle."
+PROF-01,Profile,Anonymous mode,EXECUTED,E2 live (iOS + Android),Batch4,Anonymous Mode changes identity and is persisted; OFF restores it.
+PROF-02,Profile,Notification settings,EXECUTED,E2 live,G,PASS
+PROF-03,Profile,Privacy policy,EXECUTED,E2 live (iOS + Android),Batch4,Privacy Policy opens with real text (3.3k characters).
+PROF-04,Profile,Account state toggles,EXECUTED,E2 live,Batch1,"PASS — ""I am married"" toggle flipped false->true live; pregnant/Nifas toggles covered separately by PREG-01/02"
+PROF-05,Profile,Delete-account confirmation + completion,EXECUTED,E2 live (iOS + Android),Batch4,same evidence as AUTH-11.
+SYS-01,System,Build identity confirmation,EXECUTED,E2 live,P0,PASS — banner correctly showed SHA+backend
+SYS-02,System,Account switch / sign-out data isolation,EXECUTED,E2 live + real DB,J,PASS
+MAD-01,Madhhab,Guided suggestion is stored only after the user confirms it,EXECUTED,E2 live (iOS + Android),M,suggestion shown (Egypt -> Shafi'i etc); NOTHING stored before confirming; confirming stores exactly that madhhab.
+MAD-02,Madhhab,Declining the suggestion stores nothing,EXECUTED,E2 live (iOS + Android),M,"""None of these - I'll decide later"": users.madhhab stays null."
+AR-01,Arabic/RTL,"Live Arabic journey: language switch, 5-tab navigation, real save, date picker, keyboard, back",EXECUTED,E2 live (iOS + Android),AR1,"account onboarded in English, language switched from Profile, everything after exercised in Arabic on the real app (not widget tests)."
+AR-02,Arabic/RTL,Layout at 200% text scale (5 tabs) in Arabic,EXECUTED,E2 live (iOS + Android),AR1,no overflow exception on any tab.
+AR-03,Arabic/RTL,RTL directional layout (month controls) and Arabic-Indic date picker,EXECUTED,E2 live (iOS + Android),AR1,month controls follow RTL; date picker cell selected via Arabic digits.
+AR-04,Accessibility,Screen-reader semantics (labels),PARTIAL,E2 live (iOS + Android),AR1,semantic labels asserted for icon buttons and nav; a real VoiceOver/TalkBack pass is a device-only gap.
+SYS-03,System,Whole persona suite on a real Android emulator,EXECUTED,E2 live (Android) local + GitHub-hosted,suite,"local Android emulator: 24/24 personas PASS (2 re-run after a harness fix, see TEST_EXECUTION_REPORT); GitHub-hosted sharded run 36189478948 (8b531a8, 25 personas): 25/25."
+SYS-04,System,Production kill switch (harness refuses production/unknown/malformed backend),EXECUTED,unit + host + live,H,3 layers; vectors shared by Dart and Python tests; live refusal + allow proven.
+SYS-05,System,Account deletion leaves no orphan rows,EXECUTED,local DB + live,Batch4 + check_account_deletion_cascade.sh,D-005 fixed; sweep over every public table = 0 orphans.
+JRN-01,Journeys,Guided journeys,BLOCKED,,,GuidedJourneysScreen has no navigation path (F-001).
+LIB-01,Library,Educational resource library,BLOCKED,,,ResourceLibraryScreen has no navigation path (F-001).
+GHU-01,Fiqh,Ghusl guide,BLOCKED,,,GhuslGuideScreen has no navigation path (F-001).
+SET-01,Settings,Account/Settings screens,BLOCKED,,,AccountSettingsScreen / settings_screen.dart have no navigation path (F-001).

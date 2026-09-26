@@ -14,6 +14,7 @@ import '../../../wellbeing/domain/entities/wellbeing_log.dart';
 import '../../data/repositories/flagged_conversations_repository.dart';
 import '../../domain/entities/flagged_conversation.dart';
 import '../../domain/entities/report_completeness.dart';
+import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../domain/entities/report_source_status.dart';
 import '../../domain/services/doctor_report_insights_engine.dart';
 import '../pdf/doctor_report_pdf_builder.dart';
@@ -173,6 +174,19 @@ class _DoctorReportScreenState extends State<DoctorReportScreen> {
       );
     }
 
+    final canonical = await ReportCanonicalEvidence.load(
+      userId: userId,
+      now: now,
+    );
+    var cycleStatus = cycleResult.status;
+    if (canonical != null) {
+      if (canonical.unavailable) {
+        cycleStatus = ReportSourceStatus.failed;
+      } else if (canonical.episodes.isNotEmpty || canonical.hasOpenEpisode) {
+        cycleStatus = ReportSourceStatus.available;
+      }
+    }
+
     final cycleLogs = cycleResult.data;
     final wellbeingLogs = wellbeingResult.data;
     final currentWellbeingLogs = wellbeingLogs
@@ -194,7 +208,8 @@ class _DoctorReportScreenState extends State<DoctorReportScreen> {
       previousWellbeingLogs: previousWellbeingLogs,
       recentFlags: flagsResult.data,
       now: now,
-      cycleStatus: cycleResult.status,
+      cycleStatus: cycleStatus,
+      canonical: canonical,
       pregnancyStatus: pregnancyResult.status,
       wellbeingStatus: wellbeingResult.status,
       flagsStatus: flagsResult.status,

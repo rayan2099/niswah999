@@ -98,6 +98,14 @@ else
   EXIT_CODE=0
 fi
 
+echo "==> Account-deletion behavioral check (nothing may outlive a deleted user)"
+if bash scripts/check_account_deletion_cascade.sh "$DB_CONTAINER"; then
+  echo "==> Account deletion: OK"
+else
+  echo "==> ACCOUNT DELETION CHECK FAILED — rows outlive a deleted user"
+  EXIT_CODE=1
+fi
+
 echo "==> Tearing down (no state persisted between validation runs, by design)"
 supabase stop --no-backup >/dev/null 2>&1 || true
 docker volume ls --filter "name=supabase" --format "{{.Name}}" | xargs -r docker volume rm >/dev/null 2>&1 || true

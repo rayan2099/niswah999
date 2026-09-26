@@ -6,7 +6,10 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'core/auth/auth_controller.dart';
+import 'core/config/acceptance_gate.dart';
 import 'core/config/app_environment.dart';
+import 'core/config/build_info.dart';
+import 'core/config/test_backend_gate.dart';
 import 'core/errors/app_error_reporter.dart';
 import 'core/localization/app_locale_controller.dart';
 import 'core/network/supabase_client.dart';
@@ -18,6 +21,8 @@ import 'core/services/notification_service.dart';
 import 'core/storage/local_sensitive_data_cleanup.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
+import 'core/utils/device_timezone.dart';
+import 'core/widgets/diagnostics_banner.dart';
 import 'core/widgets/floating_nav_bar.dart';
 import 'core/widgets/niswah_loading_indicator.dart';
 import 'features/notifications/domain/services/notification_refresh_coordinator.dart';
@@ -26,6 +31,7 @@ import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/presentation/screens/profile_screen.dart';
 import 'features/auth/presentation/screens/sign_in_screen.dart';
 import 'features/community/presentation/screens/community_board_screen.dart';
+import 'features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'features/cycle_tracking/presentation/screens/cycle_tracking_screen.dart';
 import 'features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import 'features/dashboard/presentation/screens/dashboard_screen.dart';
@@ -54,6 +60,19 @@ Future<void> main() async {
     AppErrorReporter.report(error, stack, context: 'startup config load');
     runApp(_StartupErrorApp(error: error));
     return;
+  }
+
+  // Production-environment kill switch: an acceptance/persona build
+  // refuses any backend that is not explicitly approved for testing,
+  // BEFORE Supabase or Sentry initialize — so a refused run creates no
+  // account, performs no write and makes no network call. Ordinary
+  // (non-acceptance) builds are unaffected.
+  if (BuildInfo.acceptanceMode) {
+    final verdict = AcceptanceGate.currentVerdict();
+    if (!verdict.allowed) {
+      runApp(_AcceptanceBlockedApp(verdict: verdict));
+      return;
+    }
   }
 
   // `options.dsn` left empty (no Sentry project configured yet, e.g. local
@@ -180,6 +199,32 @@ SentryEvent? _scrubBeforeSend(SentryEvent event) {
 
 /// Shown only when startup-critical config fails to load — replaces an
 /// indefinite native-splash hang with a visible, minimal error state.
+/// Shown INSTEAD of the app when an acceptance build is pointed at a
+/// backend that is production or otherwise not approved for testing.
+/// Displays only the safe host identifier and the reason — never a key.
+class _AcceptanceBlockedApp extends StatelessWidget {
+  const _AcceptanceBlockedApp({required this.verdict});
+  final BackendGateVerdict verdict;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    home: Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'BLOCKED: acceptance run refused.\n'
+            'Backend host: ${verdict.host}\n'
+            'Reason: ${verdict.reason}',
+            key: const Key('acceptance_blocked_text'),
+            textDirection: TextDirection.ltr,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _StartupErrorApp extends StatelessWidget {
   const _StartupErrorApp({required this.error});
 
@@ -357,7 +402,7 @@ class NiswahApp extends StatelessWidget {
           locale: AppLocaleController.instance.locale,
           builder: (context, child) => Directionality(
             textDirection: AppLocaleController.instance.textDirection,
-            child: child!,
+            child: Stack(children: [child!, const DiagnosticsBanner()]),
           ),
           home: _buildHome(context),
           routes: {
@@ -507,13 +552,19 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     // reachable (i.e. the user is signed in) — mirrors how the reports
     // recompute fresh each time they're opened, applied to scheduling.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _refreshNotifications();
+      unawaited(_refreshNotifications());
       // App-start retry trigger — one of two triggers (with app-resume,
       // below) that make CycleTrackingViewModel.saveLog's "backs up
       // automatically" wording actually true rather than aspirational
       // copy (RR-001). A bounded, one-pass sweep per trigger — not a
       // timer/loop — so this can never spin indefinitely.
       unawaited(_cycleViewModel.retryPendingSync());
+      // Menstrual Data Integrity charter, PR #4 completion wave, Fix D:
+      // replays any bleeding_episodes start/end operation that reached
+      // the server and committed but never got the chance to tell the
+      // app so (the process was killed first) — the same app-start
+      // trigger that already recovers the legacy cycle_entries model.
+      unawaited(BleedingEpisodeRepositoryImpl().reconcilePendingOperations());
     });
   }
 
@@ -526,15 +577,28 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _refreshNotifications();
+      // Hardening 3: the device's timezone may genuinely have changed
+      // while the app was backgrounded (travel, or a manual change) —
+      // DeviceTimezone must never answer with a value cached from before
+      // the app went to the background. Invalidated before
+      // _refreshNotifications so any reminder recomputation it triggers
+      // already sees the real current zone, never a stale one.
+      DeviceTimezone.invalidateCache();
+      unawaited(_refreshNotifications());
       // App-resume retry trigger — see the app-start trigger in initState
       // for why this exists and what it does/doesn't guarantee.
       unawaited(_cycleViewModel.retryPendingSync());
+      unawaited(BleedingEpisodeRepositoryImpl().reconcilePendingOperations());
     }
   }
 
-  void _refreshNotifications() {
-    NotificationRefreshCoordinator.refresh(
+  Future<void> _refreshNotifications() async {
+    // Closure Blocker 6 / notification cancellation closure Finding 3 —
+    // `NotificationRefreshCoordinator.refresh` now refreshes `tz.local`
+    // to the device's real current zone itself, before recomputing
+    // anything, so every caller (this resume handler included) gets it
+    // uniformly without needing its own copy of this call.
+    await NotificationRefreshCoordinator.refresh(
       userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
     );
   }

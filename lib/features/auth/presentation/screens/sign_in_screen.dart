@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/data/countries.dart';
+import '../../../../core/errors/network_failure.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
@@ -749,7 +750,12 @@ class _AuthSheetState extends State<_AuthSheet> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString().replaceFirst('Exception: ', '');
+          _error = isNetworkFailure(error)
+              ? _tr(
+                  "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
+                  'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
+                )
+              : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
       }
@@ -773,7 +779,12 @@ class _AuthSheetState extends State<_AuthSheet> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString().replaceFirst('Exception: ', '');
+          _error = isNetworkFailure(error)
+              ? _tr(
+                  "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
+                  'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
+                )
+              : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
       }
@@ -799,7 +810,12 @@ class _AuthSheetState extends State<_AuthSheet> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString().replaceFirst('Exception: ', '');
+          _error = isNetworkFailure(error)
+              ? _tr(
+                  "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
+                  'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
+                )
+              : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
       }
@@ -827,7 +843,12 @@ class _AuthSheetState extends State<_AuthSheet> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString().replaceFirst('Exception: ', '');
+          _error = isNetworkFailure(error)
+              ? _tr(
+                  "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
+                  'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
+                )
+              : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
       }

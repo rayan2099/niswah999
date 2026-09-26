@@ -5,6 +5,7 @@ import '../../data/repositories/community_repository_impl.dart';
 import '../../domain/entities/community_comment.dart';
 import '../../domain/entities/community_post.dart';
 import '../../domain/repositories/community_repository.dart';
+import 'community_error_message.dart';
 
 class PostDetailViewModel extends ChangeNotifier {
   PostDetailViewModel({
@@ -30,8 +31,12 @@ class PostDetailViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       comments = await _repository.getComments(postId: post.id);
-    } catch (error) {
-      errorMessage = error.toString();
+    } catch (error, stack) {
+      errorMessage = communityErrorMessage(
+        error,
+        stack,
+        context: 'PostDetailViewModel.loadComments',
+      );
     } finally {
       isLoadingComments = false;
       notifyListeners();
@@ -71,8 +76,12 @@ class PostDetailViewModel extends ChangeNotifier {
       post = post.copyWith(commentCount: post.commentCount + 1);
       _pendingCommentId = null;
       return true;
-    } catch (error) {
-      errorMessage = error.toString();
+    } catch (error, stack) {
+      errorMessage = communityErrorMessage(
+        error,
+        stack,
+        context: 'PostDetailViewModel.addComment',
+      );
       return false;
     } finally {
       isSubmittingComment = false;
@@ -129,8 +138,12 @@ class PostDetailViewModel extends ChangeNotifier {
     try {
       await _repository.deletePost(postId: post.id, userId: userId);
       return true;
-    } catch (error) {
-      errorMessage = error.toString();
+    } catch (error, stack) {
+      errorMessage = communityErrorMessage(
+        error,
+        stack,
+        context: 'PostDetailViewModel.deletePost',
+      );
       notifyListeners();
       return false;
     }

@@ -4,10 +4,25 @@ import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
+import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
 import '../../../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 
 enum FiqhReportMode { nifas, cycle }
+
+/// Why a report cannot state a definite current state even though the woman
+/// may be bleeding right now — printed as an honest explanation, never
+/// replaced by a confident "Tahara".
+enum ReportEvidenceNote {
+  none,
+
+  /// An episode is open but its evidence has a material gap ("I'm not sure"
+  /// days, a quarantined row): a ruling would be unsupported.
+  openEpisodeUnresolved,
+
+  /// The canonical records could not be read at all.
+  recordsUnavailable,
+}
 
 /// Everything the fiqh report PDF needs — pre-computed and gated so the
 /// report never fabricates an average from too little history.
@@ -26,6 +41,7 @@ class FiqhReportInsights extends Equatable {
        haidEpisodeCount = 0,
        totalEntriesLogged = 0,
        lastHaidStart = null,
+       evidenceNote = ReportEvidenceNote.none,
        haidDurationsDays = const [];
 
   const FiqhReportInsights.cycle({
@@ -39,6 +55,7 @@ class FiqhReportInsights extends Equatable {
     required this.lastHaidStart,
     this.haidDurationsDays = const [],
     this.notes = const [],
+    this.evidenceNote = ReportEvidenceNote.none,
   }) : mode = FiqhReportMode.cycle,
        daysPostpartum = null,
        nifasPhase = null;
@@ -75,6 +92,9 @@ class FiqhReportInsights extends Equatable {
   /// Recent non-empty notes across the same logs, newest first.
   final List<NotedEntry> notes;
 
+  /// See [ReportEvidenceNote].
+  final ReportEvidenceNote evidenceNote;
+
   @override
   List<Object?> get props => [
     mode,
@@ -90,6 +110,7 @@ class FiqhReportInsights extends Equatable {
     lastHaidStart,
     haidDurationsDays,
     notes,
+    evidenceNote,
   ];
 }
 
@@ -123,6 +144,12 @@ class FiqhReportInsightsEngine {
     required Madhhab? madhhab,
     PregnancyProfile? pregnancyProfile,
     required DateTime now,
+
+    /// The canonical evidence Today rules on. When supplied, the current
+    /// state and the cycle statistics come from it; [cycleLogs] (the legacy
+    /// table) then only supplies notes/symptoms. When null (no signed-in
+    /// user / legacy callers) the previous legacy-only behaviour applies.
+    ReportCanonicalEvidence? canonical,
   }) {
     final pregnancyStatus = PregnancyStatusEngine.getStatus(
       pregnancyProfile,
@@ -137,10 +164,28 @@ class FiqhReportInsightsEngine {
       );
     }
 
-    final sorted = [...cycleLogs]..sort((a, b) => a.date.compareTo(b.date));
+    if (canonical != null && canonical.unavailable) {
+      return FiqhReportInsights.cycle(
+        madhhab: madhhab,
+        cycleState: FiqhCycleState.insufficientHistory,
+        hasEnoughForAverages: false,
+        averageCycleLengthDays: null,
+        averageHaidDurationDays: null,
+        haidEpisodeCount: 0,
+        totalEntriesLogged: cycleLogs.length,
+        lastHaidStart: null,
+        notes: CycleSymptomDecoder.recentNotes(cycleLogs),
+        evidenceNote: ReportEvidenceNote.recordsUnavailable,
+      );
+    }
+
+    // Evidence for the STATE and the statistics: canonical when available.
+    final evidenceLogs = canonical?.effectiveLogs ?? cycleLogs;
+    final sorted = [...evidenceLogs]..sort((a, b) => a.date.compareTo(b.date));
     final calculation = const CycleCalculationService().calculate(
       sorted,
       asOf: now,
+      canonicalEpisodes: canonical?.episodes ?? const [],
     );
 
     final episodes = _haidEpisodes(sorted);
@@ -150,14 +195,24 @@ class FiqhReportInsightsEngine {
                   episodes.length)
               .round();
 
+    // An open episode whose evidence has a material gap must never be
+    // reported as Tahara (the same rule Today applies): "insufficient".
+    final openButUnresolved =
+        canonical != null &&
+        canonical.hasOpenEpisode &&
+        (canonical.evidenceUnresolved || sorted.isEmpty);
+    final cycleState = openButUnresolved
+        ? FiqhCycleState.insufficientHistory
+        : _currentCycleState(
+            sortedLogs: sorted,
+            madhhab: madhhab,
+            hasSufficientHistory: calculation.hasSufficientHistory,
+            now: now,
+          );
+
     return FiqhReportInsights.cycle(
       madhhab: madhhab,
-      cycleState: _currentCycleState(
-        sortedLogs: sorted,
-        madhhab: madhhab,
-        hasSufficientHistory: calculation.hasSufficientHistory,
-        now: now,
-      ),
+      cycleState: cycleState,
       hasEnoughForAverages:
           calculation.haidStarts.length >= minHaidStartsForAverage,
       averageCycleLengthDays: calculation.averageCycleLength,
@@ -167,6 +222,16 @@ class FiqhReportInsightsEngine {
       lastHaidStart: calculation.lastHaidStart,
       haidDurationsDays: episodes.map((e) => e.durationDays).toList(),
       notes: CycleSymptomDecoder.recentNotes(cycleLogs),
+      // A bleeding episode that cannot be ruled on (unresolved evidence, or
+      // simply too little history) is explained in the report, never left as
+      // an unexplained label.
+      evidenceNote:
+          (openButUnresolved ||
+              (canonical != null &&
+                  canonical.hasOpenEpisode &&
+                  cycleState == FiqhCycleState.insufficientHistory))
+          ? ReportEvidenceNote.openEpisodeUnresolved
+          : ReportEvidenceNote.none,
     );
   }
 

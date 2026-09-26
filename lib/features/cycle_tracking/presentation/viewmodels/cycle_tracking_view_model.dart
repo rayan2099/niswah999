@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../../auth/domain/entities/app_user.dart';
+import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_tracking_repository_impl.dart';
 import '../../domain/controllers/cycle_tracking_controller.dart';
 import '../../domain/entities/cycle_log.dart';
@@ -14,9 +15,41 @@ class CycleTrackingViewModel extends ChangeNotifier {
   CycleTrackingViewModel({
     CycleTrackingRepository? repository,
     AuthRepositoryImpl? authRepository,
-  }) : _repository = repository ?? CycleTrackingRepositoryImpl() {
+    Future<List<CanonicalEpisodeTiming>> Function(String userId)?
+    canonicalEpisodeLoader,
+  }) : _repository = repository ?? CycleTrackingRepositoryImpl(),
+       _canonicalEpisodeLoader =
+           canonicalEpisodeLoader ?? _defaultCanonicalEpisodeLoader {
     _authRepository = authRepository;
   }
+
+  /// Canonical episode start/end DATES only (never a flow) — see
+  /// [CanonicalEpisodeTiming]. A read failure yields an empty list: the
+  /// legacy statistics then simply have no supplement, exactly as before,
+  /// and never a fabricated value.
+  static Future<List<CanonicalEpisodeTiming>> _defaultCanonicalEpisodeLoader(
+    String userId,
+  ) async {
+    if (userId == 'local-user') return const [];
+    try {
+      final result = await BleedingEpisodeRepositoryImpl().getEpisodesForUser(
+        userId,
+      );
+      return (result.dataOrNull ?? const [])
+          .map(
+            (episode) => CanonicalEpisodeTiming(
+              startDate: episode.startDate,
+              endDate: episode.endDate,
+            ),
+          )
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  final Future<List<CanonicalEpisodeTiming>> Function(String userId)
+  _canonicalEpisodeLoader;
 
   final CycleTrackingRepository _repository;
   AuthRepositoryImpl? _authRepository;
@@ -29,6 +62,11 @@ class CycleTrackingViewModel extends ChangeNotifier {
   CyclePhase? selectedPhase;
 
   List<CycleLog> logs = const <CycleLog>[];
+
+  /// Canonical episode timing supplement for the legacy statistics; see
+  /// [CanonicalEpisodeTiming]. Empty until [loadLogs] has read it.
+  List<CanonicalEpisodeTiming> canonicalEpisodes =
+      const <CanonicalEpisodeTiming>[];
   CycleTrackingSummary summary = const CycleTrackingSummary(
     averageCycleLength: null,
     averagePeriodLength: null,
@@ -48,8 +86,11 @@ class CycleTrackingViewModel extends ChangeNotifier {
 
   String get currentUserId => _currentUserId;
   AppUser? get currentUser => _currentUser;
-  CycleCalculationResult get cycleCalculation =>
-      _calculationService.calculate(logs, asOf: AppClock.now());
+  CycleCalculationResult get cycleCalculation => _calculationService.calculate(
+    logs,
+    asOf: AppClock.now(),
+    canonicalEpisodes: canonicalEpisodes,
+  );
 
   List<CycleLog> get filteredLogs =>
       _controller.filterLogsByPhase(logs, selectedPhase);
@@ -86,7 +127,11 @@ class CycleTrackingViewModel extends ChangeNotifier {
             (log) => log.userId == _currentUserId || log.userId == 'local-user',
           )
           .toList();
-      summary = _controller.summarizeHistory(logs);
+      canonicalEpisodes = await _canonicalEpisodeLoader(_currentUserId);
+      summary = _controller.summarizeHistory(
+        logs,
+        canonicalEpisodes: canonicalEpisodes,
+      );
     } catch (error) {
       errorMessage = error.toString();
     } finally {

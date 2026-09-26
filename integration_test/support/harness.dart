@@ -1,0 +1,261 @@
+import 'dart:convert';
+import 'dart:io' show Platform;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+import 'package:niswah/core/config/acceptance_gate.dart';
+import 'package:niswah/core/config/build_info.dart';
+
+/// Shared UI-acceptance helpers. Everything here drives the REAL app
+/// (`main()`), never a replacement widget.
+class Harness {
+  Harness(this.binding, this.tester);
+
+  final IntegrationTestWidgetsFlutterBinding binding;
+  final WidgetTester tester;
+
+  int _shotCounter = 0;
+
+  /// `convertFlutterSurfaceToImage()` asserts if called twice for the same
+  /// surface, so it happens once per process (this integration_test
+  /// version has no revert counterpart).
+  static bool _androidSurfaceConverted = false;
+  bool _backendGuardPassed = false;
+
+  /// Captures a screenshot named `<persona>_<nn>_<label>`.
+  Future<void> shot(String persona, String label) async {
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    _shotCounter++;
+    final n = _shotCounter.toString().padLeft(2, '0');
+    // Android renders into a platform surface: it must be converted to an
+    // image before a screenshot (this integration_test version has no
+    // revert counterpart). iOS needs none of it.
+    if (Platform.isAndroid && !_androidSurfaceConverted) {
+      await binding.convertFlutterSurfaceToImage();
+      _androidSurfaceConverted = true;
+      await tester.pump();
+    }
+    await binding.takeScreenshot('${persona}_${n}_$label');
+  }
+
+  Future<void> settle([int seconds = 3]) async {
+    await tester.pumpAndSettle(Duration(seconds: seconds));
+  }
+
+  /// Pumps in small steps for up to [timeout] until [finder] matches —
+  /// tolerant of real network latency without hanging on infinite
+  /// animations (pumpAndSettle can time out on a live spinner).
+  Future<bool> waitFor(
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    final end = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(end)) {
+      await tester.pump(const Duration(milliseconds: 250));
+      if (finder.evaluate().isNotEmpty) return true;
+    }
+    return false;
+  }
+
+  /// Scrolls [finder] into view, then taps it. Never throws — returns
+  /// whether the target existed, so one missing control cannot discard
+  /// every screenshot already captured in the run.
+  Future<bool> tapVisible(Finder finder, {bool last = false}) async {
+    try {
+      if (finder.evaluate().isEmpty) return false;
+      final target = last ? finder.last : finder.first;
+      await tester.ensureVisible(target);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(target, warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 400));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  final List<String> notes = [];
+  void note(String s) {
+    notes.add(s);
+    // ignore: avoid_print
+    print('NOTE => $s');
+  }
+
+  Finder text(String s) => find.text(s);
+  Finder textContaining(String s) => find.textContaining(s);
+
+  String bannerText() {
+    final finder = find.byKey(const Key('diagnostics_banner_text'));
+    if (finder.evaluate().isEmpty) return '<no banner>';
+    return (finder.evaluate().first.widget as Text).data ?? '<empty>';
+  }
+}
+
+extension HarnessDump on Harness {
+  /// Logs every visible Text string (deduped, in order) so a run's log
+  /// shows exactly what the real screen presented.
+  void dumpTexts(String label) {
+    final seen = <String>[];
+    for (final e in find.byType(Text).evaluate()) {
+      final w = e.widget as Text;
+      final s = w.data ?? w.textSpan?.toPlainText() ?? '';
+      if (s.trim().isNotEmpty && !seen.contains(s)) seen.add(s);
+    }
+    note('TEXTS[$label] ${seen.join(' | ')}');
+  }
+}
+
+/// One structured result for one acceptance test, per the acceptance
+/// charter's own required schema. This is the SOLE source of truth for
+/// whether a persona run counts as a pass — never `flutter drive`'s own
+/// process exit code, which stays 0 even when a persona's own checks
+/// fail (every assertion in these tests is a logged, non-throwing
+/// check; see PersonaStatus's own doc comment for why).
+enum PersonaStatus { pass, fail, blocked, skipped }
+
+class PersonaResult {
+  PersonaResult({
+    required this.testId,
+    required this.expectedOutcome,
+    required this.actualOutcome,
+    required this.status,
+    this.screenshotRef,
+  });
+
+  final String testId;
+  final String expectedOutcome;
+  final String actualOutcome;
+  final PersonaStatus status;
+  final String? screenshotRef;
+
+  Map<String, dynamic> toJson({
+    required String testedSha,
+    required String devicePlatform,
+    required String backendEnvironment,
+  }) => {
+    'test_id': testId,
+    'tested_sha': testedSha,
+    'device_platform': devicePlatform,
+    'backend_environment': backendEnvironment,
+    'expected_outcome': expectedOutcome,
+    'actual_outcome': actualOutcome,
+    'status': status.name.toUpperCase(),
+    if (screenshotRef != null) 'screenshot_ref': screenshotRef,
+  };
+}
+
+extension HarnessReport on Harness {
+  /// Writes the one structured result this test is graded on into
+  /// `binding.reportData` — `flutter_driver`'s own host<->guest
+  /// communication channel (`IntegrationTestWidgetsFlutterBinding.
+  /// reportData`), which `test_driver/integration_test.dart`'s
+  /// `responseDataCallback` forwards to a JSON file on the HOST after
+  /// the run completes. `--dart-define=GIT_SHA`/`ENABLE_DIAGNOSTICS_
+  /// SCREEN` are already used elsewhere in this suite for the exact
+  /// same "confirm what was actually run" purpose.
+  void reportResult(PersonaResult result) {
+    const testedSha = String.fromEnvironment(
+      'GIT_SHA',
+      defaultValue: 'unknown',
+    );
+    const backend = String.fromEnvironment(
+      'BACKEND_ENV',
+      defaultValue: 'local-test:127.0.0.1:54321',
+    );
+    final json = result.toJson(
+      testedSha: testedSha,
+      devicePlatform: Platform.isAndroid ? 'android-emulator' : 'ios-simulator',
+      backendEnvironment: backend,
+    );
+    binding.reportData = json;
+    note('RESULT_JSON=${jsonEncode(json)}');
+  }
+}
+
+extension HarnessScroll on Harness {
+  /// Jumps the first real scrollable to the very top — a plain drag
+  /// gesture can hit the wrong nested scrollable once the tree gets deep
+  /// (horizontal chip lists, etc.), so this goes straight to the
+  /// ScrollableState instead, exactly like this repo's own existing
+  /// dashboard tests already do for the opposite (bottom) direction.
+  Future<void> scrollToTop() async {
+    final finder = find.byType(Scrollable);
+    if (finder.evaluate().isEmpty) return;
+    final state = tester.state<ScrollableState>(finder.first);
+    state.position.jumpTo(0);
+    await tester.pump(const Duration(milliseconds: 400));
+  }
+}
+
+/// Production-environment kill switch, harness side. See
+/// `lib/core/config/test_backend_gate.dart` (classifier) and `main.dart`
+/// (which already refuses to initialize Supabase/Sentry for a refused
+/// backend in an acceptance build) — this is the persona-facing layer.
+extension HarnessBackendGuard on Harness {
+  /// MUST be the first thing a persona does after building the Harness,
+  /// before any sign-up, fixture, seed or action. Returns true only when
+  /// this is an acceptance build AND its backend is loopback or
+  /// explicitly approved. Otherwise it reports BLOCKED (a non-PASS the
+  /// host-side verifier fails on) and returns false — the caller must
+  /// `return` immediately; nothing has been created or written.
+  ///
+  /// There is no parameter, define or environment switch that skips this.
+  Future<bool> guardBackend(String testId) async {
+    // Personas call `app.main()` un-awaited, so the app's own `.env`
+    // load may still be in flight. Wait for it (bounded) — and if it
+    // never arrives, that is a REFUSAL, not an assumption of safety.
+    for (var i = 0; i < 80 && !dotenv.isInitialized; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    if (!BuildInfo.acceptanceMode) {
+      _blockBackend(
+        testId,
+        'this build was not made with --dart-define=ACCEPTANCE_TEST=true, '
+            'so the production kill switch cannot vouch for its backend',
+        'unknown',
+      );
+      return false;
+    }
+    final verdict = AcceptanceGate.currentVerdict();
+    if (!verdict.allowed) {
+      _blockBackend(testId, verdict.reason, verdict.host);
+      return false;
+    }
+    note('BACKEND GATE: ALLOWED ${verdict.host}');
+    _backendGuardPassed = true;
+    return true;
+  }
+
+  /// Last-resort check for code paths that create accounts (see
+  /// `Flows.boot`): a persona that forgot [guardBackend] still cannot
+  /// reach signup against an unapproved backend. Throws (hard-failing
+  /// the run non-zero) rather than continuing.
+  Future<void> requireApprovedBackend() async {
+    if (_backendGuardPassed) return;
+    if (!await guardBackend('unguarded-persona')) {
+      throw StateError(
+        'Refusing to run: backend not approved for acceptance testing. '
+        'Persona must call guardBackend() first.',
+      );
+    }
+  }
+
+  void _blockBackend(String testId, String reason, String host) {
+    note('BACKEND GATE: REFUSED $host — $reason');
+    reportResult(
+      PersonaResult(
+        testId: testId,
+        expectedOutcome:
+            'The acceptance harness runs only against loopback or an '
+            'explicitly approved non-production test backend',
+        actualOutcome:
+            'BLOCKED by the production kill switch. Backend host: '
+            '$host. Reason: $reason. No account was created and nothing '
+            'was written.',
+        status: PersonaStatus.blocked,
+      ),
+    );
+  }
+}

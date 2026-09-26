@@ -1,3 +1,4 @@
+import '../../../../core/utils/app_clock.dart';
 import '../entities/cycle_log.dart';
 
 enum CycleRegularity { insufficientData, irregular, regular, highlyRegular }
@@ -13,6 +14,28 @@ String cycleRegularityLabel(CycleRegularity value, {required bool isArabic}) {
     case CycleRegularity.highlyRegular:
       return isArabic ? 'مرتفع' : 'High';
   }
+}
+
+/// An episode-level TIMING fact from the canonical bleeding model: "a
+/// bleeding episode started on [startDate] and (if it has ended) stopped
+/// on [endDate]". Deliberately carries NO flow intensity.
+///
+/// Why this exists: `record_onboarding_menstrual_history` persists the
+/// period a returning user reports during onboarding as a canonical
+/// episode whose start observation is `flow = uncertain` (flow is never
+/// asked there). `CycleEntriesProjection` correctly never projects an
+/// uncertain flow — inventing one would be fabrication — so the legacy
+/// flat `cycle_entries` model never learns that period happened, and the
+/// Calendar/Insights screens told a woman with real history to "log two
+/// cycle starts". The dates themselves ARE safely representable for
+/// timing statistics (they are exactly what she reported), so they are
+/// supplied here as facts, never as invented daily rows, and
+/// `cycle_entries` never becomes authoritative for them.
+class CanonicalEpisodeTiming {
+  const CanonicalEpisodeTiming({required this.startDate, this.endDate});
+
+  final DateTime startDate;
+  final DateTime? endDate;
 }
 
 class CycleCalculationResult {
@@ -74,9 +97,9 @@ class CycleCalculationResult {
 
   double get _meanAbsoluteDeviation {
     final mean = _preciseMeanCycleLength;
-    return cycleLengths.map((length) => (length - mean).abs()).reduce(
-          (a, b) => a + b,
-        ) /
+    return cycleLengths
+            .map((length) => (length - mean).abs())
+            .reduce((a, b) => a + b) /
         cycleLengths.length;
   }
 
@@ -199,9 +222,82 @@ class CycleCalculationService {
     return (starts: starts, periodLengths: periodLengths);
   }
 
-  CycleCalculationResult calculate(List<CycleLog> logs, {DateTime? asOf}) {
+  /// Merges canonical episode start dates into the starts detected from
+  /// flat logs. A canonical start within 1 day of an already-detected
+  /// start is the SAME episode (the flat-log rule above: no real cycle
+  /// starts 0-1 days after the last one) and is dropped — so an episode
+  /// that was also projected into `cycle_entries` is never counted twice.
+  /// A canonical ended episode contributes its length only when it
+  /// survived as a distinct start (log-derived pairing already covers the
+  /// rest), so no period is averaged twice.
+  ({List<DateTime> starts, List<int> periodLengths}) _mergeCanonical(
+    ({List<DateTime> starts, List<int> periodLengths}) fromLogs,
+    List<CanonicalEpisodeTiming> canonical,
+  ) {
+    if (canonical.isEmpty) return fromLogs;
+    final candidates =
+        <({DateTime date, bool fromCanonical, DateTime? end})>[
+          for (final start in fromLogs.starts)
+            (date: start, fromCanonical: false, end: null),
+          for (final episode in canonical)
+            (
+              date: _dateOnly(episode.startDate),
+              fromCanonical: true,
+              end: episode.endDate == null ? null : _dateOnly(episode.endDate!),
+            ),
+        ]..sort((a, b) {
+          final byDate = a.date.compareTo(b.date);
+          if (byDate != 0) return byDate;
+          // Same day: prefer the log-derived start (it carries the
+          // richer, already-paired period length).
+          return (a.fromCanonical ? 1 : 0) - (b.fromCanonical ? 1 : 0);
+        });
+
+    final starts = <DateTime>[];
+    final periodLengths = [...fromLogs.periodLengths];
+    // Length this loop added for the most recently kept CANONICAL start,
+    // so it can be withdrawn if a log-derived start for the same episode
+    // (within 1 day, and sorted just after it) replaces it.
+    int? lastCanonicalLength;
+    var lastKeptWasCanonical = false;
+    for (final candidate in candidates) {
+      if (starts.isNotEmpty &&
+          candidate.date.difference(starts.last).inDays <= 1) {
+        if (lastKeptWasCanonical && !candidate.fromCanonical) {
+          // Same episode; the log-derived start is authoritative for it.
+          starts[starts.length - 1] = candidate.date;
+          if (lastCanonicalLength != null) {
+            periodLengths.remove(lastCanonicalLength);
+          }
+          lastKeptWasCanonical = false;
+          lastCanonicalLength = null;
+        }
+        continue;
+      }
+      starts.add(candidate.date);
+      lastKeptWasCanonical = candidate.fromCanonical;
+      lastCanonicalLength = null;
+      if (candidate.fromCanonical && candidate.end != null) {
+        final length = candidate.end!.difference(candidate.date).inDays;
+        if (length > 0) {
+          periodLengths.add(length);
+          lastCanonicalLength = length;
+        }
+      }
+    }
+    return (starts: starts, periodLengths: periodLengths);
+  }
+
+  CycleCalculationResult calculate(
+    List<CycleLog> logs, {
+    DateTime? asOf,
+    List<CanonicalEpisodeTiming> canonicalEpisodes = const [],
+  }) {
     final sorted = [...logs]..sort((a, b) => a.date.compareTo(b.date));
-    final episodes = _detectEpisodes(sorted);
+    final episodes = _mergeCanonical(
+      _detectEpisodes(sorted),
+      canonicalEpisodes,
+    );
     final starts = episodes.starts;
     final periodLengths = episodes.periodLengths;
 
@@ -236,7 +332,7 @@ class CycleCalculationService {
       );
     }
 
-    final today = _dateOnly(asOf ?? DateTime.now());
+    final today = _dateOnly(asOf ?? AppClock.now());
     final currentDay = today.difference(starts.last).inDays + 1;
     return CycleCalculationResult(
       haidStarts: List.unmodifiable(starts),

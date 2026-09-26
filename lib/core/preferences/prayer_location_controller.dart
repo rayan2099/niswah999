@@ -122,7 +122,15 @@ class PrayerLocationController extends ChangeNotifier {
       throw const LocationPermissionDenied();
     }
 
-    final position = await Geolocator.getCurrentPosition();
+    // Bounded: with permission granted but no GPS fix (indoors, emulator, GPS
+    // off) getCurrentPosition() otherwise never completes and the screen
+    // spins on "detecting" forever (found live on Android). A timeout falls
+    // into the caller's honest "Unable to get your location" path.
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        timeLimit: Duration(seconds: 20),
+      ),
+    );
     final location = PrayerLocation(
       latitude: position.latitude,
       longitude: position.longitude,
