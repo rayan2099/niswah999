@@ -42,6 +42,7 @@ class FiqhReportInsights extends Equatable {
        totalEntriesLogged = 0,
        lastHaidStart = null,
        evidenceNote = ReportEvidenceNote.none,
+       pregnancy = null,
        haidDurationsDays = const [];
 
   const FiqhReportInsights.cycle({
@@ -56,6 +57,7 @@ class FiqhReportInsights extends Equatable {
     this.haidDurationsDays = const [],
     this.notes = const [],
     this.evidenceNote = ReportEvidenceNote.none,
+    this.pregnancy,
   }) : mode = FiqhReportMode.cycle,
        daysPostpartum = null,
        nifasPhase = null;
@@ -95,6 +97,11 @@ class FiqhReportInsights extends Equatable {
   /// See [ReportEvidenceNote].
   final ReportEvidenceNote evidenceNote;
 
+  /// Non-null while pregnancy tracking is active (mode == pregnant) — the
+  /// reports state it instead of silently ignoring it (found live: a 12-week
+  /// pregnant woman's Doctor report had no pregnancy content at all).
+  final PregnancyStatus? pregnancy;
+
   @override
   List<Object?> get props => [
     mode,
@@ -111,6 +118,7 @@ class FiqhReportInsights extends Equatable {
     haidDurationsDays,
     notes,
     evidenceNote,
+    pregnancy,
   ];
 }
 
@@ -176,6 +184,9 @@ class FiqhReportInsightsEngine {
         lastHaidStart: null,
         notes: CycleSymptomDecoder.recentNotes(cycleLogs),
         evidenceNote: ReportEvidenceNote.recordsUnavailable,
+        pregnancy: pregnancyStatus.mode == PregnancyMode.pregnant
+            ? pregnancyStatus
+            : null,
       );
     }
 
@@ -232,6 +243,9 @@ class FiqhReportInsightsEngine {
                   cycleState == FiqhCycleState.insufficientHistory))
           ? ReportEvidenceNote.openEpisodeUnresolved
           : ReportEvidenceNote.none,
+      pregnancy: pregnancyStatus.mode == PregnancyMode.pregnant
+          ? pregnancyStatus
+          : null,
     );
   }
 

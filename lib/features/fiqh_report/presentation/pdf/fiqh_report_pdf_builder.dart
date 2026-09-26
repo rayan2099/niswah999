@@ -327,6 +327,25 @@ class FiqhReportPdfBuilder {
       ),
     );
 
+    final pregnancy = insights.pregnancy;
+    if (pregnancy != null) {
+      widgets.add(
+        _card(
+          bg: '#FFF8E7',
+          child: pw.Text(
+            isArabic
+                ? 'تتبّع الحمل مفعّل: الأسبوع ${pregnancy.week} (الثلث ${pregnancy.trimester}).'
+                : 'Pregnancy tracking is active: week ${pregnancy.week} (trimester ${pregnancy.trimester}).',
+            style: pw.TextStyle(
+              color: PdfColor.fromHex(_advisory),
+              fontSize: 10,
+              lineSpacing: 2,
+            ),
+          ),
+        ),
+      );
+    }
+
     if (state == FiqhCycleState.madhhabUnresolved) {
       widgets.add(
         _card(

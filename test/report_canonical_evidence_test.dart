@@ -5,7 +5,9 @@ import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_eval
 import 'package:niswah/features/cycle_tracking/domain/services/report_canonical_evidence.dart';
 import 'package:niswah/features/doctor_report/domain/services/doctor_report_insights_engine.dart';
 import 'package:niswah/features/fiqh_report/domain/services/fiqh_report_insights_engine.dart';
+import 'package:niswah/features/doctor_report/presentation/pdf/doctor_report_pdf_builder.dart';
 import 'package:niswah/features/fiqh_report/presentation/pdf/fiqh_report_pdf_builder.dart';
+import 'package:niswah/features/pregnancy_profile/domain/entities/pregnancy_profile.dart';
 import 'package:niswah/features/husband_report/domain/services/husband_report_insights_engine.dart';
 
 import 'support/pdf_text.dart';
@@ -206,5 +208,72 @@ void main() {
     );
     // An open canonical episode is meaningful data even with an empty legacy table.
     expect(doctor.completeness.toString(), isNotEmpty);
+  });
+
+  test('a pregnant woman\'s Doctor and Fiqh reports state the pregnancy (found live: they did not)', () async {
+    final profile = PregnancyProfile(
+      id: 'p',
+      userId: 'u',
+      trackingBasis: TrackingBasis.manualWeek,
+      manualWeekValue: 12,
+      manualWeekSetAt: now,
+    );
+    final insights = FiqhReportInsightsEngine.analyze(
+      cycleLogs: const [],
+      madhhab: Madhhab.hanafi,
+      pregnancyProfile: profile,
+      now: now,
+    );
+    expect(insights.pregnancy?.week, 12);
+
+    final fiqh = PdfText.parse(
+      await FiqhReportPdfBuilder.build(
+        isArabic: false,
+        insights: insights,
+        generatedAt: now,
+      ),
+    );
+    expect(
+      fiqh.contains('Pregnancy tracking is active: week 12 (trimester 1)'),
+      isTrue,
+    );
+
+    final doctorInsights = DoctorReportInsightsEngine.analyze(
+      cycleLogs: const [],
+      madhhab: Madhhab.hanafi,
+      pregnancyProfile: profile,
+      currentWellbeingLogs: const [],
+      previousWellbeingLogs: const [],
+      recentFlags: const [],
+      now: now,
+    );
+    final doctor = PdfText.parse(
+      await DoctorReportPdfBuilder.build(
+        isArabic: false,
+        insights: doctorInsights,
+        generatedAt: now,
+      ),
+    );
+    expect(doctor.contains('Pregnant'), isTrue);
+    expect(
+      doctor.contains(
+        'Week 12 (trimester 1, month 3); about 28 weeks to the due date.',
+      ),
+      isTrue,
+    );
+
+    // Not pregnant: no pregnancy content.
+    final none = PdfText.parse(
+      await FiqhReportPdfBuilder.build(
+        isArabic: false,
+        insights: FiqhReportInsightsEngine.analyze(
+          cycleLogs: const [],
+          madhhab: Madhhab.hanafi,
+          now: now,
+        ),
+        generatedAt: now,
+      ),
+    );
+    expect(none.contains('Pregnancy tracking is active'), isFalse);
   });
 }

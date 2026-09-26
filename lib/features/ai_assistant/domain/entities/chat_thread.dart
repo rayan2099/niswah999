@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 enum ChatThreadType { drNiswah, dreamInterpreter, general, fiqhAdvisory }
 
@@ -32,8 +33,8 @@ class ChatThread extends Equatable {
     'thread_type': threadType.name,
     'status': status.name,
     'metadata': metadata,
-    'created_at': createdAt.toIso8601String(),
-    'updated_at': updatedAt.toIso8601String(),
+    'created_at': dbTimestamp(createdAt),
+    'updated_at': dbTimestamp(updatedAt),
   };
 
   factory ChatThread.fromJson(Map<String, dynamic> json) {

@@ -1,5 +1,6 @@
 import 'package:collection/collection.dart';
 import 'package:equatable/equatable.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 /// Thrown by [CycleLog.fromJson] when a record's required health fields
 /// (`date`, `flow`) cannot be honestly parsed — an unparseable date or an
@@ -117,15 +118,14 @@ class CycleLog extends Equatable {
       'id': id,
       'user_id': userId,
       'date': date.toIso8601String(),
-      'time_logged': (updatedAt ?? createdAt ?? DateTime.now())
-          .toIso8601String(),
+      'time_logged': dbTimestamp(updatedAt ?? createdAt ?? DateTime.now()),
       'flow': flow.name,
       'notes': notes,
       'cycle_day': cycleDay,
       'symptoms': symptoms,
       'sync_status': syncStatus.name,
-      'created_at': (createdAt ?? DateTime.now()).toIso8601String(),
-      'updated_at': (updatedAt ?? DateTime.now()).toIso8601String(),
+      'created_at': dbTimestamp(createdAt ?? DateTime.now()),
+      'updated_at': dbTimestamp(updatedAt ?? DateTime.now()),
       'data_provenance': dataProvenance.value,
     };
   }

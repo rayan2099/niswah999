@@ -438,6 +438,38 @@ class DoctorReportPdfBuilder {
       ),
     ];
 
+    final pregnancy = cycleAndPregnancy.pregnancy;
+    if (pregnancy != null) {
+      widgets.add(
+        _card(
+          bg: _lightTint,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                isArabic ? 'حامل' : 'Pregnant',
+                style: pw.TextStyle(
+                  font: semiBold,
+                  color: PdfColor.fromHex(_nifas),
+                  fontSize: 13,
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Text(
+                isArabic
+                    ? 'الأسبوع ${pregnancy.week} (الثلث ${pregnancy.trimester}، الشهر ${pregnancy.month})، ويتبقى نحو ${pregnancy.weeksToDue} أسبوعًا على موعد الولادة.'
+                    : 'Week ${pregnancy.week} (trimester ${pregnancy.trimester}, month ${pregnancy.month}); about ${pregnancy.weeksToDue} weeks to the due date.',
+                style: pw.TextStyle(
+                  color: PdfColor.fromHex(_textPrimary),
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (cycleAndPregnancy.hasEnoughForAverages) {
       widgets.add(
         _card(

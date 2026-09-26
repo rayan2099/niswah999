@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 /// How the user told us where they are in their pregnancy. Never inferred —
 /// always the direct result of explicit user input (a date picker or the
@@ -105,13 +106,15 @@ class PregnancyProfile extends Equatable {
         : _trackingBasisToJson(trackingBasis!),
     'reference_date': referenceDate?.toIso8601String(),
     'manual_week_value': manualWeekValue,
-    'manual_week_set_at': manualWeekSetAt?.toIso8601String(),
+    'manual_week_set_at': manualWeekSetAt == null
+        ? null
+        : dbTimestamp(manualWeekSetAt!),
     'is_postpartum': isPostpartum,
     'postpartum_start_date': postpartumStartDate?.toIso8601String(),
     'high_risk_flags': highRiskFlags,
     'fasting_status': _fastingStatusToJson(fastingStatus),
     'locale': locale,
-    'updated_at': (updatedAt ?? DateTime.now()).toIso8601String(),
+    'updated_at': dbTimestamp(updatedAt ?? DateTime.now()),
   };
 
   factory PregnancyProfile.fromJson(Map<String, dynamic> json) {
