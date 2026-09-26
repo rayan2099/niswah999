@@ -1,3 +1,4 @@
+import '../../../../core/utils/app_clock.dart';
 import '../entities/cycle_log.dart';
 
 enum CycleRegularity { insufficientData, irregular, regular, highlyRegular }
@@ -331,7 +332,7 @@ class CycleCalculationService {
       );
     }
 
-    final today = _dateOnly(asOf ?? DateTime.now());
+    final today = _dateOnly(asOf ?? AppClock.now());
     final currentDay = today.difference(starts.last).inDays + 1;
     return CycleCalculationResult(
       haidStarts: List.unmodifiable(starts),

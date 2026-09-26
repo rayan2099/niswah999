@@ -89,4 +89,10 @@ for f in integration_test/p*_test.dart; do
   echo "::endgroup::"
 done
 
-python3 scripts/verify_acceptance_results.py "$OUT" integration_test
+if [ -n "${ACCEPTANCE_ONLY:-}" ]; then
+  # A shard is judged on the personas it was asked to run; the catalogue-level
+  # verdict belongs to the merge job (which runs the verifier without --only).
+  python3 scripts/verify_acceptance_results.py "$OUT" integration_test --only "$ACCEPTANCE_ONLY"
+else
+  python3 scripts/verify_acceptance_results.py "$OUT" integration_test
+fi

@@ -25,11 +25,25 @@ def discover_required_test_ids(integration_test_dir: Path) -> list[str]:
     return sorted(p.stem for p in integration_test_dir.glob("p*_test.dart"))
 
 
-def verify(results_dir: Path, integration_test_dir: Path) -> int:
+def verify(
+    results_dir: Path,
+    integration_test_dir: Path,
+    only: list[str] | None = None,
+) -> int:
     required = discover_required_test_ids(integration_test_dir)
     if not required:
         print(f"::error::No p*_test.dart files found under {integration_test_dir}")
         return 1
+    if only:
+        # Shard mode: judge ONLY the personas this shard was asked to run
+        # (space-separated id prefixes, the same list the suite runner used).
+        # A shard is never the catalogue-level verdict — the final job runs
+        # this script WITHOUT --only. A selection that matches nothing is an
+        # error, never a vacuous pass.
+        required = [t for t in required if any(t.startswith(p) for p in only)]
+        if not required:
+            print(f"::error::--only {only!r} matched no persona file")
+            return 1
 
     failures: list[str] = []
     rows: list[str] = []
@@ -77,11 +91,16 @@ def verify(results_dir: Path, integration_test_dir: Path) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    args = sys.argv[1:]
+    only: list[str] | None = None
+    if len(args) == 4 and args[2] == "--only":
+        only = args[3].split()
+        args = args[:2]
+    if len(args) != 2:
         print(
             "Usage: verify_acceptance_results.py <results_dir> "
-            "<integration_test_dir>",
+            "<integration_test_dir> [--only \"<id-prefix> <id-prefix> ...\"]",
             file=sys.stderr,
         )
         sys.exit(2)
-    sys.exit(verify(Path(sys.argv[1]), Path(sys.argv[2])))
+    sys.exit(verify(Path(args[0]), Path(args[1]), only))

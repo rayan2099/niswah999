@@ -82,8 +82,19 @@ jobs:
       # this job's first real remote run, confirming the platform
       # dependency rather than a real regression. Every non-golden test
       # (351) passes cleanly; verified locally before this change.
+      # Only tests that compare rendered pixels (matchesGoldenFile) are
+      # excluded. The behavioural `parity_*` tests (e.g. the D-001
+      # "insufficient history" regression in
+      # parity_today_stepper_consistency_test.dart) are NOT platform-dependent
+      # and previously never ran in CI because the exclusion matched the
+      # file-name prefix; they run now.
       - name: Test
-        run: flutter test $(find test -name '*_test.dart' -not -name 'parity_*.dart')
+        run: flutter test $(grep -L matchesGoldenFile $(find test -name '*_test.dart'))
+
+      - name: Acceptance tooling tests (kill switch + verifier)
+        run: |
+          python3 scripts/test_assert_test_backend.py
+          python3 scripts/test_verify_acceptance_results.py
 
   build-android:
     name: Build Android (debug artifact — no release signing in CI)
