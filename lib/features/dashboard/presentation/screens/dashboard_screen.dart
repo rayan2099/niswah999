@@ -30,6 +30,7 @@ import '../../../cycle_tracking/domain/entities/load_result.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/canonical_bleeding_status_resolver.dart';
 import '../../../cycle_tracking/domain/services/canonical_fiqh_evidence_adapter.dart';
+import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
 import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
@@ -400,19 +401,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required List<BleedingObservation> observations,
     required CanonicalBleedingStatus status,
   }) {
-    final openEpisodeStart = status.openEpisode?.startDate;
-    if (openEpisodeStart == null) return false;
-    final excludedDates = CanonicalFiqhEvidenceAdapter.excludedUncertainDates(
+    return ReportCanonicalEvidence.hasMaterialUnresolvedEvidence(
       observations: observations,
-    );
-    return excludedDates.any(
-      (date) => !date.isBefore(
-        DateTime(
-          openEpisodeStart.year,
-          openEpisodeStart.month,
-          openEpisodeStart.day,
-        ),
-      ),
+      openEpisodeStart: status.openEpisode?.startDate,
     );
   }
 

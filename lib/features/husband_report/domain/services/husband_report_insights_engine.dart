@@ -4,6 +4,7 @@ import '../../../cycle_tracking/domain/controllers/cycle_tracking_controller.dar
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
+import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../../fiqh_report/domain/services/fiqh_report_insights_engine.dart';
 import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
 
@@ -67,12 +68,17 @@ class HusbandReportInsightsEngine {
     required String displayName,
     PregnancyProfile? pregnancyProfile,
     required DateTime now,
+
+    /// Canonical evidence (see [ReportCanonicalEvidence]) — the current state
+    /// and the predictions must agree with Today, not with the legacy table.
+    ReportCanonicalEvidence? canonical,
   }) {
     final fiqh = FiqhReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
       madhhab: madhhab,
       pregnancyProfile: pregnancyProfile,
       now: now,
+      canonical: canonical,
     );
 
     DateTime? nextPeriodDate;
@@ -82,8 +88,9 @@ class HusbandReportInsightsEngine {
     CycleSegmentPlan? segmentPlan;
     if (fiqh.mode == FiqhReportMode.cycle) {
       final summary = const CycleTrackingController().summarizeHistory(
-        cycleLogs,
+        canonical?.effectiveLogs ?? cycleLogs,
         now: now,
+        canonicalEpisodes: canonical?.episodes ?? const [],
       );
       nextPeriodDate = summary.nextPeriodStart;
       fertileStart = summary.fertileWindow.start;

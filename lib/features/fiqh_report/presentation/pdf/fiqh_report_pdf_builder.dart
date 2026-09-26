@@ -343,6 +343,29 @@ class FiqhReportPdfBuilder {
           ),
         ),
       );
+    } else if (state == FiqhCycleState.insufficientHistory &&
+        insights.evidenceNote != ReportEvidenceNote.none) {
+      final unavailable =
+          insights.evidenceNote == ReportEvidenceNote.recordsUnavailable;
+      widgets.add(
+        _card(
+          bg: '#FFF8E7',
+          child: pw.Text(
+            unavailable
+                ? (isArabic
+                      ? 'تعذّر التحقق من سجلاتكِ الآن، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. أعيدي إنشاء التقرير لاحقًا.'
+                      : "Your records couldn't be verified right now, so your current Fiqh state cannot be determined. Generate the report again later.")
+                : (isArabic
+                      ? 'هناك نزيف مسجَّل حاليًا، لكن الأدلة المسجلة لا تكفي لتحديد حالتكِ الفقهية. تابعي التسجيل، واسألي مختصة شرعية موثوقة إن احتجتِ إلى إرشاد اليوم.'
+                      : "A bleeding episode is recorded, but the recorded evidence isn't enough to work out your Fiqh state. Keep logging, and ask a trusted scholar if you need guidance today."),
+            style: pw.TextStyle(
+              color: PdfColor.fromHex(_advisory),
+              fontSize: 10,
+              lineSpacing: 2,
+            ),
+          ),
+        ),
+      );
     } else if (state == FiqhCycleState.needsAdvisory) {
       widgets.add(
         _card(
