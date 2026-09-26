@@ -153,9 +153,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # The suite script exits non-zero unless the WHOLE catalogue passed, so
-      # a shard (which runs a subset) is judged by the merge job below, not by
-      # this step; this step only fails if a persona could not even be run.
+      # The suite script exits non-zero unless every persona THIS SHARD was
+      # asked to run passed (ACCEPTANCE_ONLY switches its closing verifier to
+      # shard mode), so a crash or an infrastructure failure makes the shard
+      # itself visibly fail. Evidence still uploads (`if: always()`) and the
+      # `verify` job below still gives the catalogue-level verdict.
       - name: Run this shard's personas on the Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -167,7 +169,7 @@ jobs:
           profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
-          script: bash scripts/run_acceptance_suite.sh emulator-5554 acceptance/results || true
+          script: bash scripts/run_acceptance_suite.sh emulator-5554 acceptance/results
 
       - name: Upload this shard's evidence (success AND failure)
         if: always()
