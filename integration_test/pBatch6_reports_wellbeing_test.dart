@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -5,152 +7,208 @@ import 'package:niswah/core/network/supabase_client.dart';
 import 'package:niswah/main.dart' as app;
 
 import 'support/flows.dart';
+import 'support/flows_ext.dart';
 import 'support/harness.dart';
+import 'support/reports.dart';
 
-/// Phase 3 batch 6 — wellbeing and every report/export surface for ONE
-/// account that has real data (a reported period ~32 days ago via
-/// onboarding + a live current episode, married so the husband report is
-/// reachable, plus a real wellbeing check-in):
-///  WELL-01 check-in saves (snackbar + server row), WELL-03 wellbeing
-///  report, RPT-01 Fiqh report, RPT-02 Doctor report, RPT-04 Husband
-///  report, RPT-05 JSON data export. Every report screen must open, show
-///  THIS account's facts and never crash; report sources are pure reads,
-///  so there is nothing to persist beyond what the check-in wrote.
+/// Phase 3 batch 6 (rewritten): wellbeing check-in + every report/export for
+/// an account whose state is KNOWN, asserted against independent oracles.
+///
+/// The earlier version tapped each row's TITLE (which does nothing — only the
+/// small "Download" button opens a report) and passed on the Profile screen's
+/// own text: that evidence was invalid and is replaced here by reading the
+/// generated PDF text itself.
+///
+/// Account: Hanafi selected; period started 3 days ago and is STILL GOING
+/// (onboarding records an open canonical episode whose start flow is
+/// "uncertain"); married; one wellbeing check-in today.
+///  Oracles: Today says "Bleeding recorded — Day 4"; therefore NO report may
+///  say the current state is Tahara (D-011), the wellbeing report must count
+///  exactly the ONE saved check-in, the JSON export must be complete and each
+///  section's row count must equal what the account's own reads return.
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Batch 6: wellbeing + reports/exports for an account with '
-      'real data', (tester) async {
+  testWidgets('Batch 6: wellbeing + reports/exports checked against oracles', (
+    tester,
+  ) async {
     app.main();
     final h = Harness(binding, tester);
     if (!await h.guardBackend('Batch6')) return;
     final f = Flows(h);
 
-    final email = await f.newAccountWithRealHistory('R');
+    final email = await f.newAccountHanafiStillBleeding('R');
     h.note('LOOKUP_EMAIL=$email');
-    await f.startBleedingToday('R');
     final client = NiswahSupabase.clientOrNull;
     final uid = client?.auth.currentUser?.id;
 
-    Future<String> texts(String label) async {
-      await h.settle(1);
-      h.dumpTexts(label);
-      return h.notes.last;
-    }
-
-    Future<void> goBack() async {
-      for (final finder in [
-        find.byType(BackButton),
-        find.byType(CloseButton),
-        find.byIcon(Icons.arrow_back),
-        find.byIcon(Icons.arrow_back_ios_new),
-        find.byIcon(Icons.arrow_back_rounded),
-      ]) {
-        if (finder.evaluate().isNotEmpty) {
-          await h.tapVisible(finder);
-          await h.settle(2);
-          return;
-        }
-      }
-      h.note('R could not find a back control');
-    }
+    // ---------------- Today: the oracle for every report ----------------
+    await h.scrollToTop();
+    h.dumpTexts('R Today');
+    final today = h.notes.last;
+    final todayBleeding =
+        today.contains('Bleeding recorded') && today.contains('Day 4');
 
     // ---------------- WELL-01: mental check-in ----------------
-    await h.scrollToTop();
-    await h.settle(1);
-    // Target the actual button widget, not the bare "Log" text (an earlier
-    // attempt tapping the text reported success but opened nothing).
     final logButton = find.widgetWithText(OutlinedButton, 'Log');
-    h.note('R wellbeing Log OutlinedButton matches: ${logButton.evaluate().length}');
-    await h.tapVisible(logButton);
-    await h.settle(2);
-    await h.shot('R', 'wellbeing_sheet_attempt');
-    final sheetTexts = await texts('R after tapping Log');
-    var wellbeingSaved = false;
-    if (sheetTexts.contains('Save check-in')) {
-      await h.tapVisible(find.text('Save check-in'));
-      await h.settle(2);
-      final after = await texts('R after Save check-in');
-      wellbeingSaved = after.contains('Your check-in was saved');
-    }
-    var wellbeingRow = false;
-    if (client != null && uid != null) {
-      try {
-        final rows = await client
-            .from('wellbeing_logs')
-            .select()
-            .eq('user_id', uid);
-        wellbeingRow = (rows as List).isNotEmpty;
-      } catch (e) {
-        h.note('R wellbeing read failed: ${e.runtimeType}');
-      }
-    }
-    h.note('R WELL-01 saved=$wellbeingSaved serverRow=$wellbeingRow');
-
-    // Married so the husband report is offered.
-    await h.tapVisible(find.text('Profile'), last: true);
-    await h.settle(2);
-    final marriedSwitch = find.descendant(
-      of: find.ancestor(
-        of: find.text('I am married'),
-        matching: find.byType(Container),
-      ),
-      matching: find.byType(Switch),
-    );
-    if (marriedSwitch.evaluate().isNotEmpty) {
-      await h.tapVisible(marriedSwitch);
-      await h.settle(2);
-    }
-
-    Future<Map<String, Object>> visit(String entry, List<String> mustContain) async {
-      await h.scrollToTop();
-      await h.tapVisible(find.text('Profile'), last: true);
-      await h.settle(2);
+    for (var i = 0; i < 12 && logButton.evaluate().isEmpty; i++) {
       await tester.drag(
         find.byType(Scrollable).first,
-        const Offset(0, -1500),
+        const Offset(0, -400),
         warnIfMissed: false,
       );
-      await h.settle(1);
-      final opened = await h.tapVisible(find.textContaining(entry));
-      await tester.pump(const Duration(seconds: 3));
-      await h.settle(3);
-      await h.shot('R', 'report_${entry.replaceAll(RegExp(r'[^A-Za-z]'), '_')}');
-      final body = await texts('R report: $entry');
-      final crashed = tester.takeException() != null;
-      final hasAll = mustContain.every(body.contains);
-      h.note(
-        'R report "$entry": opened=$opened crashed=$crashed '
-        'containsExpected=$hasAll chars=${body.length}',
-      );
-      await goBack();
-      return {'opened': opened, 'crashed': crashed, 'hasAll': hasAll, 'chars': body.length};
+      await tester.pump(const Duration(milliseconds: 400));
     }
+    h.note('R wellbeing Log button found=${logButton.evaluate().isNotEmpty}');
+    await h.tapVisible(logButton);
+    await h.settle(2);
+    var wellbeingSaved = false;
+    if (find.text('Save check-in').evaluate().isNotEmpty) {
+      await h.tapVisible(find.text('Save check-in'));
+      await h.settle(2);
+      h.dumpTexts('R after Save check-in');
+      wellbeingSaved = h.notes.last.contains('Your check-in was saved');
+    }
+    var wellbeingRows = -1;
+    if (client != null && uid != null) {
+      wellbeingRows =
+          (await client.from('wellbeing_logs').select().eq('user_id', uid))
+              .length;
+    }
+    h.note('R WELL-01 saved=$wellbeingSaved serverRows=$wellbeingRows');
 
-    // Persona name is shown on every report.
-    final fiqh = await visit('Export Fiqh Log', const []);
-    final doctor = await visit("Export Doctor's Report", const []);
-    final wellbeingReport = await visit('Mental state report', const []);
-    final husband = await visit('Husband Report', const []);
-    final json = await visit('Export My Data (JSON)', const []);
-
-    bool ok(Map<String, Object> r) =>
-        r['opened'] == true && r['crashed'] == false && (r['chars'] as int) > 100;
-    final rpt01 = ok(fiqh);
-    final rpt02 = ok(doctor);
-    final well03 = ok(wellbeingReport);
-    final rpt04 = ok(husband);
-    final rpt05 = ok(json);
-    h.note(
-      'R results: fiqh=$rpt01 doctor=$rpt02 wellbeingReport=$well03 '
-      'husband=$rpt04 json=$rpt05',
+    // ---------------- Profile -> exports ----------------
+    await h.tapVisible(find.text('Profile'), last: true);
+    await h.settle(2);
+    final marriedRow = find.ancestor(
+      of: find.text('I am married'),
+      matching: find.byType(Container),
     );
+    if (marriedRow.evaluate().isNotEmpty) {
+      final marriedSwitch = find.descendant(
+        of: marriedRow.first,
+        matching: find.byType(Switch),
+      );
+      if (marriedSwitch.evaluate().isNotEmpty &&
+          !(marriedSwitch.evaluate().first.widget as Switch).value) {
+        await h.tapVisible(marriedSwitch);
+        await h.settle(2);
+      }
+    }
+    await h.scrollToExports();
+
+    // ---------------- RPT-01 Fiqh report ----------------
+    final fiqh = await h.openReportPdf('Export Fiqh Log');
+    final rpt01 =
+        fiqh != null &&
+        fiqh.contains('Fiqh Report') &&
+        fiqh.contains('Selected madhhab: Hanafi') &&
+        !fiqh.contains('Current state: Tahara') &&
+        fiqh.contains('Current state: Insufficient history') &&
+        fiqh.contains('bleeding episode is recorded');
+    h.note('R RPT-01 fiqh=$rpt01');
+
+    // ---------------- RPT-02 Doctor report ----------------
+    final doctor = await h.openReportPdf("Export Doctor's Report");
+    final rpt02 =
+        doctor != null &&
+        doctor.contains("Doctor's Report") &&
+        doctor.contains('Overview') &&
+        !doctor.contains('Tahara') &&
+        doctor.contains('Not enough history yet') &&
+        !doctor.contains('enough recorded history yet to generate');
+    h.note('R RPT-02 doctor=$rpt02');
+
+    // ---------------- WELL-03 / RPT-03 Wellbeing report ----------------
+    final wellbeing = await h.openReportPdf('Mental state report');
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    final now = DateTime.now();
+    final monthLabel = '${months[now.month - 1]} ${now.year}';
+    final well03 =
+        wellbeing != null &&
+        wellbeing.contains('Mental State Report') &&
+        wellbeing.contains(monthLabel) &&
+        wellbeing.contains("you've checked in 1 time so far this month") &&
+        wellbeing.contains('You checked in 1 days this month');
+    h.note('R WELL-03 wellbeing=$well03 (month "$monthLabel")');
+
+    // ---------------- RPT-04 Husband report ----------------
+    final husband = await h.openReportPdf('Husband Report');
+    final rpt04 =
+        husband != null &&
+        husband.contains('Husband Report') &&
+        husband.contains('Persona R') &&
+        !husband.contains('State: Tahara') &&
+        husband.contains('Insufficient history') &&
+        husband.contains(
+          'intercourse is prohibited during the menstrual period',
+        );
+    h.note('R RPT-04 husband=$rpt04');
+
+    // ---------------- RPT-05 JSON export vs the account's own reads ----------------
+    final texts = await h.openExportScreenTexts('Export My Data (JSON)');
+    final jsonText = texts.firstWhere(
+      (t) => t.contains('"exported_at"'),
+      orElse: () => '',
+    );
+    Map<String, dynamic>? export;
+    try {
+      export = jsonDecode(jsonText) as Map<String, dynamic>;
+    } catch (_) {}
+    var rpt05 = export != null;
+    if (export != null && client != null && uid != null) {
+      final expectedEpisodes =
+          (await client
+                  .from('bleeding_episodes')
+                  .select('id')
+                  .eq('user_id', uid))
+              .length;
+      final expectedObservations =
+          (await client
+                  .from('bleeding_observations')
+                  .select('id')
+                  .eq('user_id', uid))
+              .length;
+      int n(String k) => (export![k] as List?)?.length ?? -1;
+      final account = export['account'] as Map?;
+      rpt05 =
+          export['export_complete'] == true &&
+          !texts.any((t) => t.contains('export is incomplete')) &&
+          account != null &&
+          account['id'] == uid &&
+          (account['madhhab'] as String?)?.toLowerCase() == 'hanafi' &&
+          expectedEpisodes >= 1 &&
+          n('bleeding_episodes') == expectedEpisodes &&
+          n('bleeding_observations') == expectedObservations;
+      h.note(
+        'R RPT-05 complete=${export['export_complete']} accountId='
+        '${account?['id'] == uid} episodes=${n('bleeding_episodes')}/'
+        '$expectedEpisodes observations=${n('bleeding_observations')}/'
+        '$expectedObservations',
+      );
+    } else {
+      h.note('R RPT-05 no parsable export JSON (texts=${texts.length})');
+    }
 
     final crashed = tester.takeException() != null;
     final pass =
         !crashed &&
+        todayBleeding &&
         wellbeingSaved &&
-        wellbeingRow &&
+        wellbeingRows == 1 &&
         rpt01 &&
         rpt02 &&
         well03 &&
@@ -160,15 +218,18 @@ void main() {
       PersonaResult(
         testId: 'Batch6',
         expectedOutcome:
-            'WELL-01 check-in saves; RPT-01/02/04/05 and WELL-03 each open '
-            'with real content for an account with data',
+            'For an account that Today shows as bleeding (day 4, Hanafi): the '
+            'Fiqh, Doctor and Husband reports agree it is not Tahara; the '
+            'wellbeing report counts exactly the one saved check-in for this '
+            'month; the JSON export is complete and its row counts equal the '
+            'account\'s own reads',
         actualOutcome:
-            'crashed=$crashed well01_saved=$wellbeingSaved '
-            'well01_serverRow=$wellbeingRow rpt01_fiqh=$rpt01 '
-            'rpt02_doctor=$rpt02 well03_report=$well03 rpt04_husband=$rpt04 '
-            'rpt05_json=$rpt05',
+            'crashed=$crashed todayBleeding=$todayBleeding '
+            'well01(saved=$wellbeingSaved rows=$wellbeingRows) '
+            'rpt01_fiqh=$rpt01 rpt02_doctor=$rpt02 well03=$well03 '
+            'rpt04_husband=$rpt04 rpt05_json=$rpt05',
         status: pass ? PersonaStatus.pass : PersonaStatus.fail,
-        screenshotRef: 'R_report_Export_My_Data__JSON_.png',
+        screenshotRef: 'R_Today.png',
       ),
     );
   });

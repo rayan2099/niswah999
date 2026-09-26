@@ -41,6 +41,12 @@ class _FakeExportSectionFetcher implements ExportSectionFetcher {
 }
 
 void main() {
+  test('the account section keys on users.id — users has no user_id column (D-012)', () {
+    final account = exportSections.firstWhere((s) => s.key == 'account');
+    expect(account.table, 'users');
+    expect(account.idColumn, 'id');
+  });
+
   const userId = 'user-1';
 
   group('buildDataExport (PC-006 / RR-001 resilience redesign)', () {

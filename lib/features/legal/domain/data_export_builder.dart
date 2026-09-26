@@ -51,7 +51,10 @@ class SupabaseExportSectionFetcher implements ExportSectionFetcher {
 /// `UNAVAILABLE_BY_DESIGN`, not a section that can "fail."
 const List<({String key, String table, bool many, String idColumn})>
 exportSections = [
-  (key: 'account', table: 'users', many: false, idColumn: 'user_id'),
+  // `users`' key column is `id` (it has no `user_id`): querying `user_id`
+  // made this section fail for EVERY user, so the export always reported
+  // "account could not be loaded" (found live, D-012).
+  (key: 'account', table: 'users', many: false, idColumn: 'id'),
   (key: 'profile', table: 'profiles', many: false, idColumn: 'id'),
   (
     key: 'pregnancy_profile',

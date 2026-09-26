@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'flows.dart';
-import 'harness.dart';
 
 /// Extra reusable onboarding flows for the closure-wave personas.
 extension StillBleedingFlow on Flows {

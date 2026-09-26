@@ -200,3 +200,22 @@ SELECT 'TRIGGER' AS object_type,
          WHERE t.tgname = 'ai_rate_limit_counters_delete_with_user'
            AND t.tgrelid = 'auth.users'::regclass AND NOT t.tgisinternal
        ) THEN 'OK' ELSE 'FAIL - ai_rate_limit_counters rows would outlive a deleted account' END AS status;
+
+-- Data export (lib/features/legal/domain/data_export_builder.dart
+-- `exportSections`): every section must name a table and key column that
+-- actually exist. The `account` section queried users.user_id (users has
+-- only `id`), so it failed for every user and the export was always
+-- reported incomplete (D-012). Keep this list in step with exportSections.
+SELECT 'DATA EXPORT' AS object_type,
+       'exportSections.' || v.tbl || '.' || v.col AS name,
+       CASE WHEN EXISTS (
+         SELECT 1 FROM information_schema.columns c
+         WHERE c.table_schema = 'public' AND c.table_name = v.tbl AND c.column_name = v.col
+       ) THEN 'OK' ELSE 'FAIL - export section queries a column that does not exist' END AS status
+FROM (VALUES
+  ('users','id'), ('profiles','id'), ('pregnancy_profile','user_id'),
+  ('cycle_entries','user_id'), ('bleeding_episodes','user_id'),
+  ('bleeding_observations','user_id'), ('cycle_baselines','user_id'),
+  ('prayer_log','user_id'), ('community_posts','user_id'),
+  ('chat_threads','user_id'), ('chat_messages','user_id')
+) AS v(tbl, col);
