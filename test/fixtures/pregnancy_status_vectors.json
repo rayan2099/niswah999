@@ -1,0 +1,432 @@
+[
+ {
+  "name": "no profile",
+  "row": null,
+  "today": "2026-01-01T00:00:00.000Z",
+  "expected": {
+   "mode": "unknown"
+  }
+ },
+ {
+  "name": "lmp basis without a date",
+  "row": {
+   "tracking_basis": "lmp",
+   "reference_date": null,
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-01-01T00:00:00.000Z",
+  "expected": {
+   "mode": "unknown"
+  }
+ },
+ {
+  "name": "manual week without set_at",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 10,
+   "manual_week_set_at": null,
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-01-01T00:00:00.000Z",
+  "expected": {
+   "mode": "unknown"
+  }
+ },
+ {
+  "name": "postpartum without a start date",
+  "row": {
+   "tracking_basis": null,
+   "reference_date": null,
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": true,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-01-01T00:00:00.000Z",
+  "expected": {
+   "mode": "unknown"
+  }
+ },
+ {
+  "name": "manual week 12, same day",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-09-26T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 12,
+   "trimester": 1,
+   "month": 3,
+   "weeksToDue": 28
+  }
+ },
+ {
+  "name": "manual week 12, +6 days (still week 12)",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-10-02T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 12,
+   "trimester": 1,
+   "month": 3,
+   "weeksToDue": 28
+  }
+ },
+ {
+  "name": "manual week 12, +7 days -> 13",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-10-03T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 13,
+   "trimester": 1,
+   "month": 3,
+   "weeksToDue": 27
+  }
+ },
+ {
+  "name": "manual week 12, +14 days -> 14 (trimester 2)",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-10-10T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 14,
+   "trimester": 2,
+   "month": 4,
+   "weeksToDue": 26
+  }
+ },
+ {
+  "name": "manual week 12, +49 days -> 19",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-11-14T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 19,
+   "trimester": 2,
+   "month": 5,
+   "weeksToDue": 21
+  }
+ },
+ {
+  "name": "manual week 12, +105 days -> 27 (last week of trimester 2)",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2027-01-09T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 27,
+   "trimester": 2,
+   "month": 7,
+   "weeksToDue": 13
+  }
+ },
+ {
+  "name": "manual week 12, +112 days -> 28 (trimester 3)",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2027-01-16T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 28,
+   "trimester": 3,
+   "month": 7,
+   "weeksToDue": 12
+  }
+ },
+ {
+  "name": "manual week 12, +196 days -> 40 (full term)",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2027-04-10T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 40,
+   "trimester": 3,
+   "month": 10,
+   "weeksToDue": 0
+  }
+ },
+ {
+  "name": "manual week 12, +210 days -> 42 (server cap)",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2027-04-24T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 42,
+   "trimester": 3,
+   "month": 10,
+   "weeksToDue": 0
+  }
+ },
+ {
+  "name": "manual week 12, +400 days -> clamped to 42",
+  "row": {
+   "tracking_basis": "manual_week",
+   "reference_date": null,
+   "manual_week_value": 12,
+   "manual_week_set_at": "2026-09-26T10:00:00.000Z",
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2027-10-31T10:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 42,
+   "trimester": 3,
+   "month": 10,
+   "weeksToDue": 0
+  }
+ },
+ {
+  "name": "lmp, 23 weeks + 3 days",
+  "row": {
+   "tracking_basis": "lmp",
+   "reference_date": "2026-01-01T00:00:00.000Z",
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-06-14T00:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 23,
+   "trimester": 2,
+   "month": 6,
+   "weeksToDue": 17
+  }
+ },
+ {
+  "name": "due date 280 days out -> week 1 (clamped up)",
+  "row": {
+   "tracking_basis": "due_date",
+   "reference_date": "2026-10-08T00:00:00.000Z",
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-01-01T00:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 1,
+   "trimester": 1,
+   "month": 1,
+   "weeksToDue": 39
+  }
+ },
+ {
+  "name": "due date, 20 weeks before -> week 20",
+  "row": {
+   "tracking_basis": "due_date",
+   "reference_date": "2026-10-08T00:00:00.000Z",
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-05-21T00:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 20,
+   "trimester": 2,
+   "month": 5,
+   "weeksToDue": 20
+  }
+ },
+ {
+  "name": "conception date 2026-01-01 -> LMP 14 days earlier; 2026-03-31 is 103 days after LMP -> week 14",
+  "row": {
+   "tracking_basis": "conception_date",
+   "reference_date": "2026-01-01T00:00:00.000Z",
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": false,
+   "postpartum_start_date": null,
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-03-31T00:00:00.000Z",
+  "expected": {
+   "mode": "pregnant",
+   "week": 14,
+   "trimester": 2,
+   "month": 4,
+   "weeksToDue": 26
+  }
+ },
+ {
+  "name": "postpartum day 0",
+  "row": {
+   "tracking_basis": null,
+   "reference_date": null,
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": true,
+   "postpartum_start_date": "2026-08-01T00:00:00.000Z",
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-08-01T00:00:00.000Z",
+  "expected": {
+   "mode": "postpartum",
+   "daysPostpartum": 0,
+   "phase": "نفاس"
+  }
+ },
+ {
+  "name": "postpartum day 40 (still nifas)",
+  "row": {
+   "tracking_basis": null,
+   "reference_date": null,
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": true,
+   "postpartum_start_date": "2026-08-01T00:00:00.000Z",
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-09-10T00:00:00.000Z",
+  "expected": {
+   "mode": "postpartum",
+   "daysPostpartum": 40,
+   "phase": "نفاس"
+  }
+ },
+ {
+  "name": "postpartum day 41 (after nifas)",
+  "row": {
+   "tracking_basis": null,
+   "reference_date": null,
+   "manual_week_value": null,
+   "manual_week_set_at": null,
+   "is_postpartum": true,
+   "postpartum_start_date": "2026-08-01T00:00:00.000Z",
+   "high_risk_flags": [],
+   "fasting_status": "not_applicable",
+   "locale": "ar"
+  },
+  "today": "2026-09-11T00:00:00.000Z",
+  "expected": {
+   "mode": "postpartum",
+   "daysPostpartum": 41,
+   "phase": "ما بعد النفاس"
+  }
+ }
+]

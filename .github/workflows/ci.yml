@@ -96,6 +96,15 @@ jobs:
           python3 scripts/test_assert_test_backend.py
           python3 scripts/test_verify_acceptance_results.py
 
+      # The app's pregnancy engine and the SERVER's (the code the AI Edge
+      # Functions use to build the pregnancy context) must agree: the same
+      # vectors run through the real supabase/functions/_shared/pregnancy_status.ts.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Pregnancy engine parity (app vs server)
+        run: node --experimental-strip-types scripts/pregnancy_status_parity.mjs
+
   build-android:
     name: Build Android (debug artifact — no release signing in CI)
     runs-on: ubuntu-latest
