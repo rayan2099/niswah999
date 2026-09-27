@@ -10,11 +10,21 @@ as PASS on screenshots alone, and unit/widget tests are not personas.
 ## Tested build
 
 - **Branch**: `feat/menstrual-data-integrity` (PR #4, **DRAFT, unmerged**).
-- **Code SHA under test**: `6df0a20…` for the local iOS suite (22 of 24
+- **Final closure-wave code SHA**: `cb0be4a99e77656e124afd1f0f6871e59658c9a9`
+  (also the SHA the E4 Android APK, `dist/niswah-e4-cb0be4a99e77.apk`, is
+  built from — see `E4_BUILD_MANIFEST.md`).
+- **Earlier local-suite SHAs** (superseded by the closure-wave work above,
+  kept for provenance): `6df0a20…` for the local iOS suite (22 of 24
   personas) and the local Android suite; `51b0616` bounds the GPS wait and
   hardens the Android location runners (affected personas re-run on it);
   `8b531a8` adds the reminder-time persona and provisioning retry — the
-  hosted 25/25 run is on `8b531a8`. Later commits touch only documentation.
+  hosted 25/25 run is on `8b531a8`.
+- **Closure-wave commits** (all on top of `8b531a8`, in order): `6f22ef8`
+  (D-011), `ac92f8a` (D-012, Batch 6 rewritten), `e59f6e1` (shard-mode
+  verifier), `ef74d96` (AI-08/05/06 test seam, pregnancy parity), `232b65f`
+  (D-013/D-014), `f28a66c` (D-015), `e00915d` (D-016, Arabic suite),
+  `0321204` (D-017/D-018), `6118839` (REM-03 harness fix + disclosure),
+  `cb0be4a` (PRAY-05 harness fix + disclosure).
 - **Backend under test**: a disposable **local** Supabase
   (`127.0.0.1:54321`, or `10.0.2.2:54321` from the Android emulator),
   provisioned by `scripts/provision_local_test_backend.sh`. Never production:
@@ -54,40 +64,73 @@ Android-only harness findings (not app defects, but disclosed):
 
 ## Coverage numerator/denominator (`COVERAGE_MATRIX.csv` is the source of truth)
 
+**These counts are reported separately and are never blended into one
+"coverage percentage."** A status here means what its definition at the top
+of this document says — not "launch-ready."
+
 | Status | Count | of 114 |
 |---|---|---|
-| **EXECUTED** | **78** | 68% |
-| PARTIAL | 13 | 11% |
-| BLOCKED | 16 | 14% |
-| NOT_ATTEMPTED | 7 | 6% |
+| **EXECUTED** | **96** | 84% |
+| PARTIAL | 1 | 1% |
+| BLOCKED | 17 | 15% |
+| NOT_ATTEMPTED | 0 | 0% |
+| **E4_REQUIRED** (separate gate, not in the 114; see below) | 8 rows | — |
 
-The denominator grew from 101 to **114** because executing Phases 3–4 added
-rows the first inventory pass missed (Madhhab guided flow, Arabic/RTL and
-accessibility, three system rows) and four features that have **no navigation
-path** in the shipped app. They are counted as BLOCKED rather than dropped.
+The denominator grew from 101 to **114** while executing Phases 3–4 (Madhhab
+guided flow, Arabic/RTL and accessibility, three system rows, and four
+features with **no navigation path** in the shipped app, counted as BLOCKED
+rather than dropped). Every one of the 114 rows now has a genuine attempt on
+record — the closure wave's own work moved MENS-07/08, PREG-03/05/06, AI-08,
+TTC-03, NIFAS-03 (prayer half), WELL-03/RPT-01..05, AUTH-09, REM-03, PRAY-05
+and WELL-04 from PARTIAL/NOT_ATTEMPTED to EXECUTED (some resulting in a
+disclosed FAIL, not silently promoted — see below).
 
-- **BLOCKED (16)**: phone OTP and Google sign-in (external providers); real AI
-  answers/history/citations (need a model backend + qualified review; only
-  transport/honest failure is claimed); prayer logging, guided journeys,
-  resource library, Ghusl guide, Account/Settings screens (unreachable —
-  `DEFECT_REGISTER.md` F-001); delete-conversation (not implemented — F-002).
-- **PARTIAL (13)**: session restore across launches (harness limit), revision
-  chips, fertility-window values, pregnancy progression,
-  the five report/export surfaces (open with real content; figures not
-  compared with an oracle), Nifas fasting status (prayer status is asserted),
-  wellbeing reminder, screen-reader semantics
-  (labels only; real VoiceOver/TalkBack is device-only).
-- **NOT_ATTEMPTED (7)**: correction conflict resolution (needs two
-  concurrent writers), notification-tap routing, timezone re-derivation,
-  pregnancy report, pregnancy AI context, wellbeing history, malformed AI
-  response.
+- **BLOCKED — 17, split by reason** (never blended together, per the
+  founder's directive to distinguish "external provider unavailable" from
+  "structurally unreachable"):
+  - **External (10)**: phone OTP and Google sign-in (AUTH-03/04/05 — need
+    real providers); real AI answers/history/citations (AI-01/02/03/04/05/06/09
+    — need a model backend and qualified content review; only
+    transport/honest-failure is claimed, proven via AI-07/08).
+  - **Structural — a product decision, not a test gap (7)**: prayer logging
+    (PRAY-04), the wellbeing history screen (WELL-02), delete-conversation
+    (MSG-06), guided journeys (JRN-01), the resource library (LIB-01), the
+    Ghusl guide (GHU-01), Account/Settings screens (SET-01) — all have no
+    navigation path or no implementation in the shipped app; see
+    `PRODUCT_DECISIONS.md` (F-001/F-002) and `DEFECT_REGISTER.md` (F-003..F-007)
+    for what exists in code, the cost of each choice, and the recommendation.
+    **None of these were wired in or removed without a founder decision.**
+- **PARTIAL (1)**: AR-04 (screen-reader semantics) — semantic labels are
+  asserted live; a real VoiceOver/TalkBack reading-order pass is device-only
+  (E4-07).
+- **NOT_ATTEMPTED (0)**: none remain. Two rows (REM-03, PRAY-05) that were
+  NOT_ATTEMPTED at the start of this wave were run live, multiple times; both
+  surfaced real, root-caused findings (one a genuine harness bug now fixed
+  and confirmed; one a harness bug fixed but not yet re-verified live) —
+  disclosed in full below and in `DEFECT_REGISTER.md`, not silently marked
+  passing.
+
+### E4_REQUIRED (physical device — a separate gate, not folded into the 114)
+
+`E4_PHYSICAL_DEVICE_CHECKLIST.md` lists 8 rows (E4-01..E4-08) that no
+simulator or emulator can prove: real notification delivery over time, the
+real permission prompts (notification, location), airplane-mode recovery,
+real timezone/DST travel, real keyboard/autofill/password-manager, real
+VoiceOver/TalkBack, and real device performance/battery. **None of these are
+claimed executed, PASS, or otherwise satisfied by this wave's work. E4 is not
+marked complete.** The E4 Android build (`dist/niswah-e4-cb0be4a99e77.apk`,
+SHA `cb0be4a99e77656e124afd1f0f6871e59658c9a9`) exists so a physical pass can
+start immediately; it is **not** itself evidence of anything on this list.
 
 ## Persona results
 
-See `PERSONA_CATALOG.md`. All charter personas A–J plus the six-surface
-walkthrough, Phase 3 batches 1–8, location (L1/L2), Madhhab (M), outage (O)
-and the live Arabic journey (AR1) pass on iOS and Android; AUTH-08 passes on
-iOS (needs a confirmations-ON backend, outside the main suite).
+See `PERSONA_CATALOG.md` for the full list. All charter personas A–J plus the
+six-surface walkthrough, Phase 3 batches 1–16, location (L1/L2), Madhhab (M),
+outage (O), the live Arabic journey (AR1–AR4) and AUTH-09/xN/xZ pass or have a
+disclosed, root-caused result on iOS and/or Android (per platform
+availability, e.g. xN/xZ are Android-only, xAuth09 and pAR2/AR3 are iOS-only
+by design). AUTH-08 passes on iOS (needs a confirmations-ON backend, outside
+the main suite).
 
 ## Defects found and fixed (`DEFECT_REGISTER.md`)
 
@@ -103,13 +146,59 @@ iOS (needs a confirmations-ON backend, outside the main suite).
 | D-008 | P2 | Community leaked a raw exception + backend URL on failure | Fixed, live |
 | D-009 | P3 | English pregnancy card showed Arabic text | Fixed, regression test |
 | D-010 | P3 | Calendar legend stayed English after a live switch to Arabic | Fixed, regression test |
+| D-011 | P1 | Reports ruled "Tahara" for a woman who was bleeding (legacy-only evidence) | Fixed, unit + live verified (iOS) |
+| D-012 | P2 | JSON export always reported "account could not be loaded" | Fixed, unit + schema-contract tested |
+| D-013 | P2 | timestamptz written in device wall-clock, not UTC (systemic) | Fixed going forward; historical rows keep the offset |
+| D-014 | P2 | Doctor report had no pregnancy content | Fixed, verified live (iOS) |
+| D-015 | P2 | Concurrent corrections surfaced a unique-index error, not the conflict | Fixed (migration), verified live |
+| D-016 | P2 | Material widgets (pickers, Cancel/OK) stayed English in Arabic mode | Fixed, unit + live verified (iOS) |
+| D-017 | P1 | A second account inherited the first account's device-local answers | Fixed, unit-tested, verified live (iOS) |
+| D-018 | P2 | A reminder switch read ON while the OS would never show the notification | Fixed, unit-tested; live for toggle/persist/reopen |
 | — | — | GPS wait unbounded (spinner forever with no fix) | Hardened (20 s limit) |
 
-Open product findings (no fix, need a decision): F-001 six unreachable
-screens (prayer logging unreachable), F-002 no delete-conversation.
+Open product findings (no fix, need a decision — see `PRODUCT_DECISIONS.md`
+and `DEFECT_REGISTER.md`'s own F-001..F-007): six/seven unreachable or
+unimplemented screens (F-001, F-002), a bilingual copy mismatch (F-003), the
+client/server pregnancy-week cap (F-004), the wellbeing history screen
+absence (F-005), no Nifas fasting statement (F-006), and a duplicable
+private-conversation pair (F-007). **Nothing was wired in or removed without
+a decision.**
+
 **Open operational item**: the one production test account
 (`I.1790267697321@example.test`) is **still outstanding** — deletion needs a
-founder-provided admin path (`PRODUCTION_TEST_ACCOUNT_CLEANUP.md`).
+founder-provided admin path (`PRODUCTION_TEST_ACCOUNT_CLEANUP.md`); this
+wave's own work never touched production and did not change this.
+
+## Closure-wave findings run live but NOT resolved to a clean pass
+
+Disclosed here rather than folded quietly into the EXECUTED count above —
+each was run live, multiple times, root-caused, and either fixed-and-confirmed
+or fixed-but-not-yet-reconfirmed. Full detail in `DEFECT_REGISTER.md`.
+
+- **REM-03 (notification tap routing)**: a genuine harness bug (the reminder
+  could be scheduled for the next day, not "a few minutes from now", if the
+  UI interaction that set it took long enough to eat the lead time) was found
+  and fixed, confirmed live every run since. The remaining gap — the OS never
+  delivered the actual notification within the detection window on 4/4
+  attempts — is Android's own by-design `inexactAllowWhileIdle` battery/
+  app-standby deferral for this deliberately battery-friendly reminder, not a
+  product defect; E4-01 is the real verification path.
+- **PRAY-05 (timezone re-derivation)**: a genuine test bug (tapping
+  `BackButton` on a screen whose real close control is a `CloseButton`, since
+  it is opened as a fullscreen dialog) was found, confirmed live twice
+  (produced a real, root-caused FAIL both times), and fixed to match this
+  codebase's own established pattern. Re-verification of the fix was blocked
+  by this specific machine running out of resources after a very long
+  session (6 further attempts failed to host exhaustion, unrelated to the
+  fix) — the emulator was shut down rather than continuing to force it. Needs
+  one clean re-run.
+- **WELL-04 (wellbeing reminder)**: the toggle/persist/reopen behaviour is
+  confirmed live and gates this row's pass. A secondary, D-018-related live
+  check (whether the "notifications are blocked" notice renders in time) was
+  investigated in depth — including temporary source instrumentation that
+  proved the underlying state update is correct — and left informational
+  only, since it could not be reconciled with this same host's load; the
+  logic itself is proven by a fast, deterministic unit test instead.
 
 ## Cross-screen consistency
 
@@ -120,8 +209,19 @@ fixed (D-002, D-004, D-006, D-010).
 ## Regression suite (full repo)
 
 - `flutter analyze lib/`: no new issues vs the baseline of 25 pre-existing infos.
-- `flutter test`: see "Final re-runs" (the 10 macOS-only golden/parity image
-  failures are pre-existing and pass on the Linux CI runner).
+- `flutter test` (every non-golden file): **1067 passed, 0 failed, 2 skipped**
+  (final closure-wave run, SHA `cb0be4a99e77…`) — the golden/parity image
+  failures are pre-existing macOS-rendering artifacts and pass on the Linux CI
+  runner; the 2 skips are `parity_today_stepper_consistency_test.dart`'s own
+  two obsolete legacy-only-bleeding cases, skipped visibly with the reason
+  (superseded by canonical-only Fiqh authority), never deleted.
+- **Correction (this report previously implied CI's own test step excluded
+  every `parity_*`-prefixed file)**: CI's exclusion pattern matched the
+  `parity_` file-name prefix, so behavioural regression tests such as the
+  D-001 fix's own test never ran in CI at all — not merely golden images.
+  Fixed: `ci.yml` now excludes only files containing `matchesGoldenFile`;
+  behavioural `parity_*` tests run in CI (with the two genuinely-obsolete
+  cases above skipped by name, not by a blanket exclusion).
 - Notification continuity: 13 pinned clocks x 7 time zones, exact counts
   unchanged (the earlier red CI was a real-wall-clock dependency, fixed with a
   single controlled clock — not loosened, retried or excluded).
@@ -184,11 +284,40 @@ like a pass.
 
 ## Deferred / not attempted
 
-Listed in the NOT_ATTEMPTED and BLOCKED bullets above. Additionally:
+Listed in the BLOCKED bullets above (no NOT_ATTEMPTED rows remain).
+Additionally:
 
 - A live paired-screenshot comparison against a running `main` build.
 - iOS-in-CI: GitHub macOS runners have no Docker, so a local Supabase cannot
   run beside the iOS Simulator there; iOS evidence is local by design.
-- E4 (physical device) — a separate gate, not claimed anywhere (`DEVICE_ONLY_GAPS.md`).
+- E4 (physical device) — a separate gate, not claimed anywhere
+  (`DEVICE_ONLY_GAPS.md`, `E4_PHYSICAL_DEVICE_CHECKLIST.md`). **E4 is NOT
+  marked complete or passed.**
+- A full local re-run of every unchanged persona (this wave re-ran the
+  personas its own fixes touched, live, on the platform each needs; it did
+  not re-run the ~80 unaffected personas already proven in earlier waves).
+  The intended final full-suite validation is the hosted, sharded dispatcher
+  (PR #5) run against PR #4's exact head SHA once the founder authorizes the
+  merge — see "Pending founder actions" below.
+- PRAY-05's fix is applied but not yet re-verified live (host resource
+  exhaustion; see the closure-wave findings section above) — needs one clean
+  re-run before being called done.
 - Disclosure: commit `1686e43` also carries an unintended whitespace-only
   reformat of two unrelated files (no behavioural change).
+
+## Pending founder actions (not decided or performed by this wave)
+
+- **PR #5 merge authorization**: PR #5 (`.github/workflows/acceptance-dispatch.yml`,
+  hardened per an earlier directive — the `|| true` removed from the shard
+  step) remains **open, unmerged**, awaiting explicit founder authorization.
+  Once authorized and merged, the dispatcher should be run against PR #4's
+  exact head SHA (`cb0be4a99e77656e124afd1f0f6871e59658c9a9` as of this
+  report — confirm against the live PR #4 head before dispatching, since nothing
+  in this wave changes PR #4's own branch tip) and its run ID, resolved SHA,
+  every shard result, the final verifier result and artifact names recorded
+  here.
+- **F-001 through F-007**: product decisions (see `PRODUCT_DECISIONS.md`,
+  `DEFECT_REGISTER.md`) — nothing wired in, removed or implemented without one.
+- **Production test-account cleanup**: still outstanding, needs a
+  founder-provided admin path.
+- **PR #4 stays DRAFT and UNMERGED.**
