@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/app_clock.dart';
+import 'user_scoped_preferences.dart';
 
 /// Persists the "I am currently pregnant" (أنا حامل حالياً) status so the
 /// pregnancy tracker, dashboard, and reports stay in sync — mirroring the
@@ -47,14 +48,36 @@ class PregnancyStatusController extends ChangeNotifier {
     return (_startWeek + elapsedWeeks).clamp(1, 40);
   }
 
+  static const _allKeys = [
+    _storageKey,
+    _startWeekKey,
+    _activatedAtKey,
+    _nifasStartKey,
+  ];
+
+  static String _k(String base) => UserScopedPreferences.key(base);
+
+  /// Reads the signed-in user's own pregnancy/Nifas state (never another
+  /// user's).
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
-    _isPregnant = preferences.getBool(_storageKey) ?? false;
-    _startWeek = preferences.getInt(_startWeekKey) ?? 1;
-    final stored = preferences.getString(_activatedAtKey);
+    await UserScopedPreferences.adoptLegacy(preferences, _allKeys);
+    _isPregnant = preferences.getBool(_k(_storageKey)) ?? false;
+    _startWeek = preferences.getInt(_k(_startWeekKey)) ?? 1;
+    final stored = preferences.getString(_k(_activatedAtKey));
     _activatedAt = stored == null ? null : DateTime.tryParse(stored);
-    final nifas = preferences.getString(_nifasStartKey);
+    final nifas = preferences.getString(_k(_nifasStartKey));
     _nifasStartedAt = nifas == null ? null : DateTime.tryParse(nifas);
+    notifyListeners();
+  }
+
+  /// Forgets the in-memory state (sign-out) so the next account can never
+  /// observe it before its own [load] completes.
+  void resetInMemory() {
+    _isPregnant = false;
+    _startWeek = 1;
+    _activatedAt = null;
+    _nifasStartedAt = null;
     notifyListeners();
   }
 
@@ -66,11 +89,11 @@ class PregnancyStatusController extends ChangeNotifier {
     _nifasStartedAt = AppClock.now();
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(_storageKey, false);
-    await preferences.remove(_startWeekKey);
-    await preferences.remove(_activatedAtKey);
+    await preferences.setBool(_k(_storageKey), false);
+    await preferences.remove(_k(_startWeekKey));
+    await preferences.remove(_k(_activatedAtKey));
     await preferences.setString(
-      _nifasStartKey,
+      _k(_nifasStartKey),
       _nifasStartedAt!.toIso8601String(),
     );
   }
@@ -82,10 +105,10 @@ class PregnancyStatusController extends ChangeNotifier {
     _activatedAt = AppClock.now();
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(_storageKey, true);
-    await preferences.setInt(_startWeekKey, _startWeek);
+    await preferences.setBool(_k(_storageKey), true);
+    await preferences.setInt(_k(_startWeekKey), _startWeek);
     await preferences.setString(
-      _activatedAtKey,
+      _k(_activatedAtKey),
       _activatedAt!.toIso8601String(),
     );
   }
@@ -98,9 +121,9 @@ class PregnancyStatusController extends ChangeNotifier {
     _nifasStartedAt = null;
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(_storageKey, false);
-    await preferences.remove(_startWeekKey);
-    await preferences.remove(_activatedAtKey);
-    await preferences.remove(_nifasStartKey);
+    await preferences.setBool(_k(_storageKey), false);
+    await preferences.remove(_k(_startWeekKey));
+    await preferences.remove(_k(_activatedAtKey));
+    await preferences.remove(_k(_nifasStartKey));
   }
 }

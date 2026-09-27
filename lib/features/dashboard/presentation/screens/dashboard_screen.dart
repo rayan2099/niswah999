@@ -18,6 +18,7 @@ import '../../../notifications/domain/entities/notification_preference.dart';
 import '../../../notifications/domain/services/notification_refresh_coordinator.dart';
 import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
+import '../../../../core/preferences/user_scoped_preferences.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
@@ -996,17 +997,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
       final preferences = await SharedPreferences.getInstance();
       final today = AppClock.now();
+      String k(String base) => UserScopedPreferences.key(base);
       await preferences.setString(
-        'dashboard_wellbeing_date',
+        k('dashboard_wellbeing_date'),
         '${today.year}-${today.month}-${today.day}',
       );
-      await preferences.setInt('dashboard_wellbeing_mood', result.mood);
-      await preferences.setInt('dashboard_wellbeing_energy', result.energy);
-      await preferences.setInt('dashboard_wellbeing_sleep', result.sleep);
+      await preferences.setInt(k('dashboard_wellbeing_mood'), result.mood);
+      await preferences.setInt(k('dashboard_wellbeing_energy'), result.energy);
+      await preferences.setInt(k('dashboard_wellbeing_sleep'), result.sleep);
       if (result.notes == null) {
-        await preferences.remove('dashboard_wellbeing_notes');
+        await preferences.remove(k('dashboard_wellbeing_notes'));
       } else {
-        await preferences.setString('dashboard_wellbeing_notes', result.notes!);
+        await preferences.setString(
+          k('dashboard_wellbeing_notes'),
+          result.notes!,
+        );
       }
       if (!mounted) return;
       setState(() => _wellbeing = result);
@@ -1042,21 +1047,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadWellbeingCheckIn() async {
     final preferences = await SharedPreferences.getInstance();
+    String k(String base) => UserScopedPreferences.key(base);
+    await UserScopedPreferences.adoptLegacy(preferences, const [
+      'dashboard_wellbeing_date',
+      'dashboard_wellbeing_mood',
+      'dashboard_wellbeing_energy',
+      'dashboard_wellbeing_sleep',
+      'dashboard_wellbeing_notes',
+    ]);
     final today = AppClock.now();
     final key = '${today.year}-${today.month}-${today.day}';
-    if (preferences.getString('dashboard_wellbeing_date') != key || !mounted) {
+    if (preferences.getString(k('dashboard_wellbeing_date')) != key ||
+        !mounted) {
       return;
     }
-    final mood = preferences.getInt('dashboard_wellbeing_mood');
-    final energy = preferences.getInt('dashboard_wellbeing_energy');
-    final sleep = preferences.getInt('dashboard_wellbeing_sleep');
+    final mood = preferences.getInt(k('dashboard_wellbeing_mood'));
+    final energy = preferences.getInt(k('dashboard_wellbeing_energy'));
+    final sleep = preferences.getInt(k('dashboard_wellbeing_sleep'));
     if (mood == null || energy == null || sleep == null) return;
     setState(
       () => _wellbeing = _WellbeingCheckInResult(
         mood: mood,
         energy: energy,
         sleep: sleep,
-        notes: preferences.getString('dashboard_wellbeing_notes'),
+        notes: preferences.getString(k('dashboard_wellbeing_notes')),
       ),
     );
   }
@@ -1108,8 +1122,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// persists across app restarts (SharedPreferences), so declining once
   /// is honored permanently rather than re-asked on the next period.
   Future<void> _maybeAskActiveBleedingReminderConsent() async {
-    const askedKey = 'niswah_active_bleeding_consent_asked';
+    const askedBase = 'niswah_active_bleeding_consent_asked';
     final preferences = await SharedPreferences.getInstance();
+    await UserScopedPreferences.adoptLegacy(preferences, const [askedBase]);
+    final askedKey = UserScopedPreferences.key(askedBase);
     if (preferences.getBool(askedKey) ?? false) return;
 
     if (!mounted) return;

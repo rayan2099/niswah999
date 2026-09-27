@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/preferences/user_scoped_preferences.dart';
 import '../../domain/entities/notification_preference.dart';
 import '../../domain/repositories/notification_repository.dart';
 
@@ -53,7 +54,8 @@ class NotificationRepositoryImpl implements NotificationRepository {
   Future<Map<NotificationType, NotificationPreference>>
   loadPreferences() async {
     final prefs = preferences ?? await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
+    await UserScopedPreferences.adoptLegacy(prefs, const [_key]);
+    final raw = prefs.getString(UserScopedPreferences.key(_key));
     if (raw == null || raw.isEmpty) {
       return Map.of(_defaults);
     }
@@ -83,6 +85,6 @@ class NotificationRepositoryImpl implements NotificationRepository {
     final encoded = jsonEncode(
       preferences.values.map((preference) => preference.toJson()).toList(),
     );
-    await prefs.setString(_key, encoded);
+    await prefs.setString(UserScopedPreferences.key(_key), encoded);
   }
 }

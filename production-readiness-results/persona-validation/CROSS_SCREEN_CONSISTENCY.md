@@ -85,7 +85,8 @@ only the LEGACY screens were ever at risk.
 | **Six surfaces, one account, one shared history** (Today, canonical Calendar, legacy Calendar tab, Insights, Fiqh/prayer status, reports) | `pWalkthrough_six_surface_test` — asserts every surface against the same account | **FAIL before D-004, PASS after** (iOS and Android). Before the fix the legacy Calendar said "Log at least two cycle starts" and Insights said "No cycle history yet" for an account whose onboarding-reported period Today/canonical Calendar already showed. |
 | Onboarding-reported period is visible on the legacy screens **without** making `cycle_entries` authoritative and **without** fabricating a daily observation | Widget tests (`cycle_calculation_canonical_episodes_test`, `legacy_screens_canonical_history_test`) + the live walkthrough | PASS — legacy screens read episode start/end dates only; the projection still never writes an `uncertain` flow |
 | Offline start, replayed after reconnect, reaches every surface (Today, Fiqh card, legacy model) with no manual refresh | Persona F (iOS + Android) + host SQL | PASS after D-006. Before the fix Today stayed stale and the prayer card kept "Salah is obligatory" for a woman who was bleeding. |
-| Account switch leaves no trace of the previous account | Persona J (iOS + Android) | PASS |
+| Account switch leaves no trace of the previous account's SERVER data | Persona J (iOS + Android) | PASS |
+| Account switch leaves no trace of the previous account's DEVICE-LOCAL answers (marital, TTC, pregnancy, prayer city, notification feed, today's check-in) | Batch15 (iOS) | FAILED before D-017 (found by this cross-screen check itself: account B's Today showed account A's pregnancy overview), PASS after |
 | Account deletion removes the account from every table | Batch 4 live deletion + a sweep of every public table with `user_id` | PASS — 0 orphan rows (D-005 fixed) |
 | Private messaging: what the sender sees equals what the recipient sees, and a third account sees nothing | Batch 8 (two + one real accounts, RLS) | PASS |
 | Language: a live switch English -> Arabic reaches every visible label | Arabic persona scanning each tab | Two leaks found and fixed: D-009 (Arabic in the English pregnancy card), D-010 (legend chips stayed English after a live switch) |
@@ -96,6 +97,8 @@ only the LEGACY screens were ever at risk.
 2. D-004 — legacy Calendar/Insights denying history the canonical surfaces show.
 3. D-006 — stale Today / wrong ruling after an offline replay.
 4. D-010 — a live language switch not reaching const chips.
+5. D-011 — Fiqh/Husband/Doctor reports ruled on the legacy table alone.
+6. D-017 — a second account inherited the first account's device-local answers.
 
 ## What remains unverified
 

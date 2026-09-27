@@ -48,6 +48,17 @@ Android yet.
 | AR1 | **Live Arabic RTL journey** incl. 200% text scale, RTL controls, no English leaks | PASS | PASS |
 | AUTH08 | Email confirmation (outside the main suite: needs a confirmations-ON backend; `scripts/run_auth08_confirmations.sh`) | PASS | — |
 
+| Batch12 | MENS-07 race with two authenticated concurrent writers (D-015 found+fixed); MENS-08 revision chain + Current/Superseded markers; the app's own conflict panel + "Use my change" rebasing | PASS | — |
+| Batch10 | AI-08: stubbed malformed replies (test seam, no live model) fail honestly across general/Fiqh/Dream; history + delete; request contract (Madhhab UNKNOWN, never fabricated) | PASS | — |
+| Batch11 | PREG-03 progression (+49 days) with server-engine parity; PREG-05 pregnancy content in reports (D-014 found+fixed); PREG-06(a) the row the AI context is built from | PASS | — |
+| Batch13 | WELL-04: the wellbeing reminder toggles OFF/ON, persists and reopens correctly (D-018 found+fixed) | PASS | — |
+| Batch14 | TTC-03: fertility-window dates and pregnancy-chance label checked against an independently-computed oracle at controlled clock offsets; cross-checked against the Husband/Fiqh/Doctor reports | PASS | — |
+| Batch15 | D-017 found+fixed: device-local answers (marital, TTC, pregnancy, prayer city, notification feed, today's check-in) are per-user, not global | (re-run in progress) | — |
+| Batch16 | WELL-03/RPT-03: wellbeing and Doctor report figures checked against a known seeded dataset | (not yet run) | — |
+| AR2 | Arabic audit: auth/onboarding, Today/menstrual, Calendar, TTC/pregnancy setup | PASS | — |
+| AR3 | Arabic audit: pregnancy, Nifas, prayer location, notification settings/reminder-time picker, every report/export, privacy policy (found+fixed D-016) | PASS | — |
+| AR4 | Arabic audit: community posting and private messaging between two accounts | PASS | — |
+
 "(in suite)" = part of the current full-suite run recorded in
 `TEST_EXECUTION_REPORT.md`; that report states which final results exist.
 

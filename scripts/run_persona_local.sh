@@ -46,7 +46,14 @@ PY
 # report a timeout — never a silent hang. Override with
 # PERSONA_TIMEOUT_SECONDS (a cold Android Gradle build alone can be 20 min).
 DEADLINE_SECONDS="${PERSONA_TIMEOUT_SECONDS:-1500}"
-flutter drive \
+# `flutter drive` uninstalls the app when it finishes, which erases its data.
+# DRIVE_KEEP_APP_RUNNING=1 keeps it installed AND running afterwards; the
+# two-phase session-restore run (scripts/run_session_restore.sh) uses that,
+# kills the process itself, and starts the next drive with --keep-app so the
+# app is reinstalled over the existing data instead of a clean install.
+KEEP_RUNNING_FLAG=""
+[ "${DRIVE_KEEP_APP_RUNNING:-}" = "1" ] && KEEP_RUNNING_FLAG="--keep-app-running"
+flutter drive $KEEP_RUNNING_FLAG \
   --driver=test_driver/integration_test.dart \
   --target="$TARGET" \
   -d "$UDID" \

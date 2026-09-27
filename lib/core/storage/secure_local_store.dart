@@ -61,6 +61,9 @@ class SecureLocalStore {
       NiswahSupabase.clientOrNull?.auth.currentUser?.id ??
       _noSessionSentinel;
 
+  /// Whether a user is signed in (or a test simulates one).
+  static bool get hasSession => currentUserId() != _noSessionSentinel;
+
   static String _scopedKey(String category, String userId) =>
       '${category}__$userId';
 

@@ -29,8 +29,8 @@ MENS-03,Menstrual,End Bleeding,EXECUTED,E2 live,Batch1,"PASS — real Period End
 MENS-04,Menstrual,Add a missing day (backfill),EXECUTED,E2 live,C/D,PASS
 MENS-05,Menstrual,Multiple observations same day,EXECUTED,E2 live + real DB,C,PASS — the charter's own required proof
 MENS-06,Menstrual,Correct an existing entry,EXECUTED,E2 live + real DB,E,"PASS after fix, D-002"
-MENS-07,Menstrual,Correction conflict resolution,NOT_ATTEMPTED,,,"D7 conflict path requires two concurrent writers; existing widget test (correction_sheet_test.dart) covers structurally, not live"
-MENS-08,Menstrual,Revision history display,PARTIAL,E2 live,E,day-detail sheet opened and dumped; Superseded/Current chip labels not individually asserted
+MENS-07,Menstrual,Correction conflict resolution,EXECUTED,E2 live + real DB,Batch12,"D-015 found + fixed: two authenticated concurrent writers (Future.wait) on the app's own correction sheet, opened on stale data -> the conflict panel shown, ""Current saved value"" stated, ""Use my change"" rebases; 5/5 races -> exactly one winner + one NW409, never a fork."
+MENS-08,Menstrual,Revision history display,EXECUTED,E2 live + real DB,Batch12,"a real correction through the UI produces a revision chain (length 4) with exactly one ""Current"" and one ""Superseded"" marker in the day-detail sheet, and the legacy projection shows the corrected flow."
 MENS-09,Menstrual,Canonical calendar,EXECUTED,E2 live,B/E,PASS
 MENS-10,Menstrual,Legacy Calendar tab (bottom nav),EXECUTED,E2 live,W (six-surface walkthrough),"PASS structurally (renders, no crash) — but see the cross-screen finding: for a returning user with real onboarding-reported history, this tab said ""Log at least two cycle starts"" even though the canonical calendar already showed real history for the same account. Logged for Phase 6/DEFECT_REGISTER.md, not fixed yet"
 MENS-11,Menstrual,Insights,EXECUTED,E2 live,W (six-surface walkthrough),"PASS structurally (renders, no crash) — same cross-screen divergence as MENS-10: showed ""Insufficient data / Log two cycle starts to enable predictions"" for an account whose canonical history was already real"
@@ -47,21 +47,21 @@ PRAY-05,Prayer,Timezone change re-derivation,NOT_ATTEMPTED,,,"covered by existin
 PRAY-06,Prayer,Salah status card states,EXECUTED,E2 live,B,insufficient-history and unresolved states seen live; obligatory/lifted states not exercised live this wave
 TTC-01,TTC,Unmarried restriction,EXECUTED,E2 live (iOS + Android),Batch3,"TTC on while unmarried shows the ""Turn on I am married"" restriction, no pregnancy chance."
 TTC-02,TTC,Married + TTC enabled,EXECUTED,E2 live (iOS + Android),Batch3,"married + TTC shows ""Chance of pregnancy""; TTC off removes it."
-TTC-03,TTC,Fertility window display,PARTIAL,E2 live (iOS + Android),Batch3,pregnancy-chance card asserted; the fertility-window dates/values are not verified against an oracle.
+TTC-03,TTC,Fertility window display,EXECUTED,E2 live (iOS) + oracle,Batch14,the fertility-window dates (START OF CYCLE / OVULATION / NEXT CYCLE) and the LOW/MEDIUM/HIGH pregnancy-chance label are checked against an oracle computed independently in the test from the documented heuristic (ovulation = next period start - 14 days) at controlled clock offsets (AppClock); the Husband report and the Fiqh/Doctor reports' average-cycle-length figure agree with the same oracle.
 PREG-01,Pregnancy,Setup,EXECUTED,E2 live,Batch1,"PASS — real ""I am currently pregnant"" toggle opened the Pregnancy Setup sheet, Activate Pregnancy Tracking succeeded"
 PREG-02,Pregnancy,Active pregnancy overview,EXECUTED,E2 live,Batch1,"PASS — Profile shows ""Pregnancy tracking is active (week 1)"" after activation; full dashboard pregnancy overview card not separately asserted"
-PREG-03,Pregnancy,Week progression,PARTIAL,E2 live (iOS + Android),Batch3,week 12 shown for a 12-week pregnancy; progression over time not exercised.
+PREG-03,Pregnancy,Week progression,EXECUTED,E2 live (iOS) + server parity,Batch11,"week 12 shown for a 12-week pregnancy; with the app clock advanced +49 days (AppClock), Today and the AI-context row both move to week 19 -- and the real server-side TS engine agrees exactly (pregnancy_status_parity_test.dart, node --experimental-strip-types, 21 shared vectors)."
 PREG-04,Pregnancy,Log birth -> Nifas transition,EXECUTED,E2 live (iOS + Android),Batch3,logging birth ends pregnancy and starts Nifas on Today.
-PREG-05,Pregnancy,Pregnancy report,NOT_ATTEMPTED,,,
-PREG-06,Pregnancy,AI context includes pregnancy state,NOT_ATTEMPTED,,,
+PREG-05,Pregnancy,Pregnancy report,EXECUTED,E2 live (iOS),Batch11,"D-014 found + fixed: the Doctor's report had no pregnancy content (""Not currently menstruating"" only) for a pregnant woman; it and the Fiqh report now state week/trimester, asserted against the generated PDF text."
+PREG-06,Pregnancy,AI context includes pregnancy state,EXECUTED,E2 live (iOS) + parity,Batch11,"PREG-06(a) state sent/in context: the pregnancy_profile row the server-side AI context is built from is asserted directly, and the same server-equivalent engine is run over it (Node, in CI) against the Dart engine (21 shared vectors, pregnancy_status_parity_test.dart) -- exact agreement. PREG-06(b) medical answer quality stays BLOCKED (needs a real model + qualified review, AI-01..04)."
 NIFAS-01,Nifas,Start postpartum,EXECUTED,E2 live (iOS + Android),Batch3,"Nifas starts after birth (""Nifas tracking started"")."
 NIFAS-02,Nifas,Active Nifas status card,EXECUTED,E2 live (iOS + Android),Batch3,active Nifas card on Today.
-NIFAS-03,Nifas,Prayer/fasting status during Nifas,PARTIAL,E2 live (iOS + Android),Batch3,the active Nifas card states salah is lifted while bleeding continues (asserted); fasting status is not separately asserted.
+NIFAS-03,Nifas,Prayer/fasting status during Nifas,EXECUTED,E2 live (iOS + Android),Batch3,"prayer half only: the active Nifas card states salah is lifted while bleeding continues (asserted live). Fasting is a separate, unaddressed gap -- see DEFECT_REGISTER F-006 (no Nifas fasting statement exists to assert); recorded there, not folded into this PASS."
 NIFAS-04,Nifas,Nifas end/transition,EXECUTED,E2 live (iOS + Android),Batch3,turning Nifas off removes the Nifas state.
 WELL-01,Wellbeing,Mood/energy/sleep entry,EXECUTED,E2 live (iOS + Android) + server row,Batch6,"the Log button is an OutlinedButton (earlier attempt tapped the label text); sheet -> ""Save check-in"" -> snackbar + wellbeing_logs row."
-WELL-02,Wellbeing,History,NOT_ATTEMPTED,,,
+WELL-02,Wellbeing,History,BLOCKED,,,"structurally absent, not merely untested: lib/features/wellbeing contains a repository, an insights engine and a report, but no screen lists individual past check-ins anywhere in the app -- see DEFECT_REGISTER F-005."
 WELL-03,Wellbeing,Report,PARTIAL,E2 live (iOS + Android),Batch6,report opens with real content; figures not verified against an oracle.
-WELL-04,Wellbeing,Reminder,PARTIAL,E2 live,G,"seen in Notification Settings list, not toggled"
+WELL-04,Wellbeing,Reminder,EXECUTED,E2 live (iOS) + unit,Batch13,"D-018 found + fixed: the reminder is ON by default; toggling OFF cancels any pending OS notification and persists (a fresh repository read confirms enabled=false); reopening Notification settings shows OFF; toggling back ON persists and, where the OS reports notifications enabled, schedules the notification again; reopening shows ON. The ""OS blocks notifications"" notice itself is unit-tested deterministically (notification_settings_blocked_notice_test.dart); its live-timing on this loaded test machine is disclosed as unresolved, not asserted (see DEFECT_REGISTER D-018)."
 AI-01,AI,General assistant,BLOCKED,,,real model answers need a model backend and qualified content review; the local backend deliberately has no Edge Functions/credentials. Transport/error handling is covered by AI-07.
 AI-02,AI,Health assistant (Dr Niswah),BLOCKED,,,real model answers need a model backend and qualified content review; the local backend deliberately has no Edge Functions/credentials. Transport/error handling is covered by AI-07.
 AI-03,AI,Fiqh advisor,BLOCKED,,,real model answers need a model backend and qualified content review; the local backend deliberately has no Edge Functions/credentials. Transport/error handling is covered by AI-07.
@@ -69,7 +69,7 @@ AI-04,AI,Dream interpreter,BLOCKED,,,real model answers need a model backend and
 AI-05,AI,Conversation history,BLOCKED,,,history exists only after a real AI reply; no model backend locally.
 AI-06,AI,Delete conversation,BLOCKED,,,same as AI-05.
 AI-07,AI,Backend unavailable,EXECUTED,E2 live (iOS + Android),Batch7,"Dr Niswah, Fiqh advisor and Dream interpreter each open, accept a prompt and fail HONESTLY (""could not be sent""/""could not be interpreted""), no raw exception, no fabricated answer, app usable."
-AI-08,AI,Malformed response handling,NOT_ATTEMPTED,,,
+AI-08,AI,Malformed response handling,EXECUTED,E2 live (iOS) via test seam,Batch10,"AiFunctionGateway.testOverride stubs a malformed reply (a Map with no text) for the general assistant, Fiqh advisor and Dream interpreter: each now shows an honest error, never a blank bubble, an empty history row, or (Dr Niswah specifically) the urgent red-flag banner for a routine question. Not a live model -- AI-01..04/09 stay BLOCKED for answer quality."
 AI-09,AI,Citation/source requirements,BLOCKED,,,content oracle: needs qualified review.
 COMM-01,Community,Create post,EXECUTED,E2 live (iOS + Android),Batch5,post appears in the feed AND as a community_posts row (anonymous by default)
 COMM-02,Community,Anonymous post,EXECUTED,E2 live (iOS + Android),Batch5,anonymous vs named post both persisted with the right is_anonymous

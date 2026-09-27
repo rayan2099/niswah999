@@ -14,9 +14,18 @@ document lists specifically what a simulator run cannot prove.
   expected wall-clock moment, or delivers it at all under real
   power-saving/Doze/background-refresh restrictions.
 - **Real OS permission prompts** (notifications, location) — the
-  simulator can be pre-authorized or denied programmatically, which is
-  not the same interaction as a real human tapping a real system
-  dialog for the first time.
+  simulator can be pre-authorized or denied programmatically for
+  location/photos/contacts/etc. (`xcrun simctl privacy`), which is not
+  the same interaction as a real human tapping a real system dialog for
+  the first time. **Notifications specifically have no such simctl
+  service at all** (confirmed against its own `--help`): the very first
+  call to request notification permission on a fresh iOS Simulator
+  install raises the real, untappable system alert. Batch 13 (WELL-04)
+  hit this directly on its first ON toggle; every native
+  notification-plugin call after that point is now bounded with an 8s
+  timeout so the persona still finishes and reports "not observable"
+  for that one check rather than hanging the whole run (see
+  DEFECT_REGISTER D-018). E4-02 is exactly this prompt, for real.
 - **Real airplane-mode / genuine network-loss behavior.** This wave's
   own Persona F evidence is existing unit/widget-level coverage
   (`pending_bleeding_operation_store_test.dart`, 28 tests) of the

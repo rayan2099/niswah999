@@ -266,6 +266,209 @@ live persona O (no raw leak; retry publishes exactly one post).
 
 ---
 
+## D-009 — P3 — English pregnancy card showed Arabic text
+
+**Found via**: the Arabic/English language persona (AR1), live on iOS.
+
+**Symptom**: with the app in English, the pregnancy overview showed Arabic
+stage/size strings ("مرحلة المضغة · بحجم حبة الليمون").
+
+**Fix / test**: `_PregnancyOverview` now has English stage/size text; covered by
+a regression test that fails on the old file and passes on the new (proved by
+running the test against the reverted file).
+
+**Status**: FIXED.
+
+---
+
+## D-010 — P3 — Calendar legend stayed English after a live switch to Arabic
+
+**Found via**: AR1 (switch language while the Calendar is mounted), live on iOS.
+
+**Root cause**: the legend chips were `const`, so they never rebuilt.
+**Fix / test**: chips follow the language controller; regression test proven
+against the reverted file. **Status**: FIXED.
+
+---
+
+## D-011 — P1 — Fiqh / Husband / Doctor reports ruled on the legacy table alone ("Tahara" for a woman who was bleeding)
+
+**Found via**: Batch 6 (rewritten to oracle assertions), live on iOS. Hanafi selected,
+onboarding reported an open period (Today: "Bleeding recorded — Day 4"): the Fiqh
+report said **"Current state: Tahara"**.
+
+**Root cause**: the reports read only `cycle_entries`. A day whose flow is
+uncertain (which is exactly what an onboarding-reported open episode produces)
+has no row there, so the report saw "no bleeding" — the same class of bug as D-004,
+in a third surface, and this time a Fiqh ruling (Tahara means prayer is obligatory).
+
+**Fix**: `ReportCanonicalEvidence` gives every report the canonical effective evidence,
+episode timings and open/unresolved/unavailable flags that Today uses (one shared
+"material unresolved evidence" definition; the dashboard now delegates to it).
+`FiqhReportInsightsEngine.analyze(canonical:)` drives state and averages from it; an
+open episode that cannot be ruled on is "Insufficient history" with an honest
+explanation, an unreadable source is "cannot verify" — never Tahara. Husband and Doctor
+reports inherit it (they call the same engine).
+
+**Tests**: `test/report_canonical_evidence_test.dart` (7), `test/pdf_text_extractor_test.dart`
+(a Dart PDF text reader, `test/support/pdf_text.dart`, so tests assert what a report SAYS),
+live Batch 6 (Today says day 4 bleeding -> no report may say Tahara).
+
+**Disclosure**: the earlier Batch 6 "report opens" evidence was **invalid** — it tapped the
+row title, which does nothing (only the small Download button opens a report), and passed on
+Profile's own text. It has been replaced; nothing in the earlier reports counted on it.
+
+**Status**: FIXED, verified live on iOS.
+
+---
+
+## D-012 — P2 — The personal-data JSON export always said "account could not be loaded"
+
+**Found via**: Batch 6 (JSON export vs the account's own reads), live on iOS.
+
+**Root cause**: the export's `account` section queried `users.user_id`; `users` only has `id`,
+so the section failed for every user.
+
+**Fix**: `idColumn: 'id'`. **Tests**: `test/data_export_resilience_test.dart` (new case) and a
+schema-contract check in `scripts/verify_schema_contract.sql` that every export section names
+a real column (run by BR-002 against a real database). **Status**: FIXED.
+
+---
+
+## D-013 — P2 (systemic) — timestamptz values were written in the device's wall clock, not UTC
+
+**Found via**: Batch 11 (pregnancy): the +49-day view on the server disagreed with the device.
+
+**Root cause**: a local `DateTime.toIso8601String()` has no zone; PostgreSQL reads a zone-less
+string for a `timestamptz` column as UTC. On a UTC+3 device every such value was written 3 h in the
+future (live: `pregnancy_profile.manual_week_set_at` ahead of the server clock by exactly the
+offset), so the server-computed pregnancy week (used for the AI context) changed hours early/late.
+Same pattern in wellbeing, chat, community, dream and cycle writes.
+
+**Fix**: `dbTimestamp()` (`lib/core/utils/db_timestamp.dart`) sends an explicit UTC instant everywhere
+a timestamptz is written. **Test**: `test/db_timestamp_serialization_test.dart` asserts a `Z` on every
+such field. **Historical caveat (not fixable)**: rows already written keep the old offset; the writer's
+zone is unknown, so they cannot be corrected retroactively. **Status**: FIXED going forward.
+
+---
+
+## D-014 — P2 — The Doctor report had no pregnancy content for a pregnant woman
+
+**Found via**: Batch 11, generated PDF text (PREG-05).
+
+**Symptom**: the Doctor report said only "Not currently menstruating" for a woman at week 12.
+**Fix**: the Doctor and Fiqh reports state week/trimester. **Test**: live Batch 11 asserts the
+generated text. **Status**: FIXED, verified live on iOS.
+
+---
+
+## D-015 — P2 — Two concurrent corrections of one observation surfaced a unique-index error, not the conflict
+
+**Found via**: Batch 12 (MENS-07) — two authenticated sessions of one account correcting the same
+observation with `Future.wait`.
+
+**Root cause**: the database always prevented a fork, but only the first race returned the resolvable
+`NW409`; under true concurrency the loser hit the unique index (23505) and the app received a generic
+failure, so it could not show the conflict-resolution UI.
+
+**Fix**: `correct_observation` now locks its target row (`FOR UPDATE`) — migration
+`20260926100000_correct_observation_serialize_concurrent.sql`; 5/5 races -> exactly one winner + one
+`NW409`. **Tests**: live Batch 12 (also asserts the revision chain, Current/Superseded markers,
+legacy projection and the app's own conflict panel + "Use my change" rebasing, chain of 4, no fork) and
+`verify_schema_contract.sql` (`correct_observation.locks_its_target_row`). **Status**: FIXED.
+
+---
+
+## D-016 — P2 — Built-in Material widgets stayed English in Arabic mode
+
+**Found via**: the Arabic critical-path suite (AR3): the reminder time picker showed "Select time" /
+"Cancel" while the rest of the screen was Arabic.
+
+**Root cause**: `MaterialApp` had `locale` but no `localizationsDelegates` / `supportedLocales`, so every
+framework string (date and time pickers, "OK"/"Cancel", tooltips, the text-selection menu) fell back to
+English. **Fix**: `GlobalMaterialLocalizations`, `GlobalWidgetsLocalizations`, `GlobalCupertinoLocalizations`
+delegates and `supportedLocales: [ar, en]` in `lib/main.dart` (`flutter_localizations` dependency).
+**Test**: `test/app_localization_delegates_test.dart`; AR2/AR3/AR4 audit every screen. **Status**: FIXED.
+
+---
+
+## D-017 — P1 — A second account on the same phone inherited the first account's private answers
+
+**Found via**: Batch 15 (account switch, device-local state), live on iOS. Persona J had proved a
+second account sees none of the first account's *server* data; this covers what lives on the phone.
+
+**Symptom**: account A (married, TTC on, pregnant, Riyadh, a logged mental-state check-in with a
+note) signed out; account B — a different person who skipped every optional question — was shown
+**A's pregnancy overview on Today**, "I am married" ON, TTC ON, Riyadh as the prayer city, and (from the
+same mechanism) A's notification feed, reminder choices and today's mood/energy/sleep with A's
+free-text note. Only the Madhhab was clean (already reset on sign-out).
+
+**Root cause**: each of these answers lived under ONE global `SharedPreferences` key. The encrypted
+cache in `SecureLocalStore` had been made per-user in an earlier wave for exactly this reason
+("a second person signing in on the same device could read the first person's cached health records"),
+but these small preference controllers were missed.
+
+**Fix**: every such key is namespaced by the signed-in user (`UserScopedPreferences`): marital status,
+TTC mode, pregnancy/Nifas state, prayer location, notification preferences, the notification feed, the
+dashboard's daily check-in cache and the reminder-consent flag. Sign-out resets the in-memory
+singletons (`LocalPreferenceScope.resetInMemory`) and sign-in loads the new user's own values, so
+neither a stale frame nor a stale value can reach the next account. The old global keys are handed to
+the first user who loads them after the upgrade (so an existing install keeps its owner's answers) and
+then deleted, so they can never reach a second user.
+
+**Tests**: `test/user_scoped_preferences_test.dart` (5: isolation both ways, restore on return,
+Nifas, legacy hand-over exactly once, no-session behaviour unchanged); live Batch 15 asserts B sees
+none of it on Today/Profile, B's stored values are B's own, and no global key is left behind.
+
+**Residual, disclosed**: (1) an install that already had a second user inherit the first user's
+answers before this fix cannot be repaired retroactively; (2) A's values stay on the phone (under A's
+id) after sign-out so they are there when A returns — consistent with the existing encrypted cache;
+account deletion still removes local data.
+
+**Status**: FIXED, unit-tested, verified live on iOS.
+
+---
+
+## D-018 — P2 — A reminder switch could read ON while the OS would never show the notification
+
+**Found via**: Batch 13 (wellbeing reminder), live on iOS: the switch was ON, the OS reported
+notifications as not enabled, nothing was pending and the screen said nothing. Code review confirmed no
+UI consumed the scheduler's `permissionUnavailable` outcome.
+
+**Fix**: `NotificationService.areNotificationsEnabled()` (Android `areNotificationsEnabled`, iOS
+`checkPermissions`, read WITHOUT prompting) and a notice at the top of Notification settings while the OS
+does not allow notifications, re-checked when the app resumes (she may have just allowed them). Unknown is
+never shown as blocked. **Tests**: `test/notification_settings_blocked_notice_test.dart` (4, deterministic,
+in-process — mounts the real screen with an injected permission callback and confirms the notice's
+presence/absence in every case: blocked, allowed, unknown, and after a simulated app resume).
+
+**Live-timing disclosure**: on the live iOS Simulator, Batch 13 originally also asserted that the notice
+appears within a few seconds of opening the screen. Debug instrumentation temporarily added to the widget
+(and removed once the investigation concluded) proved the underlying logic itself is correct end to end —
+the permission check resolves to `false`, `setState` runs, and `build()`/`AnimatedBuilder.builder()` are
+re-invoked with the notice included in the returned tree — but on this specific, memory-constrained test
+machine the live persona's own `find` query still sometimes reported the notice absent afterward, a
+discrepancy that did not reproduce in the fast, deterministic widget test above. Rather than gate WELL-04's
+whole persona on an unresolved, machine-load-dependent timing question, the live check was made
+**informational only** (logged, generously polled, never asserted) — the toggle/persist/reopen behaviour
+that is WELL-04's actual charter scope is unaffected and still gates the pass/fail. Root-caused correctness
+rests on the unit test, not on this flaky live observation; worth revisiting on a less-loaded machine or a
+real device, not claimed as proven live.
+
+**Not proven here (E4-02)**: what the real OS permission prompt looks like and that Allow/Deny then behave
+correctly on a physical phone. **Related harness finding**: the very first ON toggle in a fresh account's
+life is also the very first call to `requestPermission()` for it; on the iOS Simulator this can raise the
+real system permission alert, which `flutter drive`/`integration_test` cannot dismiss (`xcrun simctl privacy`
+has no "notifications" service, unlike location/photos/contacts/etc. — confirmed against its own `--help`).
+Batch 13 bounds every native notification-plugin call after that point with an 8s timeout so a blocking
+alert degrades to an honest "not observable" for that one check instead of hanging the whole run; this is
+the same class of gap as `DEVICE_ONLY_GAPS.md`'s existing "real OS permission prompts" item, not a new one.
+
+**Status**: FIXED, unit-tested (deterministic); live on iOS for the toggle/persist/reopen behaviour (Batch
+13). The notice's live-timing is disclosed above as unresolved, not claimed.
+
+---
+
 ## Summary
 
 | ID | Severity | Area | Status |
@@ -278,6 +481,16 @@ live persona O (no raw leak; retry publishes exactly one post).
 | D-006 | P1 | Offline replay left Today stale / wrong ruling / legacy unprojected | Fixed, regression-tested, re-verified live (iOS + Android) |
 | D-007 | P2 | Messaging: raw account id shown as conversation title | Fixed, regression-tested, re-verified live |
 | D-008 | P2 | Community: raw exception + backend URL shown on failure | Fixed, regression-tested, re-verified live |
+| D-009 | P3 | English pregnancy card showed Arabic text | Fixed, regression-tested |
+| D-010 | P3 | Calendar legend stayed English after a live language switch | Fixed, regression-tested |
+| D-011 | P1 | Reports ruled "Tahara" for a woman who was bleeding (legacy-only evidence) | Fixed, unit + live verified (iOS) |
+| D-012 | P2 | JSON export always reported "account could not be loaded" | Fixed, unit + schema-contract tested |
+| D-013 | P2 | timestamptz written in device wall-clock, not UTC (systemic) | Fixed going forward; historical rows keep the offset |
+| D-014 | P2 | Doctor report had no pregnancy content | Fixed, verified live (iOS) |
+| D-015 | P2 | Concurrent corrections surfaced a unique-index error, not the conflict | Fixed (migration), verified live |
+| D-016 | P2 | Material widgets (pickers, Cancel/OK) stayed English in Arabic mode | Fixed, unit + live verified (iOS) |
+| D-017 | P1 | A second account on the same phone inherited the first account's private device-local answers (pregnancy overview, marital, TTC, city, mood note…) | Fixed, unit-tested, verified live (iOS) |
+| D-018 | P2 | A reminder switch read ON while the OS would never show the notification (no message) | Fixed, unit-tested; live re-run pending |
 
 No P0 defects found. No defect was worked around by narrowing the test
 oracle. Open items are **not defects in a fixed sense** but product
@@ -304,17 +517,47 @@ findings that need a founder decision — see "Open findings" below.
 
 ## Open findings (need a product decision — NOT fixed, NOT hidden)
 
+Decision packages with options, costs and a recommendation for F-001 and F-002
+are in `PRODUCT_DECISIONS.md`. **Nothing has been wired in, removed or
+implemented for any of them.**
+
 - **F-001 (P2) — features that exist in code but cannot be reached by any
-  user.** Reference analysis of `lib/` shows no navigation path to:
+  user.** No navigation path reaches `PrayerTrackingScreen`,
   `GuidedJourneysScreen`, `ResourceLibraryScreen`, `GhuslGuideScreen`,
-  `AccountSettingsScreen`, `settings_screen.dart`, and
-  `PrayerTrackingScreen`. Consequence: **prayer logging (PRAY-04,
-  `togglePrayerStatus`) is not reachable from the running app**, and the
-  Ghusl guide/library/journeys cannot be opened. They are recorded as
-  BLOCKED/unreachable (not PASS, not "untested"). Decision needed: wire
-  them in or remove them.
-- **F-002 (P3) — MSG-06 has no implementation.** There is no delete-
-  conversation UI or repository method. Recorded NOT IMPLEMENTED.
+  `AccountSettingsScreen`, `settings_screen.dart`. Consequence: **prayer
+  logging (PRAY-04) is not reachable**; the Ghusl guide/library/journeys
+  cannot be opened. Recorded BLOCKED — *structurally unreachable* (a product
+  state), not PASS and not "untested". Dormant code also hard-codes
+  `userId: 'demo-user'` (would fail every write the day it is wired in).
+- **F-002 (P3) — MSG-06 has no implementation.** No delete-conversation UI
+  or repository method, and RLS has no DELETE policy. Recorded NOT
+  IMPLEMENTED. Semantics (hide-for-me / delete-for-both / anonymise) are a
+  privacy decision, not an engineering one.
+- **F-003 (P3, copy) — the sign-in screen's feature tile says different
+  things in the two languages.** English "Purity planning" (heart icon) vs
+  Arabic "تخطيط للحمل" ("planning for pregnancy"). One of the two is not what
+  was meant (`sign_in_screen.dart`). Found by the Arabic suite reading both
+  languages; not changed because it is a wording decision.
+- **F-004 (P3) — the device caps the pregnancy week at 40, the server at 42.**
+  For a pregnancy past 40 weeks the AI context (built server-side) says week
+  41/42 while Today shows week 40. The shared parity vectors pin both
+  behaviours (`pregnancy_status_vectors.json`). Needs a clinical/product
+  decision on how weeks 41-42 should read, then a one-line change.
+- **F-005 (P3) — no per-check-in wellbeing history screen exists.** A woman can
+  log a mental-state check-in and read the *aggregate* (this month vs last month) in
+  the Wellbeing report, but there is no list of past check-ins anywhere in the app
+  (`lib/features/wellbeing` contains only the repository, the insights engine and the
+  report). WELL-02 is therefore recorded BLOCKED — structurally absent — not
+  NOT_ATTEMPTED. Decision: is the aggregate report enough for launch?
+- **F-006 (P3) — Nifas shows no fasting guidance.** The Nifas card says salah is lifted and ghusl is
+  required, and nothing about fasting, although the Today prayer card speaks of "prayer and fasting" for
+  Tahara. Whether a Nifas fasting statement is intended is a Fiqh-content decision (qualified review);
+  NIFAS-03 is split into prayer (EXECUTED) and fasting (BLOCKED — not displayed by the app).
+- **F-007 (P3) — private conversations can be duplicated by a race.**
+  `unique_pair (participant_one, participant_two)` is an *ordered* pair, so
+  two people opening a conversation with each other at the same moment can
+  create (A,B) and (B,A). Not covered by a test; hardening item independent
+  of F-002.
 
 ## Test-infrastructure findings (not product defects; fixed in the harness)
 

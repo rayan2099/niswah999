@@ -241,6 +241,30 @@ class NotificationService {
     return true;
   }
 
+  /// Whether the OS currently lets this app show notifications, read WITHOUT
+  /// prompting (Android `areNotificationsEnabled`, iOS `checkPermissions`).
+  /// `null` when the platform cannot say or the service is not initialised —
+  /// unknown, never asserted as "enabled" or "blocked". On iOS `false` also
+  /// covers "never asked yet": either way a reminder cannot appear.
+  Future<bool?> areNotificationsEnabled() async {
+    if (!_initialized) return null;
+    try {
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      if (android != null) return await android.areNotificationsEnabled();
+      final ios = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      if (ios != null) return (await ios.checkPermissions())?.isEnabled;
+    } catch (_) {
+      // The query itself failed — unknown, not a confirmed problem.
+    }
+    return null;
+  }
+
   Future<void> showNow({
     required int id,
     required String title,
