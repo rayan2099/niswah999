@@ -75,6 +75,18 @@ void main() {
 
     // ---- enable the daily check-in reminder (default 6:00 PM) ----
     await openTab('Profile');
+    // Found live, repeatedly: on a slow machine, Profile's row for
+    // "Notification settings" can still not exist in the tree right after
+    // the tab switch (still populating), even once a Scrollable itself
+    // exists and settle() has run. `scrollUntilVisible` requires its
+    // target to already exist (it reveals something off-screen, it does
+    // not wait for something not yet built) -- calling it before the row
+    // exists throws "Bad state: No element" and aborts the whole test
+    // binary. Wait for the target text itself, not just any Scrollable.
+    final foundSettingsRow = await h.waitFor(
+      find.text('Notification settings'),
+    );
+    h.dumpTexts('Z Profile (foundSettingsRow=$foundSettingsRow)');
     await tester.scrollUntilVisible(
       find.text('Notification settings'),
       300,
@@ -98,6 +110,17 @@ void main() {
       await h.tapVisible(sw);
       await h.settle(2);
     }
+    // Notification settings is a pushed FULLSCREEN-DIALOG screen (Flutter's
+    // AppBar shows a CloseButton, never a BackButton, for those -- see
+    // pWalkthrough_six_surface_test.dart's own note on this), not a
+    // bottom-nav tab -- the "Today" tab isn't even rendered while it's on
+    // top. Pop back to the main shell first (found live: without this,
+    // every step below silently ran against whatever Notification settings
+    // showed, since its own AppBar title text IS "Notification settings",
+    // which made the next openTab('Today') look harmless while doing
+    // nothing).
+    await h.tapVisible(find.byType(CloseButton));
+    await h.settle(2);
     await openTab('Today');
     await tester.pump(const Duration(seconds: 3));
 

@@ -133,8 +133,15 @@ void main() {
     bool switchValue() =>
         (wellbeingSwitch().evaluate().first.widget as Switch).value;
 
+    // A fullscreen-dialog push (Profile._open) gets a CloseButton (X), never
+    // a BackButton -- confirmed against this codebase's own AppBar usage
+    // (pWalkthrough_six_surface_test.dart). Using BackButton here silently
+    // never left the screen, which would have made every "reopened" check
+    // below vacuous (re-reading the same still-open screen, not a real
+    // close+reopen) -- caught while investigating an identical mistake in
+    // xZ_timezone_test.dart.
     Future<void> closeSettings() async {
-      await h.tapVisible(find.byType(BackButton));
+      await h.tapVisible(find.byType(CloseButton));
       await h.settle(2);
     }
 

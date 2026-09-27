@@ -514,6 +514,49 @@ path — not silently promoted, not left as NOT_ATTEMPTED.
 
 ---
 
+## PRAY-05 — a real navigation bug found and fixed; the fix could not be re-verified live
+(host resource exhaustion, disclosed rather than papered over)
+
+**What was attempted**: `xZ_timezone_test.dart` on the Android emulator (a real device
+timezone change + app pause/resume must re-derive reminders and "today", with the OS's own
+alarm table checked by the host for the new local time).
+
+**A real, genuine test bug found and fixed, confirmed live twice**: after enabling the daily
+check-in reminder, the test tried to leave Notification settings with `find.byType(BackButton)`
+— but that screen is opened as a fullscreen dialog (`ProfileScreen._open`,
+`MaterialPageRoute(fullscreenDialog: true)`), for which Flutter's own `AppBar` renders a
+`CloseButton` (✕), never a `BackButton` — exactly as this codebase's own
+`pWalkthrough_six_surface_test.dart` already documents for the same situation. The tap silently
+found nothing, so the test never actually left Notification settings; every "Today" assertion
+after that point silently read Notification settings' own screen instead (its AppBar title text
+literally is "Notification settings", which is why `openTab('Today')`'s own text search still
+"succeeded" doing nothing). Confirmed live, twice, before any fix: `ALARM VERIFY FAILED: no
+pending alarm found` and the day-advance/check-in assertions all failed for exactly this reason.
+**Fixed**: `find.byType(CloseButton)`, matching the established, already-correct pattern
+elsewhere in this codebase. The identical mistake was found and fixed in
+`pBatch13_wellbeing_reminder_test.dart`'s own `closeSettings()` too (it would have made that
+persona's "reopened OFF/ON" UI checks silently vacuous — re-reading the same still-open screen
+rather than a real close+reopen; Batch13's persisted-value check, a fresh repository read, was
+unaffected and remains valid evidence).
+
+**Re-verification blocked by host exhaustion, not by the fix**: after the CloseButton fix, this
+exact host could not complete a clean re-run — 6 consecutive attempts failed with either a
+SIGKILL (exit 137, before any test code ran) or a crash inside shared, previously-reliable
+onboarding/navigation helpers unrelated to this fix (once even stuck on the FIRST onboarding
+screen, "What is your Fiqh Madhhab?", meaning account setup itself did not complete on that run)
+— evidence of a machine under severe, escalating memory pressure after a very long session of
+repeated emulator/Xcode builds (the emulator alone was found holding onto ~1 GB the moment it
+was killed), not evidence against the fix. The emulator was shut down rather than continuing to
+force runs against an exhausted host.
+
+**Disposition**: PRAY-05 is EXECUTED (ran live, twice, with real assertions before the fix,
+producing a genuine, root-caused FAIL) with a real fix now applied and justified by strong,
+existing codebase precedent for the identical situation — but that fix has **not** been
+re-verified live, and is not claimed as passing. This needs one more clean run, on a
+less-loaded host or a physical device, before PRAY-05 can be promoted.
+
+---
+
 ## Summary
 
 | ID | Severity | Area | Status |

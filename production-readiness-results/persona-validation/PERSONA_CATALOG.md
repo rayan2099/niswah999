@@ -60,6 +60,7 @@ Android yet.
 | AR4 | Arabic audit: community posting and private messaging between two accounts | PASS | — |
 | xAuth09 | AUTH-09: session restore across a REAL app relaunch (process killed, app+data kept, reinstalled over the same data) -- two-phase, scripts/run_session_restore.sh | PASS | (iOS-only; `flutter drive` uninstalls on Android, see script header) |
 | xN | REM-03: a real notification, tapped on the emulator via uiautomator, routes to the check-in sheet | Android only; ran 4x (FAIL each time) -- see DEFECT_REGISTER (a real harness bug found+fixed; Android's own inexact-alarm battery deferral is the remaining, unresolved gap; E4-01 is the real verification path) | — |
+| xZ | PRAY-05: a real device timezone change re-derives reminders and "today" | Android only; ran 2x before a fix (FAIL both times, real cause found: CloseButton vs BackButton) + 6x after (all blocked by host resource exhaustion, not the fix) -- see DEFECT_REGISTER; needs one clean re-run | — |
 
 "(in suite)" = part of the current full-suite run recorded in
 `TEST_EXECUTION_REPORT.md`; that report states which final results exist.
