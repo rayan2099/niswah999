@@ -311,11 +311,13 @@ Additionally:
   hardened per an earlier directive — the `|| true` removed from the shard
   step) remains **open, unmerged**, awaiting explicit founder authorization.
   Once authorized and merged, the dispatcher should be run against PR #4's
-  exact head SHA (`cb0be4a99e77656e124afd1f0f6871e59658c9a9` as of this
-  report — confirm against the live PR #4 head before dispatching, since nothing
-  in this wave changes PR #4's own branch tip) and its run ID, resolved SHA,
-  every shard result, the final verifier result and artifact names recorded
-  here.
+  exact head SHA — `4c2eb240e2368861875bd9c6e6c516b340e54c61` (confirmed via
+  `gh pr view 4`) at the time this report was written; **confirm the live PR
+  #4 head again before dispatching**, since work between now and then would
+  move it. (The E4 Android APK is built from `cb0be4a99e77…`, one code commit
+  earlier — the difference is this report's own doc update, not app code.)
+  Record the run ID, resolved SHA, every shard result, the final verifier
+  result and artifact names here.
 - **F-001 through F-007**: product decisions (see `PRODUCT_DECISIONS.md`,
   `DEFECT_REGISTER.md`) — nothing wired in, removed or implemented without one.
 - **Production test-account cleanup**: still outstanding, needs a
