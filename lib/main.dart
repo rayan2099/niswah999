@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
@@ -400,6 +401,15 @@ class NiswahApp extends StatelessWidget {
           darkTheme: darkTheme,
           themeMode: AppThemeController.instance.themeMode,
           locale: AppLocaleController.instance.locale,
+          // Without these delegates every built-in Material string (time and
+          // date pickers, "Cancel"/"OK", tooltips, text-selection menu) stayed
+          // English in Arabic mode (found by the Arabic acceptance suite).
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('ar'), Locale('en')],
           builder: (context, child) => Directionality(
             textDirection: AppLocaleController.instance.textDirection,
             child: Stack(children: [child!, const DiagnosticsBanner()]),

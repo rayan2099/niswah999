@@ -134,3 +134,19 @@ This is evidence about the *mechanism*, not about the production account.
   a schema-contract row now run inside `scripts/validate_migrations.sh`.
   Deleting straight from `auth.users` (the Dashboard/Admin equivalent) was
   also verified to remove the counters.
+
+## Re-confirmed OPEN (2026-09-26, final closure wave)
+
+Still **not deleted and not verified**; no administrative credential or
+Dashboard access has been provided, and none was improvised. The kill switch
+is permanent and CI-enforced (vectors shared by the Dart and Python tests, the
+Python test now runs in the regular CI job): the harness cannot create another
+account on production. When an authorized path exists the procedure is:
+1. identify the Auth UUID for `i.1790267697321@example.test`;
+2. enumerate every attributable row with `scripts/check_account_deletion_cascade.sh`'s
+   table sweep (every public table with a `user_id`);
+3. delete through the authorized path (Dashboard, or Admin API with a service-role key
+   supplied through an approved secure environment — never printed or committed);
+4. re-run the sweep and record before/after counts; any surviving row is a defect
+   (D-005 already closed the one known cause, `ai_rate_limit_counters`).
+

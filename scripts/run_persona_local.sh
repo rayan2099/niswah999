@@ -16,6 +16,13 @@ cd "$(dirname "$0")/.."
 
 python3 scripts/assert_test_backend.py --env-file .env
 
+# Every `flutter drive` leaves a ~100 MB dir in .dart_tool/flutter_build; over a
+# full suite that filled the disk (14 GB / 200+ dirs), which showed up as build
+# stalls, wedged emulators and Docker hangs. Keep only the newest few.
+if [ -d .dart_tool/flutter_build ]; then
+  ls -t .dart_tool/flutter_build | tail -n +6 | while read -r d; do rm -rf ".dart_tool/flutter_build/$d"; done
+fi
+
 if [ "$KEEP" != "--keep-app" ]; then
   case "$UDID" in
     emulator-*) adb -s "$UDID" uninstall com.niswah.niswah >/dev/null 2>&1 || true ;;

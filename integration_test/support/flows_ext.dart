@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/core/network/supabase_client.dart';
 
 import 'flows.dart';
 
@@ -70,6 +71,15 @@ extension StillBleedingFlow on Flows {
     await h.settle(2);
     await h.tapVisible(find.text('Get Started'));
     await h.settle(3);
+    // A slow device can still be finishing the onboarding save; wait for the
+    // session and the dashboard rather than assuming.
+    for (var i = 0; i < 90; i++) {
+      if (NiswahSupabase.clientOrNull?.auth.currentUser != null &&
+          find.text('Profile').evaluate().isNotEmpty) {
+        break;
+      }
+      await t.pump(const Duration(seconds: 1));
+    }
     return email;
   }
 }

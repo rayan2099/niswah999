@@ -76,6 +76,8 @@ class Harness {
     }
   }
 
+  bool get isAndroid => Platform.isAndroid;
+
   final List<String> notes = [];
   void note(String s) {
     notes.add(s);
