@@ -53,11 +53,13 @@ Android yet.
 | Batch11 | PREG-03 progression (+49 days) with server-engine parity; PREG-05 pregnancy content in reports (D-014 found+fixed); PREG-06(a) the row the AI context is built from | PASS | — |
 | Batch13 | WELL-04: the wellbeing reminder toggles OFF/ON, persists and reopens correctly (D-018 found+fixed) | PASS | — |
 | Batch14 | TTC-03: fertility-window dates and pregnancy-chance label checked against an independently-computed oracle at controlled clock offsets; cross-checked against the Husband/Fiqh/Doctor reports | PASS | — |
-| Batch15 | D-017 found+fixed: device-local answers (marital, TTC, pregnancy, prayer city, notification feed, today's check-in) are per-user, not global | (re-run in progress) | — |
-| Batch16 | WELL-03/RPT-03: wellbeing and Doctor report figures checked against a known seeded dataset | (not yet run) | — |
+| Batch15 | D-017 found+fixed: device-local answers (marital, TTC, pregnancy, prayer city, notification feed, today's check-in) are per-user, not global | PASS | — |
+| Batch16 | WELL-03/RPT-03: wellbeing and Doctor report figures checked against a known seeded dataset | PASS | — |
 | AR2 | Arabic audit: auth/onboarding, Today/menstrual, Calendar, TTC/pregnancy setup | PASS | — |
 | AR3 | Arabic audit: pregnancy, Nifas, prayer location, notification settings/reminder-time picker, every report/export, privacy policy (found+fixed D-016) | PASS | — |
 | AR4 | Arabic audit: community posting and private messaging between two accounts | PASS | — |
+| xAuth09 | AUTH-09: session restore across a REAL app relaunch (process killed, app+data kept, reinstalled over the same data) -- two-phase, scripts/run_session_restore.sh | PASS | (iOS-only; `flutter drive` uninstalls on Android, see script header) |
+| xN | REM-03: a real notification, tapped on the emulator via uiautomator, routes to the check-in sheet | Android only; ran 4x (FAIL each time) -- see DEFECT_REGISTER (a real harness bug found+fixed; Android's own inexact-alarm battery deferral is the remaining, unresolved gap; E4-01 is the real verification path) | — |
 
 "(in suite)" = part of the current full-suite run recorded in
 `TEST_EXECUTION_REPORT.md`; that report states which final results exist.

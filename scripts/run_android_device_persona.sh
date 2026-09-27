@@ -48,7 +48,7 @@ DEADLINE=$(( $(date +%s) + ${PERSONA_TIMEOUT_SECONDS:-1800} ))
 handled=0
 
 tap_notification() {
-  local text="$1" deadline=$(( $(date +%s) + 600 ))
+  local text="$1" deadline=$(( $(date +%s) + 1500 ))
   echo "==> waiting for a notification containing: $text"
   while [ "$(date +%s)" -lt "$deadline" ]; do
     if adb -s "$DEVICE" shell dumpsys notification --noredact 2>/dev/null | grep -q "pkg=$PKG.*" &&
@@ -84,6 +84,19 @@ PY
     fi
     sleep 3
   done
+  # Self-contained diagnostic (the app is uninstalled by the time the run
+  # finishes, so this cannot be captured after the fact): was the
+  # notification actually posted by the OS, and did an exact-alarm exist
+  # for it at all? Distinguishes "posted but the uiautomator tap missed
+  # it" from "never posted" without needing a live parallel poll.
+  echo "==> diagnostic: dumpsys notification for $PKG (raw grep, 5 lines each side)" >&2
+  adb -s "$DEVICE" shell dumpsys notification --noredact 2>/dev/null \
+    | grep -B5 -A5 "$PKG" >&2
+  echo "==> diagnostic: notification listener / dumpsys uiautomator dump root" >&2
+  adb -s "$DEVICE" shell dumpsys notification 2>/dev/null | grep -c "NotificationRecord" >&2
+  cat /tmp/ui_notif.xml 2>/dev/null | grep -o 'text="[^"]*"' | sort -u >&2
+  echo "==> diagnostic: dumpsys alarm for $PKG" >&2
+  adb -s "$DEVICE" shell dumpsys alarm 2>/dev/null | grep -A2 "$PKG" >&2
   echo "==> could not find the notification on screen" >&2
   return 1
 }

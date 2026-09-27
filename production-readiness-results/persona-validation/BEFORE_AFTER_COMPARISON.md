@@ -67,6 +67,8 @@ Verified against `origin/main` source (`git show origin/main:<path>`), so
 | D-004 legacy screens vs onboarding history | No — onboarding history capture does not exist on `main` | n/a | Calendar/Insights agree with Today for a period reported in onboarding |
 | D-006 offline replay | No — the offline pending/replay path is a PR #4 feature | n/a | Replayed save refreshes Today/prayer card/legacy model with no manual step |
 | D-005 deletion retention | **Yes** — `ai_rate_limit_counters` never had a foreign key | Account deletion leaves the user's rate-limit counter rows | Removed with the account (trigger + one-time cleanup) |
+| D-017 device-local answers leak across accounts | **Yes** — `git show origin/main:lib/core/preferences/marital_status_controller.dart` uses the same global `_storageKey` (confirmed for marital/TTC/pregnancy/prayer-location/notification-log too) | A second person signing in on the same phone inherits the first person's marital status, TTC mode, pregnancy overview, prayer city, reminders and today's mood note | Every such key is namespaced by the signed-in user (`UserScopedPreferences`); an existing install's answers move to their owner exactly once |
+| D-018 reminder switch can lie about the OS | **Yes** — `git show origin/main:.../notification_settings_screen.dart` has no `areNotificationsEnabled`/blocked-notice at all | A reminder reads ON while the OS will never show it, silently | A notice appears in Notification settings while the OS blocks notifications, re-checked on resume |
 
 The live paired-screenshot comparison against a running `main` build is
 still **not produced**; the table above is source-verified and the

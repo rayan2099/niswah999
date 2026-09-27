@@ -135,10 +135,12 @@ This is evidence about the *mechanism*, not about the production account.
   Deleting straight from `auth.users` (the Dashboard/Admin equivalent) was
   also verified to remove the counters.
 
-## Re-confirmed OPEN (2026-09-26, final closure wave)
+## Re-confirmed OPEN (2026-09-26 and again 2026-09-27, final closure wave)
 
 Still **not deleted and not verified**; no administrative credential or
-Dashboard access has been provided, and none was improvised. The kill switch
+Dashboard access has been provided, and none was improvised. Nothing in this
+wave's work (D-011 through D-018, the new Batch/xAuth09/xN/xZ personas) touched
+production or this account in any way. The kill switch
 is permanent and CI-enforced (vectors shared by the Dart and Python tests, the
 Python test now runs in the regular CI job): the harness cannot create another
 account on production. When an authorized path exists the procedure is:

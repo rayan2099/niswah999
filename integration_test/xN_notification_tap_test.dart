@@ -92,24 +92,47 @@ void main() {
     final enabled = sw.evaluate().isNotEmpty &&
         (sw.evaluate().first.widget as Switch).value;
 
-    final target = DateTime.now().add(const Duration(minutes: 3));
-    final hour12 = target.hour % 12 == 0 ? 12 : target.hour % 12;
-    await h.tapVisible(find.text('Change').first);
-    await h.settle(2);
-    final toggle = find.byIcon(Icons.keyboard_outlined);
-    if (toggle.evaluate().isNotEmpty) {
-      await h.tapVisible(toggle);
-      await h.settle(1);
-      final fields = find.byType(TextField);
-      if (fields.evaluate().length >= 2) {
-        await tester.enterText(fields.at(0), '$hour12');
-        await tester.enterText(fields.at(1), target.minute.toString());
-        await tester.pump(const Duration(milliseconds: 300));
+    // The reminder is scheduled at this HH:MM as a daily time-of-day: if
+    // "now" has already passed HH:MM by the time this is actually SAVED
+    // (real risk on a slow machine -- the picker interaction below can
+    // itself take real minutes), the scheduler correctly rolls it to
+    // TOMORROW rather than firing something stale -- which would then
+    // never arrive within this test's own wait window. Rather than a fixed
+    // lead time, this sets the time, then CONFIRMS the buffer that's
+    // actually left before it's due once the real UI interaction is done,
+    // retrying with a fresh, later target if too little is left.
+    var leadMinutes = 8;
+    late DateTime target;
+    late int hour12;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      target = DateTime.now().add(Duration(minutes: leadMinutes));
+      hour12 = target.hour % 12 == 0 ? 12 : target.hour % 12;
+      await h.tapVisible(find.text('Change').first);
+      await h.settle(2);
+      final toggle = find.byIcon(Icons.keyboard_outlined);
+      if (toggle.evaluate().isNotEmpty) {
+        await h.tapVisible(toggle);
+        await h.settle(1);
+        final fields = find.byType(TextField);
+        if (fields.evaluate().length >= 2) {
+          await tester.enterText(fields.at(0), '$hour12');
+          await tester.enterText(fields.at(1), target.minute.toString());
+          await tester.pump(const Duration(milliseconds: 300));
+        }
+        await h.tapVisible(find.text(target.hour < 12 ? 'AM' : 'PM'));
       }
-      await h.tapVisible(find.text(target.hour < 12 ? 'AM' : 'PM'));
+      await h.tapVisible(find.text('OK'));
+      await h.settle(2);
+      final bufferLeft = target.difference(DateTime.now());
+      h.note(
+        'N reminder time set to ${target.hour}:${target.minute} '
+        '(attempt ${attempt + 1}, buffer left ${bufferLeft.inSeconds}s)',
+      );
+      if (bufferLeft.inMinutes >= 3) break;
+      // Too little of the lead time survived the UI interaction -- redo
+      // with a longer one, informed by how slow this attempt actually was.
+      leadMinutes = (leadMinutes * 2).clamp(8, 20);
     }
-    await h.tapVisible(find.text('OK'));
-    await h.settle(2);
     h.dumpTexts('N settings after choosing ${target.hour}:${target.minute}');
     final wantedLabel =
         '$hour12:${target.minute.toString().padLeft(2, '0')} ${target.hour < 12 ? 'AM' : 'PM'}';
@@ -147,7 +170,7 @@ void main() {
     await openTab('Today');
     h.note('HOST TAP NOTIFICATION Time for your daily check-in.');
     var sheetOpened = false;
-    for (var i = 0; i < 660 && !sheetOpened; i++) {
+    for (var i = 0; i < 1500 && !sheetOpened; i++) {
       await tester.pump(const Duration(seconds: 1));
       sheetOpened = find.text('Are you still bleeding today?').evaluate().isNotEmpty;
     }

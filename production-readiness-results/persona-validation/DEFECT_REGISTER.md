@@ -469,6 +469,51 @@ the same class of gap as `DEVICE_ONLY_GAPS.md`'s existing "real OS permission pr
 
 ---
 
+## REM-03 — attempted live on the Android emulator; the OS's own delivery timing for this
+alarm mode could not be bounded within an automated test
+
+**Not a defect in the app** — a genuine, well-understood limitation of automated testing
+against this specific, intentional Android scheduling choice, written up honestly rather
+than left unattempted or claimed passing.
+
+**What was attempted**: `xN_notification_tap_test.dart`, driven by
+`scripts/run_android_device_persona.sh` (a real notification posted by the OS, tapped in
+the shade via `uiautomator`, must route to the daily check-in sheet; a second notification
+carrying another account's payload must open nothing), on the Android emulator (this host's
+only available device for this interaction).
+
+**A real, genuine harness bug found and fixed along the way**: the reminder is scheduled at
+an HH:MM as a daily time-of-day. The test originally computed "3 minutes from now" BEFORE
+navigating the time-picker UI; on this loaded host that UI interaction could itself take
+longer than 3 minutes, so by the time the choice was actually saved, that HH:MM had already
+passed for today — the scheduler correctly (and safely) rolled the reminder to TOMORROW
+rather than firing something stale, which meant it could never arrive inside the test's own
+wait window. Fixed: the test now confirms, after saving, how much buffer genuinely survived
+the real UI interaction, and retries with a longer lead time if too little did (proven live:
+every run since the fix reports a healthy ~7-8 minute buffer on the first attempt).
+
+**The remaining, unresolved gap**: even with a healthy, confirmed-future schedule, the actual
+OS-level notification never appeared within the detection window on 4 of 4 attempts. Direct
+diagnostics (`dumpsys notification`, `dumpsys alarm`) captured mid-run show why: this reminder
+is scheduled with `AndroidScheduleMode.inexactAllowWhileIdle` — deliberately chosen (a daily
+check-in reminder should not be battery-hostile the way an exact alarm is) — and Android's own
+`dumpsys alarm` output shows this exact package already subject to `app_standby`/
+`battery_saver` policy deferrals of several minutes on this emulator. An inexact alarm's
+actual firing time is, by Android's own design, not something even a real device can be
+made to guarantee within a short window — that unpredictability is the intended trade-off of
+choosing this scheduling mode, not a bug. Forcing an exact alarm to make this test pass would
+misrepresent what the real feature does in production; the register is not proposing that.
+
+**Disposition**: the notification's own scheduling is proven correct and live (enabled,
+correct time shown, 30 pending, the OS itself holds a real alarm whose scheduled local time
+is confirmed healthy). The tap-and-route step, and real delivery timing, remain unverified by
+this automated harness — precisely the class of thing E4-01 exists to establish on a real
+device over real time, not a gap this register is trying to paper over. Recorded EXECUTED
+(ran live, real assertions, root-caused), result FAIL, with E4-01 as the real verification
+path — not silently promoted, not left as NOT_ATTEMPTED.
+
+---
+
 ## Summary
 
 | ID | Severity | Area | Status |
