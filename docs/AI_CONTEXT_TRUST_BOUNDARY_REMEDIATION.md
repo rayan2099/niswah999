@@ -1,9 +1,43 @@
 # AI Context Trust-Boundary Remediation
 
-Status: IMPLEMENTATION REQUIRED  
+Status: IMPLEMENTED ON BRANCH — VALIDATION/CI PENDING  
 Branch: `feat/ai-context-trust-boundary`  
 Base: PR #4 head `c79fb78be31acd6fb4923666a9d4daafbe94fb76`  
 Related KB review: PR #6 (research/review only; must remain separate)
+
+## Implementation checkpoint
+
+Implemented on `feat/ai-context-trust-boundary` on top of PR #4's canonical
+menstrual-data branch.
+
+Current implementation now:
+
+- uses `bleeding_episodes` as the sole AI authority for current bleeding;
+- keeps `cycle_entries` only as a temporary informational source for legacy
+  symptom/note fields;
+- distinguishes successful empty reads from unavailable/failed reads;
+- reads Madhhab authority from `public.users` server-side and ignores client
+  Madhhab claims at the Fiqh endpoint;
+- preserves `UNKNOWN`, `UNSET`, and server `UNAVAILABLE` separately;
+- removes the legacy silent Shafi'i parser fallback;
+- exposes TTC as enabled/disabled only after an explicit user-scoped preference,
+  otherwise UNKNOWN;
+- removes the pregnancy engine's hardcoded postpartum-to-Nifas phase;
+- exposes Nifas as UNKNOWN unless a legitimate Fiqh authority exists;
+- adds provenance labels to derived pregnancy and canonical bleeding values;
+- closed-enum validates any legacy client Fiqh classification and labels it
+  `client_computed_unverified`;
+- stops the current app client from sending its legacy
+  `cycle_entries`-derived Fiqh classification;
+- quotes/escapes user-authored notes so they cannot create trusted context
+  delimiters.
+
+A separate pre-existing product-level Nifas authority was discovered in
+`PregnancyStatusController`; it remains outside this engineering PR and is
+tracked in `docs/NIFAS_AUTHORITY_FOLLOWUP.md` pending qualified review.
+
+Validation is not yet claimed because this stacked branch does not currently
+trigger the repository's main-target-only CI workflow.
 
 ## 1. Purpose
 
@@ -164,6 +198,9 @@ Recommended contract shape:
 ```ts
 type Availability = 'available' | 'unavailable';
 
+// Madhhab read failure/corruption is distinct from a real user UNSET answer.
+type MadhhabState = 'unset' | 'unknown' | 'selected' | 'unavailable';
+
 type ProvenanceKind =
   | 'user_observed'
   | 'user_reported_historical'
@@ -226,7 +263,7 @@ interface UserAiContextV2 {
   };
 
   fiqh: {
-    madhhabState: 'unset' | 'unknown' | 'selected';
+    madhhabState: 'unset' | 'unknown' | 'selected' | 'unavailable';
     madhhab: 'hanafi' | 'maliki' | 'shafii' | 'hanbali' | null;
 
     nifasState:
