@@ -452,3 +452,19 @@ Deno.test('formatter — dream scope excludes Madhhab and Fiqh classification', 
   assertEquals(block.includes('selected_madhhab'), false);
   assertEquals(block.includes('fiqh_classification'), false);
 });
+
+
+Deno.test('formatter — unknown pregnancy keeps Nifas unknown, not not_applicable', () => {
+  const context = baseContext({
+    pregnancy: {
+      ...baseContext().pregnancy,
+      mode: 'unknown',
+    },
+    fiqh: {
+      ...baseContext().fiqh,
+      nifasState: 'unknown',
+    },
+  });
+  const block = formatContextBlock(context, 'general_assistant');
+  assertEquals(block.includes('nifas_state: unknown'), true);
+});
