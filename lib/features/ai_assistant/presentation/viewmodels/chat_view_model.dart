@@ -6,7 +6,6 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
-import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
 import '../../../../core/preferences/ttc_mode_controller.dart';
 import '../../../../core/services/notification_service.dart';
@@ -328,11 +327,6 @@ class ChatViewModel extends ChangeNotifier {
       content: content,
     );
 
-    // Fiqh Remediation Wave 1: null whenever the user's Madhhab is
-    // UNSET/UNKNOWN — never a fabricated value. See Section F.
-    final madhhabState = MadhhabController.instance.state;
-    final selectedMadhhab = MadhhabController.instance.selectedOrNull;
-
     // Do not send the legacy cycle_entries-derived client Fiqh
     // classification into the AI trust boundary. Canonical bleeding facts
     // now come from bleeding_episodes server-side; a deterministic Fiqh
@@ -345,8 +339,7 @@ class ChatViewModel extends ChangeNotifier {
     final metadata = {
       'source': 'gemini',
       'grounded': true,
-      'madhhab': selectedMadhhab?.name,
-      'madhhab_state': madhhabState.name,
+      'madhhab_authority': 'server',
       'citations': result.citations.map((item) => item.toJson()).toList(),
     };
     await showAssistantReplyAndPersistForTesting(
