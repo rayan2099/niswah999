@@ -39,19 +39,19 @@ const SYSTEM_PROMPT = `أنتِ "طبيبة"، مرافقة رقمية للحم�
 
 السياق الحالي للمستخدمة يصلك في كتلة [CONTEXT] مع كل رسالة. استخدميه
 دائمًا لتخصيص إجابتك:
-- إن كان mode=pregnant، اربطي إجابتك بالأسبوع/الشهر/الثلث الحالي
+- إن كان pregnancy_mode=pregnant، اربطي إجابتك بالأسبوع/الشهر/الثلث الحالي
   بشكل طبيعي (مثال: "في الأسبوع 23 من الشائع أن..."), لا تكرري رقم
   الأسبوع في كل جملة، فقط عندما يفيد ذلك السياق الطبي.
-- إن كان mode=postpartum، تحدثي عن مرحلة ما بعد الولادة والتعافي بعد الولادة، لا عن الحمل. لا تستنتجي من حالة postpartum وحدها حكماً فقهياً للنفاس؛ أي حكم فقهي للنفاس يحتاج سياقاً فقهياً مستقلاً ومصدراً معتمداً.
-- إن كان mode=unknown، لا تفترضي أسبوعًا. اسألي بلطف عن تاريخ آخر
+- إن كان pregnancy_mode=postpartum، تحدثي عن مرحلة ما بعد الولادة والتعافي بعد الولادة، لا عن الحمل. لا تستنتجي من حالة postpartum وحدها حكماً فقهياً للنفاس؛ أي حكم فقهي للنفاس يحتاج سياقاً فقهياً مستقلاً ومصدراً معتمداً.
+- إن كان pregnancy_mode=unknown أو pregnancy_state=unavailable، لا تفترضي أسبوعًا أو حالة حمل. اسألي بلطف عن تاريخ آخر
   دورة أو الأسبوع التقريبي قبل تقديم نصيحة مرتبطة بمرحلة محددة.
   يمكنك إعطاء معلومة عامة غير مرتبطة بأسبوع بينما تسألين.
 - راعي fasting_status عند الحديث عن الصيام أو الصلاة (وضعيات
   السجود المتغيرة حسب الثلث، الاستطاعة الجسدية، إلخ).
 - إن وُجدت high_risk_flags، لا تتجاهليها، لكن لا تحوّلي الحديث إلى
   تشخيص — ذكّري المستخدمة بمتابعة هذه النقطة مع طبيبها.
-- قد تصلك أيضًا حقول عن الدورة الشهرية (menstrual_history_exists،
-  menstrual_current_bleeding_observed)، الحالة النفسية الأخيرة
+- قد تصلك أيضًا حالة النزف الواقعية من bleeding_episodes عبر
+  canonical_bleeding_state، وحالة TTC الصريحة عبر ttc_state، والحالة النفسية الأخيرة
   (wellbeing_most_recent)، أعراض مسجلة (recent_symptoms)، وملاحظات
   كتبتها المستخدمة بنفسها (recent_user_notes). استخدميها لتخصيص
   إجابتك عند الصلة فقط — مثلاً لا تفترضي حملًا حاليًا يتعارض مع
@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
     }
     const userId = userData.user.id;
 
-    const { threadId, content } = await req.json();
+    const { threadId, content, ttcEnabled } = await req.json();
     if (!threadId || typeof content !== 'string' || !content.trim()) {
       return new Response(JSON.stringify({ error: 'threadId and content are required.' }), {
         status: 400,
@@ -233,6 +233,7 @@ Deno.serve(async (req) => {
     }
 
     const userContext = await buildUserAiContext(userClient, {
+      clientTtcEnabled: ttcEnabled,
       currentMessageSafetyFlags: redFlags,
     });
     const systemInstruction = `${SYSTEM_PROMPT}\n\n${formatContextBlock(userContext, 'dr_niswah')}`;
