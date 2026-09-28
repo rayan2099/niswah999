@@ -189,10 +189,13 @@ if len(audit) != 180:
     fail(f"source quality audit: expected 180 rows, got {len(audit)}")
 for r in audit:
     rid = r.get("review_id", "?")
-    if r.get("quality_flag") != "OK_FOR_SCHOLAR_REVIEW":
-        fail(f"{rid}: source quality flag is {r.get('quality_flag')!r}")
+    quality_flag = r.get("quality_flag")
+    if quality_flag not in {"OK_FOR_SCHOLAR_REVIEW", "SECONDARY_CORROBORATION_ONLY"}:
+        fail(f"{rid}: source quality flag is {quality_flag!r}")
     if r.get("primary_quality") == "MISSING" or not r.get("primary_host"):
         fail(f"{rid}: primary source quality/host missing")
+    if quality_flag == "SECONDARY_CORROBORATION_ONLY" and r.get("primary_quality") == "MISSING":
+        fail(f"{rid}: corroborative-secondary flag cannot substitute for missing primary evidence")
 
 # 6) Medical review packet.
 medical = rows("MEDICAL_REVIEW_PACKET.csv")
