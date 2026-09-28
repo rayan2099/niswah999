@@ -56,3 +56,33 @@ The Excel workbooks used during research are review conveniences; CSV/Markdown a
 - `MALIKI_EVIDENCE_PACK.csv` — first-pass source/locator extraction for all 45 Maliki atoms.
 
 Evidence-pack statuses are research states, not religious approval. Rows marked LOCATOR_VERIFIED still remain PENDING_SCHOLAR_REVIEW.
+
+
+## Review-ready milestone
+
+The research workstream now includes four 45-row Fiqh evidence packs and four matching scholar-review packets.
+
+Current Fiqh evidence status:
+- 180/180 atoms have concrete source locators.
+- 137/180 are `LOCATOR_VERIFIED`.
+- 29/180 are `SCHOLAR_CLARIFICATION_REQUIRED`.
+- 14/180 are `PARTIAL_EVIDENCE`.
+- 0/180 are `PRIMARY_LOCATOR_NEEDED`.
+- 0/180 are scholar-approved.
+
+Source-quality audit:
+- 178/180 have primary evidence suitable for scholar review.
+- 2/180 use a suitable primary source with secondary corroboration that must remain secondary.
+- 0 rows currently require primary-source hardening before scholar review.
+
+Review artifacts:
+- `FIQH_SCHOLAR_HANDOFF.md`
+- `HANAFI_SCHOLAR_REVIEW_PACKET.csv`
+- `MALIKI_SCHOLAR_REVIEW_PACKET.csv`
+- `SHAFII_SCHOLAR_REVIEW_PACKET.csv`
+- `HANBALI_SCHOLAR_REVIEW_PACKET.csv`
+- `MEDICAL_REVIEW_HANDOFF.md`
+- `MEDICAL_REVIEW_PACKET.csv`
+- `REVIEWER_ASSIGNMENT_TRACKER.csv`
+
+The next blocking step is qualified human domain review, not additional RAG implementation.
