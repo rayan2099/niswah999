@@ -217,7 +217,6 @@ void main() {
 
       expect(status.mode, PregnancyMode.postpartum);
       expect(status.daysPostpartum, 39);
-      expect(status.daysPostpartum, 39);
     });
 
     test('elapsed postpartum days do not create a Nifas classification', () {
