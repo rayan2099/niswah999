@@ -12,7 +12,6 @@ import '../../../../core/preferences/ttc_mode_controller.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../notifications/domain/entities/notification_preference.dart';
 import '../../../ai_advisor/ai_advisor_service.dart';
-import '../../../ai_advisor/client_fiqh_state_provider.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/chat_thread.dart';
 import '../../domain/repositories/chat_repository.dart';
@@ -334,13 +333,13 @@ class ChatViewModel extends ChangeNotifier {
     final madhhabState = MadhhabController.instance.state;
     final selectedMadhhab = MadhhabController.instance.selectedOrNull;
 
-    // AICTX remediation: best-effort, never blocking — a failure here
-    // (no history, a network error) just means the field is omitted.
-    final clientFiqhState = await ClientFiqhStateProvider()
-        .currentClassification(selectedMadhhab);
+    // Do not send the legacy cycle_entries-derived client Fiqh
+    // classification into the AI trust boundary. Canonical bleeding facts
+    // now come from bleeding_episodes server-side; a deterministic Fiqh
+    // classification can be reintroduced only when it consumes canonical
+    // state and its rule evidence has passed the appropriate review gate.
     final result = await AiAdvisorService.instance.askFiqh(
       question: content,
-      clientFiqhState: clientFiqhState,
     );
 
     final metadata = {
@@ -385,8 +384,8 @@ class ChatViewModel extends ChangeNotifier {
       // explicit stored preference; absence stays UNKNOWN at the AI boundary.
       body: {
         'content': content,
-        if (TtcModeController.instance.explicitSelectionOrNull case final value?)
-          'ttcEnabled': value,
+        if (TtcModeController.instance.explicitSelectionOrNull != null)
+          'ttcEnabled': TtcModeController.instance.explicitSelectionOrNull!,
       },
     );
     final data = response.data;
