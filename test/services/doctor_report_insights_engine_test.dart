@@ -102,7 +102,7 @@ void main() {
       },
     );
 
-    test('postpartum profile flows through to the cycle/pregnancy section as nifas', () {
+    test('postpartum profile flows through as factual postpartum with Fiqh unresolved', () {
       final profile = PregnancyProfile(
         id: 'p1',
         userId: 'user-1',
@@ -120,7 +120,7 @@ void main() {
         now: DateTime(2026, 1, 10),
       );
 
-      expect(insights.cycleAndPregnancy.mode, FiqhReportMode.nifas);
+      expect(insights.cycleAndPregnancy.mode, FiqhReportMode.postpartumUnresolved);
     });
 
     test('recent flagged concerns pass through untouched', () {
