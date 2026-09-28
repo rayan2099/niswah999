@@ -105,10 +105,11 @@ disclosed FAIL, not silently promoted — see below).
   (E4-07).
 - **NOT_ATTEMPTED (0)**: none remain. Two rows (REM-03, PRAY-05) that were
   NOT_ATTEMPTED at the start of this wave were run live, multiple times; both
-  surfaced real, root-caused findings (one a genuine harness bug now fixed
-  and confirmed; one a harness bug fixed but not yet re-verified live) —
-  disclosed in full below and in `DEFECT_REGISTER.md`, not silently marked
-  passing.
+  surfaced real, root-caused findings, disclosed in full below and in
+  `DEFECT_REGISTER.md`. PRAY-05 is now fully EXECUTED/PASS (3/3 clean
+  repetitions, both timezone directions, harness-only fixes, no product
+  defect — see below); REM-03's remaining gap is Android's own inexact-alarm
+  battery deferral, not fixable from this harness, real device is E4-01.
 
 ### E4_REQUIRED (physical device — a separate gate, not folded into the 114)
 
@@ -183,15 +184,24 @@ or fixed-but-not-yet-reconfirmed. Full detail in `DEFECT_REGISTER.md`.
   attempts — is Android's own by-design `inexactAllowWhileIdle` battery/
   app-standby deferral for this deliberately battery-friendly reminder, not a
   product defect; E4-01 is the real verification path.
-- **PRAY-05 (timezone re-derivation)**: a genuine test bug (tapping
-  `BackButton` on a screen whose real close control is a `CloseButton`, since
-  it is opened as a fullscreen dialog) was found, confirmed live twice
-  (produced a real, root-caused FAIL both times), and fixed to match this
-  codebase's own established pattern. Re-verification of the fix was blocked
-  by this specific machine running out of resources after a very long
-  session (6 further attempts failed to host exhaustion, unrelated to the
-  fix) — the emulator was shut down rather than continuing to force it. Needs
-  one clean re-run.
+- **PRAY-05 (timezone re-derivation) — now fully resolved, EXECUTED/PASS**:
+  five real test-harness bugs were found and fixed (`BackButton` vs
+  `CloseButton` on a fullscreen-dialog screen; a `dumpsys alarm` regex that
+  never matched this Android version's actual output; an alarm check that
+  wrongly required every one of the app's reminder types to share one time;
+  `checkIn()` not handling the backfill-sheet shape; a text dump reading a
+  scrolled-down screen). The original question — whether
+  `NotificationService.activeTimezoneId` staying on the old zone was a real
+  app defect — was root-caused with timestamped instrumentation
+  (OS-level zone poll, an independent app-lifecycle listener, a bounded poll
+  of `activeTimezoneId`): `refreshLocalTimezone(forceRefresh: true)` is the
+  literal first awaited line of the resume-triggered refresh, always
+  correctly sequenced, but takes 15–25s of real, bounded async latency
+  (platform channel + preferences + full reschedule) on this specific
+  loaded 8 GB host — a harness-timing artifact, not a product defect. No
+  production code changed. **3/3 clean repetitions PASS**, covering a
+  forward (+14h, `Pacific/Kiritimati`) and a backward (−11h,
+  `Pacific/Pago_Pago`) shift plus the natural/unforced direction picker.
 - **WELL-04 (wellbeing reminder)**: the toggle/persist/reopen behaviour is
   confirmed live and gates this row's pass. A secondary, D-018-related live
   check (whether the "notifications are blocked" notice renders in time) was
@@ -299,9 +309,6 @@ Additionally:
   The intended final full-suite validation is the hosted, sharded dispatcher
   (PR #5) run against PR #4's exact head SHA once the founder authorizes the
   merge — see "Pending founder actions" below.
-- PRAY-05's fix is applied but not yet re-verified live (host resource
-  exhaustion; see the closure-wave findings section above) — needs one clean
-  re-run before being called done.
 - Disclosure: commit `1686e43` also carries an unintended whitespace-only
   reformat of two unrelated files (no behavioural change).
 

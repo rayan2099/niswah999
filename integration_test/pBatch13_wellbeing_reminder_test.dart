@@ -67,19 +67,18 @@ void main() {
           >();
       try {
         if (android != null) {
-          return await android
-              .areNotificationsEnabled()
-              .timeout(const Duration(seconds: 8));
+          return await android.areNotificationsEnabled().timeout(
+            const Duration(seconds: 8),
+          );
         }
         final ios = plugin
             .resolvePlatformSpecificImplementation<
               IOSFlutterLocalNotificationsPlugin
             >();
         if (ios != null) {
-          return (await ios
-                  .checkPermissions()
-                  .timeout(const Duration(seconds: 8)))
-              ?.isEnabled;
+          return (await ios.checkPermissions().timeout(
+            const Duration(seconds: 8),
+          ))?.isEnabled;
         }
       } on TimeoutException {
         return null; // most likely a native permission alert is blocking us
