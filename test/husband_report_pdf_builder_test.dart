@@ -104,7 +104,7 @@ void main() {
     expect(bytes.isNotEmpty, isTrue);
   });
 
-  test('renders the nifas state without throwing', () async {
+  test('renders postpartum with Fiqh classification unresolved without throwing', () async {
     final profile = PregnancyProfile(
       id: 'p1',
       userId: 'user-1',
@@ -121,7 +121,7 @@ void main() {
       now: DateTime(2026, 1, 20),
     );
 
-    expect(insights.fiqh.mode, FiqhReportMode.nifas);
+    expect(insights.fiqh.mode, FiqhReportMode.postpartumUnresolved);
 
     final bytesAr = await HusbandReportPdfBuilder.build(
       isArabic: true,
