@@ -428,15 +428,19 @@ class HusbandReportPdfBuilder {
     pw.Font semiBold,
   ) {
     final fiqh = insights.fiqh;
-    final isNifas = fiqh.mode == FiqhReportMode.nifas;
-    final (stateLabel, stateColorHex) = isNifas
-        ? (isArabic ? 'نفاس' : 'Nifas', _nifas)
+    final isPostpartumUnresolved =
+        fiqh.mode == FiqhReportMode.postpartumUnresolved;
+    final (stateLabel, stateColorHex) = isPostpartumUnresolved
+        ? (
+            isArabic ? 'ما بعد الولادة' : 'Postpartum',
+            _advisory,
+          )
         : _stateLabelAndColor(fiqh.cycleState!, isArabic);
 
-    final currentDayLine = isNifas
+    final currentDayLine = isPostpartumUnresolved
         ? (isArabic
-              ? 'اليوم ${insights.fiqh.daysPostpartum}'
-              : 'Day ${insights.fiqh.daysPostpartum}')
+              ? 'اليوم ${(insights.fiqh.daysPostpartum ?? 0) + 1} بعد الولادة — دون تصنيف فقهي تلقائي للنفاس'
+              : 'Postpartum day ${(insights.fiqh.daysPostpartum ?? 0) + 1} — no automatic Nifas classification')
         : (fiqh.cycleState == FiqhCycleState.insufficientHistory
               ? (isArabic
                     ? 'غير كافٍ للحساب'
