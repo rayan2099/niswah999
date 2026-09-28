@@ -22,6 +22,7 @@ class DrNiswahBackendService {
   Future<DrNiswahBackendResponse> send({
     required String threadId,
     required String content,
+    bool? ttcEnabled,
   }) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
@@ -31,7 +32,11 @@ class DrNiswahBackendService {
     final response = await AiFunctionGateway.invoke(
       client,
       'dr-niswah-chat',
-      body: {'threadId': threadId, 'content': content},
+      body: {
+        'threadId': threadId,
+        'content': content,
+        if (ttcEnabled != null) 'ttcEnabled': ttcEnabled,
+      },
     );
 
     final data = response.data;
