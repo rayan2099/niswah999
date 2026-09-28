@@ -1,23 +1,23 @@
 # Fiqh Evidence Extraction Progress
 
-## First-pass status
+## First-pass evidence status
 
-The first-pass evidence extraction now covers all **180 Madhhab-specific V1 Fiqh atoms**:
+All **180 Madhhab-specific V1 Fiqh atoms** now have at least a concrete source locator. There are no remaining rows in `PRIMARY_LOCATOR_NEEDED`.
 
 | Madhhab | Total | Locator verified | Scholar clarification required | Partial evidence | Primary locator needed | Scholar approved |
 |---|---:|---:|---:|---:|---:|---:|
-| hanafi | 45 | 32 | 6 | 5 | 2 | 0 |
-| maliki | 45 | 33 | 8 | 3 | 1 | 0 |
-| shafii | 45 | 32 | 9 | 2 | 2 | 0 |
+| hanafi | 45 | 33 | 6 | 6 | 0 | 0 |
+| maliki | 45 | 33 | 8 | 4 | 0 | 0 |
+| shafii | 45 | 34 | 9 | 2 | 0 | 0 |
 | hanbali | 45 | 35 | 6 | 4 | 0 | 0 |
-| **Total** | **180** | **132** | **29** | **14** | **5** | **0** |
+| **Total** | **180** | **135** | **29** | **16** | **0** | **0** |
 
-## Meaning of this milestone
+## Interpretation
 
-- **132/180** rows have a source locator that directly supports the concise source-derived proposition.
-- **48/180** rows still need additional research and/or a scholar decision before they can be formulated as a production rule.
-- **180/180** remain subject to qualified Madhhab-aware scholar review.
-- **0/180** are currently approved for production.
+- **135/180** rows have a direct locator supporting the current concise proposition.
+- **16/180** have a locator but still need a narrower or better-corroborated formulation.
+- **29/180** deliberately expose Madhhab-internal nuance or a product decision that a qualified scholar must settle.
+- **0/180** are scholar-approved.
 - Evidence extraction is not publication approval.
 
 ## Evidence packs
@@ -27,15 +27,14 @@ The first-pass evidence extraction now covers all **180 Madhhab-specific V1 Fiqh
 - `SHAFII_EVIDENCE_PACK.csv`
 - `HANBALI_EVIDENCE_PACK.csv`
 
-## Next Fiqh gate
+## Next gate
 
-1. Resolve the `PRIMARY_LOCATOR_NEEDED` rows.
-2. Narrow the `PARTIAL_EVIDENCE` rows.
-3. Convert each `SCHOLAR_CLARIFICATION_REQUIRED` row into a concise decision question for the relevant scholar.
-4. Run a locator/link/edition quality sweep.
-5. Produce scholar-review packets containing the atom, concise proposition, direct source locator(s), and conflict note.
-6. Record reviewer decisions without overwriting historical evidence.
+1. Quality-sweep all locators and flag secondary-host or edition-quality concerns.
+2. Produce four scholar-review packets from the evidence packs.
+3. Every packet must preserve the source proposition and expose disagreements rather than silently choose a view.
+4. Scholar decisions are recorded as APPROVED / APPROVED_WITH_EDITS / CONFLICT_REQUIRES_REVIEW / REJECTED.
+5. Only approved propositions can be transformed into production knowledge items.
 
 ## Hard rule
 
-No evidence-pack row becomes an authoritative Niswah ruling merely because its locator is verified.
+A verified locator does not make a Fiqh ruling authoritative for Niswah. Scholar approval remains mandatory.
