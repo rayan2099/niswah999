@@ -65,15 +65,6 @@ class AiAdvisorService {
   /// modified client cannot choose the religious-rule authority boundary.
   Future<FiqhAnswer> askFiqh({
     required String question,
-
-    /// AICTX remediation: the app's own already-computed deterministic
-    /// classification (e.g. "haid"), or null if unavailable. Sent
-    /// unconditionally when present so the advisor can reference the
-    /// app's existing state instead of asking the user to re-describe it
-    /// — the server validates it against a closed enum and treats it strictly
-    /// as `client_computed_unverified`, never as independently verified or
-    /// scholar-approved. See ClientFiqhStateProvider.
-    String? clientFiqhState,
   }) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
@@ -84,10 +75,7 @@ class AiAdvisorService {
       final response = await AiFunctionGateway.invoke(
         client,
         'fiqh-advisor-chat',
-        body: {
-          'question': question,
-          if (clientFiqhState != null) 'clientFiqhState': clientFiqhState,
-        },
+        body: {'question': question},
       );
 
       final data = response.data;
