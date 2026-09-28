@@ -48,3 +48,11 @@ This branch is the dedicated Knowledge Base workstream for Niswah V1. It is inte
 6. Connect real AI modes and run live-model acceptance.
 
 The Excel workbooks used during research are review conveniences; CSV/Markdown artifacts in the repository are the diffable source-of-truth working files.
+
+
+## Fiqh evidence packs
+
+- `HANAFI_EVIDENCE_PACK.csv` — first-pass source/locator extraction for all 45 Hanafi atoms.
+- `MALIKI_EVIDENCE_PACK.csv` — first-pass source/locator extraction for all 45 Maliki atoms.
+
+Evidence-pack statuses are research states, not religious approval. Rows marked LOCATOR_VERIFIED still remain PENDING_SCHOLAR_REVIEW.
