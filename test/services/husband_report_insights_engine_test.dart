@@ -112,8 +112,8 @@ void main() {
   );
 
   test(
-    'postpartum profile: husband report follows the same nifas priority as '
-    'the fiqh report, and skips cycle-only fields entirely',
+    'postpartum profile: husband report preserves factual postpartum and '
+    'leaves the Fiqh classification unresolved, skipping cycle-only fields',
     () {
       final profile = PregnancyProfile(
         id: 'p1',
@@ -131,7 +131,7 @@ void main() {
         now: DateTime(2026, 1, 20),
       );
 
-      expect(insights.fiqh.mode, FiqhReportMode.nifas);
+      expect(insights.fiqh.mode, FiqhReportMode.postpartumUnresolved);
       expect(insights.fiqh.daysPostpartum, 19);
       expect(insights.nextPeriodDate, isNull);
       expect(insights.fertileWindowStart, isNull);
