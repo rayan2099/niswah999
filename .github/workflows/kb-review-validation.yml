@@ -1,0 +1,25 @@
+name: KB Review Gate
+
+on:
+  pull_request:
+    paths:
+      - 'production-readiness-results/knowledge-base/**'
+      - 'scripts/verify_kb_review_packets.py'
+      - '.github/workflows/kb-review-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-kb-review-packets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR/ref
+        uses: actions/checkout@v4
+      - name: Use Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify KB denominator, evidence, review packets, and publication gates
+        run: python scripts/verify_kb_review_packets.py
