@@ -21,7 +21,7 @@ CycleLog _log(
 }
 
 void main() {
-  group('FiqhReportInsightsEngine — nifas priority', () {
+  group('FiqhReportInsightsEngine — postpartum is factual, not an automatic Nifas ruling', () {
     test('postpartum profile takes priority over any cycle log state', () {
       final profile = PregnancyProfile(
         id: 'p1',
@@ -38,12 +38,11 @@ void main() {
         now: DateTime(2026, 1, 20),
       );
 
-      expect(insights.mode, FiqhReportMode.nifas);
+      expect(insights.mode, FiqhReportMode.postpartumUnresolved);
       expect(insights.daysPostpartum, 19);
-      expect(insights.nifasPhase, 'نفاس');
     });
 
-    test('notes still surface from cycle logs while in nifas mode', () {
+    test('notes still surface while postpartum classification is unresolved', () {
       final profile = PregnancyProfile(
         id: 'p1',
         userId: 'user-1',
@@ -223,8 +222,7 @@ void main() {
       expect(insights.cycleState, FiqhCycleState.tahara);
     });
 
-    test('nifas mode is entirely unaffected by a null madhhab — postpartum '
-        'status does not depend on Madhhab selection', () {
+    test('postpartum facts remain visible with null madhhab without inventing Nifas', () {
       final profile = PregnancyProfile(
         id: 'p1',
         userId: 'user-1',
@@ -239,7 +237,7 @@ void main() {
         now: DateTime(2026, 1, 20),
       );
 
-      expect(insights.mode, FiqhReportMode.nifas);
+      expect(insights.mode, FiqhReportMode.postpartumUnresolved);
       expect(insights.madhhab, isNull);
     });
   });
