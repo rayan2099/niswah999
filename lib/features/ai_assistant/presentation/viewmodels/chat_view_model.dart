@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
@@ -376,7 +377,8 @@ class ChatViewModel extends ChangeNotifier {
       content: content,
     );
 
-    final response = await client.functions.invoke(
+    final response = await AiFunctionGateway.invoke(
+      client,
       'ai-assistant-chat',
       // AICTX remediation: the general assistant previously received no
       // context at all. madhhab is cheap and always known client-side
@@ -401,7 +403,7 @@ class ChatViewModel extends ChangeNotifier {
     await showAssistantReplyAndPersistForTesting(
       threadId: threadId,
       userId: userId,
-      text: data['text']?.toString() ?? '',
+      text: AiFunctionGateway.requireText(data, 'text', 'AI assistant'),
       metadata: const {'source': 'gemini', 'grounded': false},
       persistUser: persistUser,
     );

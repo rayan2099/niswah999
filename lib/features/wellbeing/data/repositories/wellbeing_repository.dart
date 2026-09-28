@@ -4,6 +4,7 @@ import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../domain/entities/wellbeing_log.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 /// Persists daily mood/energy/sleep check-ins to `wellbeing_logs`.
 ///
@@ -48,7 +49,7 @@ class WellbeingRepository {
         // Always written, even when null — an edit that clears a
         // previous note must overwrite it, not leave stale text behind.
         'notes': notes,
-        'updated_at': now.toIso8601String(),
+        'updated_at': dbTimestamp(now),
       };
       await client
           .from(_tableName)

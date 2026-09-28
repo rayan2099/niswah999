@@ -1,3 +1,4 @@
+import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
 
 class DrNiswahBackendResponse {
@@ -27,7 +28,8 @@ class DrNiswahBackendService {
       throw StateError('Supabase is not initialized.');
     }
 
-    final response = await client.functions.invoke(
+    final response = await AiFunctionGateway.invoke(
+      client,
       'dr-niswah-chat',
       body: {'threadId': threadId, 'content': content},
     );
@@ -38,9 +40,17 @@ class DrNiswahBackendService {
       throw StateError(error ?? 'Doctor Niswah service failed (${response.status}).');
     }
 
-    return DrNiswahBackendResponse(
-      reply: data['reply']?.toString() ?? '',
-      urgent: data['urgent'] == true,
-    );
+    final urgent = data['urgent'] == true;
+    final reply = data['reply'];
+    // A reply must be real text. An empty/missing/non-string reply is a
+    // failure — EXCEPT when the server flagged the message urgent, where the
+    // caller shows the safety banner instead of model text.
+    if (reply is! String || reply.trim().isEmpty) {
+      if (!urgent) {
+        throw StateError('Doctor Niswah returned an empty or malformed reply.');
+      }
+      return const DrNiswahBackendResponse(reply: '', urgent: true);
+    }
+    return DrNiswahBackendResponse(reply: reply, urgent: urgent);
   }
 }

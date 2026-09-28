@@ -171,6 +171,30 @@ class PrivateMessagingRepository implements PrivateMessagingRepositoryBase {
     }
   }
 
+  @override
+  Future<Map<String, String>> fetchDisplayNames(Set<String> userIds) async {
+    if (userIds.isEmpty) return const {};
+    try {
+      final rows = await _client
+          .from('community_posts')
+          .select('user_id, author_name')
+          .inFilter('user_id', userIds.toList())
+          .eq('is_anonymous', false)
+          .order('created_at', ascending: false);
+      final names = <String, String>{};
+      for (final row in rows as List) {
+        final id = row['user_id'] as String?;
+        final name = (row['author_name'] as String?)?.trim();
+        if (id != null && name != null && name.isNotEmpty) {
+          names.putIfAbsent(id, () => name);
+        }
+      }
+      return names;
+    } on PostgrestException {
+      return const {}; // a missing name is cosmetic; the generic title is used
+    }
+  }
+
   /// Subscribes to new messages for a conversation via Supabase Realtime.
   /// Returns a function that cancels the subscription.
   void Function() subscribeToMessages(

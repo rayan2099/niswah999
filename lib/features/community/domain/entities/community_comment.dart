@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 class CommunityComment extends Equatable {
   const CommunityComment({
@@ -25,7 +26,7 @@ class CommunityComment extends Equatable {
     'user_id': userId,
     'author_name': authorName,
     'content': content,
-    'created_at': createdAt.toIso8601String(),
+    'created_at': dbTimestamp(createdAt),
   };
 
   factory CommunityComment.fromJson(Map<String, dynamic> json) {

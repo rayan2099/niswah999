@@ -14,8 +14,7 @@ class NotificationFeedScreen extends StatefulWidget {
   const NotificationFeedScreen({super.key});
 
   @override
-  State<NotificationFeedScreen> createState() =>
-      _NotificationFeedScreenState();
+  State<NotificationFeedScreen> createState() => _NotificationFeedScreenState();
 }
 
 class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
@@ -26,26 +25,29 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
     NotificationService.instance.requestPermission();
   }
 
-  static (IconData, Color) _iconAndColor(NotificationType type) => switch (type) {
-    NotificationType.cycle => (Icons.water_drop_outlined, AppColors.haid),
-    NotificationType.pregnancy => (
-      Icons.pregnant_woman_rounded,
-      AppColors.nifas,
-    ),
-    NotificationType.wellbeing => (
-      Icons.favorite_border_rounded,
-      AppColors.brandPrimary,
-    ),
-    NotificationType.prayer => (Icons.mosque_outlined, AppColors.tahara),
-  };
+  static (IconData, Color) _iconAndColor(NotificationType type) =>
+      switch (type) {
+        NotificationType.cycle => (Icons.water_drop_outlined, AppColors.haid),
+        NotificationType.pregnancy => (
+          Icons.pregnant_woman_rounded,
+          AppColors.nifas,
+        ),
+        NotificationType.wellbeing => (
+          Icons.favorite_border_rounded,
+          AppColors.brandPrimary,
+        ),
+        NotificationType.prayer => (Icons.mosque_outlined, AppColors.tahara),
+        NotificationType.activeBleeding => (
+          Icons.today_outlined,
+          AppColors.haid,
+        ),
+      };
 
   String _relativeTime(DateTime createdAt, bool isArabic) {
     final diff = DateTime.now().difference(createdAt);
     if (diff.inMinutes < 1) return _nf('Just now', 'الآن');
     if (diff.inHours < 1) {
-      return isArabic
-          ? 'منذ ${diff.inMinutes} د'
-          : '${diff.inMinutes}m ago';
+      return isArabic ? 'منذ ${diff.inMinutes} د' : '${diff.inMinutes}m ago';
     }
     if (diff.inDays < 1) {
       return isArabic ? 'منذ ${diff.inHours} س' : '${diff.inHours}h ago';
@@ -96,9 +98,7 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
                     final (icon, color) = _iconAndColor(entry.type);
                     return InkWell(
                       onTap: () =>
-                          NotificationLogController.instance.markRead(
-                            entry.id,
-                          ),
+                          NotificationLogController.instance.markRead(entry.id),
                       borderRadius: BorderRadius.circular(16),
                       child: Container(
                         padding: const EdgeInsets.all(14),

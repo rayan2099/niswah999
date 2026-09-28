@@ -15,6 +15,7 @@ import 'package:niswah/features/community/presentation/viewmodels/post_detail_vi
 /// timeout could create a duplicate row).
 class _FailOnceThenSucceedRepository implements CommunityRepository {
   int _createPostCalls = 0;
+  Object? failWith;
   int _addCommentCalls = 0;
   final List<String> postIdsSeen = [];
   final List<String?> commentIdsSeen = [];
@@ -27,6 +28,7 @@ class _FailOnceThenSucceedRepository implements CommunityRepository {
   }) async {
     postIdsSeen.add(post.id);
     _createPostCalls++;
+    if (failWith != null) throw failWith!;
     if (_createPostCalls == 1) {
       throw Exception('simulated timeout');
     }
@@ -94,6 +96,39 @@ class _FailOnceThenSucceedRepository implements CommunityRepository {
 }
 
 void main() {
+  group(
+    'community failure messages never leak internals (found live, COMM-10)',
+    () {
+      test(
+        'a failed publish shows a friendly message, not the exception/URL',
+        () async {
+          final repository = _FailOnceThenSucceedRepository();
+          final viewModel = CommunityFeedViewModel(
+            repository: repository,
+            currentUserId: 'user-1',
+            currentUserName: 'Test User',
+          );
+          // The real failure seen on a device during an outage.
+          repository.failWith = Exception(
+            'ClientException: Connection reset by peer, '
+            'uri=http://127.0.0.1:54321/rest/v1/community_posts?select=%2A',
+          );
+          final ok = await viewModel.createPost(
+            title: null,
+            content: 'Hello',
+            category: CommunityCategory.values.first,
+          );
+          expect(ok, isFalse);
+          final message = viewModel.errorMessage!;
+          expect(message, isNot(contains('ClientException')));
+          expect(message, isNot(contains('127.0.0.1')));
+          expect(message, isNot(contains('/rest/v1')));
+          expect(message, anyOf(contains('try again'), contains('حاولي')));
+        },
+      );
+    },
+  );
+
   group('CommunityFeedViewModel.createPost idempotency (RR-001)', () {
     test(
       'a manual retry after a failed submit reuses the same post id, '
@@ -110,7 +145,11 @@ void main() {
           content: 'hello world',
           category: CommunityCategory.general,
         );
-        expect(firstAttempt, isFalse, reason: 'first attempt simulates a timeout');
+        expect(
+          firstAttempt,
+          isFalse,
+          reason: 'first attempt simulates a timeout',
+        );
 
         final secondAttempt = await viewModel.createPost(
           content: 'hello world',
@@ -127,38 +166,35 @@ void main() {
       },
     );
 
-    test(
-      'a new post after a successful submit gets a fresh id, not the '
-      'previous post\'s id',
-      () async {
-        final repository = _FailOnceThenSucceedRepository();
-        // Prime past the simulated first-call failure so both real posts
-        // below succeed on their first try.
-        repository._createPostCalls = 1;
+    test('a new post after a successful submit gets a fresh id, not the '
+        'previous post\'s id', () async {
+      final repository = _FailOnceThenSucceedRepository();
+      // Prime past the simulated first-call failure so both real posts
+      // below succeed on their first try.
+      repository._createPostCalls = 1;
 
-        final viewModel = CommunityFeedViewModel(
-          repository: repository,
-          currentUserId: 'user-1',
-          currentUserName: 'Test User',
-        );
+      final viewModel = CommunityFeedViewModel(
+        repository: repository,
+        currentUserId: 'user-1',
+        currentUserName: 'Test User',
+      );
 
-        await viewModel.createPost(
-          content: 'first post',
-          category: CommunityCategory.general,
-        );
-        await viewModel.createPost(
-          content: 'second post',
-          category: CommunityCategory.general,
-        );
+      await viewModel.createPost(
+        content: 'first post',
+        category: CommunityCategory.general,
+      );
+      await viewModel.createPost(
+        content: 'second post',
+        category: CommunityCategory.general,
+      );
 
-        expect(repository.postIdsSeen, hasLength(2));
-        expect(
-          repository.postIdsSeen[0],
-          isNot(repository.postIdsSeen[1]),
-          reason: 'two genuinely different posts must not share an id',
-        );
-      },
-    );
+      expect(repository.postIdsSeen, hasLength(2));
+      expect(
+        repository.postIdsSeen[0],
+        isNot(repository.postIdsSeen[1]),
+        reason: 'two genuinely different posts must not share an id',
+      );
+    });
   });
 
   group('PostDetailViewModel.addComment idempotency (RR-001)', () {
@@ -174,55 +210,46 @@ void main() {
       createdAt: DateTime.now(),
     );
 
-    test(
-      'a manual retry after a failed comment submit reuses the same '
-      'comment id',
-      () async {
-        final repository = _FailOnceThenSucceedRepository();
-        final viewModel = PostDetailViewModel(
-          repository: repository,
-          initialPost: samplePost(),
-          currentUserId: 'user-1',
-          currentUserName: 'Test User',
-        );
+    test('a manual retry after a failed comment submit reuses the same '
+        'comment id', () async {
+      final repository = _FailOnceThenSucceedRepository();
+      final viewModel = PostDetailViewModel(
+        repository: repository,
+        initialPost: samplePost(),
+        currentUserId: 'user-1',
+        currentUserName: 'Test User',
+      );
 
-        final firstAttempt = await viewModel.addComment('hello');
-        expect(firstAttempt, isFalse);
-        final secondAttempt = await viewModel.addComment('hello');
-        expect(secondAttempt, isTrue);
+      final firstAttempt = await viewModel.addComment('hello');
+      expect(firstAttempt, isFalse);
+      final secondAttempt = await viewModel.addComment('hello');
+      expect(secondAttempt, isTrue);
 
-        expect(repository.commentIdsSeen, hasLength(2));
-        expect(repository.commentIdsSeen[0], isNotNull);
-        expect(
-          repository.commentIdsSeen[0],
-          repository.commentIdsSeen[1],
-          reason: 'a retry of the same logical comment must reuse the same id',
-        );
-      },
-    );
+      expect(repository.commentIdsSeen, hasLength(2));
+      expect(repository.commentIdsSeen[0], isNotNull);
+      expect(
+        repository.commentIdsSeen[0],
+        repository.commentIdsSeen[1],
+        reason: 'a retry of the same logical comment must reuse the same id',
+      );
+    });
 
-    test(
-      'a new comment after a successful submit gets a fresh id',
-      () async {
-        final repository = _FailOnceThenSucceedRepository();
-        repository._addCommentCalls = 1;
+    test('a new comment after a successful submit gets a fresh id', () async {
+      final repository = _FailOnceThenSucceedRepository();
+      repository._addCommentCalls = 1;
 
-        final viewModel = PostDetailViewModel(
-          repository: repository,
-          initialPost: samplePost(),
-          currentUserId: 'user-1',
-          currentUserName: 'Test User',
-        );
+      final viewModel = PostDetailViewModel(
+        repository: repository,
+        initialPost: samplePost(),
+        currentUserId: 'user-1',
+        currentUserName: 'Test User',
+      );
 
-        await viewModel.addComment('first comment');
-        await viewModel.addComment('second comment');
+      await viewModel.addComment('first comment');
+      await viewModel.addComment('second comment');
 
-        expect(repository.commentIdsSeen, hasLength(2));
-        expect(
-          repository.commentIdsSeen[0],
-          isNot(repository.commentIdsSeen[1]),
-        );
-      },
-    );
+      expect(repository.commentIdsSeen, hasLength(2));
+      expect(repository.commentIdsSeen[0], isNot(repository.commentIdsSeen[1]));
+    });
   });
 }

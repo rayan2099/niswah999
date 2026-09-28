@@ -60,6 +60,9 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
         _viewModel.logs
             .where((log) => log.date.isBefore(rangeEndExclusive))
             .toList(),
+        canonicalEpisodes: _viewModel.canonicalEpisodes
+            .where((episode) => episode.startDate.isBefore(rangeEndExclusive))
+            .toList(),
         asOf:
             _summaryPeriod == _SummaryPeriod.monthly &&
                 DateUtils.isSameMonth(_focusedMonth, AppClock.now())
@@ -90,7 +93,10 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
                       minHeight: 2,
                       color: AppColors.tahara,
                       backgroundColor: Colors.transparent,
-                      semanticsLabel: _ct('Loading cycle data', 'جارٍ تحميل بيانات الدورة'),
+                      semanticsLabel: _ct(
+                        'Loading cycle data',
+                        'جارٍ تحميل بيانات الدورة',
+                      ),
                     ),
                   ),
                 if (_viewModel.errorMessage != null)
@@ -1289,7 +1295,8 @@ class _MonthSummary extends StatelessWidget {
     final canPredict =
         hasSufficientHistory &&
         factualCycleLength != null &&
-        factualCycleLength >= CycleCalculationResult.minPlausibleCycleLengthDays;
+        factualCycleLength >=
+            CycleCalculationResult.minPlausibleCycleLengthDays;
     final progress = !isCurrentMonth || !canPredict || factualCycleDay == null
         ? null
         : factualCycleDay / factualCycleLength;
@@ -1473,12 +1480,8 @@ class _MonthSummary extends StatelessWidget {
               Expanded(
                 child: _SummaryMetric(
                   label: _ct('AVG CYCLE LENGTH', 'متوسط طول الدورة'),
-                  value: !canPredict
-                      ? '—'
-                      : factualCycleLength.toString(),
-                  unit: !canPredict
-                      ? ''
-                      : _ct('days', 'أيام'),
+                  value: !canPredict ? '—' : factualCycleLength.toString(),
+                  unit: !canPredict ? '' : _ct('days', 'أيام'),
                 ),
               ),
               const SizedBox(width: 14),

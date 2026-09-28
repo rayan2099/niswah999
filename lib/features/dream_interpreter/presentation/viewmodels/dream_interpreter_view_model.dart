@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../data/repositories/dream_interpreter_repository_impl.dart';
 import '../../domain/entities/dream_entry.dart';
@@ -129,7 +130,8 @@ class DreamInterpreterViewModel extends ChangeNotifier {
       if (client == null) {
         throw StateError('Supabase is not initialized.');
       }
-      final response = await client.functions.invoke(
+      final response = await AiFunctionGateway.invoke(
+        client,
         'dream-interpreter-chat',
         body: {'prompt': _buildTranscriptPrompt()},
       );
@@ -140,7 +142,11 @@ class DreamInterpreterViewModel extends ChangeNotifier {
           error ?? 'Dream interpreter service failed (${response.status}).',
         );
       }
-      final replyText = data['text']?.toString() ?? '';
+      final replyText = AiFunctionGateway.requireText(
+        data,
+        'text',
+        'Dream interpreter',
+      );
       _transcript.add(DreamMessage(DreamMessageRole.assistant, replyText));
 
       // dream_entries.id is a Postgres UUID column, so this has to be a

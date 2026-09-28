@@ -1,0 +1,31 @@
+{
+  "_comment": "Shared test vectors for the production kill switch. Consumed by BOTH test/test_backend_gate_test.dart (Dart classifier) and scripts/test_assert_test_backend.py (host-side checker) so the two implementations cannot drift apart.",
+  "vectors": [
+    {"name": "localhost backend allowed", "env": {"SUPABASE_URL": "http://localhost:54321"}, "expected": "allowed"},
+    {"name": "127.0.0.1 local Supabase allowed", "env": {"SUPABASE_URL": "http://127.0.0.1:54321"}, "expected": "allowed"},
+    {"name": "IPv6 loopback allowed", "env": {"SUPABASE_URL": "http://[::1]:54321"}, "expected": "allowed"},
+    {"name": "android emulator host alias allowed", "env": {"SUPABASE_URL": "http://10.0.2.2:54321"}, "expected": "allowed"},
+    {"name": "VITE_ fallback is honored", "env": {"VITE_SUPABASE_URL": "http://127.0.0.1:54321"}, "expected": "allowed"},
+    {"name": "explicitly approved hosted test project allowed", "env": {"SUPABASE_URL": "https://approved-staging-abc.supabase.co"}, "approved_hosts": ["approved-staging-abc.supabase.co"], "expected": "allowed"},
+    {"name": "hosted project NOT approved is refused", "env": {"SUPABASE_URL": "https://approved-staging-abc.supabase.co"}, "expected": "refused"},
+    {"name": "production host refused", "env": {"SUPABASE_URL": "https://jkmjobvxfrmuwafczvtw.supabase.co"}, "expected": "refused"},
+    {"name": "production host refused even with mixed case", "env": {"SUPABASE_URL": "https://JKMJOBVXFRMUWAFCZVTW.SUPABASE.CO"}, "expected": "refused"},
+    {"name": "production host refused even if someone allowlists it", "env": {"SUPABASE_URL": "https://jkmjobvxfrmuwafczvtw.supabase.co"}, "approved_hosts": ["jkmjobvxfrmuwafczvtw.supabase.co"], "expected": "refused"},
+    {"name": "production URL with misleading APP_ENV=development refused", "env": {"SUPABASE_URL": "https://jkmjobvxfrmuwafczvtw.supabase.co", "APP_ENV": "development"}, "expected": "refused"},
+    {"name": "local URL is allowed regardless of APP_ENV=production", "env": {"SUPABASE_URL": "http://127.0.0.1:54321", "APP_ENV": "production"}, "expected": "allowed"},
+    {"name": "empty URL refused", "env": {"SUPABASE_URL": ""}, "expected": "refused"},
+    {"name": "missing URL refused", "env": {}, "expected": "refused"},
+    {"name": "whitespace URL refused", "env": {"SUPABASE_URL": "   "}, "expected": "refused"},
+    {"name": "malformed URL refused", "env": {"SUPABASE_URL": "not a url"}, "expected": "refused"},
+    {"name": "scheme-only URL refused", "env": {"SUPABASE_URL": "http://"}, "expected": "refused"},
+    {"name": "no scheme refused", "env": {"SUPABASE_URL": "127.0.0.1:54321"}, "expected": "refused"},
+    {"name": "non-http scheme refused", "env": {"SUPABASE_URL": "ftp://127.0.0.1"}, "expected": "refused"},
+    {"name": "userinfo disguise refused", "env": {"SUPABASE_URL": "http://127.0.0.1@jkmjobvxfrmuwafczvtw.supabase.co"}, "expected": "refused"},
+    {"name": "userinfo on a local host refused", "env": {"SUPABASE_URL": "http://user:pw@127.0.0.1:54321"}, "expected": "refused"},
+    {"name": "localhost lookalike refused", "env": {"SUPABASE_URL": "http://localhost.evil.com"}, "expected": "refused"},
+    {"name": "127.0.0.1 lookalike refused", "env": {"SUPABASE_URL": "http://127.0.0.1.nip.io"}, "expected": "refused"},
+    {"name": "0.0.0.0 refused", "env": {"SUPABASE_URL": "http://0.0.0.0:54321"}, "expected": "refused"},
+    {"name": "arbitrary public host refused", "env": {"SUPABASE_URL": "https://example.com"}, "expected": "refused"},
+    {"name": "other hosted supabase project refused", "env": {"SUPABASE_URL": "https://someotherproject.supabase.co"}, "expected": "refused"}
+  ]
+}

@@ -37,7 +37,8 @@ class CycleSegmentPlan extends Equatable {
   /// slices (and the placement floors below) no longer fit inside it; using
   /// this instead keeps every visible segment's arc summing to exactly one
   /// full circle so they never overlap or wrap past 360°.
-  int get totalDays => segments.fold(0, (sum, segment) => sum + segment.durationDays);
+  int get totalDays =>
+      segments.fold(0, (sum, segment) => sum + segment.durationDays);
 
   @override
   List<Object?> get props => [segments, activeIndex];

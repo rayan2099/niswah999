@@ -327,6 +327,25 @@ class FiqhReportPdfBuilder {
       ),
     );
 
+    final pregnancy = insights.pregnancy;
+    if (pregnancy != null) {
+      widgets.add(
+        _card(
+          bg: '#FFF8E7',
+          child: pw.Text(
+            isArabic
+                ? 'تتبّع الحمل مفعّل: الأسبوع ${pregnancy.week} (الثلث ${pregnancy.trimester}).'
+                : 'Pregnancy tracking is active: week ${pregnancy.week} (trimester ${pregnancy.trimester}).',
+            style: pw.TextStyle(
+              color: PdfColor.fromHex(_advisory),
+              fontSize: 10,
+              lineSpacing: 2,
+            ),
+          ),
+        ),
+      );
+    }
+
     if (state == FiqhCycleState.madhhabUnresolved) {
       widgets.add(
         _card(
@@ -335,6 +354,29 @@ class FiqhReportPdfBuilder {
             isArabic
                 ? 'لا يمكن تحديد حالتكِ الفقهية الحالية دون اختيار مذهبكِ أولاً. يمكنكِ اختياره من الإعدادات.'
                 : 'Your current Fiqh state cannot be determined until you select your Madhhab. You can do this in Settings.',
+            style: pw.TextStyle(
+              color: PdfColor.fromHex(_advisory),
+              fontSize: 10,
+              lineSpacing: 2,
+            ),
+          ),
+        ),
+      );
+    } else if (state == FiqhCycleState.insufficientHistory &&
+        insights.evidenceNote != ReportEvidenceNote.none) {
+      final unavailable =
+          insights.evidenceNote == ReportEvidenceNote.recordsUnavailable;
+      widgets.add(
+        _card(
+          bg: '#FFF8E7',
+          child: pw.Text(
+            unavailable
+                ? (isArabic
+                      ? 'تعذّر التحقق من سجلاتكِ الآن، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. أعيدي إنشاء التقرير لاحقًا.'
+                      : "Your records couldn't be verified right now, so your current Fiqh state cannot be determined. Generate the report again later.")
+                : (isArabic
+                      ? 'هناك نزيف مسجَّل حاليًا، لكن الأدلة المسجلة لا تكفي لتحديد حالتكِ الفقهية. تابعي التسجيل، واسألي مختصة شرعية موثوقة إن احتجتِ إلى إرشاد اليوم.'
+                      : "A bleeding episode is recorded, but the recorded evidence isn't enough to work out your Fiqh state. Keep logging, and ask a trusted scholar if you need guidance today."),
             style: pw.TextStyle(
               color: PdfColor.fromHex(_advisory),
               fontSize: 10,
