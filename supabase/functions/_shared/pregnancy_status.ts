@@ -42,10 +42,8 @@ export interface PregnancyStatus {
   month?: number;
   weeksToDue?: number;
   daysPostpartum?: number;
-  phase?: string;
 }
 
-const POSTPARTUM_WINDOW_DAYS = 40;
 const FULL_TERM_WEEKS = 40;
 const MIN_WEEK = 1;
 const MAX_WEEK = 42;
@@ -116,7 +114,6 @@ export function getPregnancyStatus(
     return {
       mode: 'postpartum',
       daysPostpartum: days,
-      phase: days <= POSTPARTUM_WINDOW_DAYS ? 'نفاس' : 'ما بعد النفاس',
     };
   }
 
