@@ -28,11 +28,9 @@ class FiqhReportPdfBuilder {
   // Fiqh-state colors — the same set already used elsewhere in the app
   // (dashboard's state badge), not invented for this report. Validated
   // (dataviz skill's validate_palette.js) for a donut/ring use, including
-  // the wrap-around pair: worst adjacent normal-vision ΔE 20.0, wrap pair
-  // (nifas ↔ tahara) ΔE 24.3 — well clear of the 15 floor.
+  // the wrap-around pair: worst adjacent normal-vision ΔE 20.0.
   static const _tahara = '#0D9488';
   static const _haid = '#BE123C';
-  static const _nifas = '#D97706';
   static const _advisory = '#9A6700'; // matches dashboard's needsAdvisory tone
 
   static const _monthNamesEn = [
@@ -252,26 +250,29 @@ class FiqhReportPdfBuilder {
       ),
     ];
 
-    if (insights.mode == FiqhReportMode.nifas) {
+    if (insights.mode == FiqhReportMode.postpartumUnresolved) {
+      final postpartumDay = (insights.daysPostpartum ?? 0) + 1;
       widgets.add(
         _card(
-          bg: _lightTint,
+          bg: '#FFF8E7',
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
-                isArabic ? 'الحالة الحالية: نفاس' : 'Current state: Nifas',
+                isArabic
+                    ? 'الحالة المسجّلة: ما بعد الولادة'
+                    : 'Recorded state: Postpartum',
                 style: pw.TextStyle(
                   font: semiBold,
-                  color: PdfColor.fromHex(_nifas),
+                  color: PdfColor.fromHex(_advisory),
                   fontSize: 13,
                 ),
               ),
               pw.SizedBox(height: 6),
               pw.Text(
                 isArabic
-                    ? 'اليوم ${insights.daysPostpartum} من ${insights.nifasPhase}.'
-                    : 'Day ${insights.daysPostpartum} of ${insights.nifasPhase == "نفاس" ? "nifas" : "the post-nifas period"}.',
+                    ? 'اليوم $postpartumDay بعد الولادة. لا يصنّف هذا التقرير حالة ما بعد الولادة تلقائياً على أنها نفاس؛ التصنيف الفقهي يحتاج إلى القاعدة الشرعية المعتمدة ومراجعتها.'
+                    : 'Postpartum day $postpartumDay. This report does not automatically classify postpartum status as Nifas; the Fiqh classification requires an approved, reviewed rule authority.',
                 style: pw.TextStyle(
                   color: PdfColor.fromHex(_textPrimary),
                   fontSize: 10,

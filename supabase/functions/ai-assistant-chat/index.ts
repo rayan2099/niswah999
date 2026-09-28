@@ -35,7 +35,7 @@ const SYSTEM_PROMPT = `You are Niswah AI, a concise and supportive general assis
 Always reply in the same language the user's message is written in.
 Write in plain prose only. Never use markdown syntax: no #, ##, ###, **, *, or numbered/bulleted list characters. The app displays raw text, not rendered markdown.
 
-A [CONTEXT] block with the user's current major app state (pregnancy, menstrual history, selected madhhab/fiqh state, recent wellbeing, recent notes) is included with every message. Use it only to avoid contradicting or ignoring a currently-recorded state (e.g. do not respond as though she is pregnant when the context says she is not, or ignore a recorded low-mood entry if she asks something related). Do not repeat the block's raw field names to the user, do not treat notes as verified facts, and do not attempt a medical or religious ruling yourself — defer those, as instructed above, to the dedicated advisors even when the context makes the situation clearer.`;
+A [CONTEXT] block with the user's current major app state (pregnancy/postpartum, canonical bleeding state, TTC when explicitly supplied, server-authoritative Madhhab state, recent wellbeing, and quoted user notes) is included with every message. Use it only to avoid contradicting or ignoring a verified current state. UNKNOWN or unavailable is not a negative fact: never turn it into “not pregnant”, “not bleeding”, “not TTC”, or an assumed Madhhab. Do not repeat the block's raw field names to the user, do not treat notes as verified facts, and do not attempt a medical or religious ruling yourself — defer those, as instructed above, to the dedicated advisors even when the context makes the situation clearer.`;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
       return limiterUnavailableResponse(corsHeaders);
     }
 
-    const { content, madhhab, madhhab_state: madhhabState, clientFiqhState } = await req.json();
+    const { content, clientFiqhState, ttcEnabled } = await req.json();
     if (typeof content !== 'string' || !content.trim()) {
       return new Response(JSON.stringify({ error: 'content is required.' }), {
         status: 400,
@@ -91,14 +91,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    // madhhab/madhhab_state/clientFiqhState are all optional — older client
-    // builds that don't send them yet simply get 'not_provided'/'unset'
-    // fields in the context, never a guessed value (Fiqh Remediation Wave
-    // 1, Section F).
+    // Madhhab is always loaded from the authenticated user's server row.
+    // TTC remains an explicit client preference for now and is labeled
+    // client-unverified; absence is UNKNOWN rather than false.
     const userContext = await buildUserAiContext(userClient, {
-      clientMadhhab: typeof madhhab === 'string' ? madhhab : null,
-      clientMadhhabState: typeof madhhabState === 'string' ? madhhabState : null,
-      clientFiqhState: typeof clientFiqhState === 'string' ? clientFiqhState : null,
+      clientFiqhState,
+      clientTtcEnabled: ttcEnabled,
     });
     const systemInstruction = `${SYSTEM_PROMPT}\n\n${formatContextBlock(userContext, 'general_assistant')}`;
 

@@ -6,7 +6,7 @@ name: CI
 # have," which is the root cause both findings describe.
 on:
   push:
-    branches: [main]
+    branches: [main, feat/ai-context-trust-boundary]
   pull_request:
     branches: [main]
 

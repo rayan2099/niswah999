@@ -385,12 +385,11 @@
   "today": "2026-08-01T00:00:00.000Z",
   "expected": {
    "mode": "postpartum",
-   "daysPostpartum": 0,
-   "phase": "نفاس"
+   "daysPostpartum": 0
   }
  },
  {
-  "name": "postpartum day 40 (still nifas)",
+  "name": "postpartum day 40",
   "row": {
    "tracking_basis": null,
    "reference_date": null,
@@ -405,12 +404,11 @@
   "today": "2026-09-10T00:00:00.000Z",
   "expected": {
    "mode": "postpartum",
-   "daysPostpartum": 40,
-   "phase": "نفاس"
+   "daysPostpartum": 40
   }
  },
  {
-  "name": "postpartum day 41 (after nifas)",
+  "name": "postpartum day 41",
   "row": {
    "tracking_basis": null,
    "reference_date": null,
@@ -425,8 +423,7 @@
   "today": "2026-09-11T00:00:00.000Z",
   "expected": {
    "mode": "postpartum",
-   "daysPostpartum": 41,
-   "phase": "ما بعد النفاس"
+   "daysPostpartum": 41
   }
  }
 ]

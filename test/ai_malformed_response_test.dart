@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/network/ai_function_gateway.dart';
-import 'package:niswah/core/preferences/madhhab_controller.dart';
 import 'package:niswah/features/ai_advisor/ai_advisor_service.dart';
 import 'package:niswah/features/ai_assistant/data/services/dr_niswah_backend_service.dart';
 import 'package:niswah/features/ai_assistant/domain/services/dr_niswah_red_flags.dart';
@@ -99,8 +98,6 @@ void main() {
         reply(entry.value);
         final answer = await AiAdvisorService.instance.askFiqh(
           question: 'q',
-          madhhab: null,
-          madhhabState: MadhhabSelectionState.unset,
         );
         expect(answer.text.trim(), isNotEmpty);
         expect(answer.text, contains("couldn't be reached"));
@@ -114,26 +111,24 @@ void main() {
       reply('garbage');
       final answer = await AiAdvisorService.instance.askFiqh(
         question: 'q',
-        madhhab: null,
-        madhhabState: MadhhabSelectionState.unset,
       );
       expect(answer.text, contains('المصادر'));
     });
 
-    test('a request carries the madhhab context the app knows', () async {
+    test('a request never carries client Madhhab authority', () async {
       Map<String, dynamic>? sent;
       AiFunctionGateway.testOverride = (name, body) async {
         sent = body;
         return FunctionResponse(status: 200, data: {'text': 'ok'});
       };
-      await AiAdvisorService.instance.askFiqh(
-        question: 'q',
-        madhhab: null,
-        madhhabState: MadhhabSelectionState.unset,
+      await AiAdvisorService.instance.askFiqh(question: 'q');
+      expect(sent?['question'], 'q');
+      expect(sent?.containsKey('madhhab_state'), isFalse);
+      expect(
+        sent?.containsKey('madhhab'),
+        isFalse,
+        reason: 'the authenticated backend row is the sole Madhhab authority',
       );
-      expect(sent?['madhhab_state'], 'unset');
-      expect(sent?.containsKey('madhhab'), isTrue);
-      expect(sent?['madhhab'], isNull, reason: 'never a fabricated madhhab');
     });
   });
 

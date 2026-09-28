@@ -4,8 +4,8 @@
 // grounding, moved off the client per the Gemini trust-boundary remediation
 // (closes SEC-001/AB-002/AB-012 for this feature). The system prompt and the
 // trusted-citation filter (previously applied client-side in
-// ai_advisor_service.dart) are now both owned here — the client only ever
-// sends the question and the user's selected madhhab.
+// ai_advisor_service.dart) are now both owned here. Madhhab authority is
+// read server-side from public.users; client Madhhab fields are not trusted.
 //
 // AICTX remediation (2026-09-09): previously received only the madhhab
 // label — zero deterministic-engine output (AICTX-3). Now also receives
@@ -33,7 +33,6 @@ const corsHeaders = {
 
 const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash'];
 const MAX_QUESTION_LENGTH = 4000;
-const ALLOWED_MADHHABS = ['hanafi', 'maliki', 'shafii', 'hanbali'];
 const TRUSTED_CITATION_DOMAINS = ['islamweb.net', 'dorar.net'];
 
 const NO_SOURCES_FALLBACK_AR =
@@ -46,6 +45,8 @@ const NO_TRUSTED_CITATIONS_AR =
 // explanation's tone (Section H), never implies fault or pressure.
 const NO_MADHHAB_SELECTED_AR =
   'لم تختاري مذهبكِ الفقهي بعد، لذا لا يمكن تقديم توجيه دقيق دون معرفته. يمكنكِ اختياره من الإعدادات، أو اختيار "لا أعرف مذهبي" إذا كنتِ غير متأكدة — سنساعدكِ في ذلك.';
+const MADHHAB_UNAVAILABLE_AR =
+  'تعذر التحقق من إعداد المذهب المحفوظ في حسابك الآن، لذلك لن أفترض مذهباً من عندي. يُرجى المحاولة مرة أخرى بعد قليل.';
 
 function buildSystemInstruction(madhhab: string): string {
   return `You are Niswah's Fiqh research assistant. The user's selected school is ${madhhab}.
@@ -57,7 +58,7 @@ Do not diagnose medical conditions. Urgent or dangerous symptoms must be escalat
 Do not claim certainty beyond the cited evidence.
 Write in plain prose only. Never use markdown syntax: no #, ##, ###, **, *, or numbered/bulleted list characters. The app displays raw text, not rendered markdown.
 
-A [CONTEXT] block may follow with facts already known by the app (recent bleeding history, pregnancy status, and — only when the client app supplied one — a deterministic_fiqh_classification already computed by the app's own rule engine, explicitly labeled with its source). Use this only to avoid asking the user to re-describe what the app already knows and to notice when her question concerns pregnancy/nifas/an irregular pattern even if she didn't say so explicitly — every escalation rule above still applies exactly as written when that's the case. If deterministic_fiqh_classification is present, you may reference it as the app's own existing classification, but do not present it as your own conclusion, do not contradict it, and never treat the informational bleeding-history scan in the context (which is explicitly not a ruling) as equivalent to a classification.`;
+A [CONTEXT] block may follow with canonical factual bleeding state from bleeding_episodes, pregnancy/postpartum facts, server-authoritative Madhhab state, and — only for backward compatibility with an older client — an optional fiqh_classification explicitly labeled client_computed_unverified. Use canonical factual state to avoid asking the user to repeat what the app already knows, but never turn factual bleeding/postpartum data into a religious ruling by yourself. If fiqh_classification is present, it is only the old app client's prior classification: it is not server-verified, not scholar approval, must never override contradictory canonical facts, and must never reduce any escalation requirement above. postpartum alone never establishes Nifas.`;
 }
 
 function isTrustedCitation(url: string): boolean {
@@ -112,7 +113,7 @@ Deno.serve(async (req) => {
       return limiterUnavailableResponse(corsHeaders);
     }
 
-    const { question, madhhab, madhhab_state: madhhabStateRaw, clientFiqhState } = await req.json();
+    const { question, clientFiqhState } = await req.json();
     if (typeof question !== 'string' || !question.trim()) {
       return new Response(JSON.stringify({ error: 'question is required.' }), {
         status: 400,
@@ -126,35 +127,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fiqh Remediation Wave 1 (Section F): madhhab_state distinguishes
-    // UNSET/UNKNOWN/SELECTED explicitly. An older client build that never
-    // sends madhhab_state at all is treated as the pre-existing contract
-    // (a plain madhhab string implies SELECTED) — every current client
-    // build sends it explicitly.
-    const madhhabState =
-      madhhabStateRaw === 'unset' || madhhabStateRaw === 'unknown' || madhhabStateRaw === 'selected'
-        ? madhhabStateRaw
-        : (typeof madhhab === 'string' && ALLOWED_MADHHABS.includes(madhhab) ? 'selected' : 'unset');
-
-    if (madhhabState !== 'selected') {
-      // Never call Gemini with an invented madhhab — an honest, calm,
-      // non-blocking degraded response instead (Section E/H).
-      return new Response(JSON.stringify({ text: NO_MADHHAB_SELECTED_AR, citations: [] }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    if (typeof madhhab !== 'string' || !ALLOWED_MADHHABS.includes(madhhab)) {
-      return new Response(JSON.stringify({ error: 'madhhab must be one of: ' + ALLOWED_MADHHABS.join(', ') }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
+    // Madhhab authority is server-side. Client-supplied madhhab fields from
+    // older builds are deliberately ignored: a stale/modified client can
+    // never upgrade UNKNOWN/UNSET to a real school.
     const userContext = await buildUserAiContext(userClient, {
-      clientMadhhab: madhhab,
-      clientMadhhabState: madhhabState,
-      clientFiqhState: typeof clientFiqhState === 'string' ? clientFiqhState : null,
+      clientFiqhState,
     });
+
+    if (userContext.fiqh.madhhabState === 'unavailable') {
+      return new Response(
+        JSON.stringify({ text: MADHHAB_UNAVAILABLE_AR, citations: [] }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (
+      userContext.fiqh.madhhabState !== 'selected' ||
+      userContext.fiqh.madhhab == null
+    ) {
+      return new Response(
+        JSON.stringify({ text: NO_MADHHAB_SELECTED_AR, citations: [] }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const madhhab = userContext.fiqh.madhhab;
     const systemInstruction = `${buildSystemInstruction(madhhab)}\n\n${formatContextBlock(userContext, 'fiqh_advisor')}`;
 
     let text: string;

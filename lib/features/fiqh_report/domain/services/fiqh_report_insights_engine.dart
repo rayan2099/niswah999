@@ -8,7 +8,7 @@ import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
 import '../../../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 
-enum FiqhReportMode { nifas, cycle }
+enum FiqhReportMode { postpartumUnresolved, cycle }
 
 /// Why a report cannot state a definite current state even though the woman
 /// may be bleeding right now — printed as an honest explanation, never
@@ -27,13 +27,11 @@ enum ReportEvidenceNote {
 /// Everything the fiqh report PDF needs — pre-computed and gated so the
 /// report never fabricates an average from too little history.
 class FiqhReportInsights extends Equatable {
-  const FiqhReportInsights.nifas({
+  const FiqhReportInsights.postpartumUnresolved({
     required this.madhhab,
     required this.daysPostpartum,
-    required String phase,
     this.notes = const [],
-  }) : mode = FiqhReportMode.nifas,
-       nifasPhase = phase,
+  }) : mode = FiqhReportMode.postpartumUnresolved,
        cycleState = null,
        hasEnoughForAverages = false,
        averageCycleLengthDays = null,
@@ -59,8 +57,7 @@ class FiqhReportInsights extends Equatable {
     this.evidenceNote = ReportEvidenceNote.none,
     this.pregnancy,
   }) : mode = FiqhReportMode.cycle,
-       daysPostpartum = null,
-       nifasPhase = null;
+       daysPostpartum = null;
 
   final FiqhReportMode mode;
 
@@ -70,9 +67,10 @@ class FiqhReportInsights extends Equatable {
   /// first" state rather than assume one.
   final Madhhab? madhhab;
 
-  // Nifas fields (mode == nifas)
+  /// Factual days since the recorded postpartum start. In
+  /// [FiqhReportMode.postpartumUnresolved] this is intentionally NOT a
+  /// Nifas classification.
   final int? daysPostpartum;
-  final String? nifasPhase;
 
   // Cycle fields (mode == cycle)
   final FiqhCycleState? cycleState;
@@ -107,7 +105,6 @@ class FiqhReportInsights extends Equatable {
     mode,
     madhhab,
     daysPostpartum,
-    nifasPhase,
     cycleState,
     hasEnoughForAverages,
     averageCycleLengthDays,
@@ -129,22 +126,20 @@ class _HaidEpisode {
   int get durationDays => end.difference(start).inDays + 1;
 }
 
-/// Composes three existing, already-tested pieces of domain logic —
-/// [PregnancyStatusEngine] (nifas), [CycleCalculationService] (cycle
-/// stats), and [MadhhabRuleEvaluator] (state classification) — into the
-/// fiqh report's insights. No new fiqh-classification rules are introduced
-/// here; nifas priority and the current-state derivation mirror exactly
-/// what the dashboard already computes (`_currentFiqhState` in
-/// dashboard_screen.dart), just made public, pure, and testable.
+/// Composes factual pregnancy/postpartum state with the existing cycle and
+/// Fiqh engines. Postpartum timing is deliberately kept separate from a
+/// Nifas ruling: until the reviewed Nifas authority is implemented, this
+/// report exposes postpartum as "classification unresolved" rather than
+/// manufacturing a religious state from elapsed days.
 class FiqhReportInsightsEngine {
   const FiqhReportInsightsEngine._();
 
   static const minHaidStartsForAverage = 2;
 
   /// [madhhab]: null whenever the caller's `MadhhabController.state` is
-  /// not `selected` — see Fiqh Remediation Wave 1, Section E. The nifas
-  /// branch below still runs (postpartum status doesn't depend on
-  /// madhhab); the cycle branch returns
+  /// not `selected` — see Fiqh Remediation Wave 1, Section E. A factual
+  /// postpartum state is still shown, but no Nifas ruling is inferred; the
+  /// cycle branch returns
   /// [FiqhCycleState.madhhabUnresolved] via [_currentCycleState] instead
   /// of guessing.
   static FiqhReportInsights analyze({
@@ -164,10 +159,9 @@ class FiqhReportInsightsEngine {
       now,
     );
     if (pregnancyStatus.mode == PregnancyMode.postpartum) {
-      return FiqhReportInsights.nifas(
+      return FiqhReportInsights.postpartumUnresolved(
         madhhab: madhhab,
         daysPostpartum: pregnancyStatus.daysPostpartum!,
-        phase: pregnancyStatus.phase!,
         notes: CycleSymptomDecoder.recentNotes(cycleLogs),
       );
     }

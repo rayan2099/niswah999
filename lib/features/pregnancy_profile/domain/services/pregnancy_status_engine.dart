@@ -14,8 +14,7 @@ class PregnancyStatus extends Equatable {
       trimester = null,
       month = null,
       weeksToDue = null,
-      daysPostpartum = null,
-      phase = null;
+      daysPostpartum = null;
 
   const PregnancyStatus.pregnant({
     required this.week,
@@ -23,12 +22,10 @@ class PregnancyStatus extends Equatable {
     required this.month,
     required this.weeksToDue,
   }) : mode = PregnancyMode.pregnant,
-       daysPostpartum = null,
-       phase = null;
+       daysPostpartum = null;
 
   const PregnancyStatus.postpartum({
     required this.daysPostpartum,
-    required this.phase,
   }) : mode = PregnancyMode.postpartum,
        week = null,
        trimester = null,
@@ -41,7 +38,6 @@ class PregnancyStatus extends Equatable {
   final int? month;
   final int? weeksToDue;
   final int? daysPostpartum;
-  final String? phase;
 
   @override
   List<Object?> get props => [
@@ -51,7 +47,6 @@ class PregnancyStatus extends Equatable {
     month,
     weeksToDue,
     daysPostpartum,
-    phase,
   ];
 }
 
@@ -63,7 +58,6 @@ class PregnancyStatus extends Equatable {
 class PregnancyStatusEngine {
   const PregnancyStatusEngine._();
 
-  static const int _postpartumWindowDays = 40;
   static const int _fullTermWeeks = 40;
   static const int _minWeek = 1;
   static const int _maxWeek = 42;
@@ -77,10 +71,7 @@ class PregnancyStatusEngine {
       if (start == null) return const PregnancyStatus.unknown();
 
       final days = today.difference(start).inDays;
-      return PregnancyStatus.postpartum(
-        daysPostpartum: days,
-        phase: days <= _postpartumWindowDays ? 'نفاس' : 'ما بعد النفاس',
-      );
+      return PregnancyStatus.postpartum(daysPostpartum: days);
     }
 
     final week = _resolveWeek(profile, today);

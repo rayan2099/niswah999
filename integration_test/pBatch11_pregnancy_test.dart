@@ -20,7 +20,8 @@ import 'support/reports.dart';
 ///             CI) applied to THAT row gives the week Today shows.
 ///  PREG-03    progression with a controlled clock: +49 days -> week 19.
 ///  PREG-05    the Doctor's report (the report that carries pregnancy state)
-///             states the pregnancy while pregnant, and Nifas after birth.
+///             states the pregnancy while pregnant; the separate Fiqh report's
+///             existing Nifas behavior is observed separately, not derived by the pregnancy engine.
 ///  PREG-04    logging birth writes is_postpartum + a start date.
 /// Whether a MODEL answers well is NOT claimed here.
 void main() {
@@ -187,11 +188,12 @@ void main() {
       rowNifas == null ? null : PregnancyProfile.fromJson(rowNifas),
       DateTime.now(),
     );
-    final nifasAgrees =
+    final postpartumAgrees =
         nifasView.mode == PregnancyMode.postpartum &&
-        nifasView.daysPostpartum == 0 &&
-        nifasView.phase == 'نفاس';
-    h.note('G PREG-04 rowNifas=$nifasRowOk serverView agrees=$nifasAgrees');
+        nifasView.daysPostpartum == 0;
+    h.note(
+      'G PREG-04 postpartum row=$nifasRowOk factual engine agrees=$postpartumAgrees',
+    );
 
     await openTab('Profile');
     await h.scrollToExports();
@@ -210,7 +212,7 @@ void main() {
         doctorPregnantOk &&
         fiqhPregnantOk &&
         nifasRowOk &&
-        nifasAgrees &&
+        postpartumAgrees &&
         fiqhNifasOk;
     h.reportResult(
       PersonaResult(
@@ -225,7 +227,7 @@ void main() {
             'crashed=$crashed rowOk=$rowOk serverAgrees=$serverAgrees '
             'shows12=$shows12 shows19=$shows19 serverAgrees19=$serverAgrees19 '
             'doctorPregnant=$doctorPregnantOk fiqhPregnant=$fiqhPregnantOk nifasRow=$nifasRowOk '
-            'nifasAgrees=$nifasAgrees fiqhNifas=$fiqhNifasOk',
+            'postpartumAgrees=$postpartumAgrees fiqhNifas=$fiqhNifasOk',
         status: pass ? PersonaStatus.pass : PersonaStatus.fail,
         screenshotRef: 'G_Today.png',
       ),

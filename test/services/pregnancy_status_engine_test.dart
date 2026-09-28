@@ -207,7 +207,7 @@ void main() {
   });
 
   group('PregnancyStatusEngine — postpartum mode', () {
-    test('within 40 days is نفاس', () {
+    test('postpartum exposes factual elapsed days without a Fiqh phase', () {
       final birth = DateTime(2026, 1, 1);
       final today = birth.add(const Duration(days: 39));
       final status = PregnancyStatusEngine.getStatus(
@@ -217,10 +217,9 @@ void main() {
 
       expect(status.mode, PregnancyMode.postpartum);
       expect(status.daysPostpartum, 39);
-      expect(status.phase, 'نفاس');
     });
 
-    test('past 40 days is ما بعد النفاس', () {
+    test('elapsed postpartum days do not create a Nifas classification', () {
       final birth = DateTime(2026, 1, 1);
       final today = birth.add(const Duration(days: 41));
       final status = PregnancyStatusEngine.getStatus(
@@ -229,7 +228,7 @@ void main() {
       );
 
       expect(status.mode, PregnancyMode.postpartum);
-      expect(status.phase, 'ما بعد النفاس');
+      expect(status.daysPostpartum, 41);
     });
 
     test('postpartum takes priority over any pregnancy tracking basis', () {

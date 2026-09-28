@@ -2,8 +2,6 @@ import '../../core/errors/app_error_reporter.dart';
 import '../../core/localization/app_locale_controller.dart';
 import '../../core/network/ai_function_gateway.dart';
 import '../../core/network/supabase_client.dart';
-import '../../core/preferences/madhhab_controller.dart';
-import '../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 
 class FiqhCitation {
   const FiqhCitation({
@@ -62,24 +60,11 @@ class AiAdvisorService {
     _noSourcesFallbackArText,
   );
 
-  /// [madhhab]/[madhhabState] (Fiqh Remediation Wave 1, Section F): the AI
-  /// context must distinguish UNKNOWN from UNSET, never send a fabricated
-  /// madhhab for either. [madhhab] is non-null only when [madhhabState] is
-  /// [MadhhabSelectionState.selected] — callers must pass
-  /// `MadhhabController.instance.selectedOrNull`/`.state` directly, never
-  /// substitute a default when the user hasn't made a real choice.
+  /// Madhhab is intentionally NOT accepted here. The Edge Function reads the
+  /// authenticated user's canonical server row directly, so a stale or
+  /// modified client cannot choose the religious-rule authority boundary.
   Future<FiqhAnswer> askFiqh({
     required String question,
-    required Madhhab? madhhab,
-    required MadhhabSelectionState madhhabState,
-
-    /// AICTX remediation: the app's own already-computed deterministic
-    /// classification (e.g. "haid"), or null if unavailable. Sent
-    /// unconditionally when present so the advisor can reference the
-    /// app's existing state instead of asking the user to re-describe it
-    /// — the server treats this strictly as `client_computed`, never as
-    /// independently verified. See ClientFiqhStateProvider.
-    String? clientFiqhState,
   }) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
@@ -90,12 +75,7 @@ class AiAdvisorService {
       final response = await AiFunctionGateway.invoke(
         client,
         'fiqh-advisor-chat',
-        body: {
-          'question': question,
-          'madhhab': madhhab?.name,
-          'madhhab_state': madhhabState.name,
-          if (clientFiqhState != null) 'clientFiqhState': clientFiqhState,
-        },
+        body: {'question': question},
       );
 
       final data = response.data;

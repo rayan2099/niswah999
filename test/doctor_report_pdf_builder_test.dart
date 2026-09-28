@@ -121,7 +121,7 @@ void main() {
     expect(bytes.isNotEmpty, isTrue);
   });
 
-  test('renders the nifas overview state', () async {
+  test('renders the postpartum-unresolved overview state', () async {
     final profile = PregnancyProfile(
       id: 'p1',
       userId: 'user-1',
@@ -139,7 +139,7 @@ void main() {
       now: DateTime(2026, 1, 15),
     );
 
-    expect(insights.cycleAndPregnancy.mode.name, 'nifas');
+    expect(insights.cycleAndPregnancy.mode.name, 'postpartumUnresolved');
 
     final bytes = await DoctorReportPdfBuilder.build(
       isArabic: false,

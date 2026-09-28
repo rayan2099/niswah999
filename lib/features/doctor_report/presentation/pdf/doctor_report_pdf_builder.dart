@@ -375,7 +375,7 @@ class DoctorReportPdfBuilder {
     FiqhReportInsights cycleAndPregnancy,
     pw.Font semiBold,
   ) {
-    if (cycleAndPregnancy.mode == FiqhReportMode.nifas) {
+    if (cycleAndPregnancy.mode == FiqhReportMode.postpartumUnresolved) {
       return [
         _card(
           bg: _lightTint,
@@ -384,19 +384,19 @@ class DoctorReportPdfBuilder {
             children: [
               pw.Text(
                 isArabic
-                    ? 'في فترة النفاس'
-                    : 'In the postpartum (nifas) period',
+                    ? 'في مرحلة ما بعد الولادة'
+                    : 'In the postpartum period',
                 style: pw.TextStyle(
                   font: semiBold,
-                  color: PdfColor.fromHex(_nifas),
+                  color: PdfColor.fromHex(_advisory),
                   fontSize: 13,
                 ),
               ),
               pw.SizedBox(height: 6),
               pw.Text(
                 isArabic
-                    ? 'اليوم ${cycleAndPregnancy.daysPostpartum} بعد الولادة.'
-                    : 'Day ${cycleAndPregnancy.daysPostpartum} postpartum.',
+                    ? 'اليوم ${(cycleAndPregnancy.daysPostpartum ?? 0) + 1} بعد الولادة. هذا وصف زمني طبي/واقعي ولا يُعد تصنيفاً فقهياً للنفاس.'
+                    : 'Postpartum day ${(cycleAndPregnancy.daysPostpartum ?? 0) + 1}. This is factual postpartum timing, not a Fiqh Nifas classification.',
                 style: pw.TextStyle(
                   color: PdfColor.fromHex(_textPrimary),
                   fontSize: 10,
