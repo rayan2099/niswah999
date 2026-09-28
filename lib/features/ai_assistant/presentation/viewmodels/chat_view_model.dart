@@ -8,6 +8,7 @@ import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
+import '../../../../core/preferences/ttc_mode_controller.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../notifications/domain/entities/notification_preference.dart';
 import '../../../ai_advisor/ai_advisor_service.dart';
@@ -264,6 +265,7 @@ class ChatViewModel extends ChangeNotifier {
       final response = await DrNiswahBackendService.instance.send(
         threadId: threadId,
         content: content,
+        ttcEnabled: TtcModeController.instance.explicitSelectionOrNull,
       );
       final assistantMessage = ChatMessage(
         id: 'local_assistant_${DateTime.now().microsecondsSinceEpoch}',
@@ -338,8 +340,6 @@ class ChatViewModel extends ChangeNotifier {
         .currentClassification(selectedMadhhab);
     final result = await AiAdvisorService.instance.askFiqh(
       question: content,
-      madhhab: selectedMadhhab,
-      madhhabState: madhhabState,
       clientFiqhState: clientFiqhState,
     );
 
@@ -380,16 +380,13 @@ class ChatViewModel extends ChangeNotifier {
     final response = await AiFunctionGateway.invoke(
       client,
       'ai-assistant-chat',
-      // AICTX remediation: the general assistant previously received no
-      // context at all. madhhab is cheap and always known client-side
-      // (MadhhabController), so it's sent unconditionally now — the
-      // Edge Function treats it as optional either way. Fiqh Remediation
-      // Wave 1: null/'unset'/'unknown' are sent as-is, never a fabricated
-      // madhhab (Section F).
+      // Madhhab is intentionally not sent: the backend reads its canonical
+      // server-authoritative state. TTC is sent only when this user has an
+      // explicit stored preference; absence stays UNKNOWN at the AI boundary.
       body: {
         'content': content,
-        'madhhab': MadhhabController.instance.selectedOrNull?.name,
-        'madhhab_state': MadhhabController.instance.state.name,
+        if (TtcModeController.instance.explicitSelectionOrNull case final value?)
+          'ttcEnabled': value,
       },
     );
     final data = response.data;
