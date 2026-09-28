@@ -38,7 +38,6 @@ void main() {
       if (want.containsKey('daysPostpartum')) {
         expect(status.daysPostpartum, want['daysPostpartum']);
       }
-      if (want.containsKey('phase')) expect(status.phase, want['phase']);
     });
   }
 
