@@ -783,7 +783,8 @@ export async function buildUserAiContext(
       madhhab: madhhab.madhhab,
       madhhabState: madhhab.madhhabState,
       madhhabProvenance: madhhab.madhhabProvenance,
-      nifasState: pregnancy.mode === 'postpartum' ? 'unknown' : 'not_applicable',
+      nifasState:
+        pregnancy.mode === 'pregnant' ? 'not_applicable' : 'unknown',
       classification: sanitizedFiqhState,
       classificationSource: fiqhClassificationSource,
       uncertainty:
@@ -819,10 +820,13 @@ export async function buildUserAiContext(
 }
 
 function quotedUntrusted(value: string): string {
-  // JSON encoding keeps user-authored newlines / control characters inside a
-  // quoted value instead of allowing them to masquerade as trusted context
-  // fields or [END CONTEXT] markers.
-  return JSON.stringify(value);
+  // JSON encoding keeps newlines/control characters inside one quoted value.
+  // Escape square brackets as visible unicode escapes too, so user-authored
+  // text cannot contain a literal [CONTEXT] / [END CONTEXT] delimiter that a
+  // model could mistake for trusted structure.
+  return JSON.stringify(value)
+    .replaceAll('[', '\\u005B')
+    .replaceAll(']', '\\u005D');
 }
 
 export function formatContextBlock(
