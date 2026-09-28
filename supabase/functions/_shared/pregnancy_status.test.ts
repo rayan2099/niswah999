@@ -178,7 +178,7 @@ Deno.test('trimester boundary — week 27 vs 28', () => {
   assertEquals(week28.trimester, 3);
 });
 
-Deno.test('postpartum — within 40 days is نفاس', () => {
+Deno.test('postpartum — exposes factual days only, not a Nifas ruling', () => {
   const birth = new Date('2026-01-01');
   const status = getPregnancyStatus(
     profile({ is_postpartum: true, postpartum_start_date: birth.toISOString() }),
@@ -187,10 +187,10 @@ Deno.test('postpartum — within 40 days is نفاس', () => {
 
   assertEquals(status.mode, 'postpartum');
   assertEquals(status.daysPostpartum, 39);
-  assertEquals(status.phase, 'نفاس');
+  assertEquals('phase' in status, false);
 });
 
-Deno.test('postpartum — past 40 days is ما بعد النفاس', () => {
+Deno.test('postpartum — elapsed days do not create a Fiqh phase', () => {
   const birth = new Date('2026-01-01');
   const status = getPregnancyStatus(
     profile({ is_postpartum: true, postpartum_start_date: birth.toISOString() }),
@@ -198,7 +198,8 @@ Deno.test('postpartum — past 40 days is ما بعد النفاس', () => {
   );
 
   assertEquals(status.mode, 'postpartum');
-  assertEquals(status.phase, 'ما بعد النفاس');
+  assertEquals(status.daysPostpartum, 41);
+  assertEquals('phase' in status, false);
 });
 
 Deno.test('postpartum takes priority over any pregnancy tracking basis', () => {
