@@ -9,12 +9,17 @@ evidence of actual founder sign-off — corrected 2026-09-29):
 - `NOT_APPROVED` — the founder reviewed it and declined, or it was
   auto-implemented without authorization and is being held pending review.
 - `FOUNDER_APPROVED` — the founder actually decided this, with the decision
-  recorded (who, when, what). No entry below currently holds this status.
+  recorded (who, when, what).
+- `FOUNDER_APPROVED_WITH_CONDITIONS` — the founder approved the underlying
+  policy, but attached binding conditions; the approval only covers an
+  implementation that actually satisfies those conditions, not the policy
+  in unconditional form.
 
 **Agent recommendation ≠ founder decision.** Every entry in this file is an
 agent recommendation until a founder explicitly marks it `FOUNDER_APPROVED`
-with an attributable record of that approval. Nothing in this repository
-today constitutes that record for any entry below.
+(or `FOUNDER_APPROVED_WITH_CONDITIONS`) with an attributable record of that
+approval. As of 2026-09-29, FD-5 and FD-6 carry that record; FD-1, FD-2, and
+FD-3 do not yet.
 
 ---
 
@@ -156,8 +161,35 @@ today constitutes that record for any entry below.
   FIQH and HEALTH.
 - **Code dependency**: **yes — significant.** The KB migration, retrieval
   module, and both rewritten edge functions all assume this model.
-- **Status: `PENDING_FOUNDER_REVIEW`** — this is the single highest-priority
-  item in this file.
+- **Status: `FOUNDER_APPROVED_WITH_CONDITIONS` (2026-09-29).**
+
+  **Approved policy, as recorded by the founder:** "Evidence-backed
+  educational content may be used in production without prior human
+  professional approval only where the proposition, scope, provenance, and
+  citations satisfy the production-disposition gate. This does not
+  constitute professional approval."
+
+  **Binding conditions attached to this approval** (all of the following are
+  requirements, not aspirations — see Engineering Remediation Pass, Phases
+  1-5, for what was implemented to satisfy them):
+  1. `human_review_status` must remain explicit on every row, always.
+  2. No row with `human_review_status = NOT_REVIEWED` may ever be
+     represented as `Scholar-Approved` or `Medically-Approved` anywhere —
+     in the database, the API contract, or the rendered answer.
+  3. Health content remains educational and non-diagnostic.
+  4. Fiqh content remains source-grounded, Madhhab-specific *informational*
+     guidance — never presented as a personal fatwa.
+  5. Where appropriate, Fiqh output attributes the position to its
+     Madhhab/source rather than presenting Niswah itself as the juristic
+     authority.
+  6. Any conflict, unresolved interpretation, individualized clinical
+     judgment, juristic judgment, or insufficient evidence remains
+     fail-closed.
+  7. The 43 `FAIL_CLOSED` Fiqh rows remain inaccessible as authoritative
+     production answers.
+  8. The three pregnancy-loss/nifas joint scholar-and-medical review rows
+     (`MLK-NIFAS-29`, `SHF-NIFAS-29`, `HNB-NIFAS-29`) remain categorically
+     blocked.
 
 ## FD-6 — Fiqh Advisor: removing live Google Search grounding for KB-only retrieval
 
@@ -183,4 +215,11 @@ today constitutes that record for any entry below.
   revert to live search until the KB has broader coverage.
 - **Code dependency**: **yes** — this is a completed code change on this
   branch, not a pending one.
-- **Status: `PENDING_FOUNDER_REVIEW`.**
+- **Status: `FOUNDER_APPROVED` (2026-09-29).** KB-only authoritative
+  retrieval is approved for production Fiqh Advisor. Uncontrolled live
+  Google Search grounding is **not** restored to production answers.
+  Internet search remains permitted as part of offline research/evidence-
+  verification workflows (exactly what the Internet Evidence Audit already
+  did) — it is runtime authoritative answers specifically that must
+  originate from the canonical production KB and its approved disposition
+  state, never a live, unreviewed web search at answer time.
