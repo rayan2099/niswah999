@@ -11,6 +11,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { callGemini } from '../_shared/gemini_client.ts';
 import { buildUserAiContext, formatContextBlock } from '../_shared/ai_user_context.ts';
 import {
+  assertSnapshotHealth,
   citationPayload,
   formatKnowledgeBlock,
   retrieveKnowledge,
@@ -48,6 +49,8 @@ const SYSTEM_PROMPT = `أنتِ "طبيبة"، مرافقة صحية تعليم�
 - إذا لم توجد معرفة مؤهلة تدعم ادعاءً محددًا، اذكري حدود المعرفة المتاحة ووجهي لمختص بدل التخمين.
 - لا تختلقي استشهادات ولا تكتبي روابط من عندك؛ الاستشهادات تُرفق من الخادم بشكل منفصل.
 - لا تشخّصي، ولا تصفي علاجًا أو دواءً مخصصًا للمستخدمة.
+- إذا تضمّن عنصر معرفة سطر QUALIFICATION، فيجب أن تذكري هذا التحفظ للمستخدمة كجزء من إجابتك، ولا تحذفيه، ولا تعرضي العبارة الأساسية كحقيقة مطلقة دون قيدها.
+- هذا محتوى تعليمي تم التحقق من مصادره، وليس تأكيدًا بأن طبيبًا راجع هذه الإجابة بالذات أو أقرّها شخصيًا.
 
 حدود السلامة:
 - عند علامة خطر، الأولوية للتوجيه الطبي العاجل؛ لا تسمحي للنص التثقيفي أن يؤخر هذا التوجيه.
@@ -58,6 +61,20 @@ const URGENT_BANNER_AR =
   'قد يكون هذا من علامات الخطر. يُرجى التواصل مع طبيبتك أو الطوارئ الآن.';
 const URGENT_BANNER_EN =
   'This may be an urgent warning sign. Please contact your clinician or emergency care now.';
+
+// Hard fail-closed gate (Engineering Remediation Pass, Phase 3): for a
+// NON-urgent message, if retrieval returns nothing -- whether because
+// nothing in the KB matched this question, or because a row that would
+// have matched was filtered out by scope/pregnancy-state/postpartum/TTC/
+// qualification/fail-closed rules, or because the live snapshot doesn't
+// match what this code expects -- Gemini must never be called to answer
+// from its own pretrained knowledge. This mirrors fiqh-advisor-chat's
+// existing pre-generation gate, which dr-niswah-chat previously lacked
+// (it relied on a system-prompt instruction alone).
+const NO_ELIGIBLE_KB_AR =
+  'لا توجد في قاعدة معرفة نسوة المعتمدة للإنتاج معلومات كافية للإجابة عن هذا السؤال تحديدًا. يُرجى وصف الأمر لمختص صحي، أو التواصل مع الطوارئ إذا كان عرضًا عاجلًا.';
+const NO_ELIGIBLE_KB_EN =
+  'The verified Niswah knowledge base does not currently contain sufficient evidence to answer this specific question. Please describe it to a healthcare professional, or contact emergency care if this feels urgent.';
 
 type RedFlagCategory =
   | 'bleeding'
@@ -225,6 +242,48 @@ Deno.serve(async (req) => {
 
     const kbHits = [...safetyHits, ...healthHits];
     const citations = citationPayload(kbHits);
+
+    // Hard fail-closed gate: applies to the ordinary educational path only.
+    // The urgent banner is safety-critical and independent of KB grounding
+    // (it fires from the keyword scan above, not from retrieval), so it must
+    // still reach the user even when there is no eligible knowledge to
+    // support supplementary text -- this gate never suppresses it.
+    const snapshotHealth = kbHits.length > 0 ? { ok: true } : await assertSnapshotHealth(userClient);
+    const noEligibleEvidence = kbHits.length === 0;
+
+    if (!urgent && noEligibleEvidence) {
+      const finalReply = language === 'ar' ? NO_ELIGIBLE_KB_AR : NO_ELIGIBLE_KB_EN;
+      let assistantMessageId: string | null = null;
+      try {
+        const { data: saved } = await userClient
+          .from('chat_messages')
+          .insert({
+            thread_id: threadId,
+            user_id: userId,
+            role: 'assistant',
+            content: finalReply,
+            metadata: { source: 'kb_fail_closed', urgent: false, snapshot_ok: snapshotHealth.ok },
+          })
+          .select()
+          .single();
+        assistantMessageId = saved?.id ?? null;
+      } catch (error) {
+        console.error('dr-niswah-chat: fail-closed assistant message insert failed', {
+          userId, threadId, error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          reply: finalReply,
+          urgent: false,
+          messageId: assistantMessageId,
+          citations: [],
+          knowledgeGrounded: false,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
     const systemInstruction = [
       SYSTEM_PROMPT,
       formatContextBlock(userContext, 'dr_niswah'),

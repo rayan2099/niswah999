@@ -4,7 +4,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { callGemini } from '../_shared/gemini_client.ts';
 import { buildUserAiContext, formatContextBlock } from '../_shared/ai_user_context.ts';
-import { citationPayload, formatKnowledgeBlock, retrieveKnowledge } from '../_shared/kb_retrieval.ts';
+import {
+  assertSnapshotHealth,
+  citationPayload,
+  formatKnowledgeBlock,
+  retrieveKnowledge,
+} from '../_shared/kb_retrieval.ts';
 import {
   AI_ENDPOINT_RATE_LIMIT,
   checkRateLimit,
@@ -35,6 +40,8 @@ Use ONLY the supplied [KNOWLEDGE] block for substantive rulings. Never invent, b
 Every material ruling must stay within the supplied canonical statement and its conditions. Distinguish factual tracking data from a religious ruling.
 If the supplied knowledge is insufficient for the exact case, say that the case requires qualified scholarly guidance rather than extrapolating.
 Do not diagnose medical conditions. Urgent health symptoms must be escalated to licensed medical care.
+This is source-grounded educational information about the ${madhhab} position, not a personal fatwa and not your own independent juristic ruling -- attribute the ruling to its madhhab/source, never present Niswah itself as the authority. This is evidence-verified content, not a statement that a scholar has personally reviewed or approved this specific answer.
+If a knowledge item includes a QUALIFICATION line, you must state that scope restriction to the user as part of your answer -- never drop it, and never present the underlying statement as an unconditional claim when a QUALIFICATION is attached to it.
 Answer in the user's language. Plain prose only; no markdown.`;
 }
 
@@ -107,6 +114,11 @@ Deno.serve(async (req) => {
     ]);
 
     if (kbHits.length === 0) {
+      // Distinguishes, in logs only, "nothing matched" from "the live KB
+      // isn't the snapshot this code expects" -- the user-facing answer is
+      // deliberately identical either way (never expose snapshot internals),
+      // but an operator needs to be able to tell the two apart.
+      await assertSnapshotHealth(userClient);
       return new Response(JSON.stringify({ text: NO_ELIGIBLE_KB_AR, citations: [] }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
