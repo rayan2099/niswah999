@@ -27,6 +27,11 @@ create table if not exists public.knowledge_items (
   topic text,
   subtopic text,
   madhhab text check (madhhab is null or madhhab in ('hanafi','maliki','shafii','hanbali')),
+  -- Search routing metadata is deliberately separate from canonical content.
+  -- For Fiqh, Arabic question text may route retrieval but is never treated as
+  -- an approved Arabic ruling unless an Arabic knowledge_item_version exists.
+  search_text_ar text,
+  search_text_en text,
   publication_state text not null default 'DRAFT' check (publication_state in ('DRAFT','PUBLISHED','RETIRED')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -70,6 +75,8 @@ create table if not exists public.knowledge_citations (
 );
 
 create index if not exists idx_ki_retrieval on public.knowledge_items(domain, publication_state, madhhab, category, topic);
+create index if not exists idx_ki_search_ar_trgm on public.knowledge_items using gin (search_text_ar gin_trgm_ops);
+create index if not exists idx_ki_search_en_trgm on public.knowledge_items using gin (search_text_en gin_trgm_ops);
 create index if not exists idx_kiv_retrieval on public.knowledge_item_versions(production_eligible, language, evidence_state);
 create index if not exists idx_kiv_statement_trgm on public.knowledge_item_versions using gin (canonical_statement gin_trgm_ops);
 create index if not exists idx_kiv_states_gin on public.knowledge_item_versions using gin (applicable_user_states);
@@ -101,6 +108,7 @@ returns table (
   category text,
   topic text,
   madhhab text,
+  content_language text,
   canonical_statement text,
   safety_class text,
   source_key text,
@@ -122,14 +130,30 @@ as $$
       ki.category,
       ki.topic,
       ki.madhhab,
+      kiv.language as content_language,
       kiv.canonical_statement,
       kiv.safety_class,
-      similarity(lower(kiv.canonical_statement), lower(coalesce(p_query,''))) as score
+      greatest(
+        similarity(lower(kiv.canonical_statement), lower(coalesce(p_query,''))),
+        similarity(
+          lower(case when p_language = 'ar' then coalesce(ki.search_text_ar,'') else coalesce(ki.search_text_en,'') end),
+          lower(coalesce(p_query,''))
+        ),
+        similarity(lower(coalesce(ki.topic,'')), lower(coalesce(p_query,'')))
+      ) as score,
+      case when kiv.language = p_language then 1 else 0 end as exact_language
     from public.knowledge_items ki
     join public.knowledge_item_versions kiv on kiv.knowledge_item_id = ki.id
     where ki.publication_state = 'PUBLISHED'
       and kiv.production_eligible = true
-      and kiv.language = p_language
+      and (
+        kiv.language = p_language
+        -- V1 Fiqh propositions are source-verified in English. Arabic
+        -- scholar-packet questions may route retrieval, but the canonical
+        -- English proposition is returned and the model may translate it
+        -- without broadening it. No Arabic ruling is invented in storage.
+        or (ki.domain = 'FIQH' and p_language = 'ar' and kiv.language = 'en')
+      )
       and ki.domain = p_domain
       and (
         p_domain <> 'FIQH'
@@ -143,6 +167,7 @@ as $$
     e.category,
     e.topic,
     e.madhhab,
+    e.content_language,
     e.canonical_statement,
     e.safety_class,
     ks.source_key,
@@ -153,7 +178,7 @@ as $$
   from eligible e
   join public.knowledge_item_sources kis on kis.knowledge_item_version_id = e.version_id
   join public.knowledge_sources ks on ks.id = kis.source_id
-  order by e.score desc, e.knowledge_key
+  order by e.exact_language desc, e.score desc, e.knowledge_key
   limit greatest(1, least(coalesce(p_limit, 8), 20));
 $$;
 
@@ -161,4 +186,4 @@ revoke all on function public.retrieve_knowledge_v1(text,text,text,text,integer)
 grant execute on function public.retrieve_knowledge_v1(text,text,text,text,integer) to authenticated;
 
 comment on function public.retrieve_knowledge_v1 is
-'Fail-closed KB retrieval: only published, production-eligible rows. FIQH requires an explicit Madhhab and never defaults UNKNOWN/UNSET.';
+'Fail-closed KB retrieval: only published, production-eligible rows. FIQH requires an explicit Madhhab; Arabic routing may return the verified English proposition without creating an unreviewed Arabic ruling.';
