@@ -1,66 +1,49 @@
 # Review and Publishing Workflow
 
-## Purpose
-This workflow governs evidence quality and product use. It does not represent a medical diagnosis, a personal fatwa, or human professional certification unless an attributable qualified reviewer has actually provided one.
-
-## Evidence lifecycle
+## Lifecycle
 DRAFT
-→ PRIMARY_SOURCE_VERIFIED
-→ DOCUMENTARY_VERIFIED
-→ INSTITUTIONALLY_CORROBORATED (when an independent authoritative source is available and applicable)
-→ ELIGIBLE_FOR_GUIDED_USE
+→ SOURCE_VERIFIED
+→ EVIDENCE_CLASSIFIED
+→ PRODUCTION_CANDIDATE
 → PUBLISHED
 → RETIRED
 
-An item may instead move to:
-- HUMAN_JUDGMENT_REQUIRED
-- CONFLICT_REQUIRES_REVIEW
-- REJECTED
-
-## Evidence classes
-### PRIMARY_SOURCE_VERIFIED
-The proposition is traceable to the cited primary source and exact locator.
-
-### DOCUMENTARY_VERIFIED
-A second-pass audit confirms that the canonical wording does not materially exceed the cited evidence and that the source is applicable to the stated population/context.
-
-### INSTITUTIONALLY_CORROBORATED
-An independent authoritative or institutional source materially corroborates the proposition without a relevant conflict. Corroboration must be scope-compatible; e.g. a pregnancy/postpartum warning-sign source cannot be used as general-menstruation corroboration unless the item is explicitly limited to pregnancy/postpartum.
-
-### HUMAN_JUDGMENT_REQUIRED
-The item depends on individualized diagnosis, legal/fiqh application to a person's circumstances, unresolved intra-school interpretation, source conflict, or another question that documentary review alone cannot settle safely.
+## Evidence states
+- `PRIMARY_SOURCE_VERIFIED`
+- `INSTITUTIONALLY_CORROBORATED`
+- `CONFLICT_OR_JUDGMENT_REQUIRED`
+- `SOURCE_SCOPE_CORRECTION_REQUIRED`
+- `INSUFFICIENT_EVIDENCE`
 
 ## Roles
-- FIQH documentary audit: source/locator verification plus Madhhab-specific corroboration where available.
-- HEALTH documentary audit: authoritative clinical/public-health sources and population/context checks.
-- SAFETY documentary audit: authoritative warning-sign/emergency sources with fail-closed wording.
-- PRODUCT: Niswah product/engineering owner.
-- HUMAN REVIEWER (optional but stronger): qualified scholar or clinician when available or when an item is classified HUMAN_JUDGMENT_REQUIRED.
+- FIQH evidence review: source/locator verification plus Madhhab-specific scope check
+- HEALTH evidence review: guideline/source verification plus population/context scope check
+- SAFETY evidence review: red-flag source verification with fail-closed escalation
+- PRODUCT: Niswah product/engineering owner
+- OPTIONAL HUMAN REVIEW: qualified scholar/clinician when external endorsement or unresolved judgment is required
 
-## Guided-use publication rule
-An item may be eligible for guided, educational use without claiming human professional approval only when all of the following hold:
-1. the primary source and locator are verified;
-2. the final wording is documentary-verified and does not exceed the evidence;
-3. any cited secondary source is scope-compatible;
-4. no unresolved material conflict changes the user-facing proposition;
-5. the item is not an individualized diagnosis, treatment directive, or personalized fatwa;
-6. the response contract requires source citation and the applicable medical/fiqh disclaimer;
-7. safety items use fail-closed escalation behavior.
-
-Human review remains required for items classified HUMAN_JUDGMENT_REQUIRED or CONFLICT_REQUIRES_REVIEW.
-
-## Product trust boundary
-### Health
-Niswah provides educational/source-based information, not diagnosis or individualized medical treatment. When symptoms may require clinical evaluation, the product must say so. Emergency/urgent warning signs must trigger escalation language rather than diagnostic conclusions.
-
-### Fiqh
-Niswah may present a source-based, Madhhab-specific proposition as educational guidance, but must not represent the output as a personal fatwa. If the user's facts materially affect application, the sources conflict, the Madhhab is unknown, or the evidence is ambiguous, the system must surface the uncertainty and recommend asking a qualified scholar/official fatwa service.
-
-## Versioning and audit rules
+## Rules
 - Do not overwrite published history.
 - An edit creates a new version.
-- Retain source, locator, evidence class, audit date, and reviewer identity when a human reviewer exists.
-- Never populate a scholar/clinician approval field unless that human review actually occurred.
-- A rejected or blocked item remains auditable.
-- Production retrieval excludes DRAFT, HUMAN_JUDGMENT_REQUIRED, CONFLICT_REQUIRES_REVIEW, REJECTED, and RETIRED versions.
-- Production retrieval may include ELIGIBLE_FOR_GUIDED_USE only under the trust-boundary and citation contracts above.
+- Retain source, locator, evidence state, audit date, wording version, and any human reviewer metadata when present.
+- A rejected or fail-closed item remains auditable.
+- Production retrieval excludes DRAFT, `CONFLICT_OR_JUDGMENT_REQUIRED`, `SOURCE_SCOPE_CORRECTION_REQUIRED`, `INSUFFICIENT_EVIDENCE`, rejected, and retired versions.
+- Evidence verification must never be represented as external professional endorsement unless a qualified human reviewer actually supplied that endorsement.
+
+## Production-candidate rule
+A row may become a production candidate only if:
+1. evidence state is `PRIMARY_SOURCE_VERIFIED` or `INSTITUTIONALLY_CORROBORATED`;
+2. the cited source applies to the same population/context as the intended answer;
+3. Arabic and English wording do not exceed the source-supported proposition;
+4. exact source/locator metadata is retained;
+5. the relevant AI mode displays the result as educational/source-based guidance, not a personal diagnosis or personal fatwa;
+6. safety and escalation contracts are satisfied.
+
+## Fiqh
+A Madhhab proposition may be presented as source-attributed educational guidance when the source and locator support it and application does not require unresolved individual judgment. The selected Madhhab must be explicit. `UNKNOWN` must never silently default. Any unresolved source interpretation, conflicting Madhhab application, or person-specific judgment is `CONFLICT_OR_JUDGMENT_REQUIRED` and fails closed to qualified religious guidance.
+
+## Health
+General guideline information may be presented when its source and context are verified. Niswah must not diagnose an individual user or prescribe individualized treatment. Red-flag symptoms override ordinary educational generation and route to appropriate clinical/emergency guidance.
+
+## Human review
+Human review remains valuable and may upgrade confidence or provide true external endorsement, but it is not represented as having occurred unless attributable reviewer identity/qualification and decision are actually recorded.
