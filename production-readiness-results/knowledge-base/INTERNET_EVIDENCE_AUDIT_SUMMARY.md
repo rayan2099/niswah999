@@ -1,6 +1,6 @@
 # Internet Evidence Audit Summary
 
-## Status: Health/Safety phase re-verified independently. Fiqh phase in progress.
+## Status: Both phases independently re-verified and complete.
 
 The previous version of this document (and `INTERNET_EVIDENCE_AUDIT.csv`) self-reported
 this audit as complete. Per founder instruction (2026-09-29), that self-report was
@@ -77,24 +77,90 @@ re-stating the prior self-report.
   guidance; noted for completeness since the atom's own wording ("older than 35")
   matches the NICHD/ACOG phrasing exactly.
 
-## Scope in progress — Fiqh
+## Scope completed — Fiqh
 
-Per the founder's Phase 2 instructions: only the 43 rows currently marked
-`SCHOLAR_CLARIFICATION_REQUIRED` (29) or `PARTIAL_EVIDENCE` (14) are being
-independently re-audited; the 137 `LOCATOR_VERIFIED` rows are not being redone
-unless an actual inconsistency turns up while working through the unresolved set.
-Fiqh-appropriate evidence conclusions (`PRIMARY_SOURCE_VERIFIED` /
-`INSTITUTIONALLY_CORROBORATED` / `CONFLICT_OR_JUDGMENT_REQUIRED`) are used —
-**never** `SCHOLAR_APPROVED`, regardless of source strength. In progress; this
-section will be updated on completion.
+Per the founder's Phase 2 instructions: only the 43 rows previously marked
+`SCHOLAR_CLARIFICATION_REQUIRED` (29) or `PARTIAL_EVIDENCE` (14) were
+independently re-audited (12 Hanafi, 12 Maliki, 11 Shafi'i, 8 Hanbali); the 137
+`LOCATOR_VERIFIED` rows were not redone — no inconsistency was found in them while
+working through the unresolved set that would have required revisiting them.
+
+**All 43 remain `production_disposition = FAIL_CLOSED`.** Internet verification
+never converts a row to `SCHOLAR_APPROVED`, and none of the three Fiqh evidence
+conclusions used here (`PRIMARY_SOURCE_VERIFIED`, `INSTITUTIONALLY_CORROBORATED`,
+`CONFLICT_OR_JUDGMENT_REQUIRED`) is a form of scholarly sign-off — see
+`FIQH_INTERNET_EVIDENCE_AUDIT.csv` for the full per-row trail (madhhab, prior
+status, new internet-audit status, disposition, and a reasoned explanation citing
+what was independently checked).
+
+**Result: 34 `CONFLICT_OR_JUDGMENT_REQUIRED`, 8 `PRIMARY_SOURCE_VERIFIED`, 1
+`INSTITUTIONALLY_CORROBORATED`.**
+
+### Methodology and its real limits
+
+- Primary/secondary citations in this pack are overwhelmingly hosted on
+  `islamweb.net`'s library (classical-text digitization of Radd al-Muhtar, Bada'i
+  al-Sanai', Mawahib al-Jalil, Hashiyat al-Dasuqi, Al-Majmu', Tuhfat al-Muhtaj,
+  Kashshaf al-Qina') plus two citations to the Kuwaiti Fiqh Encyclopedia
+  (`content.awqaf.gov.kw`, a genuine 45-volume comparative-fiqh work published by
+  Kuwait's Ministry of Awqaf) and one to `ablibrary.net`.
+- **`islamweb.net` actively blocks automated fetches from this session** (TLS
+  connections are reset at the handshake — confirmed via both the `WebFetch` tool
+  and direct `curl`, not a transient failure). Direct page-content verification of
+  every `islamweb.net` citation was therefore not possible. Verification instead
+  used `WebSearch`, which surfaces Google's own index of these exact pages — for
+  every citation checked this way, the search-indexed title and content matched
+  the claimed classical work, chapter, and substance exactly (e.g. the exact
+  `islamweb.net` URL cited for `SHF-NIFAS-35`'s twins/multiple-births discussion
+  appeared in an independent search, confirming Al-Majmu' really does discuss
+  "twins born with a time gap" under exactly three named positions, matching the
+  row's own claim).
+- One citation (`ablibrary.net`, `HNB-TAHARA-11`) was **directly fetched and
+  confirmed verbatim** — the strongest-evidenced row in the set.
+- The two Kuwaiti Fiqh Encyclopedia PDF citations could not be directly fetched
+  (file size exceeds this session's fetch tool's content limit); their existence,
+  publisher, and general subject matter were independently confirmed via search,
+  but the exact cited page was not re-rendered this pass.
+- **No anonymous sites, forums, social media, or AI-summary sites were used as
+  primary authority** anywhere in this audit, per the hard constraint.
+- The overwhelming majority (34/43) of rows were found, on independent check, to
+  genuinely warrant staying fail-closed: their own source material explicitly
+  documents multiple named positions, later-authority variants, or classical
+  texts that themselves preserve juristic uncertainty (the two `*-TRANS-45`
+  mutahayyira/uncertainty rows, one per relevant madhhab, are definitionally about
+  *preserving* uncertainty rather than resolving it). This is the correct,
+  responsible outcome for genuine areas of classical scholarly disagreement — a
+  system correctly flagging "this needs a human scholar to choose a position" is
+  functioning as intended, not failing an audit.
+- 8 rows were reclassified `PRIMARY_SOURCE_VERIFIED`: in each, the row's own
+  material describes a single, undisputed classical position with no competing
+  view named, and the only remaining gap is scholar sign-off on the app-facing
+  wording (not a sourcing or multiplicity problem). These stay fail-closed for
+  production exactly as before — this reclassification only gives a future
+  scholar reviewer a clearer signal about which of the 43 rows are likely faster
+  reviews versus which require choosing among genuinely disputed positions.
+- 1 row (`HNB-TRANS-40`) was reclassified `INSTITUTIONALLY_CORROBORATED`: its
+  primary source, the Kuwaiti Fiqh Encyclopedia, explicitly frames the point as
+  *ittifaq al-fuqaha* (jurists' consensus) that a woman pure before Fajr owes that
+  day's fast — independently corroborated by a second, distinct Hanbali-specific
+  commentary. This is the strongest-evidenced row in the unresolved Fiqh set.
+- Three rows (`MLK-NIFAS-29`, `SHF-NIFAS-29`, `HNB-NIFAS-29` — pregnancy-loss/nifas
+  across three madhahib) explicitly require a **joint scholar-and-medical**
+  decision to map classical criteria (discernible human formation in expelled
+  tissue) onto modern clinical/gestational terminology. This mapping is out of
+  scope for any internet verification pass by design — it is exactly the kind of
+  decision the directive reserves for qualified human review, and remains
+  `CONFLICT_OR_JUDGMENT_REQUIRED` regardless of how well the underlying classical
+  citation verifies.
 
 ## Standing trust-boundary facts (apply to both phases)
 
 - Zero rows are labeled `Scholar-Approved` or `Medically-Approved` anywhere in this
   KB. Internet evidence verification is not professional certification.
-- Every fail-closed row (Health: none currently; Fiqh: the unresolved subset of the
-  43) remains excluded from authoritative AI retrieval regardless of internet
-  verification outcome.
+- Every fail-closed row (Health: none currently; Fiqh: all 43 previously-unresolved
+  rows, regardless of their new, more precise internet-audit status) remains
+  excluded from authoritative AI retrieval regardless of internet verification
+  outcome.
 - **Open governance concern, unresolved by this audit**: PR #6 already contains
   production engineering (a database migration, a `kb_retrieval.ts` module, and a
   rewrite of `fiqh-advisor-chat`/`dr-niswah-chat` to be KB-first) built on the
@@ -103,7 +169,7 @@ section will be updated on completion.
   visible founder authorization for either change. Neither is addressed by this
   audit; both remain open pending founder review. See `FOUNDER_DECISIONS.md`.
 
-## Next engineering gate (unchanged, still blocked until Phase 2 completes)
+## Next engineering gate (both audit phases now complete; gate itself still not cleared)
 
 1. Materialize the Health/Safety correction overlay into the canonical production
    candidate set — including the `SAUDI_MOH_PRECON` URL fix above.
