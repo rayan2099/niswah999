@@ -334,6 +334,17 @@ Deno.serve(async (req) => {
             urgent,
             knowledge_keys: [...new Set(kbHits.map((h) => h.knowledge_key))],
             citation_count: citations.length,
+            // Pre-Merge Integration Validation (Phase 5, Finding 7): the
+            // live JSON response has always carried full citation objects
+            // (see the top-level `citations` field below), but this
+            // persisted copy previously carried only a count -- the one
+            // place the client's chat screen actually reads citations from
+            // (dr_niswah_chat_screen.dart's `message.metadata['citations']`)
+            // was silently getting nothing. citationPayload()'s shape
+            // (title/url/locator/...) already matches what that screen
+            // reads (`title`/`url`), so no client-side rendering change is
+            // needed for this fix to take effect.
+            citations,
           },
         })
         .select()

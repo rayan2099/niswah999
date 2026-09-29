@@ -272,7 +272,15 @@ class ChatViewModel extends ChangeNotifier {
         content: response.reply.isNotEmpty
             ? response.reply
             : DrNiswahRedFlags.bannerTextAr,
-        metadata: {'source': 'dr_niswah_backend', 'urgent': response.urgent},
+        metadata: {
+          'source': 'dr_niswah_backend',
+          'urgent': response.urgent,
+          // Pre-Merge Integration Validation, Phase 5 (Finding 7): mirrors
+          // _sendViaFiqhAdvisor's metadata below — dr_niswah_chat_screen.dart
+          // already reads metadata['citations'] for its citation UI; this
+          // locally-built optimistic message previously never populated it.
+          'citations': response.citations.map((c) => c.toJson()).toList(),
+        },
         createdAt: DateTime.now(),
       );
       messages = [...messages, assistantMessage];
