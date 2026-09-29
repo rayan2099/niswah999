@@ -1,5 +1,13 @@
 # Niswah V1 Knowledge Review Readiness Gate
 
+> **Governance status (2026-09-29): the "guided-use eligibility" model below
+> is an agent recommendation awaiting founder review, not an approved
+> policy — see `FOUNDER_DECISIONS.md` FD-5/FD-6. This document is also
+> stale in one respect: the Internet Evidence Audit it describes as "in
+> progress" is now complete (see `INTERNET_EVIDENCE_AUDIT_SUMMARY.md` and
+> `PRODUCTION_DISPOSITION_MASTER.csv`), and its Fiqh/Health row counts below
+> reflect the pre-audit state, not the frozen 254-row disposition.**
+
 ## Current state
 The V1 evidence program has completed source extraction and is now in documentary/institutional evidence audit.
 

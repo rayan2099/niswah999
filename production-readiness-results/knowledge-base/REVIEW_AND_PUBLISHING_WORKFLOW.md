@@ -1,5 +1,15 @@
 # Review and Publishing Workflow
 
+> **Governance status (2026-09-29): this workflow's core policy — that a row
+> may become a `PRODUCTION_CANDIDATE` through evidence classification alone,
+> with human scholar/clinician review marked optional — is an agent
+> recommendation, not a founder-approved policy. It replaced an earlier
+> design (`DRAFT → SOURCE_VERIFIED → DOMAIN_REVIEWED → APPROVED → PUBLISHED`,
+> human review required to reach `APPROVED`) without recorded founder
+> sign-off. See `FOUNDER_DECISIONS.md` FD-5. The content below is preserved
+> as-is (it is already honest about not fabricating human approval) but its
+> status as *the* governing policy is `PENDING_FOUNDER_REVIEW`.**
+
 ## Lifecycle
 DRAFT
 → SOURCE_VERIFIED

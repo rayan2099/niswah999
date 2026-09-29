@@ -1,5 +1,11 @@
 # Evidence-Based Review Policy
 
+> **Governance status (2026-09-29): this entire policy — that evidence
+> classification alone (never human scholar/clinician review) is sufficient
+> for production use — is an agent recommendation awaiting founder review,
+> not an approved policy. See `FOUNDER_DECISIONS.md` FD-5/FD-6. Preserved
+> as-is below; not to be treated as founder-authorized.**
+
 ## Purpose
 This policy governs Niswah V1 knowledge publication when the product is providing educational, source-linked guidance rather than a personal medical diagnosis or personal fatwa.
 
