@@ -9,6 +9,7 @@ export interface KnowledgeHit {
   category: string | null;
   topic: string | null;
   madhhab: string | null;
+  content_language: 'ar' | 'en';
   canonical_statement: string;
   safety_class: string | null;
   source_key: string;
@@ -55,7 +56,9 @@ export function formatKnowledgeBlock(hits: KnowledgeHit[]): string {
   for (const rows of byVersion.values()) {
     const first = rows[0];
     const citations = rows.map((r) => `${r.source_title} | ${r.locator} | ${r.source_url}`).join(' || ');
-    chunks.push(`ID=${first.knowledge_key}\nSTATEMENT=${first.canonical_statement}\nCITATIONS=${citations}`);
+    chunks.push(
+      `ID=${first.knowledge_key}\nCONTENT_LANGUAGE=${first.content_language}\nSTATEMENT=${first.canonical_statement}\nCITATIONS=${citations}`,
+    );
   }
   return `[KNOWLEDGE]\n${chunks.join('\n---\n')}`;
 }
@@ -74,5 +77,6 @@ export function citationPayload(hits: KnowledgeHit[]) {
     title: h.source_title,
     locator: h.locator,
     url: h.source_url,
+    contentLanguage: h.content_language,
   }));
 }
