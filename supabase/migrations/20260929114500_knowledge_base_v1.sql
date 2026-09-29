@@ -94,6 +94,17 @@ revoke all on public.knowledge_item_versions from anon, authenticated;
 revoke all on public.knowledge_item_sources from anon, authenticated;
 revoke all on public.knowledge_citations from anon, authenticated;
 
+-- drop-then-create (not create-or-replace): a later migration
+-- (20260929120000_knowledge_base_v1_qualification_and_snapshot.sql) widens
+-- this function's RETURNS TABLE shape. Postgres refuses create-or-replace
+-- across an OUT-parameter-shape change ("cannot change return type of
+-- existing function"), which was confirmed by actually re-running this
+-- migration file against an already-migrated local database during the
+-- Pre-Merge Integration Validation pass. drop-if-exists first makes this
+-- migration safely re-runnable on its own regardless of what later
+-- migrations have done to the same function name.
+drop function if exists public.retrieve_knowledge_v1(text, text, text, text, integer);
+
 create or replace function public.retrieve_knowledge_v1(
   p_domain text,
   p_language text,
