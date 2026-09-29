@@ -11,7 +11,8 @@ set -euo pipefail
 # 3) renders deterministic seed SQL,
 # 4) applies migrations,
 # 5) seeds only production candidates,
-# 6) verifies the live denominator and source/publication gates.
+# 6) verifies the live denominator/source/publication gates,
+# 7) verifies retrieval behavior (Madhhab, Arabic routing, relevance threshold).
 
 : "${SUPABASE_DB_URL:?SUPABASE_DB_URL is required}"
 
@@ -39,7 +40,9 @@ supabase db push --db-url "$SUPABASE_DB_URL"
 # into the authoritative retrieval tables.
 psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$SEED"
 
-# Hard post-deploy gate. Any count/publication/source mismatch fails deployment.
+# Hard post-deploy gates. Any denominator/publication/source/retrieval mismatch
+# fails deployment before AI acceptance is allowed to begin.
 psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_kb_live.sql
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_kb_retrieval_live.sql
 
-echo "KB V1 deploy complete: 211 active production items; 43 Fiqh rows remain quarantined outside authoritative retrieval."
+echo "KB V1 deploy complete: 211 active production items; 43 Fiqh rows remain quarantined outside authoritative retrieval; live retrieval gates passed."
