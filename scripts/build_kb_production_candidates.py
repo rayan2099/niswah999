@@ -28,6 +28,17 @@ def write(name, fieldnames, data):
         w.writerows(data)
 
 
+def locator_title(locator: str, fallback: str) -> str:
+    if not locator:
+        return fallback
+    for separator in ('،', ','):
+        if separator in locator:
+            candidate = locator.split(separator, 1)[0].strip()
+            if candidate:
+                return candidate
+    return locator.strip() or fallback
+
+
 health = rows('HEALTH_SAFETY_CANONICAL_DRAFT.csv')
 corrections = {r['atom_id']: r for r in rows('HEALTH_SAFETY_EVIDENCE_CORRECTIONS.csv')}
 audit = {r['atom_id']: r for r in rows('INTERNET_EVIDENCE_AUDIT.csv')}
@@ -148,7 +159,7 @@ for madhhab, filename in [
             'safety_class': '',
             'evidence_state': 'PRIMARY_SOURCE_VERIFIED',
             'primary_source_key': f'{madhhab}:{review_id}:primary',
-            'primary_source_title': f'{madhhab.title()} primary classical source',
+            'primary_source_title': locator_title(r['primary_locator'], f'{madhhab.title()} primary classical source'),
             'primary_locator': r['primary_locator'],
             'primary_url': r['primary_url'],
             'publication_state': 'PUBLISHED',
