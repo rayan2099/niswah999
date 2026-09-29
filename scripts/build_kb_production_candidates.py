@@ -34,6 +34,16 @@ audit = {r['atom_id']: r for r in rows('INTERNET_EVIDENCE_AUDIT.csv')}
 source_additions = {r['source_id']: r for r in rows('SOURCE_REGISTRY_ADDITIONS.csv')}
 fiqh_audit = {r['review_id']: r for r in rows('FIQH_INTERNET_EVIDENCE_AUDIT.csv')}
 
+review_packet_rows = []
+for packet in [
+    'HANAFI_SCHOLAR_REVIEW_PACKET.csv',
+    'MALIKI_SCHOLAR_REVIEW_PACKET.csv',
+    'SHAFII_SCHOLAR_REVIEW_PACKET.csv',
+    'HANBALI_SCHOLAR_REVIEW_PACKET.csv',
+]:
+    review_packet_rows.extend(rows(packet))
+fiqh_questions = {r['review_id']: r for r in review_packet_rows}
+
 health_out = []
 for r in health:
     atom = r['atom_id']
@@ -65,6 +75,8 @@ for r in health:
         'category': r['category'],
         'topic': r['subtopic'],
         'madhhab': '',
+        'search_text_ar': (corr or {}).get('corrected_canonical_ar') or r['draft_canonical_ar'],
+        'search_text_en': (corr or {}).get('corrected_canonical_en') or r['draft_canonical_en'],
         'canonical_en': (corr or {}).get('corrected_canonical_en') or r['draft_canonical_en'],
         'canonical_ar': (corr or {}).get('corrected_canonical_ar') or r['draft_canonical_ar'],
         'safety_class': r['escalation_class'],
@@ -88,6 +100,10 @@ for madhhab, filename in [
     for r in rows(filename):
         review_id = r['review_id']
         state = r['evidence_status']
+        question = fiqh_questions.get(review_id)
+        if not question:
+            raise SystemExit(f'Fiqh row {review_id} has no scholar-packet routing metadata')
+
         if state in FAIL_CLOSED_FIQH:
             disposition = fiqh_audit.get(review_id)
             if not disposition:
@@ -96,6 +112,8 @@ for madhhab, filename in [
                 'review_id': review_id,
                 'madhhab': madhhab,
                 'issue': r['issue'],
+                'question_ar': question['question_ar'],
+                'question_en': question['question_en'],
                 'prior_evidence_status': state,
                 'internet_audit_status': disposition['internet_audit_status'],
                 'production_disposition': disposition['production_disposition'],
@@ -114,15 +132,17 @@ for madhhab, filename in [
         if state not in ELIGIBLE_FIQH:
             raise SystemExit(f'Unknown fiqh state {state} for {review_id}')
 
-        # English is currently the source-supported canonical proposition for
-        # Fiqh candidates. Arabic remains absent rather than machine-translated
-        # into an authoritative proposition without a reviewed Arabic wording.
+        # The Arabic question is routing metadata only. It is NOT promoted to a
+        # canonical Arabic ruling. The authoritative proposition remains the
+        # source-supported English proposition until reviewed Arabic wording exists.
         fiqh_out.append({
             'knowledge_key': review_id,
             'domain': 'FIQH',
-            'category': 'FIQH',
+            'category': question['category'] or 'FIQH',
             'topic': r['issue'],
             'madhhab': madhhab,
+            'search_text_ar': question['question_ar'],
+            'search_text_en': question['question_en'],
             'canonical_en': r['source_supported_proposition'],
             'canonical_ar': '',
             'safety_class': '',
