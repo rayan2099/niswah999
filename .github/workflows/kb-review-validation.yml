@@ -5,6 +5,10 @@ on:
     paths:
       - 'production-readiness-results/knowledge-base/**'
       - 'scripts/verify_kb_review_packets.py'
+      - 'scripts/build_kb_production_candidates.py'
+      - 'supabase/migrations/*knowledge_base*.sql'
+      - 'supabase/functions/_shared/kb_retrieval.ts'
+      - 'supabase/functions/fiqh-advisor-chat/**'
       - '.github/workflows/kb-review-validation.yml'
   workflow_dispatch:
 
@@ -23,3 +27,18 @@ jobs:
           python-version: '3.12'
       - name: Verify KB denominator, evidence, review packets, and publication gates
         run: python scripts/verify_kb_review_packets.py
+      - name: Materialize production-eligible candidates
+        run: python scripts/build_kb_production_candidates.py
+      - name: Verify exact production denominator
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          p=Path('production-readiness-results/knowledge-base/generated/PRODUCTION_KB_CANDIDATES.csv')
+          rows=list(csv.DictReader(p.open(encoding='utf-8')))
+          assert len(rows)==211, f'expected 211 candidates, got {len(rows)}'
+          assert sum(r['domain']=='FIQH' for r in rows)==137
+          assert sum(r['domain']!='FIQH' for r in rows)==74
+          assert all(r['production_eligible']=='true' for r in rows)
+          print('OK: 211 production candidates; 43 unresolved Fiqh rows excluded.')
+          PY
