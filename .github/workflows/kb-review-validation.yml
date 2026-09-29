@@ -6,9 +6,11 @@ on:
       - 'production-readiness-results/knowledge-base/**'
       - 'scripts/verify_kb_review_packets.py'
       - 'scripts/build_kb_production_candidates.py'
+      - 'scripts/render_kb_seed_sql.py'
       - 'supabase/migrations/*knowledge_base*.sql'
       - 'supabase/functions/_shared/kb_retrieval.ts'
       - 'supabase/functions/fiqh-advisor-chat/**'
+      - 'supabase/functions/dr-niswah-chat/**'
       - '.github/workflows/kb-review-validation.yml'
   workflow_dispatch:
 
@@ -27,18 +29,33 @@ jobs:
           python-version: '3.12'
       - name: Verify KB denominator, evidence, review packets, and publication gates
         run: python scripts/verify_kb_review_packets.py
-      - name: Materialize production-eligible candidates
+      - name: Materialize production candidates and quarantine
         run: python scripts/build_kb_production_candidates.py
-      - name: Verify exact production denominator
+      - name: Verify exact production/quarantine denominators
         run: |
           python - <<'PY'
           import csv
           from pathlib import Path
-          p=Path('production-readiness-results/knowledge-base/generated/PRODUCTION_KB_CANDIDATES.csv')
-          rows=list(csv.DictReader(p.open(encoding='utf-8')))
-          assert len(rows)==211, f'expected 211 candidates, got {len(rows)}'
-          assert sum(r['domain']=='FIQH' for r in rows)==137
-          assert sum(r['domain']!='FIQH' for r in rows)==74
-          assert all(r['production_eligible']=='true' for r in rows)
-          print('OK: 211 production candidates; 43 unresolved Fiqh rows excluded.')
+          root=Path('production-readiness-results/knowledge-base/generated')
+          prod=list(csv.DictReader((root/'PRODUCTION_KB_CANDIDATES.csv').open(encoding='utf-8')))
+          quarantine=list(csv.DictReader((root/'FIQH_QUARANTINE.csv').open(encoding='utf-8')))
+          assert len(prod)==211, f'expected 211 candidates, got {len(prod)}'
+          assert sum(r['domain']=='FIQH' for r in prod)==137
+          assert sum(r['domain']!='FIQH' for r in prod)==74
+          assert all(r['production_eligible']=='true' for r in prod)
+          assert len(quarantine)==43, f'expected 43 quarantine rows, got {len(quarantine)}'
+          assert sum(r['internet_audit_status']=='CONFLICT_OR_JUDGMENT_REQUIRED' for r in quarantine)==29
+          assert sum(r['internet_audit_status']=='INSUFFICIENT_EVIDENCE' for r in quarantine)==14
+          prod_keys={r['knowledge_key'] for r in prod}
+          q_keys={r['review_id'] for r in quarantine}
+          assert not (prod_keys & q_keys), 'quarantine leak into production candidates'
+          print('OK: 211 production candidates; 43 quarantined (29 judgment + 14 insufficient); zero overlap.')
           PY
+      - name: Render deterministic idempotent seed SQL
+        run: python scripts/render_kb_seed_sql.py
+      - name: Verify seed output exists and is fail-closed
+        run: |
+          test -s production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql
+          grep -q "Expected active V1 denominator after seed: 211 items" production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql
+          ! grep -q "SCHOLAR_CLARIFICATION_REQUIRED" production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql
+          ! grep -q "PARTIAL_EVIDENCE" production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql
