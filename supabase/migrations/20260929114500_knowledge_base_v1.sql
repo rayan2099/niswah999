@@ -122,7 +122,7 @@ security definer
 set search_path = public
 stable
 as $$
-  with eligible as (
+  with scored as (
     select
       ki.knowledge_key,
       kiv.id as version_id,
@@ -135,9 +135,14 @@ as $$
       kiv.safety_class,
       greatest(
         similarity(lower(kiv.canonical_statement), lower(coalesce(p_query,''))),
+        word_similarity(lower(coalesce(p_query,'')), lower(kiv.canonical_statement)),
         similarity(
           lower(case when p_language = 'ar' then coalesce(ki.search_text_ar,'') else coalesce(ki.search_text_en,'') end),
           lower(coalesce(p_query,''))
+        ),
+        word_similarity(
+          lower(coalesce(p_query,'')),
+          lower(case when p_language = 'ar' then coalesce(ki.search_text_ar,'') else coalesce(ki.search_text_en,'') end)
         ),
         similarity(lower(coalesce(ki.topic,'')), lower(coalesce(p_query,'')))
       ) as score,
@@ -159,6 +164,13 @@ as $$
         p_domain <> 'FIQH'
         or (p_madhhab is not null and ki.madhhab = lower(p_madhhab))
       )
+  ),
+  eligible as (
+    select * from scored
+    -- Never return arbitrary "top" rows for an unrelated question. The
+    -- threshold is intentionally conservative and is covered by acceptance
+    -- tests; below-threshold queries fail closed to zero knowledge hits.
+    where score >= 0.12
   )
   select
     e.knowledge_key,
@@ -186,4 +198,4 @@ revoke all on function public.retrieve_knowledge_v1(text,text,text,text,integer)
 grant execute on function public.retrieve_knowledge_v1(text,text,text,text,integer) to authenticated;
 
 comment on function public.retrieve_knowledge_v1 is
-'Fail-closed KB retrieval: only published, production-eligible rows. FIQH requires an explicit Madhhab; Arabic routing may return the verified English proposition without creating an unreviewed Arabic ruling.';
+'Fail-closed KB retrieval: only published, production-eligible, sufficiently relevant rows. FIQH requires an explicit Madhhab; Arabic routing may return the verified English proposition without creating an unreviewed Arabic ruling.';
