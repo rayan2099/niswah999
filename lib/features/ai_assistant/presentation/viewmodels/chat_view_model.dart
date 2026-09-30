@@ -196,7 +196,7 @@ class ChatViewModel extends ChangeNotifier {
     try {
       switch (threadType) {
         case ChatThreadType.drNiswah:
-          // No direct-to-Gemini fallback: if the backend is unreachable,
+          // No direct-to-model fallback: if the backend is unreachable,
           // fail clearly rather than silently downgrading to an unaudited,
           // client-side call for a safety-relevant conversation (closes
           // SEC-001/AB-002 for this feature).
@@ -238,7 +238,7 @@ class ChatViewModel extends ChangeNotifier {
   }
 
   /// Backend path: the edge function owns the persona system prompt, the
-  /// pregnancy-context lookup, the red-flag check, and the Gemini call, and
+  /// pregnancy-context lookup, the red-flag check, and the model call, and
   /// persists both chat_messages rows itself.
   ///
   /// Public (not `_`-prefixed) and `@visibleForTesting` — a real, live
@@ -351,7 +351,7 @@ class ChatViewModel extends ChangeNotifier {
     );
 
     final metadata = {
-      'source': 'gemini',
+      'source': 'openai',
       'grounded': true,
       'madhhab': selectedMadhhab?.name,
       'madhhab_state': madhhabState.name,
@@ -410,7 +410,7 @@ class ChatViewModel extends ChangeNotifier {
       threadId: threadId,
       userId: userId,
       text: data['text']?.toString() ?? '',
-      metadata: const {'source': 'gemini', 'grounded': false},
+      metadata: const {'source': 'openai', 'grounded': false},
       persistUser: persistUser,
     );
   }

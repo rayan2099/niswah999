@@ -22,7 +22,8 @@ class DrNiswahBackendResponse {
 
 /// Calls the `dr-niswah-chat` Supabase Edge Function, which owns the
 /// persona system prompt, the pregnancy-context lookup, the red-flag check,
-/// and the Gemini call server-side — the function persists both the user
+/// and the model call server-side (OpenAI's Responses API since the
+/// 2026-09-30 provider migration) — the function persists both the user
 /// and assistant chat_messages rows itself.
 class DrNiswahBackendService {
   const DrNiswahBackendService._();

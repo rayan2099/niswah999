@@ -54,7 +54,7 @@ export const AI_ENDPOINT_RATE_LIMIT: RateLimitConfig = {
  * Fail-closed by design: if the RPC call itself fails — network blip, DB
  * unavailable, an unexpected shape back — this returns
  * `{ status: 'limiter_unavailable' }` rather than silently treating the
- * request as allowed. Gemini calls cost real money and are exactly the
+ * request as allowed. Model calls cost real money and are exactly the
  * abuse surface this control exists to close (AB-002/AB-008/SEC-005); an
  * unavailable safety control must not become an unrestricted proxy. The
  * failure is logged for operator visibility — function name and error

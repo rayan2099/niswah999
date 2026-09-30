@@ -8,7 +8,8 @@ import '../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 ///
 /// [startIndex]/[endIndex] are retained for backward compatibility with
 /// stored/cached data from before the KB integration (when citations came
-/// from Gemini's live Google Search grounding metadata, which used literal
+/// from Gemini's live Google Search grounding metadata (pre-2026-09-30
+/// provider migration to OpenAI), which used literal
 /// character offsets into the reply text). The current backend never
 /// populates them (they default to 0) — KB-sourced citations are a
 /// reference list, not inline-highlighted spans. [locator] is the
@@ -56,7 +57,8 @@ class FiqhAnswer {
 }
 
 /// Calls the `fiqh-advisor-chat` Supabase Edge Function, which owns the
-/// system prompt, the Gemini call, and the trusted-citation filter
+/// system prompt, the model call (OpenAI's Responses API since the
+/// 2026-09-30 provider migration), and the trusted-citation filter
 /// server-side (moved off the client per the Gemini trust-boundary
 /// remediation — closes SEC-001/AB-002/AB-012 for this feature).
 class AiAdvisorService {

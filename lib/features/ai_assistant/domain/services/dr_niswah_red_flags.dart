@@ -1,6 +1,6 @@
 /// Lightweight keyword check for red-flag symptoms, run independently of
 /// the LLM call so the urgent-care banner always shows for a matching
-/// message — even if the Gemini request fails or times out.
+/// message — even if the model request fails or times out.
 class DrNiswahRedFlags {
   const DrNiswahRedFlags._();
 

@@ -1,11 +1,14 @@
 // Supabase Edge Function: dream-interpreter-chat
 //
-// Server-side home for the Dream Interpreter's Gemini call, moved off the
+// Server-side home for the Dream Interpreter's model call, moved off the
 // client per the Gemini trust-boundary remediation (closes SEC-001/AB-002
 // for this feature). The system prompt is owned here; the client sends only
-// the already-assembled conversation transcript (Gemini's /interactions
-// endpoint has no history field of its own, so the client still resends the
-// whole transcript each turn — unchanged behavior, just relocated).
+// the already-assembled conversation transcript (neither Gemini's old
+// /interactions endpoint nor OpenAI's Responses API endpoint used here has
+// a history field of its own, so the client still resends the whole
+// transcript each turn — unchanged behavior, just relocated). Provider
+// Migration (2026-09-30): generation now goes through OpenAI's Responses
+// API (openai_client.ts), not Gemini.
 //
 // AICTX remediation (2026-09-09): previously received zero context
 // (AICTX-4, lowest materiality of the four AI features given its
@@ -15,7 +18,7 @@
 // medical or fiqh rulings (see the added system-prompt guidance below).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { callGemini } from '../_shared/gemini_client.ts';
+import { callOpenAI } from '../_shared/openai_client.ts';
 import { buildUserAiContext, formatContextBlock } from '../_shared/ai_user_context.ts';
 import {
   AI_ENDPOINT_RATE_LIMIT,
@@ -30,7 +33,6 @@ const corsHeaders = {
     'authorization, x-client-info, apikey, content-type',
 };
 
-const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash'];
 const MAX_PROMPT_LENGTH = 8000;
 
 const SYSTEM_PROMPT = `You are an expert Islamic dream interpreter grounded strictly in classical traditional frameworks (such as the methodologies and symbol dictionaries of Ibn Sirin and Al-Nabulsi).
@@ -119,8 +121,7 @@ Deno.serve(async (req) => {
     const userContext = await buildUserAiContext(userClient);
     const systemInstruction = `${SYSTEM_PROMPT}\n\n${formatContextBlock(userContext, 'dream_interpreter')}`;
 
-    const result = await callGemini({
-      models: GEMINI_MODELS,
+    const result = await callOpenAI({
       prompt,
       systemInstruction,
       timeoutMs: 20_000,
