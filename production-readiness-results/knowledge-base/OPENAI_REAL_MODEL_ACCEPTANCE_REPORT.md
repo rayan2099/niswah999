@@ -6,6 +6,22 @@ Real-Model Acceptance + Final Merge-Readiness Validation" pass. It is a
 point-in-time record of what was tested and found; it is not itself an
 architecture doc and is not edited in place by future work.
 
+**Governance correction (2026-09-30, same day, post-review)**: this
+report's original "Final gates" section stated `READY FOR PRODUCTION
+DEPLOYMENT: NO` and attributed this to "all 254 KB atoms remain
+`NOT_REVIEWED` by any qualified scholar or licensed clinician." That
+reasoning was inconsistent with `FD-5` in `FOUNDER_DECISIONS.md`
+(`FOUNDER_APPROVED_WITH_CONDITIONS`, 2026-09-29), which explicitly permits
+`PRODUCTION_ELIGIBLE`, `NOT_REVIEWED` rows to be used in production —
+lack of human professional review, by itself, is not a deployment
+blocker under the currently approved governance model; it is the
+approved policy's premise, not an exception to it. §21, §22, and the
+Final Gates section below have been corrected accordingly. No KB
+evidence, no disposition value, no `human_review_status` value, and no
+fail-closed rule were changed to make this correction — see the
+corrected sections for the actual, independent basis for the deployment
+gate.
+
 Raw evidence: `OPENAI_ACCEPTANCE_RESULTS.csv` (32 real-model cases),
 `RETRIEVAL_PRECISION_STUDY.md` / `.csv` (22-case precision study, Phase 13,
 committed separately in `0a46e2e`).
@@ -293,24 +309,71 @@ observed 2).
 
 ## 21. Remaining expert-review dependencies
 
-Unchanged from the standing baseline: all 254 KB atoms remain
+**Clarified 2026-09-30**: under `FD-5` (`FOUNDER_APPROVED_WITH_CONDITIONS`,
+2026-09-29), human professional review is **not** a prerequisite for
+using the 211 `PRODUCTION_ELIGIBLE` rows in production — the founder's
+approved policy is precisely that evidence-backed educational content may
+be used without prior human professional approval, provided the 8 binding
+conditions attached to that approval hold (they do; see the governance
+consistency note below). All 254 KB atoms remain
 `human_review_status = NOT_REVIEWED`; no qualified Islamic scholar has
 reviewed any Fiqh ruling; no licensed clinician has reviewed any Health
-content; the 43 `FAIL_CLOSED` atoms and the 3 pregnancy-loss/nifas
-joint-review atoms specifically require scholar/medical review before
-any production disposition change.
+content — **this remains true and is preserved exactly as-is**, but it is
+a description of the current review state, not an unmet deployment
+prerequisite. Scholar/clinician review remains required only as a
+prerequisite for a *future disposition change*: promoting any of the 43
+`FAIL_CLOSED` atoms out of fail-closed status, or resolving the 3
+pregnancy-loss/nifas joint-review atoms (`MLK-NIFAS-29`, `SHF-NIFAS-29`,
+`HNB-NIFAS-29`) — none of which this pass touches, attempts, or requires.
+
+**Governance consistency confirmed (2026-09-30)**: this pass's own
+real-model acceptance testing (§9–§15) empirically verified all 8 of
+FD-5's binding conditions hold in the live, OpenAI-backed system:
+`human_review_status` is explicit on every row (condition 1); no reply in
+any of the 32 acceptance cases represented `NOT_REVIEWED` content as
+Scholar- or Medically-Approved (condition 2); Health replies stayed
+educational/non-diagnostic, including under direct diagnosis requests
+(H10, H15 — condition 3); Fiqh replies stayed source-grounded and
+informational, refusing definitive personal fatwa requests (F12 —
+condition 4) and attributing positions to their Madhhab/source
+(condition 5); insufficient/ambiguous/conflicting cases correctly failed
+closed rather than guessing (F16, H09, H13 — condition 6); the 43
+fail-closed atoms were never retrievable or answerable as authoritative
+(F07 — condition 7); the 3 joint-review atoms stayed categorically
+blocked, deferring to a qualified scholar in every case (F08/F09/F10 —
+condition 8). FD-5 is satisfied, not violated, by this pass's results.
 
 ## 22. Remaining founder decisions, if any
 
+- **`FD-1` (canonical menstrual authority for AI context) —
+  `PENDING_FOUNDER_REVIEW`, unresolved by this pass.** `ai_user_context.ts`
+  still reads the legacy `cycle_entries` table rather than the canonical
+  `bleeding_episodes`/`bleeding_observations` model the deterministic
+  Fiqh engine uses, so AI-facing state context and Fiqh-engine state can
+  disagree for the same user at the same moment. `FOUNDER_DECISIONS.md`
+  itself describes this as "a real trust-boundary gap, not a cosmetic
+  one." This is independent of FD-5/KB-evidence review and is not
+  resolved by anything in this pass or any prior pass.
+- `FD-2` (is TTC in scope for V1?) and `FD-3` (does Dream Interpreter
+  belong in the authoritative KB?) — both still `PENDING_FOUNDER_REVIEW`;
+  both are explicitly assessed in `FOUNDER_DECISIONS.md` as low-risk
+  scope/positioning questions, not safety-relevant.
 - Whether to invest in an explicit minimum-relevance/gibberish-detection
   gate ahead of the trigram similarity score (recommended in
   `RETRIEVAL_PRECISION_STUDY.md`, not implemented — new architecture,
   requires sign-off).
 - Whether the H07-class red-flag keyword-matching design should be
   revisited (out of scope for this pass; flagged, not decided).
+- Whether the API response contract should carry an explicit structural
+  "evidence-only, not professionally approved" field, independent of the
+  model's own reply text (originally raised as Finding 7 in
+  `ENGINEERING_REMEDIATION_REPORT.md`; still open — the *substance* of
+  FD-5's condition 2 is verified satisfied by real model output in this
+  pass, so this is a defense-in-depth enhancement, not a violation of the
+  approved policy).
 - Whether/when to begin scholar and clinician review of the 254 KB atoms
-  (a prerequisite for any future disposition change, not a decision this
-  pass can make).
+  — relevant only to expanding coverage or resolving the fail-closed set
+  (§21), not to continued use of the 211 already-eligible rows.
 
 ## 23. Exact statement: Gemini in active runtime
 
@@ -351,16 +414,44 @@ mergeable) with no regression introduced by this pass; the 10 Flutter
 golden-image failures are pre-existing local-environment flakiness
 unrelated to any file changed here.
 
-**READY FOR PRODUCTION DEPLOYMENT: NO** — all 254 KB atoms remain
-`NOT_REVIEWED` by any qualified scholar or licensed clinician; no
-production migration has been applied; nothing has been deployed; the
-retrieval-precision gap (§20) and the H07 red-flag characteristic remain
-open, unresolved-by-design risks. This pass proves the trust-bounded
-system (frozen evidence → deterministic eligibility → safe retrieval →
-preserved Madhhab/state/scope boundaries → canonical citations and
-qualifications → OpenAI generation → safe end-user response) works
-end-to-end with a real model — it does not certify the underlying
-evidence for production use.
+**READY FOR PRODUCTION DEPLOYMENT: NO** — **corrected 2026-09-30**: lack
+of scholar/clinician review of the 254 KB atoms is *not* the basis for
+this gate — under `FD-5` (`FOUNDER_APPROVED_WITH_CONDITIONS`), using
+`PRODUCTION_ELIGIBLE`, `NOT_REVIEWED` rows in production is the approved
+policy, not a blocker, and this pass empirically verified all 8 of its
+binding conditions hold (§21). The actual, independent reasons this gate
+remains `NO`:
+
+1. **Governance blocker** — `FD-1` (canonical menstrual authority for AI
+   context) remains `PENDING_FOUNDER_REVIEW`, and is an acknowledged,
+   real trust-boundary gap independent of the KB-evidence question (§22).
+2. **Operational blocker** — no pass to date, including this one, has run
+   this system against production-shaped infrastructure (staging
+   environment, connection pooling, real load); every real-model
+   verification in this report was executed against a local, disposable
+   Docker/Postgres instance (§20).
+
+No production migration has been applied and nothing has been deployed
+as of this report — a statement of current status, not itself a reason
+this gate is `NO`; resolving blockers 1–2 above is what the gate is
+actually waiting on.
+
+None of the following are blockers under the currently approved
+governance model, and are listed here only for completeness: the 254 KB
+atoms' `NOT_REVIEWED` status (§21); the retrieval-precision gap and the
+H07 red-flag characteristic (§20 — real, measured, non-blocking
+follow-ups, since neither ever produced a trust-boundary violation in
+this pass's testing); `FD-2`/`FD-3` (low-risk scope/positioning
+questions per `FOUNDER_DECISIONS.md`'s own assessment); the open
+Finding-7 structural-API-field question (a defense-in-depth enhancement,
+not an unmet condition).
+
+This pass proves the trust-bounded system (frozen evidence → deterministic
+eligibility → safe retrieval → preserved Madhhab/state/scope boundaries →
+canonical citations and qualifications → OpenAI generation → safe
+end-user response) works end-to-end with a real model, consistent with
+FD-5's approved policy — it does not certify production-shaped
+infrastructure readiness or resolve FD-1.
 
 ---
 
