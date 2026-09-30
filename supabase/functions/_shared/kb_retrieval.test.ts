@@ -112,7 +112,7 @@ Deno.test('retrieveKnowledge — Fiqh WITH a madhhab reaches the RPC and passes 
   const result = await retrieveKnowledge(client as never, {
     domain: 'FIQH',
     language: 'ar',
-    query: 'سؤال',
+    query: 'ما حكم الحيض؟', // a real domain query -- must pass the relevance gate to reach the RPC at all
     madhhab: 'hanafi',
   });
   assertEquals(result.length, 1);
@@ -125,9 +125,15 @@ Deno.test('retrieveKnowledge — RPC error fails closed to an empty result, neve
   const result = await retrieveKnowledge(client as never, {
     domain: 'HEALTH',
     language: 'en',
-    query: 'anything',
+    query: 'what is the fertile window and how is it estimated', // a real domain query -- must pass the relevance gate to reach the RPC at all
   });
   assertEquals(result, []);
+  // Asserted explicitly so this test cannot silently "pass" without ever
+  // reaching the RPC (which the relevance gate added in the Retrieval
+  // Precision Remediation Pass would otherwise make possible for a
+  // non-domain query, papering over whether the RPC-error path itself
+  // still works).
+  assertEquals(client.calls.length, 1, 'the RPC must actually be called for this test to exercise its own error path');
 });
 
 Deno.test('assertSnapshotHealth — ok:true when the active commit matches exactly what this code expects', async () => {

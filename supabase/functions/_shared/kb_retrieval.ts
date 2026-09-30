@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { checkQueryRelevance } from './kb_relevance_gate.ts';
 
 export type KnowledgeDomain = 'HEALTH' | 'SAFETY_ESCALATION' | 'FIQH' | 'NISWAH_PRODUCT';
 
@@ -73,6 +74,14 @@ export async function retrieveKnowledge(
   },
 ): Promise<KnowledgeHit[]> {
   if (params.domain === 'FIQH' && !params.madhhab) return [];
+  // Retrieval Precision Remediation Pass: reject queries with no plausible
+  // connection to Niswah's domain before ever calling the trigram-scoring
+  // RPC -- the score threshold alone cannot separate these (measured,
+  // RETRIEVAL_PRECISION_STUDY.md). A rejected query returns [] exactly like
+  // an empty retrieval result, so every existing caller's no-eligible-
+  // evidence fail-closed path already handles it correctly.
+  const relevance = checkQueryRelevance(params.query);
+  if (!relevance.allow) return [];
   const { data, error } = await client.rpc('retrieve_knowledge_v1', {
     p_domain: params.domain,
     p_language: params.language,
