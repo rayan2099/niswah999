@@ -345,15 +345,22 @@ condition 8). FD-5 is satisfied, not violated, by this pass's results.
 
 ## 22. Remaining founder decisions, if any
 
-- **`FD-1` (canonical menstrual authority for AI context) —
-  `PENDING_FOUNDER_REVIEW`, unresolved by this pass.** `ai_user_context.ts`
-  still reads the legacy `cycle_entries` table rather than the canonical
-  `bleeding_episodes`/`bleeding_observations` model the deterministic
-  Fiqh engine uses, so AI-facing state context and Fiqh-engine state can
-  disagree for the same user at the same moment. `FOUNDER_DECISIONS.md`
-  itself describes this as "a real trust-boundary gap, not a cosmetic
-  one." This is independent of FD-5/KB-evidence review and is not
-  resolved by anything in this pass or any prior pass.
+- **`FD-1` (canonical menstrual-state authority) —
+  `PENDING_FOUNDER_REVIEW` as of this pass; since resolved and implemented
+  in a later pass (see `PRODUCTION_DEPLOYMENT_READINESS_REPORT.md`).**
+  **Correction (2026-09-30, added after this report was first published)**:
+  the reasoning originally given here — that `ai_user_context.ts` should
+  migrate from `cycle_entries` to a canonical `bleeding_episodes`/
+  `bleeding_observations` model — was factually wrong. No such table or
+  model exists anywhere in the codebase; this was an unverified claim
+  inherited from `FOUNDER_DECISIONS.md`'s original FD-1 text and repeated
+  here without independent verification. See `FOUNDER_DECISIONS.md`'s FD-1
+  entry (corrected 2026-09-30) for the real architecture: a genuine
+  canonical engine (`CycleStatusEngine`/`MadhhabRuleEvaluator`) does exist,
+  reads `cycle_entries` directly (the only real table), and the actual gap
+  was that its output reached only `fiqh-advisor-chat`, only as an
+  unvalidated client-supplied string. This is independent of FD-5/
+  KB-evidence review and was not resolved by this pass.
 - `FD-2` (is TTC in scope for V1?) and `FD-3` (does Dream Interpreter
   belong in the authoritative KB?) — both still `PENDING_FOUNDER_REVIEW`;
   both are explicitly assessed in `FOUNDER_DECISIONS.md` as low-risk
