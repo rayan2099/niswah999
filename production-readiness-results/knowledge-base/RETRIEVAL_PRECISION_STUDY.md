@@ -117,3 +117,71 @@ appeared in any `all_atoms` list). No Madhhab boundary was crossed. The
 false positives are all real, `PRODUCTION_ELIGIBLE`, correctly-domain-tagged
 rows — this is a precision/relevance-quality finding, not a trust-boundary
 violation.
+
+## Addendum (Phase 14, deployment-readiness pass, 2026-09-30): dataset expanded to 40 cases, decision reinforced
+
+While validating the local disposable environment for staging-readiness
+(Phase 10), running the existing hard deploy gate
+(`scripts/verify_kb_retrieval_live.sql`) against a freshly-verified live
+database **failed**: its one hardcoded "low-relevance Fiqh query returns 0
+rows" assertion, using the exact query *"electric car shopping list and
+tire pressure"*, now returns 8 rows (top score 0.1639) — this is the same
+false-positive characteristic this document already measured, now shown to
+concretely break an existing automated gate, not just a documented risk.
+
+This raised the evidentiary bar: rather than assume the original 22-case
+sample was sufficient, 18 more synthetic cases were added and run for real
+(6 more clearly-unrelated English queries, 2 clearly-unrelated Arabic
+queries — this sample's first Arabic unrelated-query coverage — 3 more
+gibberish strings, 4 more relevant/paraphrase cases, 1 more borderline
+case). Combined dataset: 40 cases, `RETRIEVAL_PRECISION_STUDY.csv`.
+
+**Combined result** (35 clear-cut cases, borderline excluded): 13 true
+positives, 19 false positives, 3 true negatives, 0 false negatives —
+**precision 0.406, recall 1.000**. Recall remains perfect; precision is
+worse than the original 22-case measurement (0.529), not better — more
+data made the picture clearer, not rosier.
+
+**The threshold-overlap finding is reinforced, not resolved, by the larger
+sample**: the new true positive with the lowest score is `X12` ("what
+happens religiously if my period lasts longer than my usual pattern," a
+genuine Maliki paraphrase) at **0.1972**. Five of the eleven new false
+positives score **at or above** that ("best programming language for
+beginners" 0.2545; "how to change a flat tire on a bicycle" 0.2593;
+"recommend a good laptop for video editing" 0.2449; "tips for training a
+new puppy" 0.2429; "weather forecast for next weekend camping trip"
+0.2059). **No threshold value can eliminate these five false positives
+without also eliminating `X12`, a real Fiqh question.** This is the same
+structural conflict the original 22-case study found (the France-capital
+case vs. a genuine Fiqh paraphrase), now demonstrated with 5 independent
+examples instead of 1, including the first cross-language (Arabic)
+evidence.
+
+**Decision, reinforced**: the threshold remains unchanged at `0.12`. The
+larger sample does not merely fail to justify a change — it actively
+demonstrates that a change would trade a small, cosmetic improvement (the
+one existing test example) for a real, measured loss of recall on genuine
+Fiqh questions phrased in an everyday, non-technical register. This is
+the wrong trade for a system whose explicit priority (per FD-5's approved
+model and this workstream's own fail-closed design) is: never silently
+withhold real, eligible evidence from a genuine question.
+
+**Separate, concrete finding — not a threshold question**:
+`scripts/verify_kb_retrieval_live.sql`'s specific "low-relevance query
+returns 0 rows" assertion was written against a single hand-picked
+example that happened to score below 0.12 at the time, not against a
+real, architecturally-guaranteed invariant — this larger sample shows at
+least 10 other equally-unrelated queries (English and Arabic) do not
+share that property. **This is now a genuine, reproducible blocker to
+running `scripts/deploy_kb_v1.sh` successfully against any environment as
+currently written** (its own hard gate fails). Fixing it is not a
+threshold change (evidence above rules that out) and is not something
+this pass changes unilaterally, since it is part of an existing
+deploy-safety gate: the options are (a) replace that one assertion with
+one that reflects a real, defensible invariant (e.g., asserting no
+`FAIL_CLOSED`/quarantined row is ever returned, which every case in this
+entire 40-case study — old and new — continues to satisfy), or (b) build
+the architectural minimum-relevance/gibberish gate already recommended
+above. Recorded here as a genuine deployment blocker for the founder/
+architecture decision (see
+`PRODUCTION_DEPLOYMENT_READINESS_REPORT.md`), not silently patched.
