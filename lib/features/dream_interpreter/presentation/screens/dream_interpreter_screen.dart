@@ -662,7 +662,7 @@ class _DreamHeader extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               const Text(
-                'v11.1-GEMINI',
+                'v11.2-OPENAI',
                 style: TextStyle(
                   color: Color(0xFFA597B0),
                   fontSize: 7.5,

@@ -1,0 +1,94 @@
+name: KB Review Gate
+
+on:
+  pull_request:
+    paths:
+      - 'production-readiness-results/knowledge-base/**'
+      - 'scripts/verify_kb_review_packets.py'
+      - 'scripts/build_kb_production_candidates.py'
+      - 'scripts/render_kb_seed_sql.py'
+      - 'scripts/test_build_kb_production_candidates.py'
+      - 'scripts/test_trust_boundary.py'
+      - 'supabase/migrations/*knowledge_base*.sql'
+      - 'supabase/functions/_shared/kb_retrieval.ts'
+      - 'supabase/functions/_shared/kb_retrieval.test.ts'
+      - 'supabase/functions/deno.json'
+      - 'supabase/functions/fiqh-advisor-chat/**'
+      - 'supabase/functions/dr-niswah-chat/**'
+      - '.github/workflows/kb-review-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-kb-review-packets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR/ref
+        uses: actions/checkout@v4
+      - name: Use Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify KB denominator, evidence, review packets, and publication gates
+        run: python scripts/verify_kb_review_packets.py
+      - name: Regression tests -- production-candidate builder (disposition-master-driven)
+        run: python -m unittest scripts.test_build_kb_production_candidates -v
+      - name: Regression tests -- trust-boundary (disposition, Fiqh, Health, citations, snapshot)
+        run: python -m unittest scripts.test_trust_boundary -v
+      - name: Materialize production candidates and quarantine
+        run: python scripts/build_kb_production_candidates.py
+      - name: Verify exact production/quarantine denominators against the disposition master (no hardcoded per-domain counts)
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          root = Path('production-readiness-results/knowledge-base')
+          master = list(csv.DictReader((root / 'PRODUCTION_DISPOSITION_MASTER.csv').open(encoding='utf-8')))
+          prod = list(csv.DictReader((root / 'generated' / 'PRODUCTION_KB_CANDIDATES.csv').open(encoding='utf-8')))
+          quarantine = list(csv.DictReader((root / 'generated' / 'FIQH_QUARANTINE.csv').open(encoding='utf-8')))
+
+          expected_eligible = {r['atom_id'] for r in master if r['production_disposition'] == 'PRODUCTION_ELIGIBLE'}
+          expected_fail_closed = {r['atom_id'] for r in master if r['production_disposition'] == 'FAIL_CLOSED'}
+
+          assert {c['knowledge_key'] for c in prod} == expected_eligible, 'candidates do not match the disposition master'
+          assert {q['review_id'] for q in quarantine} == expected_fail_closed, 'quarantine does not match the disposition master'
+          assert all(r['production_eligible'] == 'true' for r in prod)
+          assert not ({c['knowledge_key'] for c in prod} & {q['review_id'] for q in quarantine}), 'quarantine leak into production candidates'
+
+          three_pregnancy_loss_nifas = {'MLK-NIFAS-29', 'SHF-NIFAS-29', 'HNB-NIFAS-29'}
+          assert three_pregnancy_loss_nifas <= {q['review_id'] for q in quarantine}, \
+              'the three pregnancy-loss/nifas joint-review rows must be quarantined'
+
+          print(f'OK: {len(prod)} production candidates reconcile exactly to the disposition master; '
+                f'{len(quarantine)} quarantined (includes all 3 pregnancy-loss/nifas rows); zero overlap.')
+          PY
+      - name: Render deterministic idempotent seed SQL
+        run: python scripts/render_kb_seed_sql.py
+      - name: Verify seed output exists and is fail-closed
+        run: |
+          test -s production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql
+          ! grep -q "SCHOLAR_CLARIFICATION_REQUIRED" production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql
+          ! grep -q "PARTIAL_EVIDENCE" production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql
+          ! grep -qE "SCHOLAR_APPROVED|MEDICALLY_APPROVED|Scholar-Approved|Medically-Approved" production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql
+
+  verify-kb-retrieval-deno-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR/ref
+        uses: actions/checkout@v4
+      - name: Use Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check kb_retrieval.ts and both KB-integrated edge functions
+        run: |
+          deno check --config supabase/functions/deno.json \
+            supabase/functions/_shared/kb_retrieval.ts \
+            supabase/functions/fiqh-advisor-chat/index.ts \
+            supabase/functions/dr-niswah-chat/index.ts
+      - name: Run kb_retrieval.ts unit tests (qualification metadata, Madhhab short-circuit, snapshot-health fail-closed behavior)
+        run: |
+          deno test --config supabase/functions/deno.json \
+            supabase/functions/_shared/kb_retrieval.test.ts

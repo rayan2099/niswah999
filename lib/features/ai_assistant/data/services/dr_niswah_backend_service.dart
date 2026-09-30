@@ -1,15 +1,29 @@
 import '../../../../core/network/supabase_client.dart';
+import '../../../ai_advisor/ai_advisor_service.dart';
 
 class DrNiswahBackendResponse {
-  const DrNiswahBackendResponse({required this.reply, required this.urgent});
+  const DrNiswahBackendResponse({
+    required this.reply,
+    required this.urgent,
+    this.citations = const [],
+    this.knowledgeGrounded = false,
+  });
 
   final String reply;
   final bool urgent;
+
+  /// Pre-Merge Integration Validation, Phase 5 (Finding 7): the backend has
+  /// always sent these two fields; this model silently dropped both before
+  /// this fix. Reuses [FiqhCitation] since both edge functions' citation
+  /// payload shape is identical (kb_retrieval.ts's `citationPayload()`).
+  final List<FiqhCitation> citations;
+  final bool knowledgeGrounded;
 }
 
 /// Calls the `dr-niswah-chat` Supabase Edge Function, which owns the
 /// persona system prompt, the pregnancy-context lookup, the red-flag check,
-/// and the Gemini call server-side — the function persists both the user
+/// and the model call server-side (OpenAI's Responses API since the
+/// 2026-09-30 provider migration) — the function persists both the user
 /// and assistant chat_messages rows itself.
 class DrNiswahBackendService {
   const DrNiswahBackendService._();
@@ -38,9 +52,14 @@ class DrNiswahBackendService {
       throw StateError(error ?? 'Doctor Niswah service failed (${response.status}).');
     }
 
+    final citations = (data['citations'] as List<dynamic>? ?? [])
+        .map((item) => FiqhCitation.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
     return DrNiswahBackendResponse(
       reply: data['reply']?.toString() ?? '',
       urgent: data['urgent'] == true,
+      citations: citations,
+      knowledgeGrounded: data['knowledgeGrounded'] == true,
     );
   }
 }
