@@ -23,79 +23,31 @@ FD-3 do not yet.
 
 ---
 
-## FD-1 — Canonical menstrual-state authority for Fiqh logic and AI context
+## FD-1 — Canonical menstrual authority for AI context
 
-- **Correction (2026-09-30)**: this entry originally claimed `cycle_entries`
-  was a "legacy" table and recommended migrating to a canonical
-  `bleeding_episodes`/`bleeding_observations` model "the deterministic Fiqh
-  engine already uses." **That premise was factually wrong and was never
-  code-verified before being written.** A dedicated repository investigation
-  (2026-09-30, full file:line citations in
-  `OPENAI_REAL_MODEL_ACCEPTANCE_REPORT.md`'s FD-1 workstream) found **no**
-  `bleeding_episodes`/`bleeding_observations` table, migration, Dart class,
-  or TS interface anywhere in this codebase — the claim existed only as
-  prose, repeated across this file, `KB_V1_GAPS.md`, and (transitively)
-  `OPENAI_REAL_MODEL_ACCEPTANCE_REPORT.md` §22, with no one having
-  re-checked the actual schema/code before propagating it forward
-  (that report's own §22 reference is superseded by this correction).
-  `cycle_entries` is
-  in fact the **only** raw menstrual-data table, and it is what the real
-  Fiqh engine (below) itself reads.
-- **What actually exists**: `CycleStatusEngine.evaluate()`
-  (`lib/features/cycle_tracking/domain/services/cycle_status_engine.dart`)
-  composing `MadhhabRuleEvaluator.evaluate()`
-  (`.../madhhab_rule_evaluator.dart`) is a real, coherent, pure/deterministic
-  Dart engine over `cycle_entries` rows — already the authoritative source
-  the dashboard and (mostly) the PDF reports share. It has no server-side
-  port; its output reaches the backend only via an optional, client-computed
-  `clientFiqhState` string (see `client_fiqh_state_provider.dart`,
-  `ai_advisor_service.dart`), which the server previously trusted verbatim
-  with no format/enum validation, and used only for `fiqh-advisor-chat` —
-  `dr-niswah-chat`, `ai-assistant-chat`, and `dream-interpreter-chat` never
-  received it at all. Nifas/postpartum state for Fiqh purposes is a separate,
-  disconnected concern: `PregnancyStatusEngine`'s 40-day postpartum window
-  is not madhhab-aware and is never passed to `fiqh-advisor-chat`.
-- **Founder-approved resolution (2026-09-30)**: "The canonical menstrual-state
-  engine is the single source of truth for user menstrual/postpartum/related
-  Fiqh state. AI may explain the canonical state but must not independently
-  infer, override, recalculate, or contradict it. Any downstream Fiqh logic
-  and AI context that depends on menstrual state must consume the same
-  canonical structured state. If the canonical engine cannot resolve the
-  state sufficiently for a state-dependent Fiqh answer, the system must fail
-  closed rather than ask the LLM to decide the state." This does not
-  authorize changing substantive Fiqh rules, and does not require inventing a
-  second engine — `CycleStatusEngine`/`MadhhabRuleEvaluator` is designated as
-  that engine, since it is the one real, already-shared implementation.
-- **Current implementation state**: **implemented for the Haid/Tahara/
-  Istihada axis, for `fiqh-advisor-chat` specifically** —
-  `supabase/functions/_shared/fiqh_state_guard.ts` (new) validates
-  `clientFiqhState` against the engine's real 5-value enum (an
-  unrecognized/adversarial string is now normalized to `null`, never
-  trusted), deterministically detects whether a given question's answer
-  depends on current state, and fails closed at the application layer
-  (before any KB retrieval or model call) when a state-dependent question's
-  state is unresolved, `needsAdvisory`, or absent. The system prompt
-  additionally instructs the model that a supplied classification is
-  authoritative and must not be recalculated or overridden by the user's own
-  claims — verified with 9 real-OpenAI-model test cases (deterministic +
-  adversarial, English and Arabic; see `FD1_STATE_ACCEPTANCE_RESULTS.csv`),
-  all passing, including the model explicitly refusing a request to
-  recalculate state from user-supplied dates. **Not extended** to Nifas/
-  postpartum Fiqh state (no canonical engine for that axis exists to wire
-  into — a genuine, separate architecture gap, not implemented here per the
-  instruction to stop and report rather than invent one), nor to
-  `dr-niswah-chat`/`ai-assistant-chat`/`dream-interpreter-chat` (none of
-  which issue state-dependent Fiqh rulings today).
-- **Risks**: the deterministic state-dependence detector
-  (`isStateDependentQuestion`) is a bilingual keyword heuristic, not a
-  perfect classifier — same class of imperfection already accepted for
-  `detectRedFlags()` in `dr_niswah_red_flags.ts`. Nifas/postpartum
-  state-dependent Fiqh questions have no equivalent protection yet.
-- **Code dependency**: **yes** — `fiqh-advisor-chat/index.ts` and
-  `_shared/ai_user_context.ts` were both changed, and a new
-  `_shared/fiqh_state_guard.ts` module added; see
-  `PRODUCTION_DEPLOYMENT_READINESS_REPORT.md` for the full commit record.
-- **Status: `FOUNDER_APPROVED`, implemented for its stated scope (2026-09-30)**.
+- **What changed**: `ai_user_context.ts` currently reads menstrual facts from
+  the legacy `cycle_entries` table. The recommendation is that AI menstrual
+  context should instead read `bleeding_episodes`/`bleeding_observations`
+  (the canonical model the deterministic Fiqh engine already uses) as the
+  factual authority, with `cycle_entries` retained only for compatibility.
+- **Why it matters**: today the AI-facing "database facts" and the
+  Fiqh-engine-facing "database facts" are not guaranteed to agree (see
+  `KB_ARCHITECTURE.md` §3, `KB_V1_GAPS.md` G-1) — a real trust-boundary gap,
+  not a cosmetic one.
+- **Current implementation state**: **not implemented.** `ai_user_context.ts`
+  still reads `cycle_entries` as of this review. This entry was previously
+  recorded in this file as `Decision: APPROVED`, which was inaccurate — no
+  code change backs it and no founder sign-off is on record.
+- **Risks**: leaving it unresolved means any future KB-grounded AI answer
+  about menstrual state may rely on stale/legacy data even after the
+  canonical model has moved on for that user.
+- **Available choices**: (a) migrate `ai_user_context.ts` to the canonical
+  model, (b) keep `cycle_entries` as authoritative and treat the canonical
+  model as Fiqh-engine-only, (c) defer past V1.
+- **Code dependency**: no current code depends on this being decided either
+  way yet — it is a live gap, not something already built around a chosen
+  answer.
+- **Status: `PENDING_FOUNDER_REVIEW`.**
 
 ## FD-2 — Is TTC in scope for V1?
 
