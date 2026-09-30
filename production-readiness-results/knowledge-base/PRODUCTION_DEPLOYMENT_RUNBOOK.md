@@ -49,33 +49,40 @@ confirm it separately first.
 
 ### Health checks before starting
 - Confirm the target database is reachable and no other migration is mid-flight.
-- Review the diff of the two new migration files one more time immediately before applying:
+- Review the diff of the three new migration files one more time immediately before applying:
   `supabase/migrations/20260929114500_knowledge_base_v1.sql`,
-  `supabase/migrations/20260929120000_knowledge_base_v1_qualification_and_snapshot.sql`.
-  Both are additive (new tables/columns/functions/indexes) — no `DROP TABLE`/`DROP COLUMN` against
-  any existing production object was found in review.
-- Confirm `scripts/verify_kb_retrieval_live.sql` will need its known-failing
-  assertion addressed before this pipeline can complete cleanly end-to-end
-  (see **Known blocker** below) — do not attempt a full run of
-  `scripts/deploy_kb_v1.sh` unmodified until this is resolved.
+  `supabase/migrations/20260929120000_knowledge_base_v1_qualification_and_snapshot.sql`,
+  `supabase/migrations/20260930130000_retrieve_knowledge_v1_relevance_anchor.sql`.
+  All three are additive (new tables/columns/functions/indexes, or
+  `CREATE OR REPLACE FUNCTION` with an unchanged signature) — no
+  `DROP TABLE`/`DROP COLUMN` against any existing production object was
+  found in review.
+- Confirm `scripts/verify_kb_retrieval_live.sql` passes on the target
+  commit before applying anything (see **Resolved blocker** below) —
+  it is expected to pass now, but re-verify on the actual target
+  environment rather than assuming this local-environment result
+  transfers unchanged.
 
-### Known blocker (must be resolved before this runbook can be executed end-to-end)
+### Resolved blocker (was: must be resolved before this runbook could be executed end-to-end)
 `scripts/verify_kb_retrieval_live.sql`'s final assertion ("a low-relevance
 Fiqh query returns 0 rows," using the example *"electric car shopping list
-and tire pressure"*) fails against real data, and a 40-case measured study
-(`RETRIEVAL_PRECISION_STUDY.md`) shows this is not fixable by adjusting the
-retrieval threshold without losing real recall on genuine Fiqh questions.
-This is a founder/architecture decision, not something resolved by this
-runbook — see `PRODUCTION_DEPLOYMENT_READINESS_REPORT.md`'s blockers
-section.
+and tire pressure"*) previously failed against real data. The Retrieval
+Precision Remediation Pass fixed this for real (a two-tier relevance gate,
+not a threshold change — see `RETRIEVAL_PRECISION_REMEDIATION_REPORT.md`):
+the gate is now re-confirmed passing. This required one additional
+migration beyond the two listed above:
+`supabase/migrations/20260930130000_retrieve_knowledge_v1_relevance_anchor.sql`
+(the RPC-layer half of the two-tier gate) — include it in the migration
+review step above; it is additive only (`CREATE OR REPLACE FUNCTION`,
+same signature), verified reproducible from a clean database by CI's
+"Validate DB migration reproducibility (BR-002)" job.
 
 ---
 
 ## DEPLOY
 
 Real, already-existing pipeline (`scripts/deploy_kb_v1.sh`) — do not
-invent a new procedure; use this one, once the known blocker above is
-resolved:
+invent a new procedure; use this one:
 
 1. `python3 scripts/verify_kb_review_packets.py` — validates research/review packets.
 2. `python3 scripts/build_kb_production_candidates.py` — materializes exactly 211 eligible candidates + 43 quarantined rows from `PRODUCTION_DISPOSITION_MASTER.csv`.
@@ -83,7 +90,7 @@ resolved:
 4. `supabase db push --db-url "$SUPABASE_DB_URL"` — applies all pending migrations through the canonical migration path.
 5. `psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f production-readiness-results/knowledge-base/generated/PRODUCTION_KB_SEED.sql` — seeds only evidence-eligible rows. Quarantined rows are never loaded into authoritative retrieval tables.
 6. `psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_kb_live.sql` — hard gate: 211 total = 74 Health/Safety + 137 Fiqh; no Fiqh row without an explicit Madhhab; no production-eligible version attached to a non-published item; no production-eligible version missing source metadata.
-7. `psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_kb_retrieval_live.sql` — hard gate: Madhhab filtering, Arabic routing, cross-Madhhab leak check, Health routing, low-relevance fail-closed check (**currently fails — see Known blocker**).
+7. `psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_kb_retrieval_live.sql` — hard gate: Madhhab filtering, Arabic routing, cross-Madhhab leak check, Health routing, low-relevance fail-closed check (now passes — see Resolved blocker above).
 8. Deploy Edge Functions: `supabase functions deploy dr-niswah-chat`, `fiqh-advisor-chat`, `ai-assistant-chat`, `dream-interpreter-chat` (or all via the CLI's bulk deploy).
 9. Set secrets on the target project: `supabase secrets set OPENAI_API_KEY=<key> OPENAI_MODEL=<model> --project-ref <ref>`.
 
