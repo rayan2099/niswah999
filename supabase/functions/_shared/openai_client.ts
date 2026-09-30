@@ -38,6 +38,8 @@ export interface OpenAiCallResult {
   text: string;
   /** The model that actually produced this result -- for sanitized diagnostics only, never shown to the end user. */
   model: string;
+  /** Non-sensitive token counts as reported by the Responses API, when present. */
+  usage?: { inputTokens?: number; outputTokens?: number };
 }
 
 type ErrorCategory =
@@ -164,7 +166,16 @@ export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCall
         throw new NonRetryableOpenAiError('OpenAI returned no text.');
       }
 
-      return { text, model };
+      // Token counts only -- never the prompt/response content itself.
+      const rawUsage = decoded.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+      const usage = rawUsage
+        ? { inputTokens: rawUsage.input_tokens, outputTokens: rawUsage.output_tokens }
+        : undefined;
+      if (usage) {
+        console.log('callOpenAI: usage', { model, ...usage });
+      }
+
+      return { text, model, usage };
     } catch (error) {
       if (error instanceof NonRetryableOpenAiError) {
         // `finally` below still runs (clears the timer) before this

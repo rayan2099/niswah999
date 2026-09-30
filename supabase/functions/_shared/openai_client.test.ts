@@ -116,6 +116,36 @@ Deno.test('callOpenAI — extracts output_text from the Responses API message sh
   });
 });
 
+Deno.test('callOpenAI — surfaces input/output token counts when the Responses API reports usage', async () => {
+  await withEnv({ OPENAI_API_KEY: 'test-key', OPENAI_MODEL: 'gpt-test-model' }, async () => {
+    const result = await withStubbedFetch(
+      () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }],
+              usage: { input_tokens: 42, output_tokens: 7 },
+            }),
+            { status: 200 },
+          ),
+        ),
+      () => callOpenAI({ prompt: 'hi', systemInstruction: 'sys' }),
+    );
+    assertEquals(result.usage?.inputTokens, 42);
+    assertEquals(result.usage?.outputTokens, 7);
+  });
+});
+
+Deno.test('callOpenAI — omits usage when the Responses API does not report it', async () => {
+  await withEnv({ OPENAI_API_KEY: 'test-key', OPENAI_MODEL: 'gpt-test-model' }, async () => {
+    const result = await withStubbedFetch(
+      () => Promise.resolve(okResponse('hi')),
+      () => callOpenAI({ prompt: 'hi', systemInstruction: 'sys' }),
+    );
+    assertEquals(result.usage, undefined);
+  });
+});
+
 Deno.test('callOpenAI — throws when the response contains no output_text (never silently returns empty)', async () => {
   await withEnv({ OPENAI_API_KEY: 'test-key', OPENAI_MODEL: 'gpt-test-model' }, async () => {
     await assertRejects(
