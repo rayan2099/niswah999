@@ -73,17 +73,10 @@ docker volume ls --filter "name=supabase" --format "{{.Name}}" | xargs -r docker
 echo "==> Starting local Supabase stack (supabase/migrations/ is empty right now — genuinely clean database)"
 SUPABASE_ACCESS_TOKEN="$DUMMY_TOKEN" supabase start
 
-echo "==> Applying canonical baseline (historical starting-point schema)"
-docker cp supabase/canonical_baseline/00_public_baseline_draft.sql "$DB_CONTAINER:/tmp/baseline.sql"
-docker exec "$DB_CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 -f /tmp/baseline.sql
-
-echo "==> Applying active migrations explicitly, in filename/timestamp order"
-while IFS= read -r migration; do
-  name="$(basename "$migration")"
-  echo "----> $name"
-  docker cp "$migration" "$DB_CONTAINER:/tmp/$name"
-  docker exec "$DB_CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 -f "/tmp/$name"
-done < <(printf '%s\n' "$HOLD_DIR"/*.sql | sort)
+# Shared with scripts/bootstrap_local_dev.sh — see that script's own header
+# and scripts/lib/apply_baseline_and_migrations.sh for why this sequence
+# lives in exactly one place rather than two independently-drifting copies.
+"$REPO_ROOT/scripts/lib/apply_baseline_and_migrations.sh" "$DB_CONTAINER" "$HOLD_DIR"
 
 echo "==> Verifying schema contract"
 docker cp scripts/verify_schema_contract.sql "$DB_CONTAINER:/tmp/verify_schema_contract.sql"

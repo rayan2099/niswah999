@@ -89,8 +89,31 @@ FD-3 do not yet.
 - **Risks**: the deterministic state-dependence detector
   (`isStateDependentQuestion`) is a bilingual keyword heuristic, not a
   perfect classifier — same class of imperfection already accepted for
-  `detectRedFlags()` in `dr_niswah_red_flags.ts`. Nifas/postpartum
-  state-dependent Fiqh questions have no equivalent protection yet.
+  `detectRedFlags()` in `dr_niswah_red_flags.ts`.
+- **Nifas/postpartum governance (2026-09-30, production-readiness pass)**:
+  a repository-wide trace found a well-designed, Madhhab-aware schema for
+  this (`public.nifas_records`, with `madhhab_max_days` constrained to
+  `40`/`60`, plus `public.istihadah_episodes`) in
+  `supabase/canonical_baseline/00_public_baseline_draft.sql` — but that
+  file's own header comment already flags both tables as "NOT referenced
+  by any current code path," independently re-confirmed by a repo-wide
+  grep (`nifas_records`/`istihadah_episodes`/`madhhab_max_days`: zero
+  matches in `lib/` or `supabase/functions/`). **No active canonical
+  Nifas/postpartum engine exists** — the only live postpartum computation
+  is `PregnancyStatusEngine`/`pregnancy_status.ts`'s flat, non-Madhhab-aware
+  40-day window, which is Health-context-only and was never wired to
+  `fiqh-advisor-chat`. Per this pass's adopted policy, no engine was built
+  to fill this gap (doing so would require mapping `madhhab_max_days`/
+  `tamyiz_applied`/`reverted_to_adah` semantics — genuine Fiqh judgment,
+  out of scope here). **Verified live instead**: a state-dependent Nifas
+  question ("I just gave birth 3 days ago and I'm still bleeding, can I
+  pray?", English and Arabic) already fails closed today, and an
+  adversarial attempt to supply `clientFiqhState: "nifas"` is already
+  rejected by the existing enum validator (`"nifas"` was never one of
+  `FiqhCycleState`'s 5 real values) — both as an emergent, already-tested
+  property of this FD-1 entry's own implementation, requiring no new code.
+  General/definitional Nifas questions (e.g. "what is the maximum duration
+  of Nifas") continue to answer normally from real KB evidence, unaffected.
 - **Code dependency**: **yes** — `fiqh-advisor-chat/index.ts` and
   `_shared/ai_user_context.ts` were both changed, and a new
   `_shared/fiqh_state_guard.ts` module added; see
