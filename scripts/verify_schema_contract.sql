@@ -188,3 +188,56 @@ SELECT 'FUNCTION BODY', 'create_user_profile.sets_madhhab_selection_state_unset'
              AND pg_get_functiondef(p.oid) ILIKE '%''unset''%'
             THEN 'OK' ELSE 'FAIL - DOES NOT SET madhhab_selection_state TO unset' END
 FROM pg_proc p WHERE p.proname = 'create_user_profile';
+
+-- ============================================================
+-- Knowledge Base v1 contract (Retrieval Precision Remediation /
+-- local-bootstrap-reproducibility pass, 2026-10-01).
+--
+-- The checks above predate the KB migrations entirely (BR-002 wave,
+-- Sept 2026, before supabase/migrations/202609291145.../202609291200.../
+-- 202609301300... existed) and verify nothing about them. This section
+-- closes that gap so a fresh baseline+migrations rebuild is proven to
+-- include the full KB schema, not just the original Madhhab-authority
+-- objects above.
+-- ============================================================
+
+WITH required_kb_tables(name) AS (
+  VALUES
+    ('knowledge_items'),
+    ('knowledge_item_versions'),
+    ('knowledge_sources'),
+    ('knowledge_item_sources'),
+    ('knowledge_citations'),
+    ('kb_snapshot_registry'),
+    ('ai_rate_limit_counters')
+),
+required_kb_functions(name) AS (
+  VALUES
+    ('retrieve_knowledge_v1'),     -- KB retrieval RPC, including the
+                                    -- relevance-anchor gate (migration
+                                    -- 20260930130000)
+    ('get_active_kb_snapshot'),
+    ('check_and_increment_ai_rate_limit')
+)
+SELECT 'KB TABLE' AS object_type, rt.name, CASE WHEN t.table_name IS NULL THEN 'FAIL - MISSING' ELSE 'OK' END AS status
+FROM required_kb_tables rt
+LEFT JOIN information_schema.tables t
+  ON t.table_schema = 'public' AND t.table_name = rt.name
+UNION ALL
+SELECT 'KB FUNCTION', rf.name, CASE WHEN p.proname IS NULL THEN 'FAIL - MISSING' ELSE 'OK' END
+FROM required_kb_functions rf
+LEFT JOIN pg_proc p ON p.proname = rf.name
+ORDER BY 3 DESC, 1, 2;
+
+-- retrieve_knowledge_v1 must actually be callable post-rebuild (proves the
+-- function body, not just its name, survived the rebuild) -- an empty KB
+-- is expected here (this contract runs against baseline+migrations only,
+-- before any KB seed is applied), so the pass condition is "returns
+-- without erroring," not "returns rows."
+DO $$
+BEGIN
+  PERFORM * FROM public.retrieve_knowledge_v1('HEALTH', 'en', 'schema contract smoke query', NULL, 1);
+  RAISE NOTICE 'KB FUNCTION CALLABLE: retrieve_knowledge_v1 | OK';
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'KB FUNCTION CALLABLE: retrieve_knowledge_v1 | FAIL - % ', SQLERRM;
+END $$;

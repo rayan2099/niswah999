@@ -60,17 +60,10 @@ docker volume ls --filter "name=supabase" --format "{{.Name}}" | xargs -r docker
 echo "==> Starting local Supabase stack (supabase/migrations/ is empty right now — genuinely clean database)"
 supabase start
 
-echo "==> Applying canonical baseline (historical starting-point schema)"
-docker cp supabase/canonical_baseline/00_public_baseline_draft.sql "$DB_CONTAINER:/tmp/baseline.sql"
-docker exec "$DB_CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 -f /tmp/baseline.sql
-
-echo "==> Applying active migrations explicitly, in filename/timestamp order"
-while IFS= read -r migration; do
-  name="$(basename "$migration")"
-  echo "----> $name"
-  docker cp "$migration" "$DB_CONTAINER:/tmp/$name"
-  docker exec "$DB_CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 -f "/tmp/$name"
-done < <(printf '%s\n' "$HOLD_DIR"/*.sql | sort)
+# Shared with scripts/validate_migrations.sh (CI's own migration-
+# reproducibility gate) — see scripts/lib/apply_baseline_and_migrations.sh
+# for why this sequence lives in exactly one place.
+"$REPO_ROOT/scripts/lib/apply_baseline_and_migrations.sh" "$DB_CONTAINER" "$HOLD_DIR"
 
 echo "==> Local environment ready and left running (not torn down)."
 echo "==> To also seed the Niswah KB: SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres scripts/deploy_kb_v1.sh"
