@@ -1,0 +1,497 @@
+[
+  {
+    "id": "CITE-hanafi",
+    "fn": "fiqh-advisor-chat",
+    "madhhab": "hanafi",
+    "question": "What happens if bleeding goes beyond ten days?",
+    "http_status": 200,
+    "num_citations": 8,
+    "citation_findings": [
+      {
+        "knowledgeKey": "HNF-HAID-18",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNF-ISTI-21",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNF-NIFAS-34",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNF-ISTI-20",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNF-TRANS-40",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNF-NIFAS-29",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNF-ISTI-23",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNF-HAID-01",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "CITE-maliki",
+    "fn": "fiqh-advisor-chat",
+    "madhhab": "maliki",
+    "question": "If my bleeding continues beyond my usual longest period, what is the ruling?",
+    "http_status": 200,
+    "num_citations": 8,
+    "citation_findings": [
+      {
+        "knowledgeKey": "MLK-HAID-17",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "MLK-NIFAS-34",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "MLK-ISTI-21",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "MLK-HAID-18",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "MLK-ISTI-26",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "MLK-TRANS-42",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "MLK-ISTI-20",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "MLK-HAID-14",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "CITE-shafii",
+    "fn": "fiqh-advisor-chat",
+    "madhhab": "shafii",
+    "question": "What is the minimum duration of haid?",
+    "http_status": 200,
+    "num_citations": 8,
+    "citation_findings": [
+      {
+        "knowledgeKey": "SHF-HAID-05",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SHF-HAID-04",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SHF-NIFAS-31",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SHF-NIFAS-30",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SHF-HAID-14",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SHF-HAID-07",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SHF-HAID-17",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SHF-ISTI-22",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "CITE-hanbali",
+    "fn": "fiqh-advisor-chat",
+    "madhhab": "hanbali",
+    "question": "What is the maximum duration of haid?",
+    "http_status": 200,
+    "num_citations": 8,
+    "citation_findings": [
+      {
+        "knowledgeKey": "HNB-HAID-05",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNB-NIFAS-31",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNB-HAID-07",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNB-HAID-04",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNB-NIFAS-32",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNB-HAID-13",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNB-NIFAS-30",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HNB-NIFAS-28",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "CITE-health-qualified",
+    "fn": "dr-niswah-chat",
+    "madhhab": null,
+    "question": "What is a typical menstrual cycle length range for adults?",
+    "http_status": 200,
+    "num_citations": 12,
+    "citation_findings": [
+      {
+        "knowledgeKey": "SAFE-014",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SAFE-003",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SAFE-002",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "SAFE-005",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HL-MENS-002",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HL-MENS-001",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HL-MENS-004",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HL-TTC-006",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HL-MENS-003",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HL-MENS-006",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HL-TTC-001",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      },
+      {
+        "knowledgeKey": "HL-PREG-001",
+        "title_matches_ground_truth": true,
+        "locator_matches_ground_truth": true,
+        "url_matches_ground_truth": true,
+        "source_key_matches_ground_truth": true,
+        "has_locator": true,
+        "madhhab_consistent": true,
+        "verdict": "OK"
+      }
+    ],
+    "pass": true
+  }
+]
