@@ -98,7 +98,8 @@ def main() -> None:
         str(FUNCTIONS_ENV),
         {
             "STAGING_SUPABASE_DB_URL": connection_strings["direct"],
-            "STAGING_SUPABASE_DB_POOLED_URL": connection_strings["pooled"],
+            "STAGING_SUPABASE_DB_POOLED_SESSION_URL": connection_strings["pooled_session"],
+            "STAGING_SUPABASE_DB_POOLED_TRANSACTION_URL": connection_strings["pooled_transaction"],
         },
     )
     print(f"==> Wrote DB connection strings: {', '.join(db_written)}")

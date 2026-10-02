@@ -272,18 +272,23 @@ class BuildConnectionStringsTest(unittest.TestCase):
     def test_direct_and_pooled_urls_are_constructed_correctly(self):
         result = build_connection_strings("fake-ref", "ap-southeast-1", Secret(self.FAKE_DB_PASSWORD))
         direct = result["direct"].reveal()
-        pooled = result["pooled"].reveal()
+        session = result["pooled_session"].reveal()
+        transaction = result["pooled_transaction"].reveal()
         self.assertIn("db.fake-ref.supabase.co:5432", direct)
         self.assertIn(self.FAKE_DB_PASSWORD, direct)
-        self.assertIn("postgres.fake-ref", pooled)
-        self.assertIn("aws-0-ap-southeast-1.pooler.supabase.com:6543", pooled)
-        self.assertIn(self.FAKE_DB_PASSWORD, pooled)
+        self.assertIn("postgres.fake-ref", session)
+        self.assertIn("aws-0-ap-southeast-1.pooler.supabase.com:5432", session)
+        self.assertIn(self.FAKE_DB_PASSWORD, session)
+        self.assertIn("postgres.fake-ref", transaction)
+        self.assertIn("aws-0-ap-southeast-1.pooler.supabase.com:6543", transaction)
+        self.assertIn(self.FAKE_DB_PASSWORD, transaction)
 
     def test_wrapped_results_never_leak_the_password_via_repr_or_str(self):
         result = build_connection_strings("fake-ref", "ap-southeast-1", Secret(self.FAKE_DB_PASSWORD))
         for fragment in _secret_fragments(self.FAKE_DB_PASSWORD):
             self.assertNotIn(fragment, repr(result["direct"]))
-            self.assertNotIn(fragment, str(result["pooled"]))
+            self.assertNotIn(fragment, str(result["pooled_session"]))
+            self.assertNotIn(fragment, str(result["pooled_transaction"]))
 
 
 class ProjectSummaryAllowlistTest(unittest.TestCase):

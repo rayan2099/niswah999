@@ -211,13 +211,33 @@ def build_connection_strings(ref: str, region: str, db_password: Secret) -> dict
     since Supabase never returns a project's DB password after
     creation). Returns `Secret`-wrapped connection strings; the password
     component is URL-encoded defensively even though this project's
-    generated password contains no URL-unsafe characters."""
+    generated password contains no URL-unsafe characters.
+
+    Three variants, matching Supabase's own guidance:
+      - direct: db.{ref}.supabase.co:5432 -- IPv6 only unless the paid
+        IPv4 add-on is purchased (it is not, per the approved staging
+        budget). Not reachable from an IPv4-only network/admin box.
+      - pooled_session: the Supavisor pooler on port 5432 (session
+        mode) -- IPv4-compatible, behaves like a direct connection
+        (prepared statements, one session per client). Use this for
+        schema migrations/admin tooling.
+      - pooled_transaction: the same pooler host on port 6543
+        (transaction mode) -- the right choice for short-lived
+        serverless/Edge Function runtime connections, not for
+        migrations.
+    """
     from urllib.parse import quote
 
     encoded_password = quote(db_password.reveal(), safe="")
     direct = f"postgresql://postgres:{encoded_password}@db.{ref}.supabase.co:5432/postgres"
-    pooled = f"postgresql://postgres.{ref}:{encoded_password}@aws-0-{region}.pooler.supabase.com:6543/postgres"
-    return {"direct": Secret(direct), "pooled": Secret(pooled)}
+    pooler_host = f"aws-0-{region}.pooler.supabase.com"
+    pooled_session = f"postgresql://postgres.{ref}:{encoded_password}@{pooler_host}:5432/postgres"
+    pooled_transaction = f"postgresql://postgres.{ref}:{encoded_password}@{pooler_host}:6543/postgres"
+    return {
+        "direct": Secret(direct),
+        "pooled_session": Secret(pooled_session),
+        "pooled_transaction": Secret(pooled_transaction),
+    }
 
 
 def fetch_and_store_api_keys(
