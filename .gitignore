@@ -6,6 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+!.env.staging.example
 
 # Android release signing — a keystore/its passwords must never be
 # committed (DC-005/SEC-003/RD-001 remediation).

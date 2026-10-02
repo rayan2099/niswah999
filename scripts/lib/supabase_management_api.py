@@ -121,14 +121,21 @@ def fetch_project_summary(ref: str, token: Secret) -> dict:
     }
 
 
-def extract_preferred_api_keys(raw_keys) -> dict:
+def extract_preferred_api_keys(raw_keys, allow_legacy_fallback: bool = True) -> dict:
     """Given the parsed array from GET /projects/{ref}/api-keys?reveal=true,
-    selects the new-format `publishable`/`secret` keys when present,
-    falling back to the legacy `anon`/`service_role` keys only if the new
-    ones are absent. Fails loudly on an unrecognized shape rather than
-    guessing. Returned values are `Secret`-wrapped; only `type` (the key
-    kind, e.g. "publishable" or "anon") is a plain string -- that label
-    is not sensitive and is safe to log."""
+    selects the new-format `publishable`/`secret` keys when present.
+
+    If `allow_legacy_fallback` is True (the default, for general reuse),
+    falls back to the legacy `anon`/`service_role` keys when the new ones
+    are absent. Callers that must never touch legacy keys -- e.g. after
+    those legacy keys have been deliberately disabled -- pass
+    `allow_legacy_fallback=False`, which raises instead of retrieving
+    them, even if they are still present in the response.
+
+    Fails loudly on an unrecognized shape rather than guessing. Returned
+    values are `Secret`-wrapped; only `type` (the key kind, e.g.
+    "publishable" or "anon") is a plain string -- that label is not
+    sensitive and is safe to log."""
     if not isinstance(raw_keys, list):
         raise ValueError("Unexpected api-keys response shape: expected a list")
 
@@ -143,15 +150,19 @@ def extract_preferred_api_keys(raw_keys) -> dict:
 
     if "publishable" in by_identity:
         anon_slot_type, anon_slot_value = "publishable", by_identity["publishable"]
-    elif "anon" in by_identity:
+    elif allow_legacy_fallback and "anon" in by_identity:
         anon_slot_type, anon_slot_value = "anon", by_identity["anon"]
+    elif not allow_legacy_fallback:
+        raise ValueError("No publishable key present and legacy anon fallback is disabled")
     else:
         raise ValueError("No publishable or legacy anon key present in api-keys response")
 
     if "secret" in by_identity:
         service_slot_type, service_slot_value = "secret", by_identity["secret"]
-    elif "service_role" in by_identity:
+    elif allow_legacy_fallback and "service_role" in by_identity:
         service_slot_type, service_slot_value = "service_role", by_identity["service_role"]
+    elif not allow_legacy_fallback:
+        raise ValueError("No secret key present and legacy service_role fallback is disabled")
     else:
         raise ValueError("No secret or legacy service_role key present in api-keys response")
 
@@ -193,13 +204,36 @@ def upsert_env_file(path: str, values: dict) -> list:
     return sorted(values.keys())
 
 
-def fetch_and_store_api_keys(ref: str, token: Secret, functions_env_path: str, app_env_path: str) -> dict:
+def build_connection_strings(ref: str, region: str, db_password: Secret) -> dict:
+    """Constructs the direct and Supavisor/pooler Postgres connection
+    strings from their publicly-documented, stable format (ref, region,
+    and the project's own DB password -- never retrieved from the API,
+    since Supabase never returns a project's DB password after
+    creation). Returns `Secret`-wrapped connection strings; the password
+    component is URL-encoded defensively even though this project's
+    generated password contains no URL-unsafe characters."""
+    from urllib.parse import quote
+
+    encoded_password = quote(db_password.reveal(), safe="")
+    direct = f"postgresql://postgres:{encoded_password}@db.{ref}.supabase.co:5432/postgres"
+    pooled = f"postgresql://postgres.{ref}:{encoded_password}@aws-0-{region}.pooler.supabase.com:6543/postgres"
+    return {"direct": Secret(direct), "pooled": Secret(pooled)}
+
+
+def fetch_and_store_api_keys(
+    ref: str,
+    token: Secret,
+    functions_env_path: str,
+    app_env_path: str,
+    allow_legacy_fallback: bool = True,
+) -> dict:
     """Fetches the project's API keys and writes the preferred (new-format
     where available) anon/service-role-equivalent values directly to
     their destination files. Returns only safe-to-log identifiers --
-    never a value."""
+    never a value. See `extract_preferred_api_keys` for
+    `allow_legacy_fallback`."""
     raw = _http_get(f"/projects/{ref}/api-keys?reveal=true", token)
-    extracted = extract_preferred_api_keys(raw)
+    extracted = extract_preferred_api_keys(raw, allow_legacy_fallback=allow_legacy_fallback)
 
     written = []
     written += upsert_env_file(

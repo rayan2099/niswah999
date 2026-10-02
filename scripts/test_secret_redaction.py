@@ -26,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.lib.supabase_management_api import (  # noqa: E402
     Secret,
+    build_connection_strings,
     extract_preferred_api_keys,
     fetch_and_store_api_keys,
     fetch_project_summary,
@@ -101,6 +102,39 @@ class ExtractPreferredApiKeysTest(unittest.TestCase):
             extract_preferred_api_keys("not-a-list")
         with self.assertRaises(ValueError):
             extract_preferred_api_keys([{"api_key": "x"}])  # missing type/name
+
+    def test_strict_mode_never_retrieves_legacy_keys_even_when_present(self):
+        # Simulates calling after legacy anon/service_role keys have been
+        # deliberately disabled: even though they are still present in
+        # this fixture response, allow_legacy_fallback=False must refuse
+        # to select them rather than silently retrieving them.
+        with self.assertRaises(ValueError):
+            extract_preferred_api_keys(
+                [
+                    {"name": "anon", "api_key": FAKE_ANON_JWT},
+                    {"type": "secret", "api_key": FAKE_SECRET_KEY},
+                ],
+                allow_legacy_fallback=False,
+            )
+        with self.assertRaises(ValueError):
+            extract_preferred_api_keys(
+                [
+                    {"type": "publishable", "api_key": FAKE_PUBLISHABLE_KEY},
+                    {"name": "service_role", "api_key": FAKE_SERVICE_ROLE_JWT},
+                ],
+                allow_legacy_fallback=False,
+            )
+
+    def test_strict_mode_succeeds_when_only_new_format_keys_are_present(self):
+        result = extract_preferred_api_keys(
+            [
+                {"type": "publishable", "api_key": FAKE_PUBLISHABLE_KEY},
+                {"type": "secret", "api_key": FAKE_SECRET_KEY},
+            ],
+            allow_legacy_fallback=False,
+        )
+        self.assertEqual(result["anon_slot"]["type"], "publishable")
+        self.assertEqual(result["service_slot"]["type"], "secret")
 
 
 class UpsertEnvFileTest(unittest.TestCase):
@@ -185,6 +219,71 @@ class EndToEndRedactionRegressionTest(unittest.TestCase):
             sorted(result["written_vars"]),
             sorted(["STAGING_SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY"]),
         )
+
+    def test_strict_mode_end_to_end_with_only_new_format_keys(self):
+        new_format_only_response = [
+            {"type": "publishable", "api_key": FAKE_PUBLISHABLE_KEY},
+            {"type": "secret", "api_key": FAKE_SECRET_KEY},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            functions_env = Path(tmp) / "functions.env"
+            app_env = Path(tmp) / "app.env"
+            functions_env.write_text("", encoding="utf-8")
+            app_env.write_text("", encoding="utf-8")
+            with patch(
+                "scripts.lib.supabase_management_api._http_get",
+                return_value=new_format_only_response,
+            ):
+                result = fetch_and_store_api_keys(
+                    "fake-ref", Secret("fake-token"), str(functions_env), str(app_env),
+                    allow_legacy_fallback=False,
+                )
+        self.assertEqual(result["anon_slot_key_type"], "publishable")
+        self.assertEqual(result["service_slot_key_type"], "secret")
+
+    def test_strict_mode_refuses_when_only_legacy_keys_are_available(self):
+        legacy_only_response = [
+            {"name": "anon", "api_key": FAKE_ANON_JWT},
+            {"name": "service_role", "api_key": FAKE_SERVICE_ROLE_JWT},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            functions_env = Path(tmp) / "functions.env"
+            app_env = Path(tmp) / "app.env"
+            functions_env.write_text("", encoding="utf-8")
+            app_env.write_text("", encoding="utf-8")
+            with patch(
+                "scripts.lib.supabase_management_api._http_get",
+                return_value=legacy_only_response,
+            ):
+                with self.assertRaises(ValueError):
+                    fetch_and_store_api_keys(
+                        "fake-ref", Secret("fake-token"), str(functions_env), str(app_env),
+                        allow_legacy_fallback=False,
+                    )
+            # Must not have written anything -- a refusal must not leave
+            # a partial/legacy value behind in either destination file.
+            self.assertEqual(functions_env.read_text(encoding="utf-8"), "")
+            self.assertEqual(app_env.read_text(encoding="utf-8"), "")
+
+
+class BuildConnectionStringsTest(unittest.TestCase):
+    FAKE_DB_PASSWORD = "FAKEdbPASSWORD-9876_fragmentABCDEF"
+
+    def test_direct_and_pooled_urls_are_constructed_correctly(self):
+        result = build_connection_strings("fake-ref", "ap-southeast-1", Secret(self.FAKE_DB_PASSWORD))
+        direct = result["direct"].reveal()
+        pooled = result["pooled"].reveal()
+        self.assertIn("db.fake-ref.supabase.co:5432", direct)
+        self.assertIn(self.FAKE_DB_PASSWORD, direct)
+        self.assertIn("postgres.fake-ref", pooled)
+        self.assertIn("aws-0-ap-southeast-1.pooler.supabase.com:6543", pooled)
+        self.assertIn(self.FAKE_DB_PASSWORD, pooled)
+
+    def test_wrapped_results_never_leak_the_password_via_repr_or_str(self):
+        result = build_connection_strings("fake-ref", "ap-southeast-1", Secret(self.FAKE_DB_PASSWORD))
+        for fragment in _secret_fragments(self.FAKE_DB_PASSWORD):
+            self.assertNotIn(fragment, repr(result["direct"]))
+            self.assertNotIn(fragment, str(result["pooled"]))
 
 
 class ProjectSummaryAllowlistTest(unittest.TestCase):
