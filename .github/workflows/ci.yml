@@ -226,3 +226,22 @@ jobs:
       - name: Clean up (checklist item 11)
         if: always()
         run: supabase stop --no-backup || true
+
+  validate-secret-redaction:
+    name: Validate Supabase Management API secret-redaction path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Regression guard added 2026-10-02 after a real incident: an
+      # insufficient sed-based redaction attempt left most of two legacy
+      # Supabase API keys exposed in plaintext tool output. Exercises
+      # scripts/lib/supabase_management_api.py against synthetic fixture
+      # secrets (never real credentials) and asserts no secret value, or
+      # any contiguous fragment of one, ever reaches stdout/stderr.
+      - name: Run secret-redaction regression tests
+        run: python -m unittest scripts.test_secret_redaction -v

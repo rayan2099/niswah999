@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""Safe primitives for calling the Supabase Management API and handling
+whatever secret-bearing data it returns.
+
+Added after a real incident (2026-10-02): a one-off `sed` redaction
+pattern applied to a raw API-keys response only masked the first ~10
+characters of each legacy `anon`/`service_role` JWT, leaving the rest of
+both exposed in plaintext in agent tool output. The fix here is not a
+better mask -- it is removing the class of bug: a secret value is wrapped
+in `Secret` the moment it is read out of a parsed response and is never
+unwrapped except at the one point it is written into its destination
+env file. Every other path (printing, string formatting, exceptions,
+logging) sees only `<redacted>`.
+
+Rules this module exists to enforce (do not weaken these to make a
+caller more convenient):
+  - Never return or log a raw API response body from a secret-bearing
+    endpoint. Extraction functions return only explicitly allowlisted
+    fields (project ref/name/region/status) or `Secret`-wrapped values.
+  - Never pass a secret as a subprocess/CLI argument (visible via
+    `ps`/process listings) -- all file writes here are direct Python
+    file I/O, no subprocess involved.
+  - Prefer the new `publishable`/`secret` API key types over the legacy
+    `anon`/`service_role` JWTs when both are present in a response.
+"""
+from __future__ import annotations
+
+import json
+import os
+import urllib.error
+import urllib.request
+
+MANAGEMENT_API_BASE = "https://api.supabase.com/v1"
+
+
+class Secret:
+    """Wraps a sensitive string so printing, f-string interpolation,
+    logging, or an exception message never reveals it by accident.
+    `reveal()` is the one explicit escape hatch -- callers must opt in
+    deliberately, and only `upsert_env_file` below should ever need to.
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str):
+        self._value = value
+
+    def reveal(self) -> str:
+        return self._value
+
+    def __repr__(self) -> str:
+        return "<redacted>"
+
+    def __str__(self) -> str:
+        return "<redacted>"
+
+    def __eq__(self, other):
+        if isinstance(other, Secret):
+            return self._value == other._value
+        return NotImplemented
+
+    def __hash__(self):
+        return hash((self.__class__.__name__, id(self)))
+
+
+class ManagementApiError(Exception):
+    """Carries only the HTTP status code and request path -- never the
+    response body, which may itself be secret-bearing on some endpoints."""
+
+    def __init__(self, status_code: int, path: str):
+        self.status_code = status_code
+        super().__init__(f"Supabase Management API request to {path} failed with HTTP {status_code}")
+
+
+def _http_get(path: str, token: Secret):
+    """Internal. Returns the parsed JSON body. Callers must not print
+    this return value directly for any endpoint that can carry secrets
+    -- extract only allowlisted/`Secret`-wrapped fields from it."""
+    request = urllib.request.Request(
+        f"{MANAGEMENT_API_BASE}{path}",
+        headers={"Authorization": f"Bearer {token.reveal()}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ManagementApiError(exc.code, path) from None
+
+
+def read_plain_env_var(env_file_path: str, var_name: str) -> str:
+    """For genuinely non-secret config values only (e.g. a project ref).
+    Do not use this for anything that should be wrapped in `Secret`."""
+    with open(env_file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped.startswith(f"{var_name}="):
+                return stripped.split("=", 1)[1].strip()
+    raise RuntimeError(f"{var_name} not found in {env_file_path}")
+
+
+def load_access_token(env_file_path: str) -> Secret:
+    value = read_plain_env_var(env_file_path, "SUPABASE_ACCESS_TOKEN")
+    if not value:
+        raise RuntimeError(f"SUPABASE_ACCESS_TOKEN is empty in {env_file_path}")
+    return Secret(value)
+
+
+def fetch_project_summary(ref: str, token: Secret) -> dict:
+    """Returns ONLY an allowlisted set of fields. Anything else present
+    in the real response (there is no reason there should be a secret
+    on a project-details object, but this is an allowlist, not a
+    blocklist, specifically so a future unexpected field can't leak)."""
+    data = _http_get(f"/projects/{ref}", token)
+    if not isinstance(data, dict):
+        raise ValueError("Unexpected project response shape: expected an object")
+    return {
+        "ref": data.get("id"),
+        "name": data.get("name"),
+        "region": data.get("region"),
+        "status": data.get("status"),
+    }
+
+
+def extract_preferred_api_keys(raw_keys) -> dict:
+    """Given the parsed array from GET /projects/{ref}/api-keys?reveal=true,
+    selects the new-format `publishable`/`secret` keys when present,
+    falling back to the legacy `anon`/`service_role` keys only if the new
+    ones are absent. Fails loudly on an unrecognized shape rather than
+    guessing. Returned values are `Secret`-wrapped; only `type` (the key
+    kind, e.g. "publishable" or "anon") is a plain string -- that label
+    is not sensitive and is safe to log."""
+    if not isinstance(raw_keys, list):
+        raise ValueError("Unexpected api-keys response shape: expected a list")
+
+    by_identity: dict[str, Secret] = {}
+    for entry in raw_keys:
+        if not isinstance(entry, dict) or "api_key" not in entry:
+            raise ValueError("Unexpected api-keys response shape: entry missing 'api_key'")
+        identity = (entry.get("type") or entry.get("name") or "").strip().lower()
+        if not identity:
+            raise ValueError("Unexpected api-keys response shape: entry missing 'type'/'name'")
+        by_identity[identity] = Secret(entry["api_key"])
+
+    if "publishable" in by_identity:
+        anon_slot_type, anon_slot_value = "publishable", by_identity["publishable"]
+    elif "anon" in by_identity:
+        anon_slot_type, anon_slot_value = "anon", by_identity["anon"]
+    else:
+        raise ValueError("No publishable or legacy anon key present in api-keys response")
+
+    if "secret" in by_identity:
+        service_slot_type, service_slot_value = "secret", by_identity["secret"]
+    elif "service_role" in by_identity:
+        service_slot_type, service_slot_value = "service_role", by_identity["service_role"]
+    else:
+        raise ValueError("No secret or legacy service_role key present in api-keys response")
+
+    return {
+        "anon_slot": {"type": anon_slot_type, "value": anon_slot_value},
+        "service_slot": {"type": service_slot_type, "value": service_slot_value},
+    }
+
+
+def upsert_env_file(path: str, values: dict) -> list:
+    """Replaces (in place) or appends KEY=value lines in a gitignored env
+    file, given `values: dict[str, Secret]`. Pure file I/O -- no
+    subprocess is ever spawned, so a secret value never becomes visible
+    in a process listing. Returns only the sorted list of variable NAMES
+    written, never their values, so a caller can log the return value
+    safely."""
+    existing_lines = []
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            existing_lines = f.readlines()
+
+    remaining_keys = set(values.keys())
+    new_lines = []
+    for line in existing_lines:
+        stripped = line.rstrip("\n")
+        matched_key = next((k for k in remaining_keys if stripped.startswith(f"{k}=")), None)
+        if matched_key is not None:
+            new_lines.append(f"{matched_key}={values[matched_key].reveal()}\n")
+            remaining_keys.discard(matched_key)
+        else:
+            new_lines.append(line if line.endswith("\n") else line + "\n")
+
+    for key in sorted(remaining_keys):
+        new_lines.append(f"{key}={values[key].reveal()}\n")
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
+
+    return sorted(values.keys())
+
+
+def fetch_and_store_api_keys(ref: str, token: Secret, functions_env_path: str, app_env_path: str) -> dict:
+    """Fetches the project's API keys and writes the preferred (new-format
+    where available) anon/service-role-equivalent values directly to
+    their destination files. Returns only safe-to-log identifiers --
+    never a value."""
+    raw = _http_get(f"/projects/{ref}/api-keys?reveal=true", token)
+    extracted = extract_preferred_api_keys(raw)
+
+    written = []
+    written += upsert_env_file(
+        functions_env_path,
+        {"STAGING_SUPABASE_SERVICE_ROLE_KEY": extracted["service_slot"]["value"]},
+    )
+    written += upsert_env_file(
+        app_env_path,
+        {"SUPABASE_ANON_KEY": extracted["anon_slot"]["value"]},
+    )
+    return {
+        "written_vars": written,
+        "anon_slot_key_type": extracted["anon_slot"]["type"],
+        "service_slot_key_type": extracted["service_slot"]["type"],
+    }
