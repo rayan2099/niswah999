@@ -171,54 +171,35 @@ from Postgres/Supavisor pooling. Pre-creating a small session pool
 before the concurrent run isolated the actual DB-pooling behavior, which
 held cleanly with flat latency at every tier.
 
-## Sentry result
+## Sentry result — superseded, see `FINAL_OPERATIONAL_READINESS_REPORT.md`
 
-Existing DSN copied into `.env.staging`, using the code's existing
-`environment=staging` tagging mechanism (`AppEnvironment.isProduction`) —
-no new code required.
+At the time this report was first written, Sentry's operational test
+was `NOT_EXECUTED` (no simulator/device/browser available). A follow-up
+closure pass found a working Flutter execution target (plain
+`flutter test`, Dart VM) and ran a real operational test against the
+staging DSN: the app genuinely emitted a real event through the real
+SDK (non-empty event ID, no transport exception, ingest host confirmed
+reachable), but arrival could not be independently confirmed without
+Sentry-side read access. Current status: **`SENTRY OPERATIONALLY
+VERIFIED: PARTIAL`** (upgraded from `NOT_EXECUTED`) — full detail,
+including what was and wasn't established, in
+`FINAL_OPERATIONAL_READINESS_REPORT.md`'s Phase 2.
 
-**SENTRY OPERATIONAL TEST: NOT_EXECUTED.** This execution environment is
-a non-interactive terminal with no connected simulator/device and no
-browser/rendering surface, so a real Flutter app session cannot be run
-here to trigger and observe an actual Sentry event. Fabricating a PASS
-for this would misrepresent what was actually checked.
+## Observability result — superseded, see `FINAL_OPERATIONAL_READINESS_REPORT.md`
 
-**Exact manual action required**: on a machine with a connected iOS
-Simulator, Android emulator, or physical device, run the app against
-staging (e.g. `flutter run --dart-define=APP_ENV=staging` with
-`.env.staging`'s values, or load `.env.staging` in place of `.env`),
-trigger one synthetic, clearly-non-sensitive test exception (a
-debug-only throw — never a real user error), and confirm in the Sentry
-dashboard that the event arrived tagged `environment=staging`, contains
-a usable stack trace, and contains no health data, no API keys, no
-Authorization headers, and no user-sensitive payload (the existing
-`scrubSecretsForSentry` redaction and opaque record-ID design should
-already guarantee this — this manual step confirms it operationally,
-it does not change the code).
-
-## Observability result — PARTIAL
-
-CLI/API log retrieval is **not supported** in this environment: the
-installed Supabase CLI (2.119.0, npx-local) has no `functions logs`
-subcommand, and the Management API's log-analytics endpoint
-(`/v1/projects/{ref}/analytics/endpoints/logs.all`) returned `410 Gone`
-for two different query shapes tried. The Supabase Dashboard is almost
-certainly the supported path for this project (a standard product
-feature), but this execution environment has no interactive
-browser/dashboard access to confirm that directly.
-
-Per-signal classification (per Phase 7's explicit instruction not to
-mark PASS merely because logging code exists):
-
-| Signal | Classification |
-|---|---|
-| Edge Function invocation visibility | CODE_PRESENT_NOT_OPERATIONALLY_VERIFIED — functions were invoked dozens of times this session (confirmed via their own HTTP responses); Supabase-side invocation telemetry storage not independently confirmed |
-| Edge Function errors | CODE_PRESENT_NOT_OPERATIONALLY_VERIFIED — the relevant `console.error` call sites definitely executed during Phases 2–4's failure injections (inferable with near-certainty from the observed safe-fallback behavior); log-store retrieval not confirmed |
-| OpenAI provider errors | CODE_PRESENT_NOT_OPERATIONALLY_VERIFIED — same basis, from Phase 2 |
-| 429/retry events | NOT_AVAILABLE — not organically triggered this pass (only Supabase Auth's own sign-in rate limit was observed, a different system; per the plan, an OpenAI-side 429 was not to be deliberately forced) |
-| Snapshot failures | CODE_PRESENT_NOT_OPERATIONALLY_VERIFIED — the `console.error('kb snapshot mismatch', ...)` call site executed during Phase 3; log-store retrieval not confirmed |
-| Retrieval rejection / no-evidence behavior | **VERIFIED** — directly confirmed via the Edge Functions' own response contract (`knowledgeGrounded: false`, empty `citations`, the standard fail-closed message) across Phases 2–4 and the original acceptance matrix; this is the behavioral signal that actually matters for this event class, independent of log-store access |
-| DB/RPC failures | **VERIFIED** (behaviorally, via the response contract in Phase 4) / CODE_PRESENT_NOT_OPERATIONALLY_VERIFIED (for log-store storage specifically) |
+At the time this report was first written, every signal below `log-store
+retrieval` was `CODE_PRESENT_NOT_OPERATIONALLY_VERIFIED`. A follow-up
+closure pass fetched Supabase's current OpenAPI spec directly and found
+a genuinely working, current telemetry endpoint
+(`functions.combined-stats`) that independently confirmed real
+invocation/success/error counts and latency for every function —
+including one `server_err_count` that matches this workstream's own
+deliberate failure test exactly. Raw log-*line* content retrieval was
+still not established (several table names tried against the one live
+non-`.all` logs endpoint all returned "table does not exist"). Current
+status: **`OBSERVABILITY VERIFIED: PARTIAL`, but
+`OBSERVABILITY MANDATORY LAUNCH GATES CLOSED: YES`** — full per-signal
+detail in `FINAL_OPERATIONAL_READINESS_REPORT.md`'s Phase 3–4.
 
 ## Secret-handling result (Phase 8) — PASS
 
@@ -281,28 +262,31 @@ After all failure-injection tests:
   this pass.
 - Observability log-store retrieval (vs. behavioral verification) could
   not be confirmed without dashboard access.
-- Sentry's operational, app-triggered path remains `NOT_EXECUTED` (see
-  exact manual action above).
+- Sentry's operational, app-triggered path is now `PARTIAL` (upgraded
+  from `NOT_EXECUTED` — see `FINAL_OPERATIONAL_READINESS_REPORT.md`).
 - HL-MENS-003's retrieval ranking is phrasing-sensitive (see Qualified
   Health results) — not a blocker, but worth noting if retrieval
   precision work resumes.
 
 ## Exact founder/manual actions still required
 
-1. Run the one manual Sentry operational test described above (needs a
-   machine with a simulator/device/browser — not available in this
-   execution environment).
-2. Optionally confirm Edge Function/log visibility directly in the
-   Supabase Dashboard's Logs explorer for `ovgvevzrcefloitgcsia`, to
-   upgrade the `CODE_PRESENT_NOT_OPERATIONALLY_VERIFIED` observability
-   rows to `VERIFIED`.
-3. No other staging-blocking founder action identified. Production
-   deployment (separate from everything in this report) still requires
-   its own explicit founder authorization and is not addressed here.
+See `FINAL_OPERATIONAL_READINESS_REPORT.md` for the current, superseding
+list. In short: independently confirm (via the Sentry Dashboard, or a
+Sentry API read token supplied to the environment) that the Phase 2
+operational test event actually arrived — this is now the only
+remaining item blocking `TECHNICALLY PRODUCTION-READY`. Production
+deployment (separate from everything in this report) still requires its
+own explicit founder authorization and is not addressed here.
 
 ---
 
-## Final gates
+## Final gates — superseded, see `FINAL_OPERATIONAL_READINESS_REPORT.md`
+
+The block below is this report's original snapshot, kept for history.
+The current, authoritative gate values are in
+`FINAL_OPERATIONAL_READINESS_REPORT.md`'s Phase 9 (Sentry and
+Observability both moved from their values below to `PARTIAL`, with
+observability's mandatory launch gates now explicitly closed).
 
 ```
 STAGING DB VALIDATED: PASS
@@ -313,8 +297,8 @@ QUALIFICATION FIDELITY: PASS
 CITATION FIDELITY: PASS
 FAIL-CLOSED FAILURE-PATHS: PASS
 POOLING VALIDATED: PASS
-SENTRY OPERATIONALLY VERIFIED: NOT_EXECUTED
-OBSERVABILITY VERIFIED: PARTIAL
+SENTRY OPERATIONALLY VERIFIED: NOT_EXECUTED   # superseded -> PARTIAL
+OBSERVABILITY VERIFIED: PARTIAL                # superseded -> still PARTIAL, but mandatory gates now CLOSED
 SECRET HANDLING VERIFIED: PASS
 
 TECHNICALLY PRODUCTION-READY: NO
@@ -322,8 +306,8 @@ READY FOR PRODUCTION DEPLOYMENT: NO
 PRODUCTION DEPLOYMENT AUTHORIZED: NO
 ```
 
-`TECHNICALLY PRODUCTION-READY` is `NO` solely because two verification
-items remain genuinely open (Sentry's operational path, full
-observability log-store confirmation) and the acceptance matrix run was
-representative rather than exhaustive — not because any executed check
-failed. Every gate that was actually run, passed.
+At the time of writing, `TECHNICALLY PRODUCTION-READY` was `NO` because
+two verification items remained genuinely open and the acceptance
+matrix run was representative rather than exhaustive — not because any
+executed check failed. One of those two items has since closed further;
+see the superseding report for the current, single remaining blocker.
