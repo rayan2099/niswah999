@@ -99,6 +99,46 @@ All temporary instrumentation was removed: the test file, the
 committed state). `git status` is clean of any trace of this phase's
 work.
 
+### Follow-up attempt: independent arrival verification (post-merge, same date)
+
+A dedicated follow-up pass attempted to close this gate per a specific
+two-path instruction:
+
+- **Path A — authenticated Sentry API access**: checked every local env
+  file (`.env`, `.env.staging`, `supabase/functions/.env`) and the
+  process environment for a Sentry API auth token, organization slug,
+  or project slug. Only `SENTRY_DSN` exists anywhere — a write-only
+  ingest identifier that cannot read events back (confirmed from
+  Sentry's own documented threat model, consistent with how this DSN
+  has been treated throughout this engagement). No `SENTRY_AUTH_TOKEN`
+  or equivalent was ever provisioned. **Not available.**
+- **Path B — Sentry dashboard/browser access**: this execution
+  environment is a non-interactive terminal with no browser rendering
+  surface (the same constraint that produced the `PARTIAL` result in
+  the first place). **Not available.**
+
+Per the explicit fallback for this case, stopping rather than
+fabricating a verification. **The exact minimal manual action for the
+founder**: open the Sentry dashboard for the project that owns the
+staging DSN, filter the Issues stream by `environment:staging`, and
+look for an exception beginning "Niswah staging operational readiness
+test — synthetic, non-sensitive...". Two real events were actually sent
+during Phase 2 with client-generated (non-secret) event IDs
+`8ea27847be8c4a82a4e91bf1be562744` and `bb31d3967d624ec5837843a4615bc5f9`
+— search by either directly if the UI supports it. On the event page,
+confirm: it exists; `environment = staging`; the timestamp matches this
+closure pass (2026-10-03); the stack trace renders; and the event body
+contains only the synthetic test message plus the two tags
+`context=staging_operational_readiness_test` /
+`feature=observability_closure_pass` — no health/conversation text, no
+Supabase/OpenAI keys, no Authorization header, no DB connection string,
+no other user data.
+
+**No gate below was changed by this follow-up attempt** — nothing new
+was independently verified, so `SENTRY OPERATIONALLY VERIFIED` remains
+`PARTIAL` and `TECHNICALLY PRODUCTION-READY` remains `NO`, exactly as
+before. The Sentry DSN itself was not exposed in this follow-up attempt.
+
 ## Phase 3 — Supabase observability through supported paths
 
 Per the prior pass, the installed CLI (2.119.0) has no `functions logs`
@@ -317,15 +357,17 @@ token supplied to this environment), that the operational test event
 from Phase 2 — or a fresh equivalent — actually arrived and is visible
 in the project's issue stream, tagged `environment=staging`.
 
-## Phase 10 — PR #11 closure
+## Phase 10 — PR #11 closure — MERGED
 
-All 8 CI checks are green; every scan/test run in this pass and the
-prior one is internally consistent (no contradiction between this
-report and `STAGING_VALIDATION_REPORT.md`).
+All 8 CI checks were green on head commit `4ca4915`. Founder
+authorization for merge was given explicitly in a separate instruction
+after this report was first written. Pre-merge re-confirmed: PR still
+`MERGEABLE`, head commit still `4ca4915`, all 8 checks still green, full
+diff re-scanned for secrets (clean). Merged via the normal GitHub merge
+mechanism (`gh pr merge --merge`, no protection bypass) — merge commit
+`b5de74fce3dd2a4e1ea79e118b2e10fd0cddb9fd`. Local `main` pulled and
+fast-forwarded to it; confirmed via `git merge-base --is-ancestor` that
+the merge commit is reachable from `main`. The PR #11 staging-validation
+workstream is closed.
 
-**PR #11 is merge-ready** from a CI/content/secret-hygiene standpoint.
-Per standing instruction, it is **not** being merged automatically —
-that requires separate, explicit founder authorization. Production
-deployment remains unauthorized regardless of this PR's disposition.
-
-Stopping here for founder review, per this pass's own instructions.
+Production deployment remains unauthorized regardless of this merge.
