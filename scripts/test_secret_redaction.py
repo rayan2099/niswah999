@@ -25,11 +25,15 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.lib.supabase_management_api import (  # noqa: E402
+    EXPECTED_PRODUCTION_REF,
+    EXPECTED_STAGING_REF,
     Secret,
+    assert_is_production_project,
     build_connection_strings,
     extract_preferred_api_keys,
     fetch_and_store_api_keys,
     fetch_project_summary,
+    run_readonly_query,
     upsert_env_file,
 )
 
@@ -289,6 +293,40 @@ class BuildConnectionStringsTest(unittest.TestCase):
             self.assertNotIn(fragment, repr(result["direct"]))
             self.assertNotIn(fragment, str(result["pooled_session"]))
             self.assertNotIn(fragment, str(result["pooled_transaction"]))
+
+
+class AssertIsProductionProjectTest(unittest.TestCase):
+    def test_accepts_exact_production_match(self):
+        assert_is_production_project({"ref": EXPECTED_PRODUCTION_REF, "name": "Niswah"})
+
+    def test_refuses_staging_ref(self):
+        with self.assertRaises(RuntimeError):
+            assert_is_production_project({"ref": EXPECTED_STAGING_REF, "name": "Niswah Staging"})
+
+    def test_refuses_mismatched_name(self):
+        with self.assertRaises(RuntimeError):
+            assert_is_production_project({"ref": EXPECTED_PRODUCTION_REF, "name": "Something Else"})
+
+    def test_refuses_unknown_ref(self):
+        with self.assertRaises(RuntimeError):
+            assert_is_production_project({"ref": "totallydifferentref0000", "name": "Niswah"})
+
+
+class RunReadonlyQueryTest(unittest.TestCase):
+    def test_posts_to_the_readonly_endpoint_with_the_query_body(self):
+        captured = {}
+
+        def fake_post(path, token, body):
+            captured["path"] = path
+            captured["body"] = body
+            return [{"count": 5}]
+
+        with patch("scripts.lib.supabase_management_api._http_post", side_effect=fake_post):
+            result = run_readonly_query("fake-ref", Secret("fake-token"), "select count(*) from fake_table")
+
+        self.assertEqual(captured["path"], "/projects/fake-ref/database/query/read-only")
+        self.assertEqual(captured["body"], {"query": "select count(*) from fake_table"})
+        self.assertEqual(result, [{"count": 5}])
 
 
 class ProjectSummaryAllowlistTest(unittest.TestCase):

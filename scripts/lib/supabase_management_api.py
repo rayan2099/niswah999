@@ -72,6 +72,36 @@ class ManagementApiError(Exception):
         super().__init__(f"Supabase Management API request to {path} failed with HTTP {status_code}")
 
 
+def _http_post(path: str, token: Secret, body: dict):
+    """Internal. Same contract as `_http_get` -- callers must not print
+    this return value directly without an allowlist for any endpoint
+    that can carry secrets."""
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(
+        f"{MANAGEMENT_API_BASE}{path}",
+        data=data,
+        headers={"Authorization": f"Bearer {token.reveal()}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ManagementApiError(exc.code, path) from None
+
+
+def run_readonly_query(ref: str, token: Secret, sql: str):
+    """Runs SQL via the platform's own dedicated read-only query endpoint
+    (/database/query/read-only) -- no DB password or service-role key is
+    ever needed for this. The endpoint itself enforces read-only (no
+    mutation is possible through it), but callers must still only ever
+    pass SELECT/introspection queries: this is a schema/metadata
+    inspection primitive, not a general escape hatch, and must never be
+    used to read actual row CONTENT from user/health tables -- counts
+    and schema metadata only."""
+    return _http_post(f"/projects/{ref}/database/query/read-only", token, {"query": sql})
+
+
 def _http_get(path: str, token: Secret):
     """Internal. Returns the parsed JSON body. Callers must not print
     this return value directly for any endpoint that can carry secrets
@@ -103,6 +133,28 @@ def load_access_token(env_file_path: str) -> Secret:
     if not value:
         raise RuntimeError(f"SUPABASE_ACCESS_TOKEN is empty in {env_file_path}")
     return Secret(value)
+
+
+EXPECTED_PRODUCTION_REF = "jkmjobvxfrmuwafczvtw"
+EXPECTED_PRODUCTION_NAME = "Niswah"
+EXPECTED_STAGING_REF = "ovgvevzrcefloitgcsia"
+EXPECTED_STAGING_NAME = "Niswah Staging"
+
+
+def assert_is_production_project(summary: dict) -> None:
+    """Call before every production read operation. Raises rather than
+    proceeding if identity is anything but an exact match -- including
+    if it matches the known staging ref instead."""
+    if summary.get("ref") == EXPECTED_STAGING_REF:
+        raise RuntimeError(
+            "REFUSING: fetched project identity matches the STAGING ref, not production. Stopping."
+        )
+    if summary.get("ref") != EXPECTED_PRODUCTION_REF or summary.get("name") != EXPECTED_PRODUCTION_NAME:
+        raise RuntimeError(
+            "REFUSING: project identity does not match known production "
+            f"(expected ref={EXPECTED_PRODUCTION_REF!r} name={EXPECTED_PRODUCTION_NAME!r}; "
+            f"got ref={summary.get('ref')!r} name={summary.get('name')!r})."
+        )
 
 
 def fetch_project_summary(ref: str, token: Secret) -> dict:
