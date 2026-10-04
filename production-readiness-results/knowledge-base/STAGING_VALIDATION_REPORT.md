@@ -180,9 +180,12 @@ closure pass found a working Flutter execution target (plain
 staging DSN: the app genuinely emitted a real event through the real
 SDK (non-empty event ID, no transport exception, ingest host confirmed
 reachable), but arrival could not be independently confirmed without
-Sentry-side read access. Current status: **`SENTRY OPERATIONALLY
-VERIFIED: PARTIAL`** (upgraded from `NOT_EXECUTED`) — full detail,
-including what was and wasn't established, in
+Sentry-side read access from this execution environment. The founder
+then performed the exact manual dashboard action this report specified
+and confirmed the event (project `flutter`, environment `staging`,
+issue `FLUTTER-2`) with a clean payload. Current status: **`SENTRY
+OPERATIONALLY VERIFIED: PASS`** (upgraded from `NOT_EXECUTED` →
+`PARTIAL` → `PASS`) — full detail in
 `FINAL_OPERATIONAL_READINESS_REPORT.md`'s Phase 2.
 
 ## Observability result — superseded, see `FINAL_OPERATIONAL_READINESS_REPORT.md`
@@ -262,21 +265,23 @@ After all failure-injection tests:
   this pass.
 - Observability log-store retrieval (vs. behavioral verification) could
   not be confirmed without dashboard access.
-- Sentry's operational, app-triggered path is now `PARTIAL` (upgraded
-  from `NOT_EXECUTED` — see `FINAL_OPERATIONAL_READINESS_REPORT.md`).
+- Sentry's operational, app-triggered path is now `PASS`, closed by the
+  founder's own dashboard verification on 2026-10-04 (see
+  `FINAL_OPERATIONAL_READINESS_REPORT.md`).
 - HL-MENS-003's retrieval ranking is phrasing-sensitive (see Qualified
   Health results) — not a blocker, but worth noting if retrieval
   precision work resumes.
 
 ## Exact founder/manual actions still required
 
-See `FINAL_OPERATIONAL_READINESS_REPORT.md` for the current, superseding
-list. In short: independently confirm (via the Sentry Dashboard, or a
-Sentry API read token supplied to the environment) that the Phase 2
-operational test event actually arrived — this is now the only
-remaining item blocking `TECHNICALLY PRODUCTION-READY`. Production
-deployment (separate from everything in this report) still requires its
-own explicit founder authorization and is not addressed here.
+See `FINAL_OPERATIONAL_READINESS_REPORT.md` for the current,
+superseding list. The item previously listed here (independently
+confirming the Sentry test event's arrival) is now closed — the founder
+confirmed it directly via the dashboard on 2026-10-04. No other
+staging-blocking founder action is outstanding. Production deployment
+(separate from everything in this report — production has never been
+provisioned) still requires its own explicit founder authorization and
+is not addressed here.
 
 ---
 
@@ -284,9 +289,13 @@ own explicit founder authorization and is not addressed here.
 
 The block below is this report's original snapshot, kept for history.
 The current, authoritative gate values are in
-`FINAL_OPERATIONAL_READINESS_REPORT.md`'s Phase 9 (Sentry and
-Observability both moved from their values below to `PARTIAL`, with
-observability's mandatory launch gates now explicitly closed).
+`FINAL_OPERATIONAL_READINESS_REPORT.md`'s Phase 9: Sentry has since
+closed to `PASS` (founder-confirmed dashboard verification,
+2026-10-04), Observability remains `PARTIAL` with its mandatory launch
+gates explicitly closed, and `TECHNICALLY PRODUCTION-READY` is now
+`YES` — `READY FOR PRODUCTION DEPLOYMENT` remains `NO` because
+production itself has never been provisioned (see that report for the
+full reasoning).
 
 ```
 STAGING DB VALIDATED: PASS
@@ -297,11 +306,11 @@ QUALIFICATION FIDELITY: PASS
 CITATION FIDELITY: PASS
 FAIL-CLOSED FAILURE-PATHS: PASS
 POOLING VALIDATED: PASS
-SENTRY OPERATIONALLY VERIFIED: NOT_EXECUTED   # superseded -> PARTIAL
-OBSERVABILITY VERIFIED: PARTIAL                # superseded -> still PARTIAL, but mandatory gates now CLOSED
+SENTRY OPERATIONALLY VERIFIED: NOT_EXECUTED   # superseded -> PASS
+OBSERVABILITY VERIFIED: PARTIAL                # superseded -> still PARTIAL, mandatory gates CLOSED
 SECRET HANDLING VERIFIED: PASS
 
-TECHNICALLY PRODUCTION-READY: NO
+TECHNICALLY PRODUCTION-READY: NO               # superseded -> YES
 READY FOR PRODUCTION DEPLOYMENT: NO
 PRODUCTION DEPLOYMENT AUTHORIZED: NO
 ```

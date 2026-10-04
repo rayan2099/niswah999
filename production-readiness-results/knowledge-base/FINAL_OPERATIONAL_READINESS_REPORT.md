@@ -139,6 +139,28 @@ was independently verified, so `SENTRY OPERATIONALLY VERIFIED` remains
 `PARTIAL` and `TECHNICALLY PRODUCTION-READY` remains `NO`, exactly as
 before. The Sentry DSN itself was not exposed in this follow-up attempt.
 
+### Founder manual verification (2026-10-04) — closes this gate
+
+The founder performed the exact manual action above and reported back
+directly:
+
+- Project: `flutter`; Environment: `staging`; Issue: `FLUTTER-2`;
+  Event count: 1; Users: 0 — the synthetic Niswah staging verification
+  event is visibly ingested by Sentry.
+- The founder personally inspected the event payload and confirmed no
+  real health data, no Supabase/OpenAI secrets, no Authorization
+  headers, no DB credentials, and no unintended user-sensitive data are
+  present. (This inspection was performed by the founder directly, in
+  the Sentry dashboard — not independently re-inspected by the agent,
+  which still has no dashboard access; recorded here as the founder's
+  own first-hand confirmation.)
+
+This satisfies every item this gate required: the test event exists,
+`environment = staging`, it corresponds to this closure pass's test,
+the event is usable, and the privacy checklist is clean.
+
+**SENTRY OPERATIONALLY VERIFIED: PASS.**
+
 ## Phase 3 — Supabase observability through supported paths
 
 Per the prior pass, the installed CLI (2.119.0) has no `functions logs`
@@ -328,34 +350,65 @@ CITATION FIDELITY: PASS
 FAIL-CLOSED FAILURE-PATHS: PASS
 POOLING VALIDATED: PASS
 SENTRY CODE READY: YES
-SENTRY OPERATIONALLY VERIFIED: PARTIAL
+SENTRY OPERATIONALLY VERIFIED: PASS
 OBSERVABILITY VERIFIED: PARTIAL
 OBSERVABILITY MANDATORY LAUNCH GATES CLOSED: YES
 SECRET HANDLING VERIFIED: PASS
 
-TECHNICALLY PRODUCTION-READY: NO
+TECHNICALLY PRODUCTION-READY: YES
 READY FOR PRODUCTION DEPLOYMENT: NO
 PRODUCTION DEPLOYMENT AUTHORIZED: NO
 ```
 
-**`TECHNICALLY PRODUCTION-READY` is `NO` for exactly one remaining
-reason**: Sentry's operational delivery is `PARTIAL`, not `PASS` — the
-app was confirmed to genuinely emit a real event to the real staging
-DSN, but arrival cannot be independently confirmed without Sentry-side
-read access (a Sentry API token or dashboard login), neither available
-in this execution environment. `OBSERVABILITY MANDATORY LAUNCH GATES
-CLOSED: YES` because every signal that actually needs pre-launch
-detectability has a real, confirmed, pull-available path (Management
-API telemetry, the `flagged_conversations` table, and behavioral
-fail-closed confirmation) — the remaining observability gap (raw
-log-line retrieval, proactive alerting) is explicitly classified
-non-blocking in Phase 6.
+**`SENTRY OPERATIONALLY VERIFIED: PASS`** — closed 2026-10-04 by the
+founder's own manual dashboard verification (see Phase 2's follow-up
+section): project `flutter`, environment `staging`, issue `FLUTTER-2`,
+event count 1, payload personally inspected and confirmed free of
+health data, Supabase/OpenAI secrets, Authorization headers, DB
+credentials, and unintended user-sensitive data. This was the one
+remaining item blocking `TECHNICALLY PRODUCTION-READY`.
 
-**Only remaining blocking item for `TECHNICALLY PRODUCTION-READY`**:
-independently confirm, via the Sentry Dashboard (or a Sentry API read
-token supplied to this environment), that the operational test event
-from Phase 2 — or a fresh equivalent — actually arrived and is visible
-in the project's issue stream, tagged `environment=staging`.
+**`OBSERVABILITY VERIFIED` stays `PARTIAL`** (the strongest factually
+supported value, not inflated to `PASS`): raw log-line content
+retrieval via the Supabase CLI/Management API was never established
+(Phase 3), and no proactive alerting exists anywhere in this codebase
+(Phase 6). Both remain real, honestly-reported gaps. `OBSERVABILITY
+MANDATORY LAUNCH GATES CLOSED: YES` is unchanged and, with Sentry now
+confirmed `PASS` rather than merely emitting, more solidly supported
+than before: every signal that actually needs pre-launch detectability
+— invocation, failure, latency, the urgent path (via the durable
+`flagged_conversations` table), and now Sentry itself — has a real,
+independently confirmed path. The two remaining `PARTIAL` items were
+explicitly classified non-blocking in Phase 6's own reasoning and that
+reasoning hasn't changed.
+
+**`TECHNICALLY PRODUCTION-READY: YES`**: every other gate in this
+report and `STAGING_VALIDATION_REPORT.md` was already `PASS`; the one
+specific, named remaining blocker (Sentry) has now genuinely closed;
+every other open item across both reports (the representative-not-
+exhaustive acceptance matrix, the untriggered 429/retry case,
+HL-MENS-003's phrasing-sensitive retrieval ranking, the OpenAI
+error-message echo-back code-level caveat, proactive alerting, raw
+log-line retrieval) was already explicitly classified non-blocking at
+the time each was found, with reasoning given, not newly waved through
+now.
+
+**`READY FOR PRODUCTION DEPLOYMENT: NO`**, despite the above, for a
+reason that is operational rather than technical: **production itself
+has never been provisioned.** Everything validated in this and the
+prior report concerns the *staging* project
+(`ovgvevzrcefloitgcsia`) — no migration, KB snapshot, Edge Function
+deployment, or secret has ever been applied to the *production*
+project (`jkmjobvxfrmuwafczvtw`) at any point in this engagement.
+Production has no OpenAI secret configured, no deployed Edge Functions
+running the current code, and no KB snapshot loaded. "The validated
+architecture is correct" (`TECHNICALLY PRODUCTION-READY`) and "the
+production environment is actually configured to receive deployment"
+(`READY FOR PRODUCTION DEPLOYMENT`) are different claims — this report
+only supports the first. Provisioning production (even by repeating
+exactly what was done for staging, against the production project)
+would itself be new, consequential, founder-governed work, not
+something to infer as already done from staging's success.
 
 ## Phase 10 — PR #11 closure — MERGED
 
