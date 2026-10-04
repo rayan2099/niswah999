@@ -37,7 +37,7 @@ section below reflects that.
 | Compute tier | **Not determinable via `billing/addons`** — that endpoint returned zero `selected_addons` for this project (unlike staging, which showed exactly one `ci_micro` entry). This project predates the addon-based billing model or was never recorded through it; not resolved further to avoid guessing. Does not block anything below — it's informational. |
 | Supavisor/pooling | Configured and live: one pooler entry, host `aws-1-ap-southeast-1.pooler.supabase.com` (note: **not** `aws-0-`, unlike staging — confirms the host prefix is not a fixed pattern and must always be read from the real config, never assumed), port `6543`, `pool_mode: transaction`, user `postgres.jkmjobvxfrmuwafczvtw`. Only a transaction-mode entry was returned by this endpoint; a session-mode (port 5432) variant was not independently confirmed for production the way it was for staging — verify at execution time rather than assuming the same pattern transfers. |
 | New publishable/secret keys | **Enabled** — both present: `publishable` (prefix `sb_publishable_YqJFV...`) and `secret` (prefix `sb_secret_h0eTV...`). |
-| Legacy keys | **Enabled** (`/api-keys/legacy` → `{"enabled": true}`) — unlike staging, where legacy keys were disabled after the redaction incident. Disabling them is a founder decision this workstream does not make or recommend unilaterally; flagged as `MANUAL_DECISION_REQUIRED` in Phase 3. |
+| Legacy keys | **Enabled** (`/api-keys/legacy` → `{"enabled": true}`) — unlike staging, where legacy keys were disabled after the redaction incident. **Founder decision (2026-10-04): keep enabled for this deployment** — production has live users and older clients may depend on them; retirement is a deliberate separate post-deployment migration. |
 
 **PRODUCTION IDENTITY VERIFIED: YES.**
 
@@ -92,8 +92,8 @@ Read-only (`information_schema`, `pg_catalog`, the Management API) throughout. N
 | KB rows (211 eligible) | **DATA_LOAD** | Net-new; nothing to reconcile against. |
 | Edge Function source (all 4) | **REPLACE** | Not a first deploy — replaces live, `ACTIVE`, versions 9–15 code currently serving (or available to serve) 26 real accounts. |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | **CONFIGURE** | Absent today; must be set before the new Edge Function code can function (it has no Gemini fallback). |
-| `GEMINI_API_KEY` | **MANUAL_DECISION_REQUIRED** | Currently set and in active use by the live code. Whether to remove it after cutover (vs. leave it, harmless but unused) is a founder call, not inferred here. |
-| Legacy API keys (anon/service_role) | **MANUAL_DECISION_REQUIRED** | Currently enabled on production, unlike staging (disabled after the redaction incident). Not this workstream's call to change. |
+| `GEMINI_API_KEY` | **Deferred, not blocking** | Currently set and in active use by the live code. Removing it post-cutover remains an open, non-blocking cleanup item — founder has not asked for it to be removed as part of this deployment. |
+| Legacy API keys (anon/service_role) | **RESOLVED: keep enabled** | Founder decision (2026-10-04): do not disable during this deployment. Retirement is a deliberate separate post-deployment migration. |
 | New publishable/secret keys | **NO_CHANGE** | Already enabled and available; the Edge Functions' platform-injected `SUPABASE_SERVICE_ROLE_KEY` secret already exists regardless of key-type policy. |
 | `SENTRY_DSN` (app-level, not a function secret) | **CONFIGURE** (client build config) | Same DSN used for staging can be reused (environment-tagged), or a decision to separate — founder call, not inferred (see Phase 8). |
 | `APP_ENV` | **CONFIGURE** | Must resolve to `production` in the real production build; today's bundled `.env` reads `local` and already points its `SUPABASE_URL` at this same production project (pre-existing, unrelated to this workstream — noted as ambient context). |
@@ -167,17 +167,23 @@ Reuses the exact, CI-proven pipeline (`scripts/deploy_kb_v1.sh`'s steps, exactly
 
 ## Phase 8 — Secret / configuration plan (names and sources only — no values)
 
-| Secret / config | Currently on production? | Classification | Note |
-|---|---|---|---|
-| `OPENAI_API_KEY` | No | **Should be separately provisioned** | The staging key was reused for staging by founder decision; whether production reuses the *same* key or gets its own, with its own spending cap, is a **separate founder decision** this workstream does not make. Given production has real users (26, not synthetic), a production-specific key with its own cap is the more conservative default to recommend — but the actual choice is the founder's. |
-| `OPENAI_MODEL` | No | **Requires founder input** (the identifier itself isn't secret, but which model to run in front of real users is a product decision) | Same identifier validated on staging is the natural default; stated as a recommendation, not decided here. |
-| `GEMINI_API_KEY` | Yes, currently live | **Manual decision required** | Leave in place (harmless, unused post-cutover) or remove — founder call, not inferred. |
-| Supabase runtime credentials (`SUPABASE_URL`/`ANON_KEY`/`SERVICE_ROLE_KEY`/`DB_URL`/etc.) | Yes, platform-injected | **Already exists, can safely be reused** | These are automatic on every Supabase project; no action needed. |
-| Legacy vs. new-format API keys | Both currently enabled | **Manual decision required** | Disabling legacy keys (as staging did) is not this workstream's call for production. |
-| `SENTRY_DSN` | Not a function secret (it's app/client build config) | **Can safely be reused, or separately provisioned** | Same DSN as staging with `environment=production` tagging (the code already supports this via `AppEnvironment.isProduction`), or a dedicated production Sentry project — founder call. |
-| `APP_ENV` | N/A (build-time, not a stored secret) | **Must be set at build time** | Must resolve to `production` via `--dart-define=APP_ENV=production` for any real production build — the bundled `.env` fallback (`development`) must never be what a real release build ships with. |
+**Founder decisions received 2026-10-04 — resolved, superseding the open questions this phase originally flagged:**
 
-**No staging secret was copied into production by this workstream.** **SECRET/CONFIG PLAN READY: YES** (the plan is ready; two items explicitly require founder input before execution, which is expected and correctly flagged, not a gap in the plan itself).
+| Secret / config | Currently on production? | Resolved decision | Note |
+|---|---|---|---|
+| `OPENAI_API_KEY` | No | **Dedicated production key — never the staging key** | Founder-provided, a genuinely separate OpenAI project/key from staging's. Must be delivered via the same secure `.env`-file handoff pattern used throughout this engagement — never pasted in chat, never printed by this agent. |
+| `OPENAI_MODEL` | No | **Same identifier already validated on staging** | No new model choice — reuses exactly what staging's acceptance matrix validated. |
+| Spend controls | N/A | **Conservative initial cap, founder-set on the OpenAI dashboard** | Not something the Supabase Management API can configure — set directly on the new production OpenAI project. |
+| `GEMINI_API_KEY` | Yes, currently live | Unchanged by this decision round — still a candidate for later cleanup, not decided here | Harmless to leave in place post-cutover. |
+| Supabase runtime credentials | Yes, platform-injected | No change | Automatic; no action needed. |
+| Legacy API keys (anon/service_role) | Both currently enabled | **Explicitly KEEP enabled for this deployment** | Founder decision: do not disable. Production has live users and older clients may depend on them; retirement is a deliberate separate post-deployment migration once compatibility is proven — not part of this cutover. |
+| New publishable/secret keys | Already enabled, unused by current config | **Use for newly-deployed configuration where supported** | The staging-validated app code already reads `publishableKey:`/accepts the `secret` key as a drop-in (confirmed during staging provisioning — no code change needed); the *production* app build and any new Edge Function secret this deployment introduces should use the new key types, while existing legacy-key-dependent clients continue working unaffected. |
+| `SENTRY_DSN` | Not a function secret (app/client build config) | **Reuse the existing Sentry project/DSN — no second project** | Production events must carry `environment=production` (the code already supports this via `AppEnvironment.isProduction` — no code change needed). Alerting configuration may be set up separately from staging, later — not a deployment blocker. |
+| `APP_ENV` | N/A (build-time) | **Must resolve to `production`** | Via `--dart-define=APP_ENV=production` for any real production build — unchanged from this phase's original finding. |
+
+**No staging secret was or will be copied into production.** The new production `OPENAI_API_KEY` must never appear in logs, reports, command arguments, or tool output at any point in provisioning — the same `Secret`-wrapped, allowlist-only handling already built and regression-tested for staging (`scripts/lib/supabase_management_api.py`, `scripts/test_secret_redaction.py`) applies unchanged to production; no new code is needed, only the same discipline.
+
+**SECRET/CONFIG PLAN READY: YES — all three previously-open founder decisions are now resolved.**
 
 ## Phase 9 — Deployment order (runbook)
 
@@ -269,6 +275,8 @@ READY FOR PRODUCTION DEPLOYMENT: YES
 PRODUCTION DEPLOYMENT AUTHORIZED: NO
 ```
 
-**Why `READY FOR PRODUCTION DEPLOYMENT` can honestly say `YES` here**, where the staging closure report deliberately said `NO`: that `NO` was about production never having been *provisioned* at all — this workstream is exactly the provisioning *preparation* that closes that gap. Every plan above was built from this project's **real, current, live state** (not assumed from staging), every claimed mechanism (backup restore, rollback, read-only query) was independently confirmed to actually exist, and no blocker was found in the migration safety analysis. Three items remain **founder decisions, not blockers**: the production OpenAI key/cap policy, whether to disable legacy API keys, and whether to reuse or separate the Sentry DSN — all explicitly named in Phase 8, none inferred or decided here.
+**Why `READY FOR PRODUCTION DEPLOYMENT` can honestly say `YES` here**, where the staging closure report deliberately said `NO`: that `NO` was about production never having been *provisioned* at all — this workstream is exactly the provisioning *preparation* that closes that gap. Every plan above was built from this project's **real, current, live state** (not assumed from staging), every claimed mechanism (backup restore, rollback, read-only query) was independently confirmed to actually exist, and no blocker was found in the migration safety analysis.
+
+**Update, 2026-10-04**: all three founder decisions this report originally flagged as open (production OpenAI key/cap policy, legacy API key disablement, Sentry DSN reuse-vs-separate) have since been resolved by the founder — see Phase 8. The only remaining prerequisite before execution is **receiving the actual production `OPENAI_API_KEY` value**, which must arrive via the established secure `.env`-file handoff, never pasted in chat.
 
 **`PRODUCTION DEPLOYMENT AUTHORIZED: NO`**, unconditionally, per standing instruction. This report prepares the path; it does not take it.

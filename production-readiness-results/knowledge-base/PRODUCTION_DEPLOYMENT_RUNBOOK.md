@@ -55,11 +55,16 @@ means redeploying prior source code).
 - Verify: `python3 scripts/test_build_kb_production_candidates.py` (11 tests) and `python3 scripts/test_trust_boundary.py` (14 tests) both pass.
 
 ### Required secrets (set on the target Supabase project, never committed)
-- `OPENAI_API_KEY` — required, no hardcoded fallback (`callOpenAI()` throws a config error if unset). **Confirmed absent from production today** (2026-10-04 inventory) — production currently runs `GEMINI_API_KEY` only. Whether production gets its own key/cap or reuses staging's is a founder decision (`PRODUCTION_DEPLOYMENT_PREPARATION_REPORT.md` Phase 8) — do not default this without asking.
-- `OPENAI_MODEL` — required, no hardcoded fallback. Verify the configured model is actually available to this API project before relying on it.
-- `SUPABASE_DB_URL` — deploy-time only, a Postgres connection string with migration/write rights, never stored in the repo or in Edge Function secrets. Production's direct host is IPv6-only (same constraint staging hit) — use the Supavisor pooler, confirmed live at `aws-1-ap-southeast-1.pooler.supabase.com:6543` (transaction mode; verify session-mode availability at execution time rather than assuming staging's pattern transfers).
+
+**Founder decisions, 2026-10-04 (resolved — see `PRODUCTION_DEPLOYMENT_PREPARATION_REPORT.md` Phase 8 for full detail):**
+- `OPENAI_API_KEY` — a **dedicated production OpenAI project/key, never the staging key**. Must be delivered via the established secure `.env`-file handoff (never pasted in chat, never printed/logged/placed in argv by this agent — the same `Secret`-wrapped discipline already built for staging applies unchanged). **Not yet received** — this is the one open prerequisite blocking execution, not a decision.
+- `OPENAI_MODEL` — the **same identifier already validated on staging**, no new choice.
+- Spend controls — a conservative initial cap, set by the founder directly on the new production OpenAI project's own dashboard (not a Supabase-side configuration).
+- `SUPABASE_DB_URL` — deploy-time only, never stored in the repo or in Edge Function secrets. Production's direct host is IPv6-only — use the Supavisor pooler, confirmed live at `aws-1-ap-southeast-1.pooler.supabase.com:6543`.
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` — already platform-provided to Edge Functions.
-- `GEMINI_API_KEY` — currently live and in active use by the pre-upgrade code. Leaving it in place post-cutover is harmless (unused); removing it is a founder call, not this runbook's.
+- `GEMINI_API_KEY` — **founder decision: leave in place for now**, not removed as part of this deployment (harmless, unused post-cutover; cleanup deferred).
+- Legacy anon/service_role API keys — **founder decision: explicitly keep enabled**, do not disable during this deployment (production has live users/older clients that may depend on them; retirement is a separate, later, deliberate migration). Use the new publishable/secret key types only for *newly*-deployed configuration where supported (the staging-validated app code and Edge Function `createClient()` calls already accept either transparently — no code change needed).
+- `SENTRY_DSN` — **founder decision: reuse the existing Sentry project/DSN, no second project.** Production builds set `environment=production` (already supported, no code change). Alerting may be configured separately, later — not a deployment blocker.
 
 ### Backup requirements — VERIFIED, with real evidence (closed, not outstanding)
 Per `production-readiness-results/backup-recovery/BR_recovery_runbook.md`
@@ -103,6 +108,28 @@ migration beyond the two listed above:
 review step above; it is additive only (`CREATE OR REPLACE FUNCTION`,
 same signature), verified reproducible from a clean database by CI's
 "Validate DB migration reproducibility (BR-002)" job.
+
+---
+
+## GO / NO-GO CHECKPOINT — immediately before the first production mutation
+
+**Everything above this line (PRE-DEPLOY, backup confirmation, migration
+review) is read-only or preparatory. Everything in DEPLOY step 4 onward
+mutates the real production database.** This checklist sits at that
+exact boundary. All items must be true, verified at execution time (not
+assumed from an earlier session), before running DEPLOY step 4.
+
+- [ ] **Explicit, separate founder production-deployment authorization has been given** — this runbook's existence, and even a founder's prior resolution of the secret/config decisions, is not that authorization. `PRODUCTION DEPLOYMENT AUTHORIZED` must be `YES` from the founder, for this specific execution, immediately before proceeding.
+- [ ] Production identity re-confirmed *right now*, not from memory: `ref = jkmjobvxfrmuwafczvtw`, `name = Niswah`, `status = ACTIVE_HEALTHY`.
+- [ ] A fresh manual backup has been taken immediately before this run (cheap, few minutes, tightens the ~24h RPO gap for this specific change window) — or the most recent daily backup's timestamp has been checked and explicitly accepted as sufficient.
+- [ ] The production `OPENAI_API_KEY` (dedicated, founder-provided, never staging's) has been received via the secure `.env`-file handoff and verified present (boolean presence check only — never printed) — the deployment must not begin with this secret still missing, since the new Edge Function code has no Gemini fallback.
+- [ ] The 4 currently-live Edge Function bundles have been snapshotted via `GET /functions/{slug}/body` for all four functions (the rollback safety net) — **before** DEPLOY step 10 overwrites them, and in practice simplest to do in this same checkpoint, before step 4, so it's never forgotten under deployment pressure.
+- [ ] The exact 3 migration files to be applied are byte-identical to the ones already proven on staging (`diff`/checksum against the commit staging was validated at) — no drift since staging validation.
+- [ ] CI is green on the exact commit being deployed from (not an older or newer one).
+- [ ] Re-confirmed, this session, that production's schema still matches this report's inventory (migrations #1–#4 present, KB tables absent, `pg_trgm` absent) — if anything has changed since this report was written, stop and re-assess before proceeding; do not assume the inventory is still accurate indefinitely.
+- [ ] No step in this runbook will print, log, or pass as a CLI argument the new `OPENAI_API_KEY`, the production DB password/connection string, the Management API PAT, or any Supabase secret/service-role key — confirmed by re-reading the exact commands about to be run, not assumed from having followed this discipline before.
+
+**If every box above is checked: proceed to DEPLOY step 4. If any box is unchecked or uncertain: stop. Do not proceed on a partial checklist.**
 
 ---
 
