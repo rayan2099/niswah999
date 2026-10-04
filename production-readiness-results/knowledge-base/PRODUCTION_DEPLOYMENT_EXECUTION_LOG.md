@@ -121,3 +121,17 @@ One transient `ConnectionResetError` occurred in this session's own Python test 
 | Project status | `ACTIVE_HEALTHY` |
 
 **No rollback trigger was hit at any point.** No restore was needed; the backup/restore capability documented in `PRODUCTION_ROLLBACK_RUNBOOK.md` remains available and untouched. The 4 pre-deployment Edge Function body snapshots remain saved locally as a safety net, even though they were not needed.
+
+## REAL-DEVICE PRODUCTION SENTRY VERIFICATION
+
+Per founder instruction to stop all synthetic transport-level experimentation and use the actual Niswah app on a real Android/iOS device or emulator instead.
+
+| Time (UTC) | Action | Result |
+|---|---|---|
+| 2026-10-04T~12:26Z | Launched the available `Pixel_8` Android emulator (`flutter emulators --launch Pixel_8`). First attempt: emulator died mid-build (`adb: device 'emulator-5554' not found`) after a successful 296s `assembleDebug`, before install — emulator instability under sustained build load, not a code issue. Cleaned up stale processes, relaunched, and this time waited for a confirmed-stable `adb devices` entry (`device`, not `offline`) before starting the build. | Second attempt proceeded on a stable device |
+| 2026-10-04T~12:34Z | Added a temporary, clearly-marked, test-only block to `lib/main.dart`'s `_runApp()` (pure addition, no existing line modified) that calls `Sentry.captureException()` directly through the app's already-initialized Sentry instance — same DSN, same `environment` config, same options set up by the real `SentryFlutter.init` call above it. No transport override, no `compressPayload` change, no DSN change, no application/DB/KB/Edge-Function/OpenAI/traffic/Sentry-settings change. Ran `flutter run -d emulator-5554 --dart-define=APP_ENV=production` (real build, real install, real launch on the real app). | Built and installed successfully (warm Gradle cache, ~14s incremental) |
+| 2026-10-04T~12:37Z | Real device log confirmed Sentry's **native** Android layer genuinely initialized: `libsentry.so`/`libsentry-android.so` loaded, cache directory set up, `sentry-native` backend and metrics thread started. The temporary trigger fired once. | `REAL_DEVICE_SENTRY_EVENT_ID=201f2883526d4087b9cab9cc3cdd03e5` |
+| 2026-10-04T~12:37Z | App continued running normally after the call — frames rendering, Geolocator service connected, no crash. One unrelated Flutter-framework warning appeared immediately after ("Zone mismatch" between `WidgetsFlutterBinding.ensureInitialized()`'s zone and the zone `runApp()` runs in inside the existing `runZonedGuarded` wrapper) — a known Flutter warning for this exact binding/zone-wrapping pattern, not a crash, not caused by the Sentry call itself, and not something this verification pass is authorized or asked to fix. | App remained healthy |
+| 2026-10-04T~12:38Z | Stopped the `flutter run` process; reverted the temporary block via `git checkout -- lib/main.dart` (confirmed via `git diff` immediately before that the change was exactly and only the added block, nothing else); confirmed `git status` shows `lib/main.dart` clean. | Reverted cleanly |
+
+**`PRODUCTION SENTRY VERIFIED` stays `PARTIAL`** — per standing instruction, the event ID is not treated as proof of ingestion. Pending the founder's own dashboard search for `201f2883526d4087b9cab9cc3cdd03e5`.
