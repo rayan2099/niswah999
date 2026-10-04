@@ -99,6 +99,68 @@ All temporary instrumentation was removed: the test file, the
 committed state). `git status` is clean of any trace of this phase's
 work.
 
+### Follow-up attempt: independent arrival verification (post-merge, same date)
+
+A dedicated follow-up pass attempted to close this gate per a specific
+two-path instruction:
+
+- **Path A — authenticated Sentry API access**: checked every local env
+  file (`.env`, `.env.staging`, `supabase/functions/.env`) and the
+  process environment for a Sentry API auth token, organization slug,
+  or project slug. Only `SENTRY_DSN` exists anywhere — a write-only
+  ingest identifier that cannot read events back (confirmed from
+  Sentry's own documented threat model, consistent with how this DSN
+  has been treated throughout this engagement). No `SENTRY_AUTH_TOKEN`
+  or equivalent was ever provisioned. **Not available.**
+- **Path B — Sentry dashboard/browser access**: this execution
+  environment is a non-interactive terminal with no browser rendering
+  surface (the same constraint that produced the `PARTIAL` result in
+  the first place). **Not available.**
+
+Per the explicit fallback for this case, stopping rather than
+fabricating a verification. **The exact minimal manual action for the
+founder**: open the Sentry dashboard for the project that owns the
+staging DSN, filter the Issues stream by `environment:staging`, and
+look for an exception beginning "Niswah staging operational readiness
+test — synthetic, non-sensitive...". Two real events were actually sent
+during Phase 2 with client-generated (non-secret) event IDs
+`8ea27847be8c4a82a4e91bf1be562744` and `bb31d3967d624ec5837843a4615bc5f9`
+— search by either directly if the UI supports it. On the event page,
+confirm: it exists; `environment = staging`; the timestamp matches this
+closure pass (2026-10-03); the stack trace renders; and the event body
+contains only the synthetic test message plus the two tags
+`context=staging_operational_readiness_test` /
+`feature=observability_closure_pass` — no health/conversation text, no
+Supabase/OpenAI keys, no Authorization header, no DB connection string,
+no other user data.
+
+**No gate below was changed by this follow-up attempt** — nothing new
+was independently verified, so `SENTRY OPERATIONALLY VERIFIED` remains
+`PARTIAL` and `TECHNICALLY PRODUCTION-READY` remains `NO`, exactly as
+before. The Sentry DSN itself was not exposed in this follow-up attempt.
+
+### Founder manual verification (2026-10-04) — closes this gate
+
+The founder performed the exact manual action above and reported back
+directly:
+
+- Project: `flutter`; Environment: `staging`; Issue: `FLUTTER-2`;
+  Event count: 1; Users: 0 — the synthetic Niswah staging verification
+  event is visibly ingested by Sentry.
+- The founder personally inspected the event payload and confirmed no
+  real health data, no Supabase/OpenAI secrets, no Authorization
+  headers, no DB credentials, and no unintended user-sensitive data are
+  present. (This inspection was performed by the founder directly, in
+  the Sentry dashboard — not independently re-inspected by the agent,
+  which still has no dashboard access; recorded here as the founder's
+  own first-hand confirmation.)
+
+This satisfies every item this gate required: the test event exists,
+`environment = staging`, it corresponds to this closure pass's test,
+the event is usable, and the privacy checklist is clean.
+
+**SENTRY OPERATIONALLY VERIFIED: PASS.**
+
 ## Phase 3 — Supabase observability through supported paths
 
 Per the prior pass, the installed CLI (2.119.0) has no `functions logs`
@@ -288,44 +350,77 @@ CITATION FIDELITY: PASS
 FAIL-CLOSED FAILURE-PATHS: PASS
 POOLING VALIDATED: PASS
 SENTRY CODE READY: YES
-SENTRY OPERATIONALLY VERIFIED: PARTIAL
+SENTRY OPERATIONALLY VERIFIED: PASS
 OBSERVABILITY VERIFIED: PARTIAL
 OBSERVABILITY MANDATORY LAUNCH GATES CLOSED: YES
 SECRET HANDLING VERIFIED: PASS
 
-TECHNICALLY PRODUCTION-READY: NO
+TECHNICALLY PRODUCTION-READY: YES
 READY FOR PRODUCTION DEPLOYMENT: NO
 PRODUCTION DEPLOYMENT AUTHORIZED: NO
 ```
 
-**`TECHNICALLY PRODUCTION-READY` is `NO` for exactly one remaining
-reason**: Sentry's operational delivery is `PARTIAL`, not `PASS` — the
-app was confirmed to genuinely emit a real event to the real staging
-DSN, but arrival cannot be independently confirmed without Sentry-side
-read access (a Sentry API token or dashboard login), neither available
-in this execution environment. `OBSERVABILITY MANDATORY LAUNCH GATES
-CLOSED: YES` because every signal that actually needs pre-launch
-detectability has a real, confirmed, pull-available path (Management
-API telemetry, the `flagged_conversations` table, and behavioral
-fail-closed confirmation) — the remaining observability gap (raw
-log-line retrieval, proactive alerting) is explicitly classified
-non-blocking in Phase 6.
+**`SENTRY OPERATIONALLY VERIFIED: PASS`** — closed 2026-10-04 by the
+founder's own manual dashboard verification (see Phase 2's follow-up
+section): project `flutter`, environment `staging`, issue `FLUTTER-2`,
+event count 1, payload personally inspected and confirmed free of
+health data, Supabase/OpenAI secrets, Authorization headers, DB
+credentials, and unintended user-sensitive data. This was the one
+remaining item blocking `TECHNICALLY PRODUCTION-READY`.
 
-**Only remaining blocking item for `TECHNICALLY PRODUCTION-READY`**:
-independently confirm, via the Sentry Dashboard (or a Sentry API read
-token supplied to this environment), that the operational test event
-from Phase 2 — or a fresh equivalent — actually arrived and is visible
-in the project's issue stream, tagged `environment=staging`.
+**`OBSERVABILITY VERIFIED` stays `PARTIAL`** (the strongest factually
+supported value, not inflated to `PASS`): raw log-line content
+retrieval via the Supabase CLI/Management API was never established
+(Phase 3), and no proactive alerting exists anywhere in this codebase
+(Phase 6). Both remain real, honestly-reported gaps. `OBSERVABILITY
+MANDATORY LAUNCH GATES CLOSED: YES` is unchanged and, with Sentry now
+confirmed `PASS` rather than merely emitting, more solidly supported
+than before: every signal that actually needs pre-launch detectability
+— invocation, failure, latency, the urgent path (via the durable
+`flagged_conversations` table), and now Sentry itself — has a real,
+independently confirmed path. The two remaining `PARTIAL` items were
+explicitly classified non-blocking in Phase 6's own reasoning and that
+reasoning hasn't changed.
 
-## Phase 10 — PR #11 closure
+**`TECHNICALLY PRODUCTION-READY: YES`**: every other gate in this
+report and `STAGING_VALIDATION_REPORT.md` was already `PASS`; the one
+specific, named remaining blocker (Sentry) has now genuinely closed;
+every other open item across both reports (the representative-not-
+exhaustive acceptance matrix, the untriggered 429/retry case,
+HL-MENS-003's phrasing-sensitive retrieval ranking, the OpenAI
+error-message echo-back code-level caveat, proactive alerting, raw
+log-line retrieval) was already explicitly classified non-blocking at
+the time each was found, with reasoning given, not newly waved through
+now.
 
-All 8 CI checks are green; every scan/test run in this pass and the
-prior one is internally consistent (no contradiction between this
-report and `STAGING_VALIDATION_REPORT.md`).
+**`READY FOR PRODUCTION DEPLOYMENT: NO`**, despite the above, for a
+reason that is operational rather than technical: **production itself
+has never been provisioned.** Everything validated in this and the
+prior report concerns the *staging* project
+(`ovgvevzrcefloitgcsia`) — no migration, KB snapshot, Edge Function
+deployment, or secret has ever been applied to the *production*
+project (`jkmjobvxfrmuwafczvtw`) at any point in this engagement.
+Production has no OpenAI secret configured, no deployed Edge Functions
+running the current code, and no KB snapshot loaded. "The validated
+architecture is correct" (`TECHNICALLY PRODUCTION-READY`) and "the
+production environment is actually configured to receive deployment"
+(`READY FOR PRODUCTION DEPLOYMENT`) are different claims — this report
+only supports the first. Provisioning production (even by repeating
+exactly what was done for staging, against the production project)
+would itself be new, consequential, founder-governed work, not
+something to infer as already done from staging's success.
 
-**PR #11 is merge-ready** from a CI/content/secret-hygiene standpoint.
-Per standing instruction, it is **not** being merged automatically —
-that requires separate, explicit founder authorization. Production
-deployment remains unauthorized regardless of this PR's disposition.
+## Phase 10 — PR #11 closure — MERGED
 
-Stopping here for founder review, per this pass's own instructions.
+All 8 CI checks were green on head commit `4ca4915`. Founder
+authorization for merge was given explicitly in a separate instruction
+after this report was first written. Pre-merge re-confirmed: PR still
+`MERGEABLE`, head commit still `4ca4915`, all 8 checks still green, full
+diff re-scanned for secrets (clean). Merged via the normal GitHub merge
+mechanism (`gh pr merge --merge`, no protection bypass) — merge commit
+`b5de74fce3dd2a4e1ea79e118b2e10fd0cddb9fd`. Local `main` pulled and
+fast-forwarded to it; confirmed via `git merge-base --is-ancestor` that
+the merge commit is reachable from `main`. The PR #11 staging-validation
+workstream is closed.
+
+Production deployment remains unauthorized regardless of this merge.
