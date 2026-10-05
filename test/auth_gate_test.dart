@@ -65,7 +65,7 @@ void main() {
     ) async {
       Object? reported;
       AppErrorReporter.onReport =
-          (error, stack, {context, feature, retryAttempt, recordId}) {
+          (error, stack, {context, feature, retryAttempt, recordId}) async {
             reported = error;
           };
 
@@ -86,7 +86,7 @@ void main() {
       (tester) async {
         Object? reported;
         AppErrorReporter.onReport =
-            (error, stack, {context, feature, retryAttempt, recordId}) {
+            (error, stack, {context, feature, retryAttempt, recordId}) async {
               reported = error;
             };
 

@@ -136,7 +136,7 @@ void main() {
     repository = _FakeAuthRepository();
     viewModel = ProfileViewModel(authRepository: repository);
     reportedError = null;
-    AppErrorReporter.onReport = (error, stack, {context, feature, retryAttempt, recordId}) {
+    AppErrorReporter.onReport = (error, stack, {context, feature, retryAttempt, recordId}) async {
       reportedError = error;
     };
   });

@@ -344,7 +344,7 @@ void main() {
         );
         Object? reported;
         AppErrorReporter.onReport =
-            (error, stack, {context, feature, retryAttempt, recordId}) {
+            (error, stack, {context, feature, retryAttempt, recordId}) async {
               reported = error;
             };
         addTearDown(() => AppErrorReporter.onReport = null);

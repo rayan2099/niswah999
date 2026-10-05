@@ -64,7 +64,7 @@ void main() {
           feature,
           retryAttempt,
           recordId,
-        }) {
+        }) async {
           reportedError = error;
         };
 
@@ -89,7 +89,7 @@ void main() {
         feature,
         retryAttempt,
         recordId,
-      }) {
+      }) async {
         reportCount++;
       };
 

@@ -38,45 +38,94 @@ import 'features/onboarding/presentation/screens/onboarding_screen.dart';
 const bool kDebugSkipSignup = false;
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Everything the app does, from the very first binding initialization
+  // onward, now runs inside exactly one zone — this single
+  // `runZonedGuarded` call. Previously `WidgetsFlutterBinding
+  // .ensureInitialized()` ran here, in the implicit root zone, while
+  // `runApp()` (inside `_runApp()`, called later via `appRunner`) ran
+  // inside a *second*, separately-created zone — a real, confirmed
+  // mismatch (reproduced on a real Android device: "Zone mismatch...
+  // The Flutter bindings were initialized in a different zone than is
+  // now being used"). Flutter records which zone the binding was
+  // initialized in exactly once, the first time `ensureInitialized()`
+  // actually constructs it (`BindingBase.initInstances`) — a later,
+  // second call is a no-op and does not update that record, so the only
+  // real fix is making sure that first call happens in the same zone
+  // `runApp()` later runs in, not calling it twice.
+  //
+  // This does not reduce error-handling coverage. On Android/iOS, Sentry
+  // Flutter 9.29.0 does not wrap `appRunner` in its own zone at all —
+  // confirmed from source (`SentryFlutter.init`'s `useRunZonedGuarded`
+  // is `!isOnErrorSupported && isRootZone`, and `isOnErrorSupported` is
+  // `true` on every non-web platform) — it relies on
+  // `PlatformDispatcher.onError` instead (its own `OnErrorIntegration`,
+  // explicitly documented as "used instead of
+  // RunZonedGuardedIntegration" for faster startup). That confirms the
+  // *app's* FlutterError/PlatformDispatcher hooks below remain necessary
+  // and sufficient for that class of error — but `Sentry.init` itself
+  // calls `appRunner()` with no try/catch of its own on these platforms,
+  // so this zone guard is the only thing catching a genuinely
+  // *synchronous* throw from `_runApp()`'s own body (e.g. the stale/
+  // reused Supabase deep-link case its own comment below describes) —
+  // which is why it is kept, just correctly scoped around everything
+  // instead of only the later `runApp()` call.
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-  // Config loading is startup-critical: if it fails, the app must show a
-  // visible error, not hang indefinitely on the native splash screen (the
-  // failure mode DC-004 identified). This must also run before Sentry can
-  // be configured below, since the DSN itself comes from this config — a
-  // config-load failure this early can only reach `debugPrint`, not Sentry.
-  // This is deliberately outside runZonedGuarded below, which exists for a
-  // different purpose — see its own comment.
-  try {
-    await dotenv.load();
-    await AppEnvironment.load();
-  } catch (error, stack) {
-    AppErrorReporter.report(error, stack, context: 'startup config load');
-    runApp(_StartupErrorApp(error: error));
-    return;
-  }
+      // Config loading is startup-critical: if it fails, the app must show
+      // a visible error, not hang indefinitely on the native splash screen
+      // (the failure mode DC-004 identified). This must also run before
+      // Sentry can be configured below, since the DSN itself comes from
+      // this config — a config-load failure this early can only reach
+      // `debugPrint`, not Sentry. The surrounding `try`/`catch` still takes
+      // precedence over the zone's own `onError` below for exactly this
+      // case (a caught, synchronous-to-this-scope exception never reaches
+      // the enclosing zone handler), so its existing fallback-UI behavior
+      // is unchanged by now living one zone-callback deeper.
+      try {
+        await dotenv.load();
+        await AppEnvironment.load();
+      } catch (error, stack) {
+        AppErrorReporter.report(error, stack, context: 'startup config load');
+        runApp(_StartupErrorApp(error: error));
+        return;
+      }
 
-  // `options.dsn` left empty (no Sentry project configured yet, e.g. local
-  // dev) makes the SDK a documented no-op transport — it still initializes
-  // cleanly but sends nothing, so this call is always safe to make.
-  await SentryFlutter.init((options) {
-    options.dsn = AppEnvironment.sentryDsn;
-    options.environment = AppEnvironment.appEnvironment;
-    // We deliberately do not rely on SentryFlutter's own automatic
-    // FlutterError/PlatformDispatcher hooks — this app already has its own
-    // versions of both (registered below) that funnel through
-    // AppErrorReporter alongside every repository's manual report() calls.
-    // Wiring AppErrorReporter.onReport to Sentry.captureException (below)
-    // is the single point where any of those paths reaches Sentry, so nothing
-    // is ever reported twice.
-    options.beforeSend = (event, hint) => _scrubBeforeSend(event);
-  }, appRunner: () => _runApp());
+      // `options.dsn` left empty (no Sentry project configured yet, e.g.
+      // local dev) makes the SDK a documented no-op transport — it still
+      // initializes cleanly but sends nothing, so this call is always safe
+      // to make. Calling it from inside this zone (rather than the root
+      // zone) has no behavioral effect on Android/iOS: `isRootZone` has
+      // exactly one usage anywhere in sentry/sentry_flutter's source
+      // (feeding `useRunZonedGuarded`, already `false` on these platforms
+      // regardless, per the comment above) — confirmed by direct source
+      // inspection, not assumed.
+      await SentryFlutter.init((options) {
+        options.dsn = AppEnvironment.sentryDsn;
+        options.environment = AppEnvironment.appEnvironment;
+        // We deliberately do not rely on SentryFlutter's own automatic
+        // FlutterError/PlatformDispatcher hooks — this app already has its own
+        // versions of both (registered below) that funnel through
+        // AppErrorReporter alongside every repository's manual report() calls.
+        // Wiring AppErrorReporter.onReport to Sentry.captureException (below)
+        // is the single point where any of those paths reaches Sentry, so nothing
+        // is ever reported twice.
+        options.beforeSend = (event, hint) => _scrubBeforeSend(event);
+      }, appRunner: () => _runApp());
+    },
+    (error, stack) {
+      AppErrorReporter.report(error, stack, context: 'runZonedGuarded');
+    },
+  );
 }
 
-/// The actual app bootstrap, run inside Sentry's zone via `appRunner` so
-/// Sentry's native (Android/iOS) crash capture is active for the app's
-/// entire lifetime — but see `SentryFlutter.init` above for why Sentry's own
-/// Dart-level FlutterError/PlatformDispatcher hooks are not used directly.
+/// The actual app bootstrap, run inside `main`'s single zone via
+/// `appRunner` so Sentry's native (Android/iOS) crash capture is active
+/// for the app's entire lifetime — but see `SentryFlutter.init` above for
+/// why Sentry's own Dart-level FlutterError/PlatformDispatcher hooks are
+/// not used directly, and `main` above for why this no longer creates its
+/// own, second zone around `runApp()`.
 Future<void> _runApp() async {
   // The one and only place AppErrorReporter reaches a real destination.
   // Every existing call site (FlutterError.onError, PlatformDispatcher.onError,
@@ -84,29 +133,36 @@ Future<void> _runApp() async {
   // through AppErrorReporter.report() — wiring this hook here, rather than
   // adding Sentry calls at each of those sites, is what makes all of them
   // reach Sentry without any of them changing.
-  AppErrorReporter
-      .onReport = (error, stack, {context, feature, retryAttempt, recordId}) {
-    if (AppEnvironment.sentryDsn.isEmpty) return;
-    unawaited(
-      Sentry.captureException(
-        error,
-        stackTrace: stack,
-        withScope: (scope) {
-          if (context != null) scope.setTag('context', context);
-          if (feature != null) scope.setTag('feature', feature);
-          if (retryAttempt != null) {
-            scope.setContexts('retry', {'attempt': retryAttempt});
-          }
-          // recordId is an opaque id only (never record content) by
-          // AppErrorReporter's own contract — safe as an extra.
-          if (recordId != null) scope.setContexts('record', {'id': recordId});
-        },
-      ),
+  AppErrorReporter.onReport = (
+    error,
+    stack, {
+    context,
+    feature,
+    retryAttempt,
+    recordId,
+  }) {
+    if (AppEnvironment.sentryDsn.isEmpty) return Future.value();
+    // Returned (not `unawaited` here) so the send stays fully awaited up
+    // to AppErrorReporter.report()'s own single `unawaited` boundary —
+    // see that method's doc comment for why.
+    return Sentry.captureException(
+      error,
+      stackTrace: stack,
+      withScope: (scope) {
+        if (context != null) scope.setTag('context', context);
+        if (feature != null) scope.setTag('feature', feature);
+        if (retryAttempt != null) {
+          scope.setContexts('retry', {'attempt': retryAttempt});
+        }
+        // recordId is an opaque id only (never record content) by
+        // AppErrorReporter's own contract — safe as an extra.
+        if (recordId != null) scope.setContexts('record', {'id': recordId});
+      },
     );
   };
 
   // Widget-build-time errors and platform-level async errors don't pass
-  // through the zone guard below — without these two hooks they fall
+  // through `main`'s zone guard — without these two hooks they fall
   // through to Flutter's default handling with no team-visible signal at
   // all (the exact gap RR-002/OB-002 identified). Both route through the
   // same funnel as the zone guard's handler.
@@ -125,32 +181,29 @@ Future<void> _runApp() async {
   // A deep link with a stale/reused/invalid Supabase auth code (e.g. a
   // confirmation link opened twice) throws an uncaught AuthApiException
   // from inside supabase_flutter's own internal deeplink handling — this
-  // guard keeps that from taking down the whole app. Errors caught here
-  // (and anything else uncaught in an async gap during the app's lifetime)
-  // are reported, not silently discarded.
-  runZonedGuarded(
-    () async {
-      await NiswahSupabase.initialize();
-      AuthController.instance.init();
-      // Best-effort retry of any account-deletion local cleanup that
-      // didn't fully complete on a prior run — not startup-critical, so
-      // deliberately not awaited; failures are reported internally via
-      // AppErrorReporter rather than surfaced here.
-      unawaited(retryPendingLocalSensitiveDataCleanups());
-      await AppLocaleController.instance.load();
-      await AppThemeController.instance.load();
-      await MaritalStatusController.instance.load();
-      await MadhhabController.instance.load();
-      await PrayerLocationController.instance.load();
-      await NotificationLogController.instance.load();
-      await NotificationService.instance.initialize();
+  // used to be caught by a second, separate `runZonedGuarded` created
+  // right here. That zone is what caused the real zone-mismatch warning
+  // (see `main` above for the full explanation and why removing it is
+  // safe): `_runApp` now runs entirely inside the one zone `main` already
+  // established, so this exact class of error — and anything else
+  // uncaught in an async gap during the app's lifetime — is still caught,
+  // still reported, by that same outer zone's handler.
+  await NiswahSupabase.initialize();
+  AuthController.instance.init();
+  // Best-effort retry of any account-deletion local cleanup that didn't
+  // fully complete on a prior run — not startup-critical, so deliberately
+  // not awaited; failures are reported internally via AppErrorReporter
+  // rather than surfaced here.
+  unawaited(retryPendingLocalSensitiveDataCleanups());
+  await AppLocaleController.instance.load();
+  await AppThemeController.instance.load();
+  await MaritalStatusController.instance.load();
+  await MadhhabController.instance.load();
+  await PrayerLocationController.instance.load();
+  await NotificationLogController.instance.load();
+  await NotificationService.instance.initialize();
 
-      runApp(const NiswahApp());
-    },
-    (error, stack) {
-      AppErrorReporter.report(error, stack, context: 'runZonedGuarded');
-    },
-  );
+  runApp(const NiswahApp());
 }
 
 /// Defense-in-depth text scrub applied to every outgoing Sentry event,
