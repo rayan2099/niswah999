@@ -18,7 +18,7 @@ A release manifest is the deterministic record of exactly what "last known good"
 | Artifact type | APK / AAB | |
 | Artifact SHA-256 checksum | | `shasum -a 256 <artifact path>` |
 | Artifact file size | | `ls -la <artifact path>` |
-| Signing certificate | | `apksigner verify --print-certs <artifact path>` — must read `CN=Niswah, OU=Mobile, O=Niswah`, never `CN=Android Debug` |
+| Signing certificate | | APK: `apksigner verify --print-certs <artifact path>`; AAB: `keytool -printcert -jarfile <artifact path>` — must identify the real Niswah release certificate, never `CN=Android Debug` |
 | Edge Function versions (all 4) | `dr-niswah-chat=`, `fiqh-advisor-chat=`, `dream-interpreter-chat=`, `ai-assistant-chat=` | `supabase functions list --project-ref <ref>` (read-only) — **record manually**, no automated correlation to this specific client build exists (see the runbook's Edge Function Rollback section) |
 | DB migration state at build time | | `supabase migration list --linked` — the last migration confirmed applied to production as of this build (per `BR-002`, this is **not** the same as "the last migration in `supabase/migrations/`" — the tracked ledger and the live schema have historically disagreed) |
 | Known-good verification state | pass/fail per check | `dart analyze lib/` issue count, `flutter test` pass count, artifact inspection checklist (see runbook) — all at build time |
