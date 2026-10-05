@@ -94,7 +94,7 @@ void main() {
 
         Object? reportedError;
         AppErrorReporter.onReport =
-            (error, stack, {context, feature, retryAttempt, recordId}) {
+            (error, stack, {context, feature, retryAttempt, recordId}) async {
               reportedError = error;
             };
 
@@ -125,7 +125,7 @@ void main() {
     test('nothing to migrate is a silent, reportable-free no-op', () async {
       Object? reportedError;
       AppErrorReporter.onReport =
-          (error, stack, {context, feature, retryAttempt, recordId}) {
+          (error, stack, {context, feature, retryAttempt, recordId}) async {
             reportedError = error;
           };
 
@@ -244,7 +244,7 @@ void main() {
 
         Object? reportedError;
         AppErrorReporter.onReport =
-            (error, stack, {context, feature, retryAttempt, recordId}) {
+            (error, stack, {context, feature, retryAttempt, recordId}) async {
               reportedError = error;
             };
 
@@ -311,7 +311,7 @@ void main() {
         Object? reportedError;
         String? reportedFeature;
         AppErrorReporter.onReport =
-            (error, stack, {context, feature, retryAttempt, recordId}) {
+            (error, stack, {context, feature, retryAttempt, recordId}) async {
               reportedError = error;
               reportedFeature = feature;
             };
