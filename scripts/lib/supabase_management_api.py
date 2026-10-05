@@ -90,6 +90,34 @@ def _http_post(path: str, token: Secret, body: dict):
         raise ManagementApiError(exc.code, path) from None
 
 
+def apply_migration(ref: str, token: Secret, sql: str, name: str, rollback: str, idempotency_key: str):
+    """Applies real DDL/DML via the platform's own migration-apply
+    endpoint (/database/migrations, POST) -- no DB password or
+    service-role key is ever needed. This is a genuine WRITE, unlike
+    `run_readonly_query`; callers must only use this with deliberate,
+    reviewed SQL and explicit authorization to mutate the target
+    project. `idempotency_key` should be stable per logical migration
+    (e.g. its filename) so an accidental retry can never double-apply
+    it."""
+    body = {"query": sql, "name": name, "rollback": rollback}
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(
+        f"{MANAGEMENT_API_BASE}/projects/{ref}/database/migrations",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token.reveal()}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotency_key,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ManagementApiError(exc.code, f"/projects/{ref}/database/migrations") from None
+
+
 def run_readonly_query(ref: str, token: Secret, sql: str):
     """Runs SQL via the platform's own dedicated read-only query endpoint
     (/database/query/read-only) -- no DB password or service-role key is
@@ -113,6 +141,23 @@ def _http_get(path: str, token: Secret):
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ManagementApiError(exc.code, path) from None
+
+
+def fetch_raw_bytes(path: str, token: Secret) -> bytes:
+    """Like `_http_get` but for endpoints that return a non-JSON binary
+    body (e.g. an Edge Function's deployed bundle via `.../body`).
+    Returns raw bytes -- callers must not assume this is safe to print
+    or decode as text; it is a deploy artifact, not a secret, but is
+    still opaque binary data."""
+    request = urllib.request.Request(
+        f"{MANAGEMENT_API_BASE}{path}",
+        headers={"Authorization": f"Bearer {token.reveal()}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
     except urllib.error.HTTPError as exc:
         raise ManagementApiError(exc.code, path) from None
 

@@ -28,11 +28,13 @@ from scripts.lib.supabase_management_api import (  # noqa: E402
     EXPECTED_PRODUCTION_REF,
     EXPECTED_STAGING_REF,
     Secret,
+    apply_migration,
     assert_is_production_project,
     build_connection_strings,
     extract_preferred_api_keys,
     fetch_and_store_api_keys,
     fetch_project_summary,
+    fetch_raw_bytes,
     run_readonly_query,
     upsert_env_file,
 )
@@ -327,6 +329,64 @@ class RunReadonlyQueryTest(unittest.TestCase):
         self.assertEqual(captured["path"], "/projects/fake-ref/database/query/read-only")
         self.assertEqual(captured["body"], {"query": "select count(*) from fake_table"})
         self.assertEqual(result, [{"count": 5}])
+
+
+class ApplyMigrationTest(unittest.TestCase):
+    def test_sends_query_name_rollback_and_idempotency_key(self):
+        captured = {}
+
+        class _FakeResponse:
+            def __init__(self, body):
+                self._body = body
+
+            def read(self):
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(request, timeout=30):
+            captured["url"] = request.full_url
+            captured["headers"] = dict(request.header_items())
+            captured["data"] = request.data
+            return _FakeResponse(b"[]")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = apply_migration(
+                "fake-ref", Secret("fake-token"), "select 1;",
+                name="test_migration", rollback="select 2;",
+                idempotency_key="fake-key-123",
+            )
+        self.assertEqual(result, [])
+        self.assertIn("/projects/fake-ref/database/migrations", captured["url"])
+        self.assertEqual(captured["headers"].get("Idempotency-key"), "fake-key-123")
+        # The token belongs in the Authorization header for a real request --
+        # the safety property that matters is that it's ONLY there, never in
+        # the URL (which could end up in server/proxy access logs).
+        self.assertNotIn("fake-token", captured["url"])
+        self.assertEqual(captured["headers"].get("Authorization"), "Bearer fake-token")
+        body = json.loads(captured["data"])
+        self.assertEqual(body, {"query": "select 1;", "name": "test_migration", "rollback": "select 2;"})
+
+
+class FetchRawBytesTest(unittest.TestCase):
+    def test_returns_raw_bytes_not_json_decoded(self):
+        class _FakeResponse:
+            def read(self):
+                return b"\x00\x01binary-not-json"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        with patch("urllib.request.urlopen", return_value=_FakeResponse()):
+            result = fetch_raw_bytes("/projects/fake-ref/functions/fake-fn/body", Secret("fake-token"))
+        self.assertEqual(result, b"\x00\x01binary-not-json")
 
 
 class ProjectSummaryAllowlistTest(unittest.TestCase):
