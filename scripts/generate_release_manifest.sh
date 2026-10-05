@@ -94,6 +94,13 @@ if [ "$ARTIFACT_TYPE" = "apk" ]; then
     CERT_CN="$(echo "$VERIFY_OUT" | grep 'certificate DN' | head -1 | sed -E 's/.*DN: (.*)/\1/' || true)"
     CERT_SHA256="$(echo "$VERIFY_OUT" | grep 'SHA-256 digest' | head -1 | awk '{print $NF}' || true)"
   fi
+elif [ "$ARTIFACT_TYPE" = "aab" ]; then
+  # Android App Bundles are JAR-signed rather than APK-signed. Use keytool
+  # to record the signer identity/fingerprint in the release manifest so the
+  # store artifact has the same provenance evidence as an APK.
+  VERIFY_OUT="$(keytool -printcert -jarfile "$ARTIFACT_PATH" 2>/dev/null || true)"
+  CERT_CN="$(echo "$VERIFY_OUT" | grep '^Owner:' | head -1 | sed -E 's/^Owner:[[:space:]]*//' || true)"
+  CERT_SHA256="$(echo "$VERIFY_OUT" | grep 'SHA256:' | head -1 | sed -E 's/.*SHA256:[[:space:]]*//' || true)"
 elif [ "$ARTIFACT_TYPE" = "app" ] || [ "$ARTIFACT_TYPE" = "ipa" ]; then
   # codesign -dvvv reports "not signed at all" for a --no-codesign build,
   # a real Team ID for a genuinely signed one — never invented here.
