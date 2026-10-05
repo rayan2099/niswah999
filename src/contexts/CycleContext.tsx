@@ -31,7 +31,7 @@ interface CycleContextType {
   updatePrayerTimes: (force?: boolean) => Promise<void>;
 }
 
-const CycleContext = createContext<CycleContextType | undefined>(undefined);
+export const CycleContext = createContext<CycleContextType | undefined>(undefined);
 
 export const CycleProvider = ({ children }: { children: ReactNode }) => {
   const [dbUser, setDbUser] = useState<DBUser | null>(null);
