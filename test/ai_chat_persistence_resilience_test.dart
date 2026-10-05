@@ -81,7 +81,7 @@ void main() {
     repository = _RecordingChatRepository();
     viewModel = ChatViewModel(repository: repository);
     reportedErrors = [];
-    AppErrorReporter.onReport = (error, stack, {context, feature, retryAttempt, recordId}) {
+    AppErrorReporter.onReport = (error, stack, {context, feature, retryAttempt, recordId}) async {
       reportedErrors.add(error);
     };
   });

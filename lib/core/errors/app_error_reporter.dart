@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../config/app_environment.dart';
@@ -25,7 +27,13 @@ import '../config/app_environment.dart';
 class AppErrorReporter {
   const AppErrorReporter._();
 
-  static void Function(
+  /// Returns a [Future] (rather than `void`) so [report] can `unawaited`
+  /// it at this one single boundary — the actual network send (e.g.
+  /// `Sentry.captureException`) stays fully awaited internally up to
+  /// that point, instead of being cut off mid-chain inside whatever
+  /// closure a caller assigns here, which previously discarded the send
+  /// [Future] one layer earlier than necessary.
+  static Future<void> Function(
     Object error,
     StackTrace? stack, {
     String? context,
@@ -60,7 +68,7 @@ class AppErrorReporter {
       ];
       debugPrint('Unhandled error [${parts.join(', ')}]: $error\n$stack');
     }
-    onReport?.call(
+    final future = onReport?.call(
       error,
       stack,
       context: context,
@@ -68,5 +76,8 @@ class AppErrorReporter {
       retryAttempt: retryAttempt,
       recordId: recordId,
     );
+    if (future != null) {
+      unawaited(future);
+    }
   }
 }
