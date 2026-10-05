@@ -163,3 +163,38 @@ Per founder instruction, after confirming the zone-mismatch fix (above): one rea
 | 2026-10-05T~12:19Z | Stopped both runs; uninstalled the temporary debug build from the emulator after each; reverted all temporary diagnostic additions (`options.debug`/`diagnosticLevel`, the `beforeSend` invocation print, the `foundation.dart` import, both test triggers) via direct edits back to the exact pre-test state. Confirmed via `git diff` on `release/niswah-sentry-zone-integration-fix` that no diagnostic scaffolding remained — only the unrelated session-lock bookkeeping file differed. | Reverted cleanly |
 
 **Summary**: zone mismatch confirmed absent after the fix, in both runs. `beforeSend` confirmed invoked, in both runs, with real event IDs `d647dfee05c742f3a75174bdfc3d1144` and `dc0f527e9f7145d686ca34074afbb677`. One real, transient native-transport `SocketTimeoutException` was observed (run 1); the equivalent send succeeded cleanly on run 2 — consistent with intermittent network reliability on this emulator environment, not a deterministic transport defect. No real-device test or new Sentry event was generated beyond these two. `PRODUCTION SENTRY VERIFIED` stays `PARTIAL` pending independent dashboard confirmation of `d647dfee05c742f3a75174bdfc3d1144` and `dc0f527e9f7145d686ca34074afbb677`.
+
+
+## FINAL SENTRY DASHBOARD CONFIRMATION / DEPLOYMENT CLOSURE
+
+After all client-side transport hypotheses had been exhausted, the founder independently re-checked Sentry using the unfiltered `Explore → Errors → flutter → All Envs → 24H` event list rather than relying on exact event-id filtering, which had previously produced misleading zero-result searches.
+
+The dashboard showed **4 accepted events** and, in `Settings → Stats & Usage → flutter → Errors → 24H`, **Accepted Errors = 4, Filtered = 0, Rate Limited = 0, Invalid = 0, Client Discarded = 0**, with no significant spike-protection event.
+
+The unfiltered event list visibly included:
+
+- `dc0f527e9f7145d686ca34074afbb677` — real Niswah Flutter SDK diagnostic run 2 (post-zone-fix, normal `AppErrorReporter.report()` path, no zone-mismatch warning, clean client-side send).
+- `9984b779568b438893589d550a9e51d4` — real Niswah zone-fix verification event from the actual Android app runtime.
+- `a1b2c3d4e5f6478899aabbccddeeff01` — synthetic raw chunked+gzip transport probe.
+- `a1b2c3d4e5f6478899aabbccddeeff02` — synthetic raw fixed-length+gzip transport probe.
+
+This independently confirms that **real events emitted through the actual Niswah Flutter SDK runtime are stored and visible in the production Sentry project**. The prior contradiction came from exact-id search/index behavior, not failed ingestion. The first diagnostic run (`d647dfee05c742f3a75174bdfc3d1144`) had also shown a transient native session-envelope `SocketTimeoutException`; that does not invalidate the clean second run above.
+
+The separate clean `dart run` chunked-vs-fixed-length differential also returned normal HTTP 200 responses with full headers for both gzip-compressed variants, ruling out chunked transfer encoding as the remaining transport hypothesis. No production DB, KB, Edge Function, OpenAI, Supabase, or application traffic mutation was involved.
+
+### FINAL DEPLOYMENT STATUS
+
+```text
+PRODUCTION DEPLOYMENT: PASS
+PRODUCTION DB VALIDATED: PASS
+PRODUCTION KB VALIDATED: PASS
+PRODUCTION OPENAI CUTOVER: PASS
+PRODUCTION EDGE FUNCTIONS: PASS
+PRODUCTION ACCEPTANCE MATRIX: PASS
+PRODUCTION SENTRY VERIFIED: PASS
+ROLLBACK REQUIRED: NO
+PRODUCTION HEALTHY: YES
+DEPLOYMENT WORKSTREAM: CLOSED
+```
+
+No further Sentry synthetic probes are required for this deployment workstream.
