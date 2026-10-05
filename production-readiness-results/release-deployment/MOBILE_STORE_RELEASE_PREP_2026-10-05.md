@@ -19,6 +19,10 @@ This document begins the mobile store-release workstream after the production ba
 - CI pins Flutter `3.47.0`.
 - Production backend/KB/OpenAI/Sentry deployment is already closed as PASS in the production deployment execution log.
 
+## Historical workflow evidence
+
+The existing manual routine-release workflow has already completed successfully twice on GitHub Actions. The most recent successful run was routine-release run #2 on 2026-09-08, which produced a verified signed Android artifact (build 102) and a no-codesign iOS release artifact. This proves the Android production signing/environment secret path was functional at that time; the next production release run still needs to re-validate the currently configured secrets rather than assuming they remain unchanged.
+
 ## External owner actions still required before store submission
 
 These cannot be completed safely from repository code alone:
