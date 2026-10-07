@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/preferences/community_language_controller.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/user_avatar.dart';
@@ -121,225 +122,240 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final palette = CommunityPalette.of(context);
-    return Scaffold(
-      backgroundColor: palette.background,
-      appBar: AppBar(
+    // Independent of community_board_screen.dart's own wrap — this screen
+    // is pushed via the app's single root Navigator, so it does not
+    // inherit a Directionality scoped only to that screen's subtree.
+    return Directionality(
+      textDirection:
+          CommunityLanguageController.instance.selectedOrNull ==
+              CommunityLanguage.ar
+          ? TextDirection.rtl
+          : TextDirection.ltr,
+      child: Scaffold(
         backgroundColor: palette.background,
-        elevation: 0,
-        iconTheme: IconThemeData(color: palette.text),
-        title: Text(
-          _t('Post', 'المنشور'),
-          style: TextStyle(
-            color: palette.text,
-            fontFamily: AppTypography.serifFamily,
+        appBar: AppBar(
+          backgroundColor: palette.background,
+          elevation: 0,
+          iconTheme: IconThemeData(color: palette.text),
+          title: Text(
+            _t('Post', 'المنشور'),
+            style: TextStyle(
+              color: palette.text,
+              fontFamily: AppTypography.serifFamily,
+            ),
           ),
+          actions: [
+            AnimatedBuilder(
+              animation: _viewModel,
+              builder: (context, _) {
+                final isOwnPost =
+                    widget.currentUserId != null &&
+                    _viewModel.post.userId == widget.currentUserId;
+                if (!isOwnPost) return const SizedBox.shrink();
+                return PopupMenuButton<String>(
+                  icon: Icon(Icons.more_horiz_rounded, color: palette.text),
+                  onSelected: (value) {
+                    if (value == 'delete') _handleDeletePost();
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text(_t('Delete post', 'حذف المنشور')),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
         ),
-        actions: [
-          AnimatedBuilder(
+        body: SafeArea(
+          child: AnimatedBuilder(
             animation: _viewModel,
             builder: (context, _) {
-              final isOwnPost =
-                  widget.currentUserId != null &&
-                  _viewModel.post.userId == widget.currentUserId;
-              if (!isOwnPost) return const SizedBox.shrink();
-              return PopupMenuButton<String>(
-                icon: Icon(Icons.more_horiz_rounded, color: palette.text),
-                onSelected: (value) {
-                  if (value == 'delete') _handleDeletePost();
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text(_t('Delete post', 'حذف المنشور')),
+              final post = _viewModel.post;
+              final displayName = post.isAnonymous
+                  ? _t('Visitor', 'زائرة')
+                  : post.authorName;
+              final isDark = Theme.of(context).brightness == Brightness.dark;
+              return Column(
+                children: [
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            color: palette.surface,
+                            borderRadius: BorderRadius.circular(AppRadius.card),
+                            border: Border.all(color: palette.divider),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: post.isAnonymous
+                                          ? null
+                                          : widget.onAuthorTap,
+                                      borderRadius: BorderRadius.circular(14),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 2,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            UserAvatar(
+                                              displayName: displayName,
+                                              isAnonymous: post.isAnonymous,
+                                              dark: isDark,
+                                            ),
+                                            const SizedBox(width: 11),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    displayName,
+                                                    style: TextStyle(
+                                                      color: palette.text,
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    post.category.label(),
+                                                    style: TextStyle(
+                                                      color: palette.blush,
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            if (!post.isAnonymous &&
+                                                widget.onAuthorTap != null)
+                                              Icon(
+                                                Icons.chevron_right_rounded,
+                                                color: palette.textFaint,
+                                                size: 18,
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  if (widget.onMessageAuthor != null)
+                                    ContactAuthorButton(
+                                      onTap: widget.onMessageAuthor!,
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                post.content,
+                                style: TextStyle(
+                                  color: palette.text,
+                                  fontSize: 13,
+                                  height: 1.65,
+                                ),
+                              ),
+                              if (post.tags.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 6,
+                                  children: post.tags
+                                      .map(
+                                        (tag) => Text(
+                                          '#$tag',
+                                          style: TextStyle(
+                                            color: palette.blush,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
+                              ],
+                              const SizedBox(height: 16),
+                              Divider(height: 1, color: palette.divider),
+                              const SizedBox(height: 12),
+                              CommunityEngagementBar(
+                                likeCount: post.likeCount,
+                                isLiked: post.isLikedByCurrentUser,
+                                commentCount: post.commentCount,
+                                onLike: _viewModel.toggleLike,
+                                onCommentTap: () {},
+                                onMessageTap: null,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          _t('Comments', 'التعليقات'),
+                          style: TextStyle(
+                            color: palette.text,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (_viewModel.isLoadingComments)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: palette.blush,
+                                semanticsLabel: _t(
+                                  'Loading comments',
+                                  'جارٍ تحميل التعليقات',
+                                ),
+                              ),
+                            ),
+                          )
+                        else if (_viewModel.comments.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            child: Text(
+                              _t(
+                                'Be the first to comment.',
+                                'كوني أول من يعلّق.',
+                              ),
+                              style: TextStyle(
+                                color: palette.textFaint,
+                                fontSize: 11,
+                              ),
+                            ),
+                          )
+                        else
+                          ..._viewModel.comments.map(
+                            (comment) => CommunityCommentTile(
+                              comment: comment,
+                              isOwnComment:
+                                  widget.currentUserId != null &&
+                                  comment.userId == widget.currentUserId,
+                              onDelete: () => _deleteComment(comment.id),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  CommunityCommentComposer(
+                    isSubmitting: _viewModel.isSubmittingComment,
+                    onSubmit: _addComment,
                   ),
                 ],
               );
             },
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: AnimatedBuilder(
-          animation: _viewModel,
-          builder: (context, _) {
-            final post = _viewModel.post;
-            final displayName = post.isAnonymous
-                ? _t('Visitor', 'زائرة')
-                : post.authorName;
-            final isDark = Theme.of(context).brightness == Brightness.dark;
-            return Column(
-              children: [
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: palette.surface,
-                          borderRadius: BorderRadius.circular(AppRadius.card),
-                          border: Border.all(color: palette.divider),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: InkWell(
-                                    onTap: post.isAnonymous
-                                        ? null
-                                        : widget.onAuthorTap,
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 2,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          UserAvatar(
-                                            displayName: displayName,
-                                            isAnonymous: post.isAnonymous,
-                                            dark: isDark,
-                                          ),
-                                          const SizedBox(width: 11),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  displayName,
-                                                  style: TextStyle(
-                                                    color: palette.text,
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                                Text(
-                                                  post.category.label(),
-                                                  style: TextStyle(
-                                                    color: palette.blush,
-                                                    fontSize: 9,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          if (!post.isAnonymous &&
-                                              widget.onAuthorTap != null)
-                                            Icon(
-                                              Icons.chevron_right_rounded,
-                                              color: palette.textFaint,
-                                              size: 18,
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                if (widget.onMessageAuthor != null)
-                                  ContactAuthorButton(
-                                    onTap: widget.onMessageAuthor!,
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              post.content,
-                              style: TextStyle(
-                                color: palette.text,
-                                fontSize: 13,
-                                height: 1.65,
-                              ),
-                            ),
-                            if (post.tags.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 6,
-                                children: post.tags
-                                    .map(
-                                      (tag) => Text(
-                                        '#$tag',
-                                        style: TextStyle(
-                                          color: palette.blush,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                            ],
-                            const SizedBox(height: 16),
-                            Divider(height: 1, color: palette.divider),
-                            const SizedBox(height: 12),
-                            CommunityEngagementBar(
-                              likeCount: post.likeCount,
-                              isLiked: post.isLikedByCurrentUser,
-                              commentCount: post.commentCount,
-                              onLike: _viewModel.toggleLike,
-                              onCommentTap: () {},
-                              onMessageTap: null,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        _t('Comments', 'التعليقات'),
-                        style: TextStyle(
-                          color: palette.text,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                      ),
-                      if (_viewModel.isLoadingComments)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 24),
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              color: palette.blush,
-                              semanticsLabel: _t('Loading comments', 'جارٍ تحميل التعليقات'),
-                            ),
-                          ),
-                        )
-                      else if (_viewModel.comments.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 24),
-                          child: Text(
-                            _t(
-                              'Be the first to comment.',
-                              'كوني أول من يعلّق.',
-                            ),
-                            style: TextStyle(
-                              color: palette.textFaint,
-                              fontSize: 11,
-                            ),
-                          ),
-                        )
-                      else
-                        ..._viewModel.comments.map(
-                          (comment) => CommunityCommentTile(
-                            comment: comment,
-                            isOwnComment:
-                                widget.currentUserId != null &&
-                                comment.userId == widget.currentUserId,
-                            onDelete: () => _deleteComment(comment.id),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                CommunityCommentComposer(
-                  isSubmitting: _viewModel.isSubmittingComment,
-                  onSubmit: _addComment,
-                ),
-              ],
-            );
-          },
         ),
       ),
     );

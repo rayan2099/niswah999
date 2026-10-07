@@ -15,6 +15,7 @@ import 'core/errors/app_error_reporter.dart';
 import 'core/localization/app_locale_controller.dart';
 import 'core/network/supabase_client.dart';
 import 'core/preferences/marital_status_controller.dart';
+import 'core/preferences/community_language_controller.dart';
 import 'core/preferences/madhhab_controller.dart';
 import 'core/preferences/notification_log_controller.dart';
 import 'core/preferences/prayer_location_controller.dart';
@@ -32,6 +33,7 @@ import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/presentation/screens/profile_screen.dart';
 import 'features/auth/presentation/screens/sign_in_screen.dart';
 import 'features/community/presentation/screens/community_board_screen.dart';
+import 'features/community/presentation/widgets/community_language_gate.dart';
 import 'features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'features/cycle_tracking/presentation/screens/cycle_tracking_screen.dart';
 import 'features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
@@ -655,7 +657,18 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
       ),
       bottomNavigationBar: FloatingNavBar(
         selectedIndex: _selectedIndex,
-        onItemTapped: (index) {
+        onItemTapped: (index) async {
+          // Requirement 4: Community (tab index 3) needs an explicit
+          // Arabic/English community choice before it's ever shown —
+          // CommunityBoardScreen.initState() fires too early for this
+          // (it's already mounted inside the IndexedStack below, at
+          // shell-build time), so the gate lives here instead, at the
+          // actual moment of entry.
+          if (index == 3 && !CommunityLanguageController.instance.isSelected) {
+            final chosen = await showCommunityLanguageGate(context);
+            if (chosen == null) return;
+          }
+          if (!mounted) return;
           setState(() {
             _selectedIndex = index;
           });

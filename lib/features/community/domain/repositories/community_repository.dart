@@ -1,9 +1,14 @@
+import '../../../../core/preferences/community_language_controller.dart';
 import '../entities/community_comment.dart';
 import '../entities/community_feed_page.dart';
 import '../entities/community_post.dart';
 
 abstract class CommunityRepository {
+  /// [language] is required, not optional — every caller must be
+  /// explicit about which community it's reading (Requirement 4: never
+  /// auto-translate/mix the two communities into one feed).
   Future<CommunityFeedPage> getPosts({
+    required CommunityLanguage language,
     CommunityCategory? category,
     String? currentUserId,
     DateTime? beforeCreatedAt,

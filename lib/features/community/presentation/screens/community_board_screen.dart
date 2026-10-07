@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/preferences/community_language_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/load_error_banner.dart';
@@ -59,18 +60,38 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
     _viewModel = CommunityFeedViewModel(
       currentUserId: _currentUserId,
       currentUserName: _co('Community member', 'عضو في المجتمع'),
+      // The Community entry gate (main.dart's tab-tap handler) guarantees
+      // a language is already selected by the time this screen is ever
+      // reached — this fallback is purely defensive, never exercised.
+      language:
+          CommunityLanguageController.instance.selectedOrNull ??
+          CommunityLanguage.ar,
     )..loadPosts();
     _resolveDisplayName();
     _scrollController.addListener(_onScroll);
+    CommunityLanguageController.instance.addListener(
+      _onCommunityLanguageChanged,
+    );
   }
 
   @override
   void dispose() {
+    CommunityLanguageController.instance.removeListener(
+      _onCommunityLanguageChanged,
+    );
     _searchDebounce?.cancel();
     _searchController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Lets changing the community language from Profile/Settings take
+  /// effect immediately, even though this screen never remounts inside
+  /// the home shell's `IndexedStack`.
+  void _onCommunityLanguageChanged() {
+    final value = CommunityLanguageController.instance.selectedOrNull;
+    if (value != null) _viewModel.setLanguage(value);
   }
 
   Future<void> _resolveDisplayName() async {
@@ -306,263 +327,279 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
                 post.content.toLowerCase().contains(query),
           )
           .toList();
-      return Scaffold(
-        backgroundColor: palette.background,
-        body: SafeArea(
-          bottom: false,
-          child: RefreshIndicator(
-            onRefresh: _viewModel.loadPosts,
-            child: CustomScrollView(
-              controller: _scrollController,
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 18, 24, 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          _co('Community', 'المجتمع'),
-                          style: Theme.of(context).textTheme.displayMedium
-                              ?.copyWith(
-                                color: palette.blushStrong,
-                                fontFamily: AppTypography.serifFamily,
-                                fontSize: 40,
-                                height: 1.2,
-                              ),
-                        ),
-                        const SizedBox(height: 10),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 28),
-                          child: Text(
-                            _co(
-                              'Share a question or experience without revealing your identity. Content here is for support, not a replacement for a doctor or scholar.',
-                              'شاركي سؤالاً أو تجربة دون كشف هويتكِ. المحتوى هنا للدعم وليس بديلاً عن الطبيبة أو العالِمة.',
-                            ),
-                            style: TextStyle(
-                              color: palette.textMuted,
-                              fontSize: 12,
-                              height: 1.6,
-                            ),
-                            textAlign: TextAlign.center,
+      // Requirement 4: community content language can differ from the
+      // interface language (AppLocaleController), so this screen needs
+      // its own Directionality independent of the app-root one — see
+      // CommunityPostCard's doc comment on why manual per-widget
+      // direction overrides are avoided in favor of one ambient wrap.
+      return Directionality(
+        textDirection:
+            CommunityLanguageController.instance.selectedOrNull ==
+                CommunityLanguage.ar
+            ? TextDirection.rtl
+            : TextDirection.ltr,
+        child: Scaffold(
+          backgroundColor: palette.background,
+          body: SafeArea(
+            bottom: false,
+            child: RefreshIndicator(
+              onRefresh: _viewModel.loadPosts,
+              child: CustomScrollView(
+                controller: _scrollController,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 18, 24, 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            _co('Community', 'المجتمع'),
+                            style: Theme.of(context).textTheme.displayMedium
+                                ?.copyWith(
+                                  color: palette.blushStrong,
+                                  fontFamily: AppTypography.serifFamily,
+                                  fontSize: 40,
+                                  height: 1.2,
+                                ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 360),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                flex: 4,
-                                child: _CommunityActionBar(
-                                  icon: Icons.chat_bubble_outline_rounded,
-                                  label: _co('Messages', 'رسائلي'),
-                                  onTap: _openPrivateMessages,
-                                  badge: UnreadMessagesBadge(
-                                    key: ValueKey(_badgeRefresh),
-                                    repository: _messagingRepository,
+                          const SizedBox(height: 10),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 28),
+                            child: Text(
+                              _co(
+                                'Share a question or experience without revealing your identity. Content here is for support, not a replacement for a doctor or scholar.',
+                                'شاركي سؤالاً أو تجربة دون كشف هويتكِ. المحتوى هنا للدعم وليس بديلاً عن الطبيبة أو العالِمة.',
+                              ),
+                              style: TextStyle(
+                                color: palette.textMuted,
+                                fontSize: 12,
+                                height: 1.6,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 360),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 4,
+                                  child: _CommunityActionBar(
+                                    icon: Icons.chat_bubble_outline_rounded,
+                                    label: _co('Messages', 'رسائلي'),
+                                    onTap: _openPrivateMessages,
+                                    badge: UnreadMessagesBadge(
+                                      key: ValueKey(_badgeRefresh),
+                                      repository: _messagingRepository,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                flex: 5,
-                                child: _CommunityActionBar(
-                                  icon: Icons.add_rounded,
-                                  label: _co('Create post', 'اكتبي منشورًا'),
-                                  onTap: () => showCommunityComposerSheet(
-                                    context,
-                                    viewModel: _viewModel,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  flex: 5,
+                                  child: _CommunityActionBar(
+                                    icon: Icons.add_rounded,
+                                    label: _co('Create post', 'اكتبي منشورًا'),
+                                    onTap: () => showCommunityComposerSheet(
+                                      context,
+                                      viewModel: _viewModel,
+                                    ),
+                                    filled: true,
                                   ),
-                                  filled: true,
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: TextField(
-                      controller: _searchController,
-                      style: TextStyle(color: palette.text),
-                      cursorColor: palette.blush,
-                      onChanged: _onSearchChanged,
-                      textInputAction: TextInputAction.search,
-                      decoration: InputDecoration(
-                        hintText: _co(
-                          'Search conversations',
-                          'ابحثي في المحادثات',
-                        ),
-                        hintStyle: TextStyle(
-                          color: palette.textFaint,
-                          fontSize: 12,
-                        ),
-                        prefixIcon: Icon(
-                          Icons.search_rounded,
-                          color: palette.blush,
-                          size: 19,
-                        ),
-                        filled: true,
-                        fillColor: palette.surface,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 14,
-                        ),
-                        suffixIcon: query.isEmpty
-                            ? null
-                            : IconButton(
-                                tooltip: _co('Clear search', 'مسح البحث'),
-                                onPressed: () {
-                                  _searchDebounce?.cancel();
-                                  _searchController.clear();
-                                  setState(() {});
-                                },
-                                icon: Icon(
-                                  Icons.close_rounded,
-                                  color: palette.textFaint,
-                                  size: 18,
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: TextField(
+                        controller: _searchController,
+                        style: TextStyle(color: palette.text),
+                        cursorColor: palette.blush,
+                        onChanged: _onSearchChanged,
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          hintText: _co(
+                            'Search conversations',
+                            'ابحثي في المحادثات',
+                          ),
+                          hintStyle: TextStyle(
+                            color: palette.textFaint,
+                            fontSize: 12,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search_rounded,
+                            color: palette.blush,
+                            size: 19,
+                          ),
+                          filled: true,
+                          fillColor: palette.surface,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 14,
+                          ),
+                          suffixIcon: query.isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: _co('Clear search', 'مسح البحث'),
+                                  onPressed: () {
+                                    _searchDebounce?.cancel();
+                                    _searchController.clear();
+                                    setState(() {});
+                                  },
+                                  icon: Icon(
+                                    Icons.close_rounded,
+                                    color: palette.textFaint,
+                                    size: 18,
+                                  ),
                                 ),
-                              ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: palette.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: palette.border),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide(color: palette.border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide(color: palette.border),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: CommunityCategoryChipBar(
-                      selected: _viewModel.selectedCategory,
-                      onSelect: _viewModel.selectCategory,
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: CommunityCategoryChipBar(
+                        selected: _viewModel.selectedCategory,
+                        onSelect: _viewModel.selectCategory,
+                      ),
                     ),
                   ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(24, 4, 24, 132),
-                  sliver: _viewModel.isLoading
-                      ? SliverToBoxAdapter(
-                          // AU-014: the skeleton cards below are purely
-                          // decorative placeholders (no text/content) and
-                          // carry no semantics of their own — without this
-                          // wrapper, a screen reader would perceive nothing
-                          // at all while the board is loading.
-                          child: Semantics(
-                            label: _co('Loading posts', 'جارٍ تحميل المنشورات'),
-                            container: true,
-                            child: const Column(
-                              children: [
-                                _SkeletonCard(),
-                                SizedBox(height: 14),
-                                _SkeletonCard(),
-                                SizedBox(height: 14),
-                                _SkeletonCard(),
-                              ],
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 132),
+                    sliver: _viewModel.isLoading
+                        ? SliverToBoxAdapter(
+                            // AU-014: the skeleton cards below are purely
+                            // decorative placeholders (no text/content) and
+                            // carry no semantics of their own — without this
+                            // wrapper, a screen reader would perceive nothing
+                            // at all while the board is loading.
+                            child: Semantics(
+                              label: _co(
+                                'Loading posts',
+                                'جارٍ تحميل المنشورات',
+                              ),
+                              container: true,
+                              child: const Column(
+                                children: [
+                                  _SkeletonCard(),
+                                  SizedBox(height: 14),
+                                  _SkeletonCard(),
+                                  SizedBox(height: 14),
+                                  _SkeletonCard(),
+                                ],
+                              ),
                             ),
-                          ),
-                        )
-                      : _viewModel.errorMessage != null && posts.isEmpty
-                      ? SliverToBoxAdapter(
-                          child: LoadErrorBanner(
-                            message: _co(
-                              'Community could not be loaded.',
-                              'تعذر تحميل المجتمع.',
+                          )
+                        : _viewModel.errorMessage != null && posts.isEmpty
+                        ? SliverToBoxAdapter(
+                            child: LoadErrorBanner(
+                              message: _co(
+                                'Community could not be loaded.',
+                                'تعذر تحميل المجتمع.',
+                              ),
+                              onRetry: _viewModel.loadPosts,
                             ),
-                            onRetry: _viewModel.loadPosts,
-                          ),
-                        )
-                      : posts.isEmpty
-                      ? SliverToBoxAdapter(
-                          child: EmptyState(
-                            icon: Icons.forum_outlined,
-                            title: query.isNotEmpty
-                                ? _co(
-                                    'No matching posts',
-                                    'لا توجد نتائج مطابقة',
-                                  )
-                                : _co(
-                                    'No posts here yet',
-                                    'لا توجد منشورات بعد',
+                          )
+                        : posts.isEmpty
+                        ? SliverToBoxAdapter(
+                            child: EmptyState(
+                              icon: Icons.forum_outlined,
+                              title: query.isNotEmpty
+                                  ? _co(
+                                      'No matching posts',
+                                      'لا توجد نتائج مطابقة',
+                                    )
+                                  : _co(
+                                      'No posts here yet',
+                                      'لا توجد منشورات بعد',
+                                    ),
+                              message: query.isNotEmpty
+                                  ? _co(
+                                      'Try a different word or clear your search.',
+                                      'جرّبي كلمة أخرى أو امسحي البحث.',
+                                    )
+                                  : _co(
+                                      'Start a supportive conversation with the community.',
+                                      'ابدئي محادثة داعمة مع المجتمع.',
+                                    ),
+                              actionLabel: query.isNotEmpty
+                                  ? _co('Clear search', 'مسح البحث')
+                                  : _co('Create post', 'إنشاء منشور'),
+                              onAction: query.isNotEmpty
+                                  ? () {
+                                      _searchController.clear();
+                                      setState(() {});
+                                    }
+                                  : () => showCommunityComposerSheet(
+                                      context,
+                                      viewModel: _viewModel,
+                                    ),
+                            ),
+                          )
+                        : SliverList.separated(
+                            itemCount:
+                                posts.length +
+                                (_viewModel.isLoadingMore ? 1 : 0),
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 14),
+                            itemBuilder: (context, index) {
+                              if (index >= posts.length) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
                                   ),
-                            message: query.isNotEmpty
-                                ? _co(
-                                    'Try a different word or clear your search.',
-                                    'جرّبي كلمة أخرى أو امسحي البحث.',
-                                  )
-                                : _co(
-                                    'Start a supportive conversation with the community.',
-                                    'ابدئي محادثة داعمة مع المجتمع.',
-                                  ),
-                            actionLabel: query.isNotEmpty
-                                ? _co('Clear search', 'مسح البحث')
-                                : _co('Create post', 'إنشاء منشور'),
-                            onAction: query.isNotEmpty
-                                ? () {
-                                    _searchController.clear();
-                                    setState(() {});
-                                  }
-                                : () => showCommunityComposerSheet(
-                                    context,
-                                    viewModel: _viewModel,
-                                  ),
-                          ),
-                        )
-                      : SliverList.separated(
-                          itemCount:
-                              posts.length + (_viewModel.isLoadingMore ? 1 : 0),
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 14),
-                          itemBuilder: (context, index) {
-                            if (index >= posts.length) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    color: palette.blush,
-                                    semanticsLabel: _co(
-                                      'Loading more posts',
-                                      'جارٍ تحميل المزيد',
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      color: palette.blush,
+                                      semanticsLabel: _co(
+                                        'Loading more posts',
+                                        'جارٍ تحميل المزيد',
+                                      ),
                                     ),
                                   ),
-                                ),
+                                );
+                              }
+                              final post = posts[index];
+                              final isOwnPost =
+                                  _currentUserId != null &&
+                                  post.userId == _currentUserId;
+                              return CommunityPostCard(
+                                post: post,
+                                isOwnPost: isOwnPost,
+                                onTap: () => _openPost(post),
+                                onLike: () => _viewModel.toggleLike(post.id),
+                                onDelete: isOwnPost
+                                    ? () => _viewModel.deletePost(post.id)
+                                    : null,
+                                onMessageAuthor: !post.isAnonymous && !isOwnPost
+                                    ? () => _messagePostAuthor(post)
+                                    : null,
+                                onAuthorTap: post.isAnonymous
+                                    ? null
+                                    : () => _openMemberPreview(post),
                               );
-                            }
-                            final post = posts[index];
-                            final isOwnPost =
-                                _currentUserId != null &&
-                                post.userId == _currentUserId;
-                            return CommunityPostCard(
-                              post: post,
-                              isOwnPost: isOwnPost,
-                              onTap: () => _openPost(post),
-                              onLike: () => _viewModel.toggleLike(post.id),
-                              onDelete: isOwnPost
-                                  ? () => _viewModel.deletePost(post.id)
-                                  : null,
-                              onMessageAuthor: !post.isAnonymous && !isOwnPost
-                                  ? () => _messagePostAuthor(post)
-                                  : null,
-                              onAuthorTap: post.isAnonymous
-                                  ? null
-                                  : () => _openMemberPreview(post),
-                            );
-                          },
-                        ),
-                ),
-              ],
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

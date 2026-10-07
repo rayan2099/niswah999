@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/core/preferences/community_language_controller.dart';
 import 'package:niswah/core/utils/db_timestamp.dart';
 import 'package:niswah/features/ai_assistant/domain/entities/chat_message.dart';
 import 'package:niswah/features/ai_assistant/domain/entities/chat_thread.dart';
@@ -101,6 +102,7 @@ void main() {
         tags: const [],
         isAnonymous: false,
         createdAt: local,
+        language: CommunityLanguage.ar,
       ).toJson(),
       ['created_at'],
     );
