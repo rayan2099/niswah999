@@ -18,6 +18,7 @@ import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_im
 import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
+import '../../../madhhab/presentation/widgets/madhhab_selector.dart';
 import '../../domain/services/madhhab_suggestion_service.dart';
 
 String _tr(String english, String arabic) =>
@@ -30,16 +31,6 @@ String _tr(String english, String arabic) =>
 /// this same step's own "however long ago that was" copy.
 DateTime _earliestReportableDate(DateTime now) =>
     DateTime(now.year - 100, now.month, now.day);
-
-/// Matches the order of both the English and Arabic choice lists in the
-/// Madhhab step below. The 5th choice ("I don't know my Madhhab") is
-/// handled separately — see [_MadhhabSubStep] — and has no entry here.
-const _madhhabOrder = [
-  Madhhab.hanafi,
-  Madhhab.maliki,
-  Madhhab.shafii,
-  Madhhab.hanbali,
-];
 
 /// Fiqh Remediation Wave 1 (Section H/I/J): the Madhhab step's own small
 /// state machine for the "I don't know my Madhhab" path. [choices] is the
@@ -117,7 +108,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // silently resetting to English regardless of what was already chosen
   // and persisted (AUTH-007).
   bool get _arabic => AppLocaleController.instance.isArabic;
-  String? _madhhab;
   _MadhhabSubStep _madhhabSubStep = _MadhhabSubStep.choices;
   String _madhhabHelpCountry = '';
   MadhhabSuggestion? _madhhabSuggestion;
@@ -456,22 +446,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   String _t(String en, String ar) => _arabic ? ar : en;
 
-  /// Matches the order of [_madhhabOrder] above — the 4 real madhahib
-  /// only. See [_madhhabGridChoices] for the grid shown to the user, which
-  /// appends the 5th "I don't know" option (Fiqh Remediation Wave 1,
-  /// Section G).
-  List<String> get _madhhabChoices => _arabic
-      ? const ['حنفي', 'مالكي', 'شافعي', 'حنبلي']
-      : const ['Hanafi', 'Maliki', "Shafi'i", 'Hanbali'];
-
-  String get _unknownMadhhabLabel =>
-      _t('I don\'t know my Madhhab', 'لا أعرف مذهبي');
-
-  List<String> get _madhhabGridChoices => [
-    ..._madhhabChoices,
-    _unknownMadhhabLabel,
-  ];
-
   /// Section G/H/I/J: the Madhhab step's full sub-flow. [choices] is the
   /// normal 5-option grid (never gates Continue on anything but an
   /// explicit answer); the 5th option leads to an explanation and a
@@ -482,58 +456,71 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _madhhabStep() {
     switch (_madhhabSubStep) {
       case _MadhhabSubStep.choices:
-        return _Choices(
-          title: _t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟'),
-          subtitle: _t(
-            'This helps us personalize Haid and prayer guidance.',
-            'يساعدنا ذلك في تخصيص أحكام الحيض والصلاة.',
-          ),
-          choices: _madhhabGridChoices,
-          selected: _madhhab == null ? {} : {_madhhab!},
-          rules: _arabic
-              ? const [
-                  'حد أدنى 3 أيام · حد أقصى 10 أيام',
-                  'لا يوجد حد أدنى · حد أقصى 15 يوماً',
-                  'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
-                  'حد أدنى 24 ساعة · حد أقصى 15 يوماً',
-                  '',
-                ]
-              : const [
-                  '3-day min · 10-day max',
-                  'No minimum · 15-day max',
-                  '24-hour min · 15-day max',
-                  '24-hour min · 15-day max',
-                  '',
-                ],
-          onToggle: (v) {
-            if (v == _unknownMadhhabLabel) {
-              // Does NOT persist anything yet — only an explicit action in
-              // the explanation step below (Section H/J) ever calls
-              // MadhhabController. Tapping the option itself is not a
-              // selection.
-              setState(
-                () => _madhhabSubStep = _MadhhabSubStep.unknownExplanation,
-              );
-              return;
-            }
-            setState(() => _madhhab = v);
-            MadhhabController.instance.selectMadhhab(
-              _madhhabOrder[_madhhabChoices.indexOf(v)],
-            );
-          },
-          onNext: _madhhab == null ? null : _next,
+        // Requirement 1/5: the shared MadhhabSelector, also used by
+        // Settings and the resolution screen — identical names,
+        // descriptions, and "I don't know" option everywhere, replacing
+        // this step's own previously hand-typed choice list and rule
+        // text (see the deleted _madhhabChoices/_madhhabGridChoices).
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _Title(_t('What is your Fiqh Madhhab?', 'ما مذهبكِ الفقهي؟')),
+            const SizedBox(height: 8),
+            Text(
+              _t(
+                'This helps us personalize Haid and prayer guidance.',
+                'يساعدنا ذلك في تخصيص أحكام الحيض والصلاة.',
+              ),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 28),
+            MadhhabSelector(
+              state: MadhhabController.instance.state,
+              selected: MadhhabController.instance.selectedOrNull,
+              onSelectMadhhab: (m) async {
+                // No confirmation dialog here (unlike Settings/the
+                // resolution screen): onboarding's Madhhab step runs
+                // before any bleeding history can possibly exist (Last
+                // Period is a later step), so Requirement 2's "may
+                // affect previously recorded data" warning can never
+                // honestly apply yet — showing it here would be a false
+                // alarm, not a safeguard.
+                await MadhhabController.instance.selectMadhhab(
+                  m,
+                  source: 'onboarding',
+                );
+                if (mounted) setState(() {});
+              },
+              onSelectUnknown: () {
+                // Does NOT persist anything yet — only an explicit
+                // action in the explanation step below (Section H/J)
+                // ever calls MadhhabController. Tapping the option
+                // itself is not a selection.
+                setState(
+                  () => _madhhabSubStep = _MadhhabSubStep.unknownExplanation,
+                );
+              },
+            ),
+            const SizedBox(height: 28),
+            _Continue(
+              onPressed: MadhhabController.instance.isSelected ? _next : null,
+            ),
+          ],
         );
 
       case _MadhhabSubStep.unknownExplanation:
         return _MadhhabUnknownExplanation(
           onHelpMeChoose: () =>
               setState(() => _madhhabSubStep = _MadhhabSubStep.helpAskCountry),
-          onDecideLater: () {
-            MadhhabController.instance.selectUnknown();
-            setState(() {
-              _madhhab = _unknownMadhhabLabel;
-              _madhhabSubStep = _MadhhabSubStep.choices;
-            });
+          onDecideLater: () async {
+            await MadhhabController.instance.selectUnknown(
+              source: 'onboarding',
+            );
+            setState(() => _madhhabSubStep = _MadhhabSubStep.choices);
             _next();
           },
           onBack: () =>
@@ -564,22 +551,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           // Section I: a suggestion is never treated as authoritative by
           // merely being displayed — SELECTED only happens on this
           // explicit confirmation.
-          onConfirm: (madhhab) {
-            MadhhabController.instance.selectMadhhab(madhhab);
-            final label = _madhhabChoices[_madhhabOrder.indexOf(madhhab)];
-            setState(() {
-              _madhhab = label;
-              _madhhabSubStep = _MadhhabSubStep.choices;
-            });
+          onConfirm: (madhhab) async {
+            await MadhhabController.instance.selectMadhhab(
+              madhhab,
+              source: 'onboarding',
+            );
+            setState(() => _madhhabSubStep = _MadhhabSubStep.choices);
             _next();
           },
           // Section J: no confirmation -> remains UNKNOWN, never SELECTED.
-          onNoneOfThese: () {
-            MadhhabController.instance.selectUnknown();
-            setState(() {
-              _madhhab = _unknownMadhhabLabel;
-              _madhhabSubStep = _MadhhabSubStep.choices;
-            });
+          onNoneOfThese: () async {
+            await MadhhabController.instance.selectUnknown(
+              source: 'onboarding',
+            );
+            setState(() => _madhhabSubStep = _MadhhabSubStep.choices);
             _next();
           },
           onTryAgain: () =>
@@ -949,12 +934,10 @@ class _Choices extends StatelessWidget {
     required this.selected,
     required this.onToggle,
     required this.onNext,
-    this.rules,
   });
   final String title, subtitle;
   final List<String> choices;
   final Set<String> selected;
-  final List<String>? rules;
   final ValueChanged<String> onToggle;
   final VoidCallback? onNext;
   @override
@@ -981,7 +964,7 @@ class _Choices extends StatelessWidget {
         ),
         itemBuilder: (_, i) => _SelectCard(
           title: choices[i],
-          subtitle: rules?[i] ?? '',
+          subtitle: '',
           selected: selected.contains(choices[i]),
           onTap: () => onToggle(choices[i]),
         ),
@@ -1197,7 +1180,12 @@ class _MadhhabHelpSuggestion extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _Title(_tr('A suggestion for you', 'اقتراح لكِ')),
+        _Title(
+          _tr(
+            'Madhhab suggested based on your country',
+            'المذهب المقترح بناءً على بلدك',
+          ),
+        ),
         const SizedBox(height: 8),
         if (suggestion.regionNote != null)
           Padding(

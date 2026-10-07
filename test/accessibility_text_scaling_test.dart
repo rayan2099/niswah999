@@ -108,7 +108,7 @@ void main() {
           'Maliki',
           "Shafi'i",
           'Hanbali',
-          "I don't know my Madhhab",
+          "I don't know",
         ]) {
           expect(find.text(label), findsOneWidget);
         }
@@ -121,13 +121,7 @@ void main() {
         await MadhhabController.instance.load();
         await pumpOnboardingMadhhabAtScale(tester, scale, arabic: true);
 
-        for (final label in [
-          'حنفي',
-          'مالكي',
-          'شافعي',
-          'حنبلي',
-          'لا أعرف مذهبي',
-        ]) {
+        for (final label in ['حنفي', 'مالكي', 'شافعي', 'حنبلي', 'لا أعرف']) {
           expect(find.text(label), findsOneWidget);
         }
         expect(tester.takeException(), isNull);
@@ -142,8 +136,8 @@ void main() {
           await MadhhabController.instance.load();
           await pumpOnboardingMadhhabAtScale(tester, scale);
 
-          await tester.ensureVisible(find.text("I don't know my Madhhab"));
-          await tester.tap(find.text("I don't know my Madhhab"));
+          await tester.ensureVisible(find.text("I don't know"));
+          await tester.tap(find.text("I don't know"));
           await tester.pumpAndSettle();
           expect(find.text('No problem'), findsOneWidget);
           expect(tester.takeException(), isNull);
@@ -159,11 +153,18 @@ void main() {
           await tester.ensureVisible(find.text('Continue'));
           await tester.tap(find.text('Continue'));
           await tester.pumpAndSettle();
-          expect(find.text('A suggestion for you'), findsOneWidget);
+          // Saudi Arabia is in the draft mapping but NOT_REVIEWED, so the
+          // trust gate (adversarial review, 2026-10-07) means this lands
+          // on the "insufficient" state rather than a confident
+          // suggestion — still exercises the same layout at this scale.
           expect(
-            find.textContaining('Hanbali is my Madhhab'),
+            find.text("We don't have a suggestion for that yet"),
             findsOneWidget,
-            reason: 'the confirmation control must still be reachable/usable',
+          );
+          expect(
+            find.text("I'll decide later"),
+            findsOneWidget,
+            reason: 'the fallback control must still be reachable/usable',
           );
           expect(tester.takeException(), isNull);
         },
@@ -193,7 +194,7 @@ void main() {
           'Maliki',
           "Shafi'i",
           'Hanbali',
-          "I don't know my Madhhab",
+          "I don't know",
         ]) {
           expect(find.text(label), findsOneWidget);
         }

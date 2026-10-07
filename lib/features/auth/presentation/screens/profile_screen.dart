@@ -6,6 +6,7 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/preferences/ttc_mode_controller.dart';
+import '../../../../core/preferences/community_language_controller.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../../core/network/supabase_client.dart';
@@ -13,6 +14,8 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/app_theme_controller.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../legal/presentation/screens/data_export_screen.dart';
+import '../../../madhhab/presentation/widgets/madhhab_change_confirmation.dart';
+import '../../../madhhab/presentation/widgets/madhhab_selector.dart';
 import '../../../madhhab_resolution/presentation/madhhab_resolution_screen.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
 import 'sign_in_screen.dart';
@@ -21,7 +24,6 @@ import '../../../private_messaging/domain/repositories/private_messaging_reposit
 import '../../../private_messaging/presentation/viewmodels/conversations_view_model.dart';
 import '../../../private_messaging/presentation/widgets/unread_messages_badge.dart';
 import '../../../private_messaging/private_messaging_locator.dart';
-import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import '../../../doctor_report/presentation/screens/doctor_report_screen.dart';
 import '../../../fiqh_report/presentation/screens/fiqh_report_screen.dart';
 import '../../../husband_report/presentation/screens/husband_report_screen.dart';
@@ -60,6 +62,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _viewModel,
       MaritalStatusController.instance,
       MadhhabController.instance,
+      CommunityLanguageController.instance,
       PrayerLocationController.instance,
       PregnancyStatusController.instance,
       TtcModeController.instance,
@@ -278,26 +281,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
-                      _MadhhabGrid(
-                        // Fiqh Remediation Wave 1 (Section K): reflects
-                        // the real three-state model — 'unknown' when the
-                        // user explicitly said so, nothing highlighted
-                        // when UNSET, never a guessed madhhab.
-                        selected:
-                            MadhhabController.instance.state ==
-                                MadhhabSelectionState.unknown
-                            ? 'unknown'
-                            : (MadhhabController
-                                      .instance
-                                      .selectedOrNull
-                                      ?.name ??
-                                  ''),
-                        onSelected: (value) => value == 'unknown'
-                            ? MadhhabController.instance.selectUnknown()
-                            : MadhhabController.instance.selectMadhhab(
-                                Madhhab.values.byName(value.toLowerCase()),
-                              ),
+                      // Requirement 1/5: this grid is the single shared
+                      // MadhhabSelector, also used by onboarding and the
+                      // resolution screen — identical names, descriptions,
+                      // "I don't know" option, and save path everywhere.
+                      MadhhabSelector(
+                        state: MadhhabController.instance.state,
+                        selected: MadhhabController.instance.selectedOrNull,
+                        onSelectMadhhab: (m) => setMadhhabWithConfirmation(
+                          context,
+                          newMadhhab: m,
+                          source: 'settings_direct',
+                        ),
+                        onSelectUnknown: () => setMadhhabWithConfirmation(
+                          context,
+                          newMadhhab: null,
+                          source: 'settings_direct',
+                        ),
                       ),
+                      const SizedBox(height: 30),
+                      _SectionTitle(_pr('Community language', 'لغة المجتمع')),
+                      const SizedBox(height: 10),
+                      _CommunityLanguageRow(),
                       const SizedBox(height: 30),
                       _SectionTitle(
                         _pr('Privacy Settings', 'إعدادات الخصوصية'),
@@ -1538,6 +1543,76 @@ class _LocationCard extends StatelessWidget {
   );
 }
 
+/// Requirement 4: lets the user change which community (Arabic/English)
+/// she browses, any time, from Profile/Settings. No confirmation dialog
+/// here — unlike a Madhhab change, this is explicitly non-destructive:
+/// it never deletes or modifies any existing post, only which community
+/// is displayed going forward. Visually mirrors sign_in_screen.dart's
+/// `_LanguageToggle` segmented-pill style rather than extracting a shared
+/// widget, since that toggle is about interface language (a separate
+/// concept) and this one is deliberately a minimal, local copy.
+class _CommunityLanguageRow extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final selected = CommunityLanguageController.instance.selectedOrNull;
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: AppColors.shadowColor),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _segment(
+              label: _pr('Arabic Community', 'المجتمع العربي'),
+              selected: selected == CommunityLanguage.ar,
+              onTap: () => CommunityLanguageController.instance.select(
+                CommunityLanguage.ar,
+              ),
+            ),
+          ),
+          Expanded(
+            child: _segment(
+              label: 'English Community',
+              selected: selected == CommunityLanguage.en,
+              onTap: () => CommunityLanguageController.instance.select(
+                CommunityLanguage.en,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFFE11D48) : Colors.transparent,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: selected ? Colors.white : AppColors.textTertiary,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
+  );
+}
+
 /// Madhhab Resolution Gate wave (2026-09-16), Section 16: shown instead of
 /// the direct-edit grid whenever the user has not yet reached
 /// [MadhhabSelectionState.selected] (covers both UNSET and UNKNOWN — the
@@ -1582,147 +1657,6 @@ class _MadhhabUnresolvedBanner extends StatelessWidget {
       ],
     ),
   );
-}
-
-class _MadhhabGrid extends StatelessWidget {
-  const _MadhhabGrid({required this.selected, required this.onSelected});
-  final String selected;
-  final ValueChanged<String> onSelected;
-  @override
-  Widget build(BuildContext context) {
-    final values = [
-      (
-        'hanafi',
-        _pr('Hanafi', 'حنفي'),
-        _pr(
-          'Min Haid: 3 days, Max Haid: 10 days',
-          'أقل الحيض 3 أيام، وأكثره 10 أيام',
-        ),
-      ),
-      (
-        'shafii',
-        _pr("Shafi'i", 'شافعي'),
-        _pr(
-          'Min Haid: 24h, Max Haid: 15 days',
-          'أقل الحيض يوم وليلة، وأكثره 15 يوماً',
-        ),
-      ),
-      (
-        'maliki',
-        _pr('Maliki', 'مالكي'),
-        _pr(
-          'No Min Haid, Max Haid: 15 days',
-          'لا حد لأقل الحيض، وأكثره 15 يوماً',
-        ),
-      ),
-      (
-        'hanbali',
-        _pr('Hanbali', 'حنبلي'),
-        _pr(
-          'Min Haid: 24h, Max Haid: 15 days',
-          'أقل الحيض يوم وليلة، وأكثره 15 يوماً',
-        ),
-      ),
-      // Fiqh Remediation Wave 1 (Section K — change Madhhab): a durable,
-      // first-class UNKNOWN state must remain reachable here too, not
-      // only at onboarding — see MadhhabController.selectUnknown().
-      ('unknown', _pr('I don\'t know', 'لا أعرف'), ''),
-    ];
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: values.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisExtent: 122,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemBuilder: (context, index) {
-        final item = values[index];
-        final active = selected == item.$1;
-        // Fiqh Remediation Wave 1 — Pre-E4 Verification (Section 2): same
-        // fix as onboarding's _SelectCard — selection was previously
-        // conveyed only visually. `excludeSemantics: true` stops the child
-        // Text's own label from merging in and doubling the announcement.
-        return Semantics(
-          button: true,
-          selected: active,
-          label: item.$3.isEmpty ? item.$2 : '${item.$2}, ${item.$3}',
-          excludeSemantics: true,
-          child: InkWell(
-            onTap: () => onSelected(item.$1),
-            borderRadius: BorderRadius.circular(24),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: active ? const Color(0xFFFFF1F2) : Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: active
-                      ? const Color(0xFFFFCDD5)
-                      : AppColors.shadowColor,
-                ),
-              ),
-              // Fiqh Remediation Wave 1 — Pre-E4 Verification (Section 1):
-              // this tile is inside a fixed-height grid cell
-              // (`mainAxisExtent: 122`) — a real overflow was found here at
-              // 200% text scale (AU-006's own fix was never applied to this
-              // grid). Restructured to match `_SelectCard`'s already-working
-              // Stack + FittedBox(scaleDown) + PositionedDirectional icon
-              // pattern, which is compatible with FittedBox's unbounded
-              // child constraints (a `Row`+`Expanded` title/icon layout is
-              // not — that combination is what overflowed).
-              child: Stack(
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: AlignmentDirectional.topStart,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.$2,
-                          style: TextStyle(
-                            color: active
-                                ? const Color(0xFF881337)
-                                : AppColors.textSecondary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        if (item.$3.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            item.$3,
-                            style: const TextStyle(
-                              color: AppColors.textTertiary,
-                              fontSize: 10,
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (active)
-                    const PositionedDirectional(
-                      top: 0,
-                      end: 0,
-                      child: Icon(
-                        Icons.check_rounded,
-                        color: AppColors.brandSecondary,
-                        size: 17,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
 class _SettingsGroup extends StatelessWidget {
