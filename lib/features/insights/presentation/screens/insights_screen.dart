@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/widgets/empty_state.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
@@ -506,6 +507,7 @@ class _SymptomTrends extends StatelessWidget {
       ('Low energy', 'طاقة منخفضة', AppColors.warning, lowEnergyCount),
       ('Poor sleep', 'نوم سيء', AppColors.info, poorSleepCount),
     ];
+
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -563,65 +565,104 @@ class _SymptomTrends extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 24),
-          ...rows.map((item) {
-            final count = item.$4;
-            final percent = rangeLogs.isEmpty
-                ? 0.0
-                : (count / rangeLogs.length).clamp(0.0, 1.0);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 24),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _in(item.$1, item.$2),
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+          // Requirement 3: no fabricated percentages. With zero real logs
+          // in range, there is nothing honest to show as a trend at all —
+          // the range selector above stays reachable (she may want to
+          // check a wider window), but the rows below are replaced
+          // entirely rather than showing a wall of '—' dashes.
+          if (rangeLogs.isEmpty)
+            EmptyState(
+              icon: Icons.trending_up_rounded,
+              title: _in('Not enough data yet', 'لا توجد بيانات كافية بعد'),
+              message: _in(
+                'Log your symptoms to see your trends here.',
+                'سجّلي أعراضك لتظهر الاتجاهات هنا.',
+              ),
+              actionLabel: _in("Log today's symptoms", 'سجلي أعراض اليوم'),
+              onAction: onLog,
+            )
+          else ...[
+            // Requirement 3: real user-entered observations only. Every
+            // row shows both the raw frequency (symptom_days / logged_days
+            // — real counts, always real) and the percentage derived from
+            // it, immediately, from a single real log — no minimum-sample
+            // gate. The denominator is explicitly labeled "logged days":
+            // this app has no way to know whether an unlogged day was
+            // symptom-free or simply not evaluated, so it is never counted
+            // as either.
+            ...rows.map((item) {
+              final count = item.$4;
+              final total = rangeLogs.length;
+              final percent = (count / total).clamp(0.0, 1.0);
+              final percentLabel = '${(percent * 100).round()}%';
+              final percentLabelAr = '${(percent * 100).round()}٪';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _in(item.$1, item.$2),
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
-                      Text(
-                        percent == 0 ? '—' : '${(percent * 100).round()}%',
-                        style: TextStyle(color: item.$3, fontSize: 9),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(99),
-                    child: LinearProgressIndicator(
-                      value: percent,
-                      minHeight: 7,
-                      backgroundColor: const Color(0xFFF3F4F6),
-                      valueColor: AlwaysStoppedAnimation(item.$3),
+                        Text(
+                          _in(percentLabel, percentLabelAr),
+                          style: TextStyle(color: item.$3, fontSize: 9),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _in(
+                        '$count of $total logged days',
+                        'سُجّل في $count من أصل $total أيام مسجلة',
+                      ),
+                      style: const TextStyle(
+                        color: AppColors.textTertiary,
+                        fontSize: 9,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
+                      child: LinearProgressIndicator(
+                        value: percent,
+                        minHeight: 7,
+                        backgroundColor: const Color(0xFFF3F4F6),
+                        valueColor: AlwaysStoppedAnimation(item.$3),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: onLog,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF9F1239),
+                  backgroundColor: const Color(0xFFFFF1F2),
+                  side: const BorderSide(color: Color(0xFFFFCDD5)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                ],
-              ),
-            );
-          }),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: onLog,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF9F1239),
-                backgroundColor: const Color(0xFFFFF1F2),
-                side: const BorderSide(color: Color(0xFFFFCDD5)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  _in('Log today\'s symptoms →', 'سجلي أعراض اليوم ←'),
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
                 ),
               ),
-              child: Text(
-                _in('Log today\'s symptoms →', 'سجلي أعراض اليوم ←'),
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-              ),
             ),
-          ),
+          ],
         ],
       ),
     );
