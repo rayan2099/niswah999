@@ -430,7 +430,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     if (decoded['type'] != 'activeBleedingCheckin') return;
 
-    final payloadUserId = decoded['userId'] as String?;
+    // Genuine fix — notification tap routing integrity: a payload can be
+    // syntactically valid JSON (so the jsonDecode try/catch above never
+    // fires) while still carrying a field of the wrong TYPE (e.g. userId
+    // serialized as a number rather than a string — a corrupted payload,
+    // or a future schema drift from an old notification still sitting in
+    // the shade). `decoded['userId'] as String?` throws a TypeError for
+    // any non-null, non-String value (Dart's `as T?` only accepts null or
+    // an instance of T) — an UNCAUGHT exception at this point, directly
+    // contradicting this function's own contract just below ("a
+    // malformed/foreign payload must never crash the dashboard"). A safe
+    // `is String` check — the same pattern NotificationService.
+    // pendingActiveBleedingReminders() already uses correctly for this
+    // exact payload shape — never throws for a wrong-typed field; it just
+    // treats it the same as a missing one.
+    final rawUserId = decoded['userId'];
+    final payloadUserId = rawUserId is String ? rawUserId : null;
     final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (payloadUserId == null ||
         signedInUserId == null ||
@@ -440,7 +455,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    final episodeId = decoded['episodeId'] as String?;
+    final rawEpisodeId = decoded['episodeId'];
+    final episodeId = rawEpisodeId is String ? rawEpisodeId : null;
     if (episodeId == null) return;
 
     // Closure Blocker 1: if this read fails, `dataOrNull` is null and we
@@ -463,8 +479,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // reminder was actually about.
     final utcOffsetMinutes = AppClock.now().timeZoneOffset.inMinutes;
     final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
+    final rawLocalDate = decoded['localDate'];
     final payloadLocalDate = DateTime.tryParse(
-      (decoded['localDate'] as String?) ?? '',
+      rawLocalDate is String ? rawLocalDate : '',
     );
     if (payloadLocalDate == null || !payloadLocalDate.isAtSameMomentAs(today)) {
       return;

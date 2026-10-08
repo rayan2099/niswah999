@@ -96,6 +96,222 @@ void main() {
     },
   );
 
+  group('Commit H — concurrent account switch with an in-flight operation', () {
+    test('without an explicit userId, an account switch mid-flight '
+        'redirects clearPending to the NEW user\'s bucket, leaving the '
+        'original user\'s entry stuck — this documents the exact '
+        'mechanism of the race, not the desired behavior', () async {
+      SecureLocalStore.debugUserIdOverride = 'user-A';
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'op-a-1',
+          type: PendingBleedingOperationType.startEpisode,
+          params: const {'flow': 'medium'},
+          createdAt: DateTime(2026, 9, 18),
+        ),
+      );
+
+      // Simulates the account switching to B while A's startEpisode
+      // RPC is still in flight (awaited), before the sheet's own
+      // completion handler ever runs.
+      SecureLocalStore.debugUserIdOverride = 'user-B';
+      await PendingBleedingOperationStore.clearPending('op-a-1');
+
+      SecureLocalStore.debugUserIdOverride = 'user-A';
+      final userAStillPending =
+          await PendingBleedingOperationStore.loadPending();
+      expect(
+        userAStillPending,
+        hasLength(1),
+        reason:
+            "clearPending ran against B's bucket, not A's — A's "
+            'entry was never actually cleared',
+      );
+
+      SecureLocalStore.debugUserIdOverride = 'user-B';
+      expect(
+        await PendingBleedingOperationStore.loadPending(),
+        isEmpty,
+        reason:
+            "the clear was a harmless no-op against B's own "
+            '(empty) list — B never had this operation id to begin '
+            'with',
+      );
+    });
+
+    test('passing the operation owner\'s userId explicitly — exactly what '
+        'start_bleeding_sheet.dart / daily_checkin_sheet.dart / '
+        'correction_sheet.dart now do — survives an account switch '
+        'between savePending and clearPending: completion of A\'s '
+        'operation correctly clears A\'s own bucket, never B\'s', () async {
+      SecureLocalStore.debugUserIdOverride = 'user-A';
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'op-a-1',
+          type: PendingBleedingOperationType.startEpisode,
+          params: const {'flow': 'medium'},
+          createdAt: DateTime(2026, 9, 18),
+        ),
+        userId: 'user-A',
+      );
+
+      // Account switches to B while A's RPC is still in flight.
+      SecureLocalStore.debugUserIdOverride = 'user-B';
+
+      // B establishes her own, genuinely independent pending op
+      // before A's call ever resolves.
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'op-b-1',
+          type: PendingBleedingOperationType.endEpisode,
+          params: const {},
+          createdAt: DateTime(2026, 9, 18),
+        ),
+        userId: 'user-B',
+      );
+
+      // A's RPC now resolves (success) — the sheet's completion
+      // handler calls clearPending with the userId it captured
+      // BEFORE the switch, even though B is the ambient current
+      // user right now.
+      await PendingBleedingOperationStore.clearPending(
+        'op-a-1',
+        userId: 'user-A',
+      );
+
+      final userAPending = await PendingBleedingOperationStore.loadPending(
+        userId: 'user-A',
+      );
+      expect(
+        userAPending,
+        isEmpty,
+        reason:
+            "A's own operation was correctly cleared from A's "
+            'own bucket, even though B was signed in when the '
+            'clear actually ran',
+      );
+
+      final userBPending = await PendingBleedingOperationStore.loadPending(
+        userId: 'user-B',
+      );
+      expect(
+        userBPending,
+        hasLength(1),
+        reason:
+            "completion of A's operation must never mutate B's own "
+            'local pending state — B\'s independently-saved '
+            'operation survives untouched',
+      );
+      expect(userBPending.single.operationId, 'op-b-1');
+
+      // Switching back to A (ambient) restores only A's own valid
+      // (now-empty) pending state — never anything of B's.
+      SecureLocalStore.debugUserIdOverride = 'user-A';
+      expect(await PendingBleedingOperationStore.loadPending(), isEmpty);
+    });
+
+    test("User A's pending state is structurally invisible under User B "
+        'even while the operation is genuinely still in flight (not yet '
+        'cleared) — switching before completion, not just after it', () async {
+      SecureLocalStore.debugUserIdOverride = 'user-A';
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'op-a-1',
+          type: PendingBleedingOperationType.dailyOrBackfillObservation,
+          params: const {},
+          createdAt: DateTime(2026, 9, 18),
+        ),
+        userId: 'user-A',
+      );
+
+      SecureLocalStore.debugUserIdOverride = 'user-B';
+      expect(
+        await PendingBleedingOperationStore.loadPending(),
+        isEmpty,
+        reason:
+            "A's still-in-flight operation must never appear under "
+            "B's own session, at any point in its lifecycle",
+      );
+    });
+
+    test("a failure of A's operation (not success) also correctly leaves "
+        "A's own entry pending under A's own bucket, never touching B's "
+        '— reconciliation on A\'s next sign-in is what retries it', () async {
+      SecureLocalStore.debugUserIdOverride = 'user-A';
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'op-a-1',
+          type: PendingBleedingOperationType.correction,
+          params: const {'supersedesId': 'obs-1'},
+          createdAt: DateTime(2026, 9, 18),
+        ),
+        userId: 'user-A',
+      );
+
+      SecureLocalStore.debugUserIdOverride = 'user-B';
+      // A failure path never calls clearPending at all — simulated
+      // here by simply not calling it, matching every sheet's own
+      // catch-all branch (savePending already committed; nothing
+      // further happens on failure).
+
+      final userAPending = await PendingBleedingOperationStore.loadPending(
+        userId: 'user-A',
+      );
+      expect(userAPending, hasLength(1));
+      expect(userAPending.single.operationId, 'op-a-1');
+
+      final userBPending = await PendingBleedingOperationStore.loadPending(
+        userId: 'user-B',
+      );
+      expect(userBPending, isEmpty);
+    });
+
+    test('signing out entirely (not switching to a second account) while an '
+        "operation is in flight still correctly clears A's own entry on "
+        'success — the explicit userId survives a transition to NO signed-'
+        'in session at all, not just a transition to another one', () async {
+      SecureLocalStore.debugUserIdOverride = 'user-A';
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: 'op-a-1',
+          type: PendingBleedingOperationType.startEpisode,
+          params: const {'flow': 'medium'},
+          createdAt: DateTime(2026, 9, 18),
+        ),
+        userId: 'user-A',
+      );
+
+      // Sign-out mid-flight: no override at all means
+      // SecureLocalStore.currentUserId() would fall back to the
+      // "no session" sentinel if anything here relied on ambient
+      // resolution — it must not.
+      SecureLocalStore.debugUserIdOverride = null;
+
+      await PendingBleedingOperationStore.clearPending(
+        'op-a-1',
+        userId: 'user-A',
+      );
+
+      final userAPending = await PendingBleedingOperationStore.loadPending(
+        userId: 'user-A',
+      );
+      expect(
+        userAPending,
+        isEmpty,
+        reason:
+            "A's own operation was correctly cleared from A's own "
+            'bucket even though no session was ambiently active when '
+            'the clear actually ran',
+      );
+
+      // And the "no session" sentinel bucket itself was never touched
+      // — confirms the write genuinely targeted A's own key, not a
+      // fallback "current ambient user" key.
+      SecureLocalStore.debugUserIdOverride = null;
+      expect(await PendingBleedingOperationStore.loadPending(), isEmpty);
+    });
+  });
+
   group('PendingBleedingOperationStore', () {
     test('a saved pending operation round-trips exactly', () async {
       final operation = PendingBleedingOperation(

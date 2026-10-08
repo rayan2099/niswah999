@@ -261,8 +261,23 @@ class PendingBleedingOperationStore {
   /// Must be called, and awaited, *before* the RPC it describes is ever
   /// sent — the whole point is to survive a process death between "the
   /// server received this" and "the app saw the response."
-  static Future<void> savePending(PendingBleedingOperation operation) async {
-    final existing = await loadPending();
+  ///
+  /// [userId] (Commit H — concurrent account-switch closure): callers
+  /// that already captured the signed-in user id before starting this
+  /// operation should pass it explicitly, rather than relying on
+  /// [SecureLocalStore]'s ambient "whoever is signed in right now" —
+  /// otherwise an account switch that happens while the matching RPC
+  /// call is still in flight would redirect this write (and the later
+  /// [clearPending] call) to the *new* user's bucket instead of the one
+  /// who actually started the operation. Omit it only for call sites
+  /// that genuinely want "current session" semantics, such as
+  /// `reconcilePendingOperations`, which always operates on whoever is
+  /// signed in at the moment it runs by design.
+  static Future<void> savePending(
+    PendingBleedingOperation operation, {
+    String? userId,
+  }) async {
+    final existing = await loadPending(userId: userId);
     final updated = <String, PendingBleedingOperation>{
       for (final op in existing) op.operationId: op,
     };
@@ -270,6 +285,7 @@ class PendingBleedingOperationStore {
     await SecureLocalStore.write(
       _category,
       jsonEncode(updated.values.map((op) => op.toJson()).toList()),
+      userId: userId,
     );
   }
 
@@ -278,23 +294,29 @@ class PendingBleedingOperationStore {
   /// already a pending one to resume" is a more natural question than
   /// working with the full list (Hardening 1).
   static Future<PendingBleedingOperation?> getPendingByType(
-    PendingBleedingOperationType type,
-  ) async {
-    final existing = await loadPending();
+    PendingBleedingOperationType type, {
+    String? userId,
+  }) async {
+    final existing = await loadPending(userId: userId);
     for (final op in existing) {
       if (op.type == type) return op;
     }
     return null;
   }
 
-  static Future<void> clearPending(String operationId) async {
-    final existing = await loadPending();
+  /// See [savePending]'s [userId] doc — the same race applies here: this
+  /// must target the bucket the operation was actually saved into, not
+  /// whoever happens to be signed in when the matching RPC call finally
+  /// resolves.
+  static Future<void> clearPending(String operationId, {String? userId}) async {
+    final existing = await loadPending(userId: userId);
     final remaining = existing
         .where((op) => op.operationId != operationId)
         .toList();
     await SecureLocalStore.write(
       _category,
       jsonEncode(remaining.map((op) => op.toJson()).toList()),
+      userId: userId,
     );
   }
 
@@ -313,8 +335,10 @@ class PendingBleedingOperationStore {
   /// fabricates a replacement for a quarantined item — it is simply
   /// dropped, reported for visibility, and the remaining valid operations
   /// still reconcile normally.
-  static Future<List<PendingBleedingOperation>> loadPending() async {
-    final raw = await SecureLocalStore.read(_category);
+  static Future<List<PendingBleedingOperation>> loadPending({
+    String? userId,
+  }) async {
+    final raw = await SecureLocalStore.read(_category, userId: userId);
     if (raw == null || raw.isEmpty) return const [];
 
     final Object? decoded;

@@ -163,6 +163,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'a wrong-typed (non-string) userId field never crashes the dashboard '
+    '— a payload can be syntactically valid JSON while still carrying a '
+    'field of the wrong type (corruption, or schema drift from an old '
+    'notification still sitting in the shade)',
+    (tester) async {
+      await pumpDashboard(tester);
+
+      final payload = jsonEncode({
+        'type': 'activeBleedingCheckin',
+        'userId': 12345,
+        'episodeId': 'episode-1',
+        'localDate': '2026-08-18',
+      });
+      await simulateNotificationTap(payload);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('multiple taps fired in quick succession while mounted are each '
       'handled independently, never crash or leave the subscription stuck', (
     tester,
@@ -183,5 +204,140 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+  });
+
+  // Commit H — adversarial review follow-up (2026-10-08). Point 3: every
+  // field read from the payload must be independently proven type-safe,
+  // not just the one field the original fix touched.
+  group('payload field-safety matrix (missing fields, old/foreign shapes, '
+      'duplicate delivery)', () {
+    testWidgets('a payload missing userId entirely (not merely wrong-typed) '
+        'never crashes — treated identically to a wrong-typed one', (
+      tester,
+    ) async {
+      await pumpDashboard(tester);
+      await simulateNotificationTap(
+        jsonEncode({
+          'type': 'activeBleedingCheckin',
+          'episodeId': 'episode-1',
+          'localDate': '2026-08-18',
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a payload missing episodeId entirely never crashes', (
+      tester,
+    ) async {
+      await pumpDashboard(tester);
+      await simulateNotificationTap(
+        jsonEncode({
+          'type': 'activeBleedingCheckin',
+          'userId': 'user-1',
+          'localDate': '2026-08-18',
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a payload missing localDate entirely never crashes', (
+      tester,
+    ) async {
+      await pumpDashboard(tester);
+      await simulateNotificationTap(
+        jsonEncode({
+          'type': 'activeBleedingCheckin',
+          'userId': 'user-1',
+          'episodeId': 'episode-1',
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a wrong-typed episodeId (not a string) never crashes', (
+      tester,
+    ) async {
+      await pumpDashboard(tester);
+      await simulateNotificationTap(
+        jsonEncode({
+          'type': 'activeBleedingCheckin',
+          'userId': 'user-1',
+          'episodeId': 42,
+          'localDate': '2026-08-18',
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a wrong-typed localDate (not a string) never crashes', (
+      tester,
+    ) async {
+      await pumpDashboard(tester);
+      await simulateNotificationTap(
+        jsonEncode({
+          'type': 'activeBleedingCheckin',
+          'userId': 'user-1',
+          'episodeId': 'episode-1',
+          'localDate': 20260818,
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'an unknown/future payload version — the known fields present but '
+      'wrapped with extra, never-seen fields a future schema might add — '
+      'is handled exactly like today\'s shape, extra fields simply '
+      'ignored',
+      (tester) async {
+        await pumpDashboard(tester);
+        await simulateNotificationTap(
+          jsonEncode({
+            'type': 'activeBleedingCheckin',
+            'userId': 'user-1',
+            'episodeId': 'episode-1',
+            'localDate': '2026-08-18',
+            'schemaVersion': 2,
+            'futureField': {'nested': true},
+          }),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'the top-level JSON is syntactically valid but not an object at all '
+      '(a bare list) — the existing malformed-JSON guard covers this too, '
+      'not only invalid syntax',
+      (tester) async {
+        await pumpDashboard(tester);
+        await simulateNotificationTap(jsonEncode([1, 2, 3]));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('the identical payload delivered twice in a row (duplicate tap '
+        'redelivery) is handled both times without crashing — each '
+        'delivery is independently validated from scratch', (tester) async {
+      await pumpDashboard(tester);
+      final payload = jsonEncode({
+        'type': 'activeBleedingCheckin',
+        'userId': 'user-1',
+        'episodeId': 'episode-1',
+        'localDate': '2026-08-18',
+      });
+      await simulateNotificationTap(payload);
+      await tester.pump();
+      await simulateNotificationTap(payload);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
   });
 }
