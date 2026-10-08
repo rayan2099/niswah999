@@ -29,7 +29,8 @@ class DreamInterpreterViewModel extends ChangeNotifier {
   List<DreamEntry> entries = const <DreamEntry>[];
 
   // Holds the back-and-forth for the dream currently being discussed on this
-  // screen, since Gemini's /interactions endpoint takes a single prompt
+  // screen, since neither Gemini's old /interactions endpoint nor OpenAI's
+  // Responses API endpoint used here takes a multi-turn history -- both take a single prompt
   // string with no history field of its own — each call resends the whole
   // transcript so far. Reset per screen open (a fresh view model), so a new
   // visit always starts a new dream rather than bolting onto an old one.

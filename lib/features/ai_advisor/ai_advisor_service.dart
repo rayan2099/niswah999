@@ -5,29 +5,47 @@ import '../../core/network/supabase_client.dart';
 import '../../core/preferences/madhhab_controller.dart';
 import '../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 
+/// Shared citation model for both Fiqh Advisor and Dr Niswah — both edge
+/// functions' `citationPayload()` (kb_retrieval.ts) return the same shape.
+///
+/// [startIndex]/[endIndex] are retained for backward compatibility with
+/// stored/cached data from before the KB integration (when citations came
+/// from Gemini's live Google Search grounding metadata (pre-2026-09-30
+/// provider migration to OpenAI), which used literal
+/// character offsets into the reply text). The current backend never
+/// populates them (they default to 0) — KB-sourced citations are a
+/// reference list, not inline-highlighted spans. [locator] is the
+/// KB-specific replacement: the exact source section/locator
+/// (e.g. "Section: How long is a typical menstrual cycle?"), not previously
+/// carried by this model at all before this fix (Pre-Merge Integration
+/// Validation, Phase 5, Finding 7) even though the backend already sent it.
 class FiqhCitation {
   const FiqhCitation({
     required this.url,
     required this.title,
-    required this.startIndex,
-    required this.endIndex,
+    this.locator = '',
+    this.startIndex = 0,
+    this.endIndex = 0,
   });
 
   factory FiqhCitation.fromJson(Map<String, dynamic> json) => FiqhCitation(
     url: json['url']?.toString() ?? '',
     title: json['title']?.toString() ?? '',
+    locator: json['locator']?.toString() ?? '',
     startIndex: (json['startIndex'] as num?)?.toInt() ?? 0,
     endIndex: (json['endIndex'] as num?)?.toInt() ?? 0,
   );
 
   final String url;
   final String title;
+  final String locator;
   final int startIndex;
   final int endIndex;
 
   Map<String, dynamic> toJson() => {
     'url': url,
     'title': title,
+    'locator': locator,
     'start_index': startIndex,
     'end_index': endIndex,
   };
@@ -41,7 +59,8 @@ class FiqhAnswer {
 }
 
 /// Calls the `fiqh-advisor-chat` Supabase Edge Function, which owns the
-/// system prompt, the Gemini call, and the trusted-citation filter
+/// system prompt, the model call (OpenAI's Responses API since the
+/// 2026-09-30 provider migration), and the trusted-citation filter
 /// server-side (moved off the client per the Gemini trust-boundary
 /// remediation — closes SEC-001/AB-002/AB-012 for this feature).
 class AiAdvisorService {

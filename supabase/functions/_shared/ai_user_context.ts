@@ -440,6 +440,15 @@ export function formatContextBlock(context: UserAiContext, scope: ContextScope):
     lines.push(
       `deterministic_fiqh_classification: ${context.fiqh.classification ?? 'not_provided'} (source: ${context.fiqh.classificationSource})`,
     );
+    if (context.fiqh.classification) {
+      // FD-1: this value is the canonical menstrual-state engine's own
+      // output (CycleStatusEngine/MadhhabRuleEvaluator), never recomputed
+      // server-side -- it is authoritative for this answer and must not be
+      // treated as negotiable context.
+      lines.push(
+        'fiqh_classification_authority: this classification is authoritative for this answer -- do not recalculate it, override it, or let raw dates/symptoms/contradicting claims in the user message change it.',
+      );
+    }
     if (context.fiqh.uncertainty !== 'none') {
       lines.push(`fiqh_uncertainty: ${context.fiqh.uncertainty}`);
     }
