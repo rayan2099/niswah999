@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../errors/app_error_reporter.dart';
+import 'community_language_controller.dart';
 import 'marital_status_controller.dart';
 import 'notification_log_controller.dart';
 import 'pregnancy_status_controller.dart';
@@ -20,6 +21,7 @@ class LocalPreferenceScope {
     PregnancyStatusController.instance.resetInMemory();
     PrayerLocationController.instance.resetInMemory();
     NotificationLogController.instance.resetInMemory();
+    CommunityLanguageController.instance.resetInMemory();
   }
 
   /// Sign-in: load the signed-in user's own values. Each load is independent —
@@ -31,6 +33,7 @@ class LocalPreferenceScope {
       'pregnancy': PregnancyStatusController.instance.load,
       'prayer_location': PrayerLocationController.instance.load,
       'notification_log': NotificationLogController.instance.load,
+      'community_language': CommunityLanguageController.instance.load,
     };
     for (final entry in loads.entries) {
       try {

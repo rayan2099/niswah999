@@ -592,7 +592,7 @@ void main() {
           'Maliki',
           "Shafi'i",
           'Hanbali',
-          "I don't know my Madhhab",
+          "I don't know",
         ]) {
           final finder = bySemanticsLabelStartingWith(label);
           expect(
@@ -648,8 +648,8 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.ensureVisible(find.text("I don't know my Madhhab"));
-        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
         await tester.pumpAndSettle();
 
         // Explanation step: both real actions are labeled, actionable
@@ -678,21 +678,21 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        // Suggestion step: the confirmation control and the decline
-        // control are both real, distinct, labeled, actionable controls
-        // — never a bare "button" with no context.
-        final confirmFinder = find.bySemanticsLabel(
-          'Yes, Hanbali is my Madhhab',
-        );
-        expect(confirmFinder, findsOneWidget);
+        // Saudi Arabia is in the draft mapping but NOT_REVIEWED, so the
+        // trust gate (adversarial review, 2026-10-07) means this lands
+        // on the "insufficient" state, not a confident suggestion — its
+        // own two controls (Try again / I'll decide later) must be just
+        // as real, distinct, labeled, and actionable as the suggestion
+        // step's controls would have been — never a bare "button" with
+        // no context.
+        final tryAgainFinder = find.bySemanticsLabel('Try again');
+        expect(tryAgainFinder, findsOneWidget);
         expect(
-          tester.getSemantics(confirmFinder).hasFlag(SemanticsFlag.isButton),
+          tester.getSemantics(tryAgainFinder).hasFlag(SemanticsFlag.isButton),
           isTrue,
         );
 
-        final declineFinder = find.bySemanticsLabel(
-          "None of these — I'll decide later",
-        );
+        final declineFinder = find.bySemanticsLabel("I'll decide later");
         expect(declineFinder, findsOneWidget);
         expect(
           tester.getSemantics(declineFinder).hasFlag(SemanticsFlag.isButton),
@@ -719,13 +719,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        for (final label in [
-          'حنفي',
-          'مالكي',
-          'شافعي',
-          'حنبلي',
-          'لا أعرف مذهبي',
-        ]) {
+        for (final label in ['حنفي', 'مالكي', 'شافعي', 'حنبلي', 'لا أعرف']) {
           final finder = bySemanticsLabelStartingWith(label);
           expect(
             finder,
@@ -778,9 +772,19 @@ void main() {
         isFalse,
       );
 
-      // Change the selection to "I don't know" — the selected flag
-      // must move with it, never stay stuck on the old choice.
+      // Change the selection to "I don't know" — a genuine change away
+      // from an existing SELECTED madhhab, so Requirement 2's warning
+      // dialog fires first; confirming it is what actually persists the
+      // change. The selected flag must then move with it, never stay
+      // stuck on the old choice.
       await tester.tap(unknownFinder);
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Confirm change'),
+        findsOneWidget,
+        reason: 'changing an existing Madhhab selection must warn first',
+      );
+      await tester.tap(find.text('Confirm change'));
       await tester.pumpAndSettle();
 
       expect(

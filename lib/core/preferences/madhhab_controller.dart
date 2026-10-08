@@ -114,23 +114,55 @@ class MadhhabController extends ChangeNotifier {
   /// explicit suggestion-confirmation ("yes, use this"), or Settings'
   /// change-Madhhab flow. Always replaces whatever state existed before,
   /// and is never inferred from a geographic suggestion without this
-  /// explicit call.
-  Future<void> selectMadhhab(Madhhab value) async {
+  /// explicit call. [source] is audit metadata only (e.g. 'onboarding',
+  /// 'settings_direct', 'resolution_guided') — no behavior depends on it.
+  ///
+  /// No-op guard (adversarial review, 2026-10-07): re-selecting the
+  /// madhhab that is already SELECTED is not a change — it must not
+  /// write a redundant `madhhab_history` row, notify listeners, or
+  /// trigger any dependent recomputation. This guard lives here, not
+  /// only in `setMadhhabWithConfirmation`, because onboarding calls this
+  /// method directly without going through that function at all.
+  Future<void> selectMadhhab(
+    Madhhab value, {
+    String source = 'unspecified',
+  }) async {
+    if (_state == MadhhabSelectionState.selected && _selected == value) {
+      return;
+    }
+    final previousState = _state;
+    final previousValue = _selected;
     _state = MadhhabSelectionState.selected;
     _selected = value;
     notifyListeners();
     await _persist();
+    await _recordHistory(
+      previousState: previousState,
+      previousValue: previousValue,
+      source: source,
+    );
   }
 
   /// Explicit "I don't know my Madhhab." A first-class, durable state —
   /// never represented as any specific madhhab, and never silently
   /// re-asked merely because local storage was lost (see
   /// `_tryReadServerRow`, which restores this exact state from the server).
-  Future<void> selectUnknown() async {
+  /// Same no-op guard as [selectMadhhab] — see its doc comment.
+  Future<void> selectUnknown({String source = 'unspecified'}) async {
+    if (_state == MadhhabSelectionState.unknown) {
+      return;
+    }
+    final previousState = _state;
+    final previousValue = _selected;
     _state = MadhhabSelectionState.unknown;
     _selected = null;
     notifyListeners();
     await _persist();
+    await _recordHistory(
+      previousState: previousState,
+      previousValue: previousValue,
+      source: source,
+    );
   }
 
   /// Clears in-memory state only (not the local cache, which belongs to
@@ -231,6 +263,36 @@ class MadhhabController extends ChangeNotifier {
           .eq('id', userId);
     } catch (_) {
       // See doc comment above.
+    }
+  }
+
+  /// Appends one row to `madhhab_history` for every transition, regardless
+  /// of whether it was a "real" change requiring the Requirement 2 warning
+  /// dialog (that decision lives in `setMadhhabWithConfirmation`, not
+  /// here) — this method's only job is a complete, honest audit trail.
+  /// Never touches `cycle_entries`/any raw observation table. Best-effort,
+  /// fire-and-forget, same as [_writeServerRow]: a failed audit write must
+  /// never block the user's actual selection from taking effect.
+  Future<void> _recordHistory({
+    required MadhhabSelectionState previousState,
+    Madhhab? previousValue,
+    required String source,
+  }) async {
+    final client = NiswahSupabase.clientOrNull;
+    final userId = client?.auth.currentUser?.id;
+    if (client == null || userId == null) return;
+    try {
+      await client.from('madhhab_history').insert({
+        'user_id': userId,
+        'previous_selection_state': previousState.name,
+        'previous_madhhab': previousValue?.name,
+        'new_selection_state': _state.name,
+        'new_madhhab': _selected?.name,
+        'ruleset_version': MadhhabRuleEvaluator.rulesetVersion,
+        'source': source,
+      });
+    } catch (_) {
+      // See _writeServerRow's doc comment — never blocks the selection.
     }
   }
 }

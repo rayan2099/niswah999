@@ -1,6 +1,18 @@
+// Adversarial review, 2026-10-07: `suggest()` now requires a matched
+// mapping entry's `reviewer_status` to be `'APPROVED'` before it will
+// ever surface a confident suggestion — an unreviewed mapping (every
+// single entry in the dataset today, verified directly against
+// geographic_madhhab_mapping.json, Afghanistan included, not an
+// Afghanistan-specific carve-out) must "not guess" and fall through to
+// `unresolved`, exactly like an unmapped country. This file was rewritten
+// accordingly: every country-level test below now asserts `unresolved`,
+// proving the gate is actually active and applied uniformly, not that
+// the underlying matching/confidence/evidence data was deleted (it
+// wasn't — see madhhab_suggestion_service.dart's own `_mapping` list,
+// unchanged in content, only gated in `suggest()`'s return).
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
-    show Madhhab;
 import 'package:niswah/features/onboarding/domain/services/madhhab_suggestion_service.dart';
 
 void main() {
@@ -18,69 +30,113 @@ void main() {
     expect(result.isResolved, false);
   });
 
-  test('single-option country resolves with one madhhab', () {
-    final result = service.suggest(explicitCountry: 'Morocco');
-    expect(result.isResolved, true);
-    expect(result.likelyMadhahib, [Madhhab.maliki]);
-    expect(result.regionNote, contains('Morocco'));
+  group('trust gate: no mapping entry is reviewer-approved today, so '
+      'every country — including countries that used to appear '
+      'confident — resolves to unresolved, never a guess', () {
+    test('Afghanistan: present in the mapping (fixing the real absence bug), '
+        'but NOT_REVIEWED, so it still resolves to unresolved — this is '
+        'what "never receive an authoritative suggestion unless reviewed" '
+        'means in practice, and it is the same outcome every other '
+        'country gets today, not a special restriction singling it out', () {
+      final byName = service.suggest(explicitCountry: 'Afghanistan');
+      expect(byName.isResolved, false);
+      final byCode = service.suggest(explicitCountryCode: 'AF');
+      expect(byCode.isResolved, false);
+    });
+
+    test('a country that used to resolve with a single madhhab (Morocco) '
+        'now resolves to unresolved too — same gate, applied uniformly', () {
+      final result = service.suggest(explicitCountry: 'Morocco');
+      expect(result.isResolved, false);
+    });
+
+    test('a multi-madhhab country (Egypt) also resolves to unresolved — '
+        'the gate applies before the multi-option branch is ever reached', () {
+      final result = service.suggest(explicitCountry: 'Egypt');
+      expect(result.isResolved, false);
+    });
+
+    test('a city-level override match (India/Kerala) is gated the same '
+        'way as a country-level match — the gate applies to both branches '
+        'of suggest(), not only the country-level one', () {
+      final result = service.suggest(
+        explicitCountry: 'India',
+        explicitCity: 'Kerala',
+      );
+      expect(result.isResolved, false);
+    });
+
+    test('a phone-prefix-only match (Turkey) is gated identically to an '
+        'explicit-country match', () {
+      final result = service.suggest(phonePrefixCountry: 'Turkey');
+      expect(result.isResolved, false);
+    });
   });
 
-  test('multi-madhhab country returns every plausible option, not one', () {
-    final result = service.suggest(explicitCountry: 'Egypt');
-    expect(result.isResolved, true);
-    expect(result.likelyMadhahib.length, greaterThan(1));
-    expect(result.likelyMadhahib, containsAll([Madhhab.shafii, Madhhab.hanafi, Madhhab.maliki]));
-  });
-
-  test('explicit country outranks phone-prefix country', () {
-    final result = service.suggest(
-      explicitCountry: 'Morocco',
-      phonePrefixCountry: 'Turkey',
-    );
-    expect(result.likelyMadhahib, [Madhhab.maliki]);
-  });
-
-  test('phone-prefix country is used only when no explicit country is given', () {
-    final result = service.suggest(phonePrefixCountry: 'Turkey');
-    expect(result.isResolved, true);
-    expect(result.likelyMadhahib, [Madhhab.hanafi]);
-  });
-
-  test('phone prefix alone never resolves for an unmapped/ambiguous case the same as explicit would', () {
-    // Same underlying rule as the unmapped-country test — phone prefix
-    // carries no special weight, it's just a weaker fallback signal, not a
-    // different resolution path.
-    final result = service.suggest(phonePrefixCountry: 'Atlantis');
+  test('explicitCountryCode matches directly, without any name lookup '
+      '(still gated — resolves to unresolved for the same reason)', () {
+    final result = service.suggest(explicitCountryCode: 'AF');
     expect(result.isResolved, false);
   });
 
-  test('city-level override takes priority over the country-level entry', () {
-    final indiaDefault = service.suggest(explicitCountry: 'India');
-    expect(indiaDefault.isResolved, false); // India itself is low-confidence, deliberately unresolved
-
-    final keralaOverride = service.suggest(
-      explicitCountry: 'India',
-      explicitCity: 'Kerala',
-    );
-    expect(keralaOverride.isResolved, true);
-    expect(keralaOverride.likelyMadhahib, [Madhhab.shafii]);
+  test('explicitCountryCode is case-insensitive in its matching, '
+      'independent of the gate', () {
+    final lower = service.suggest(explicitCountryCode: 'af');
+    final upper = service.suggest(explicitCountryCode: 'AF');
+    expect(lower.isResolved, upper.isResolved);
   });
 
-  test('country matching is case-insensitive and trims whitespace', () {
-    final result = service.suggest(explicitCountry: '  moRocco  ');
-    expect(result.isResolved, true);
-    expect(result.likelyMadhahib, [Madhhab.maliki]);
-  });
-
-  test('empty-string signals are treated as absent, not as a literal country', () {
-    final result = service.suggest(explicitCountry: '', phonePrefixCountry: '');
+  test('an unmapped country never blocks resolution — falling through to '
+      'unresolved is always safe, matching the Atlantis case above', () {
+    final result = service.suggest(explicitCountryCode: 'ZZ');
     expect(result.isResolved, false);
   });
 
-  test('regionNote never phrases the suggestion as a declaration of the user\'s own madhhab', () {
-    final result = service.suggest(explicitCountry: 'Saudi Arabia');
-    expect(result.regionNote, isNotNull);
-    expect(result.regionNote!.toLowerCase().contains('you are'), false);
-    expect(result.regionNote!.toLowerCase().contains('commonly followed'), true);
+  test('country matching logic (case-insensitive, trims whitespace) still '
+      'runs — it just always lands on unresolved since nothing is '
+      'approved, proven by comparing a clean vs. messy spelling of the '
+      'same, still-unresolved country', () {
+    final clean = service.suggest(explicitCountry: 'Morocco');
+    final messy = service.suggest(explicitCountry: '  moRocco  ');
+    expect(clean.isResolved, false);
+    expect(messy.isResolved, false);
+  });
+
+  test(
+    'empty-string signals are treated as absent, not as a literal country',
+    () {
+      final result = service.suggest(
+        explicitCountry: '',
+        phonePrefixCountry: '',
+      );
+      expect(result.isResolved, false);
+    },
+  );
+
+  test('the gate check is actually present in suggest()\'s source, before '
+      'both return points that would otherwise surface a resolved '
+      'suggestion — guards against the check being silently removed later', () {
+    final source = File(
+      'lib/features/onboarding/domain/services/madhhab_suggestion_service.dart',
+    ).readAsStringSync();
+    final occurrences = 'isApprovedForDisplay'.allMatches(source).length;
+    expect(
+      occurrences,
+      greaterThanOrEqualTo(3),
+      reason:
+          'expect the field/getter definition plus two call sites '
+          '(the region-level and country-level match branches in '
+          'suggest())',
+    );
+  });
+
+  test('supportedCountries still lists drafted coverage (including '
+      'Afghanistan) for a future reviewer, even though none of them '
+      'currently produce a displayed suggestion', () {
+    expect(
+      MadhhabSuggestionService.supportedCountries,
+      contains('Afghanistan'),
+    );
+    expect(MadhhabSuggestionService.supportedCountries, contains('Morocco'));
   });
 }

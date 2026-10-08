@@ -183,8 +183,18 @@ void main() {
 
   group('Guided selection (Sections 4-13)', () {
     testWidgets(
-      'single-candidate country (Saudi Arabia -> Hanbali): suggestion alone '
-      'does not persist; explicit confirmation does',
+      // Adversarial review, 2026-10-07: Saudi Arabia used to be a
+      // single-candidate (Hanbali) confident match. It is now gated
+      // behind reviewer_status == 'APPROVED' (madhhab_suggestion_service
+      // .dart), which no entry in the dataset has — so it now lands on
+      // the same "insufficient" manual-picker path as an unmapped
+      // country, exactly as the trust rule requires: an unreviewed
+      // mapping is never presented as a normal recommendation, and
+      // manual selection (via the shared MadhhabSelector) always stays
+      // reachable, onboarding/resolution never blocked.
+      'a country the dataset covers but has not been reviewer-approved '
+      '(Saudi Arabia) falls through to the manual picker, not a '
+      'confident suggestion',
       (tester) async {
         await MadhhabController.instance.load();
         await _openResolver(tester);
@@ -195,17 +205,24 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(ListTile, 'Saudi Arabia'));
         await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Saudi Arabia');
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(ListTile, 'Saudi Arabia'));
+        await tester.pumpAndSettle();
 
         expect(
-          find.textContaining('Hanbali school may be closest'),
+          find.textContaining("isn't enough for a confident"),
           findsOneWidget,
         );
         expect(
           MadhhabController.instance.state,
           isNot(MadhhabSelectionState.selected),
-          reason: 'a displayed suggestion must never itself persist',
         );
 
+        await tester.tap(find.text('Choose manually'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Hanbali'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Yes, use Hanbali'));
         await tester.pumpAndSettle();
 
@@ -216,14 +233,20 @@ void main() {
         expect(MadhhabController.instance.selectedOrNull, Madhhab.hanbali);
         expect(
           MadhhabResolutionScreen.lastConfirmedSelectionSource,
-          'suggested_confirmed',
-          reason: 'an explicitly-confirmed suggestion must be tagged suggested_confirmed, never direct',
+          'direct',
+          reason:
+              'a manual pick from the fallback picker is "direct", never '
+              '"suggested_confirmed" — no suggestion was ever actually '
+              'shown for her to confirm',
         );
       },
     );
 
     testWidgets(
-      'multi-candidate country (Egypt): shown as options, none auto-selected',
+      // Egypt used to be a multi-candidate confident match (Shafi'i/
+      // Hanafi/Maliki) — same gate, same reasoning as Saudi Arabia above.
+      'a country that would have been multi-candidate (Egypt) also falls '
+      'through to the manual picker, not a pre-filtered options list',
       (tester) async {
         await MadhhabController.instance.load();
         await _openResolver(tester);
@@ -234,27 +257,29 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(ListTile, 'Egypt'));
         await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Egypt');
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(ListTile, 'Egypt'));
+        await tester.pumpAndSettle();
 
         expect(
-          find.text(
-            'More than one school is common in the environment you described.',
-          ),
+          find.textContaining("isn't enough for a confident"),
           findsOneWidget,
         );
         expect(
           MadhhabController.instance.state,
           isNot(MadhhabSelectionState.selected),
-          reason: 'multiple candidates must never auto-select a winner',
         );
 
+        await tester.tap(find.text('Choose manually'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Maliki'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Yes, use Maliki'));
         await tester.pumpAndSettle();
 
         expect(MadhhabController.instance.selectedOrNull, Madhhab.maliki);
-        expect(
-          MadhhabResolutionScreen.lastConfirmedSelectionSource,
-          'suggested_confirmed',
-        );
+        expect(MadhhabResolutionScreen.lastConfirmedSelectionSource, 'direct');
       },
     );
 
@@ -312,8 +337,15 @@ void main() {
     });
 
     testWidgets(
-      'conflicting signals: upbringing (unresolved) then family (Egypt) — '
-      'family signal used only because upbringing did not resolve',
+      // Egypt is no longer a useful "the family signal resolved"
+      // fixture post-gate (it's gated too, same as every entry) — the
+      // signal-hierarchy logic itself (try upbringing, fall back to
+      // family) is still exercised and still verifiably reached for
+      // both questions; the end state is now uniformly "insufficient",
+      // matching the trust rule applied consistently.
+      'conflicting signals: upbringing (Canada, unmapped) then family '
+      '(Egypt, mapped but unreviewed) — both questions are genuinely '
+      'asked and both still land on "insufficient", never a guess',
       (tester) async {
         await MadhhabController.instance.load();
         await _openResolver(tester);
@@ -330,14 +362,15 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.text(
-            'More than one school is common in the environment you described.',
-          ),
+          find.textContaining("isn't enough for a confident"),
           findsOneWidget,
           reason:
-              "Egypt's own multi-candidate result must surface once "
-              'Canada (upbringing) failed to resolve',
+              'both the upbringing (Canada) and family (Egypt) signals '
+              'were consulted — confirmed by this screen actually asking '
+              'both questions in sequence above — and neither produces a '
+              'displayed suggestion',
         );
+        expect(MadhhabController.instance.selectedOrNull, isNull);
       },
     );
 

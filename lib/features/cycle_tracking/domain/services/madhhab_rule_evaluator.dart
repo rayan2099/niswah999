@@ -48,6 +48,44 @@ class MadhhabRuleResult {
 class MadhhabRuleEvaluator {
   const MadhhabRuleEvaluator();
 
+  /// The canonical version identifier for this engine's rule *values*
+  /// (the durations below — not the surrounding Dart code structure).
+  /// Mirrors `fiqh_source_registry.json`'s own `_meta.generated` date,
+  /// since that registry and these values were produced together in the
+  /// same Source Governance wave.
+  ///
+  /// Written explicitly into every `madhhab_history` row by
+  /// `MadhhabController._recordHistory` — never left to a SQL column
+  /// default — specifically so a future change to the values below is
+  /// structurally forced to also bump this constant (adversarial review,
+  /// 2026-10-07: an earlier draft only had this version living in the
+  /// migration's `DEFAULT` clause, which nothing in this file ever wrote
+  /// explicitly, making it cosmetic — a real ruleset change would have
+  /// silently kept writing the old, now-wrong version string forever).
+  /// This is what lets a future reader of `madhhab_history` distinguish
+  /// "the user changed Madhhab" (new row, same `ruleset_version`) from
+  /// "the same Madhhab now means something different" (new row, new
+  /// `ruleset_version`, same `new_madhhab` as some prior row).
+  static const String rulesetVersion = 'v1-2026-09-09';
+
+  /// The minimum duration of bleeding each madhhab recognizes as Haid.
+  /// Extracted as a named constant (rather than inlined in [evaluate])
+  /// so UI copy describing each madhhab (e.g. [MadhhabSelector]) derives
+  /// from the exact same value the engine itself uses, instead of a
+  /// separately hand-typed number that could silently drift from it.
+  static Duration minimumHaidFor(Madhhab madhhab) => switch (madhhab) {
+    Madhhab.hanafi => const Duration(hours: 72),
+    Madhhab.shafii ||
+    Madhhab.hanbali ||
+    Madhhab.maliki => const Duration(hours: 24),
+  };
+
+  /// The maximum duration of bleeding each madhhab recognizes as Haid.
+  /// See [minimumHaidFor] for why this is a named, reusable constant.
+  static Duration maximumHaidFor(Madhhab madhhab) => madhhab == Madhhab.hanafi
+      ? const Duration(hours: 240)
+      : const Duration(days: 15);
+
   MadhhabRuleResult evaluate({
     required Madhhab madhhab,
     required bool hasSufficientHistory,
@@ -56,14 +94,8 @@ class MadhhabRuleEvaluator {
     Duration? purityBefore,
     Duration? personalHabit,
   }) {
-    final minimum = switch (madhhab) {
-      Madhhab.hanafi => const Duration(hours: 72),
-      Madhhab.shafii || Madhhab.hanbali => const Duration(hours: 24),
-      Madhhab.maliki => const Duration(hours: 24),
-    };
-    final maximum = madhhab == Madhhab.hanafi
-        ? const Duration(hours: 240)
-        : const Duration(days: 15);
+    final minimum = minimumHaidFor(madhhab);
+    final maximum = maximumHaidFor(madhhab);
     const minimumPurity = Duration(days: 15);
 
     final FiqhCycleState state;
