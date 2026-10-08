@@ -1,0 +1,7 @@
+review_stream,domain,scope,items,status,reviewer_name,reviewer_qualification,contact_or_reference,date_sent,target_date,date_completed,notes
+MEDICAL_GENERAL,HEALTH,"59 Health atoms",59,UNASSIGNED,,,,,,,
+MEDICAL_SAFETY,SAFETY_ESCALATION,"15 Safety/Escalation atoms",15,UNASSIGNED,,,,,,,
+FIQH_HANAFI,FIQH,"45 Hanafi atoms",45,UNASSIGNED,,,,,,,
+FIQH_MALIKI,FIQH,"45 Maliki atoms",45,UNASSIGNED,,,,,,,
+FIQH_SHAFII,FIQH,"45 Shafi'i atoms",45,UNASSIGNED,,,,,,,
+FIQH_HANBALI,FIQH,"45 Hanbali atoms",45,UNASSIGNED,,,,,,,

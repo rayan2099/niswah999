@@ -95,7 +95,7 @@ jobs:
           flutter test $(find test -name '*_test.dart' -not -name 'parity_*.dart')
 
   build-android:
-    name: Build signed Android release APK
+    name: Build signed Android release APK + AAB
     runs-on: ubuntu-latest
     needs: analyze-and-test
     steps:
@@ -144,32 +144,44 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 --decode > android/app/niswah-release.jks
           printf '%s' "$KEY_PROPERTIES_CONTENTS" > android/key.properties
 
-      - name: Build signed release APK
+      - name: Build signed release APK and Play Store AAB
         run: |
           flutter build apk --release \
             --dart-define=APP_ENV=${{ inputs.app_env }} \
             --build-number=${{ needs.analyze-and-test.outputs.build_number }}
+          flutter build appbundle --release \
+            --dart-define=APP_ENV=${{ inputs.app_env }} \
+            --build-number=${{ needs.analyze-and-test.outputs.build_number }}
 
-      - name: Verify signing certificate is the real release cert, not debug
+      - name: Verify APK signing certificate is the real release cert, not debug
         run: |
           BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
-          "$BUILD_TOOLS_DIR/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee signing-verification.txt
-          if ! grep -q "CN=Niswah" signing-verification.txt; then
-            echo "::error::Built artifact is NOT signed with the real Niswah release certificate. Refusing to publish as an artifact."
+          "$BUILD_TOOLS_DIR/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee apk-signing-verification.txt
+          if ! grep -q "CN=Niswah" apk-signing-verification.txt; then
+            echo "::error::Built APK is NOT signed with the real Niswah release certificate. Refusing to publish artifacts."
             exit 1
           fi
 
-      - name: Compute checksum and generate manifest
+      - name: Verify AAB signing certificate is the real release cert, not debug
+        run: |
+          keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab | tee aab-signing-verification.txt
+          if ! grep -q "CN=Niswah" aab-signing-verification.txt; then
+            echo "::error::Built AAB is NOT signed with the real Niswah release certificate. Refusing to publish artifacts."
+            exit 1
+          fi
+
+      - name: Compute checksum and generate manifest for the store artifact
         run: |
           chmod +x scripts/generate_release_manifest.sh
-          ./scripts/generate_release_manifest.sh build/app/outputs/flutter-apk/app-release.apk ${{ inputs.app_env }} ${{ needs.analyze-and-test.outputs.build_number }}
+          ./scripts/generate_release_manifest.sh build/app/outputs/bundle/release/app-release.aab ${{ inputs.app_env }} ${{ needs.analyze-and-test.outputs.build_number }}
 
-      - name: Upload signed Android artifact (retained per GitHub Actions default retention)
+      - name: Upload signed Android artifacts (retained per GitHub Actions default retention)
         uses: actions/upload-artifact@v4
         with:
           name: routine-release-android-${{ github.sha }}-build${{ needs.analyze-and-test.outputs.build_number }}
           path: |
             build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
             release-manifest_*.json
           retention-days: 90
 

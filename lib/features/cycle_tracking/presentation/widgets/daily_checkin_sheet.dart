@@ -96,6 +96,12 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       _errorMessage = null;
     });
 
+    // Commit H — concurrent account-switch closure: captured once, up
+    // front, and threaded through every PendingBleedingOperationStore
+    // call below so a session change during the awaited RPC can never
+    // redirect savePending/clearPending to a different account's bucket.
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+
     final now = AppClock.now();
     final timezone = await DeviceTimezone.currentId();
     final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
@@ -120,6 +126,7 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
         },
         createdAt: now,
       ),
+      userId: userId,
     );
 
     final repository = BleedingEpisodeRepositoryImpl();
@@ -149,7 +156,10 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       return;
     }
 
-    await PendingBleedingOperationStore.clearPending(_clientOperationId);
+    await PendingBleedingOperationStore.clearPending(
+      _clientOperationId,
+      userId: userId,
+    );
 
     // Best-effort mirror into the legacy read model — see the Start/End
     // sheets' own identical note (Blocker 12, Commit F closes this gap).
@@ -181,6 +191,12 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       _errorMessage = null;
     });
 
+    // Commit H — concurrent account-switch closure: captured once, up
+    // front, and threaded through every PendingBleedingOperationStore
+    // call below so a session change during the awaited RPC can never
+    // redirect savePending/clearPending to a different account's bucket.
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+
     final now = AppClock.now();
     final timezone = await DeviceTimezone.currentId();
     final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
@@ -199,6 +215,7 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
         },
         createdAt: now,
       ),
+      userId: userId,
     );
 
     final repository = BleedingEpisodeRepositoryImpl();
@@ -226,7 +243,10 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       return;
     }
 
-    await PendingBleedingOperationStore.clearPending(_clientOperationId);
+    await PendingBleedingOperationStore.clearPending(
+      _clientOperationId,
+      userId: userId,
+    );
     try {
       final observations =
           (await repository.getObservationsForEpisode(widget.episodeId))
@@ -540,6 +560,12 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
       _errorMessage = null;
     });
 
+    // Commit H — concurrent account-switch closure: captured once, up
+    // front, and threaded through every PendingBleedingOperationStore
+    // call below so a session change during the awaited RPC can never
+    // redirect savePending/clearPending to a different account's bucket.
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+
     final now = AppClock.now();
     final timezone = await DeviceTimezone.currentId();
     final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
@@ -558,6 +584,7 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
         },
         createdAt: now,
       ),
+      userId: userId,
     );
 
     final repository = BleedingEpisodeRepositoryImpl();
@@ -585,7 +612,10 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
       return;
     }
 
-    await PendingBleedingOperationStore.clearPending(_clientOperationId);
+    await PendingBleedingOperationStore.clearPending(
+      _clientOperationId,
+      userId: userId,
+    );
     try {
       final observations =
           (await repository.getObservationsForEpisode(widget.episodeId))

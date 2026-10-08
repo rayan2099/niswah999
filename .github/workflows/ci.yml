@@ -198,3 +198,70 @@ jobs:
         run: |
           chmod +x scripts/validate_migrations.sh
           ./scripts/validate_migrations.sh
+
+  validate-local-bootstrap:
+    name: Validate local dev bootstrap reproducibility (scripts/bootstrap_local_dev.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Confirm Docker is available
+        run: docker info
+
+      # Local reproducibility pass, 2026-10-01: scripts/bootstrap_local_dev.sh
+      # is the script a developer runs locally to get a working, persistent
+      # dev environment (distinct from scripts/validate_migrations.sh above,
+      # which always tears its stack down after validating — this one does
+      # not, since its purpose is handing back an environment to keep
+      # developing against). A local Docker Desktop failure during
+      # development prevented a full live end-to-end run on that machine;
+      # this job runs the real, unmodified script on a clean, disposable
+      # runner instead of leaving that unverified or relying on a mock.
+      - name: Run local dev bootstrap
+        run: |
+          chmod +x scripts/bootstrap_local_dev.sh
+          ./scripts/bootstrap_local_dev.sh
+
+      # Reuses the same schema-contract script validate-migrations runs
+      # (extended with a Knowledge Base section, see that file) rather than
+      # a second, bootstrap-specific contract — proves baseline tables,
+      # the full KB schema, and the snapshot/retrieval functions all exist,
+      # and that retrieve_knowledge_v1 is actually callable post-rebuild
+      # (checklist items 6–10: representative baseline tables, KB schema,
+      # snapshot/retrieval functions, a usable environment).
+      - name: Verify schema contract (baseline + migrations + KB schema)
+        run: |
+          CONTRACT_OUTPUT="$(docker exec supabase_db_Niswah psql -U postgres -v ON_ERROR_STOP=1 -f - < scripts/verify_schema_contract.sql)"
+          echo "$CONTRACT_OUTPUT"
+          if echo "$CONTRACT_OUTPUT" | grep -q "FAIL"; then
+            echo "==> SCHEMA CONTRACT FAILED — see FAIL rows above"
+            exit 1
+          fi
+          echo "==> Schema contract: all checks passed"
+
+      - name: Clean up (checklist item 11)
+        if: always()
+        run: supabase stop --no-backup || true
+
+  validate-secret-redaction:
+    name: Validate Supabase Management API secret-redaction path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Regression guard added 2026-10-02 after a real incident: an
+      # insufficient sed-based redaction attempt left most of two legacy
+      # Supabase API keys exposed in plaintext tool output. Exercises
+      # scripts/lib/supabase_management_api.py against synthetic fixture
+      # secrets (never real credentials) and asserts no secret value, or
+      # any contiguous fragment of one, ever reaches stdout/stderr.
+      - name: Run secret-redaction regression tests
+        run: python -m unittest scripts.test_secret_redaction -v

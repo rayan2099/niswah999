@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/utils/device_timezone.dart';
@@ -94,6 +95,12 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
       _conflictWith = null;
     });
 
+    // Commit H — concurrent account-switch closure: captured once, up
+    // front, and threaded through every PendingBleedingOperationStore
+    // call below so a session change during the awaited RPC can never
+    // redirect savePending/clearPending to a different account's bucket.
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+
     final now = AppClock.now();
     final timezone = await DeviceTimezone.currentId();
     final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
@@ -117,6 +124,7 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
         },
         createdAt: now,
       ),
+      userId: userId,
     );
 
     try {
@@ -144,7 +152,10 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
         return;
       }
 
-      await PendingBleedingOperationStore.clearPending(_clientOperationId);
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
 
       // Acceptance-test finding (cross-screen consistency) — a correction
       // is the one write path in this file that never mirrored into the
@@ -236,7 +247,10 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
   }
 
   Future<void> _resolveStaleThenSubmit(String staleOperationId) async {
-    await PendingBleedingOperationStore.clearPending(staleOperationId);
+    await PendingBleedingOperationStore.clearPending(
+      staleOperationId,
+      userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
+    );
     await _submit();
   }
 
@@ -246,7 +260,10 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
     // postponed — its pending operation must be cleared now, or
     // reconciliation would keep retrying (and keep re-conflicting on) an
     // attempt she has already chosen not to pursue.
-    await PendingBleedingOperationStore.clearPending(_clientOperationId);
+    await PendingBleedingOperationStore.clearPending(
+      _clientOperationId,
+      userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
+    );
     if (!mounted) return;
     Navigator.of(context).pop(false);
   }

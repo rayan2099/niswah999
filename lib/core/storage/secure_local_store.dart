@@ -67,11 +67,20 @@ class SecureLocalStore {
   static String _scopedKey(String category, String userId) =>
       '${category}__$userId';
 
-  static Future<String?> read(String category) =>
-      _secureStorage.read(key: _scopedKey(category, currentUserId()));
+  /// [userId] overrides the ambient [currentUserId] — callers that
+  /// captured an operation's owner up front (see
+  /// [PendingBleedingOperationStore]'s own `userId` parameters) pass it
+  /// explicitly so a session change that happens *during* an awaited call
+  /// in between can never redirect the read/write to whoever is signed in
+  /// by the time this actually runs.
+  static Future<String?> read(String category, {String? userId}) =>
+      _secureStorage.read(key: _scopedKey(category, userId ?? currentUserId()));
 
-  static Future<void> write(String category, String value) => _secureStorage
-      .write(key: _scopedKey(category, currentUserId()), value: value);
+  static Future<void> write(String category, String value, {String? userId}) =>
+      _secureStorage.write(
+        key: _scopedKey(category, userId ?? currentUserId()),
+        value: value,
+      );
 
   static Future<void> delete(String category) =>
       _secureStorage.delete(key: _scopedKey(category, currentUserId()));

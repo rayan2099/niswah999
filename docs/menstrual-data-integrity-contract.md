@@ -1266,3 +1266,308 @@ picked up correctly (only a same-process day-boundary simulation is
 exercised here).
 
 All changes on this same branch, PR #4, still **draft and unmerged**.
+
+## 14. Migration rollback/recovery note (PR #4 schema), 2026-10-07
+
+This section does not replace the app-level
+`production-readiness-results/release-deployment/RD_release_rollback_runbook.md`
+or `production-readiness-results/backup-recovery/BR_recovery_runbook.md` —
+both already cover rolling back a release build and restoring a
+production backup, and both are independently `VERIFIED_CLOSED` with real
+evidence (§9 above). This section is narrower: what happens specifically
+to *this charter's own schema* (the 12 migrations listed below) if the
+*application* is rolled back to a pre-PR#4 build after the schema has
+already been deployed.
+
+**Which migrations are additive.** All 12 of PR #4's migrations were
+re-audited directly against their SQL text for this note (grep for
+`DROP TABLE`, `DROP COLUMN`, `TRUNCATE`, `DELETE FROM`, `ALTER COLUMN`
+across every file): zero `DROP TABLE`/`DROP COLUMN`/`TRUNCATE` exist
+anywhere in the set. `20260917090000_bleeding_episode_model.sql` creates
+three wholly new tables (`bleeding_episodes`, `bleeding_observations`,
+`cycle_baselines`) plus one new nullable column on the pre-existing
+`cycle_entries` table (`data_provenance`, backfilled to a single
+deterministic value, `legacy_unverified` — see §5). The three RPC
+migrations (`start_bleeding_episode`, `end_bleeding_episode`,
+`correct_observation` + its later concurrency-serialization revision,
+`daily_observation_and_baseline_rpcs`) each define new
+`SECURITY DEFINER` functions — `CREATE OR REPLACE FUNCTION`, never a
+drop-and-recreate of anything pre-existing. `20260914120000_madhhab_authority_state.sql`
+only relaxes `public.users.madhhab` from `NOT NULL`/defaulted to
+nullable — strictly loosening, never destructive. The two `ai_rate_limit`-
+related migrations touch an unrelated table (rate-limit counters, not
+menstrual data) and their `DELETE FROM` statements are ordinary
+cascade-on-account-deletion cleanup triggers, not a backfill or bulk
+rewrite of existing rows.
+
+**Objects safe to leave in place during an application rollback.** Every
+new table and every new/loosened column above. None of them is read or
+written by any code path that exists outside this charter's own features
+— a pre-PR#4 build has no code that references `bleeding_episodes`,
+`bleeding_observations`, `cycle_baselines`, or `cycle_entries.data_provenance`
+at all, so their continued presence in the schema is inert to that older
+build: it simply never queries them. The pre-existing `cycle_entries`
+table and every column that predates this charter are untouched in
+shape, type, and existing row content — a rolled-back build keeps
+reading/writing exactly as it always did.
+
+**Down-migrations are intentionally not used.** This repository has no
+down-migration tooling anywhere (`supabase/migrations/` is a forward-only
+append log, matching every migration that predates this charter too) —
+consistent, not a gap introduced here. A schema rollback, if one were
+ever genuinely required, would mean writing and reviewing a new
+forward migration that reverses the specific change — never running an
+auto-generated inverse script unreviewed.
+
+**How to recover if an application rollback happens after this schema is
+already deployed.** No action is required for data safety: the additive
+objects simply sit idle and unreferenced until the app is rolled forward
+again, at which point they resume being read/written exactly as before —
+nothing about them is time-sensitive or decays while unused. If the
+rollback is intended to be long-lived (not just a brief emergency
+revert), the one operational cleanup worth considering — not required,
+and not performed here — would be reverting
+`20260914120000_madhhab_authority_state.sql`'s constraint loosening back
+to `NOT NULL`/defaulted, since a long-lived older build may not be aware
+`madhhab` can now be absent; this is a product/ops decision, not
+something this note prescribes, and is not a data-loss risk either way
+(a nullable column never rejects a write the stricter one would have
+accepted).
+
+**Why raw menstrual data remains preserved either way.** None of the 12
+migrations alters, narrows, or removes any pre-existing column, table,
+row, or constraint that any other feature (menstrual or otherwise) reads
+or writes — confirmed by the same audit above. The one pre-existing
+table this charter touches at all, `cycle_entries`, gains only a new
+nullable column; every row's pre-existing data is byte-for-byte
+unchanged (§5's "no destructive reclassification... the data is
+preserved exactly as-is" already established this for the application
+layer; this section confirms it holds at the schema/migration layer
+too, independently).
+
+## 15. Commit H denominator correction + F7/F8/Commit-H gap closure audit, 2026-10-07
+
+**The "60 named scenarios" denominator in `00_12_TRACEABILITY_MATRIX.md`'s
+Commit H row is withdrawn as an auditable claim.** An exhaustive git-
+history search (commit messages across every ref, deleted-file search,
+all 13 historical revisions of this document and of the traceability
+matrix, pickaxe search for the originating commit, dangling-commit/blob
+search via `git fsck`, and every PR/comment on this repository via `gh`)
+found no committed file, dangling object, or PR artifact anywhere that
+ever enumerated 60 items by name. The row's own citation —  "see the
+final PR #4 report's own 20-proof-chain breakdown for the item-by-item
+split" — points to a document that does not exist and, per the dated
+commit that introduced the row (`667e46a`, 2026-09-18), never existed:
+the citation was dangling from the moment it was written, not trimmed
+away later. "Sections 52–57," which every revision of this document
+cites as where "the charter" defines these matrices, likewise traces to
+an external document (almost certainly the original task prompt given to
+a prior agent session) that was never itself committed to this
+repository. The total count of distinct, genuinely named items
+recoverable from any committed source (the traceability-matrix row, PR
+#4's own live description, and the commit that later closed one of them)
+is **6**: three category labels (timezone/DST/leap-day; concurrent
+offline corrections; property/fuzz testing) plus five concrete named
+items. **The original 60-item denominator is not recoverable from any
+committed evidence in this repository — full stop.** This is not a
+partial reconstruction standing in for the original list: no attempt was
+made to invent, infer, or back-fill any of the ~54 unnamed items to
+round the list out. The 6 below are the entire, honest total of what is
+genuinely traceable to a committed source; nothing more is claimed to
+exist. **Going forward, "X of 60" must not be cited as an auditable
+figure** — `00_12_TRACEABILITY_MATRIX.md`'s Commit H row is updated
+alongside this entry to point here instead of to the nonexistent
+breakdown.
+
+**Of the five concrete named items, current status as of this entry**
+(re-verified directly against the branch tip, not restated from any
+prior wave's documentation, since §§9-13 above were written before
+several more weeks of commits landed):
+
+1. **Concurrent account-switch with an in-flight operation — CLOSED this
+   entry.** The pre-existing coverage (`test/pending_bleeding_operation_store_test.dart`'s
+   original "Commit H" group, `integration_test/pJ_account_switch_test.dart`,
+   `integration_test/pBatch15_account_switch_local_state_test.dart`) only
+   proved storage-key isolation between two accounts — never a genuinely
+   in-flight operation (savePending already committed, its RPC still
+   awaited) racing an account switch before completion. That gap was
+   real: `SecureLocalStore.write`/`.read` resolved the scoping user id
+   from whichever session is *ambiently current at call time*, so if the
+   session changed between an operation's `savePending` and its later
+   `clearPending`, the clear would silently redirect to the new user's
+   bucket — the original user's entry was never actually cleared (though
+   harmless, since the RPC's own idempotent-replay would eventually
+   self-heal it on that user's next sign-in; still a real, avoidable
+   correctness gap, not merely a theoretical one). Fixed by threading an
+   explicit, caller-captured `userId` parameter through
+   `SecureLocalStore.read`/`.write` and every
+   `PendingBleedingOperationStore` method, with each of the three sheets
+   (`start_bleeding_sheet.dart`'s two flows, `daily_checkin_sheet.dart`'s
+   three flows, `correction_sheet.dart`) now capturing the signed-in user
+   id once, up front, and passing it through their own
+   savePending/clearPending pair explicitly — immune to an ambient
+   session change in between.
+   `reconcilePendingOperations` itself is deliberately left on ambient
+   "whoever is signed in now" semantics, which is the behavior it
+   actually wants. Four new tests added to
+   `test/pending_bleeding_operation_store_test.dart` prove: the race's
+   mechanism (without the fix, demonstrated directly); the fix surviving
+   an account switch between save and clear; an in-flight operation
+   structurally invisible under the other account at every point in its
+   lifecycle, not just after completion; and the failure path (no
+   clearPending call at all) correctly leaving the original user's entry
+   untouched, never touching the other account's.
+
+   **Adversarial-review follow-up, same day:** a dedicated audit of
+   *every* `SecureLocalStore`/`PendingBleedingOperationStore` call site in
+   the repository (not only the three sheets already fixed) found a
+   fourth genuine instance of the identical bug:
+   `onboarding_screen.dart`'s `_completeOnboarding()` ran the exact same
+   savePending -> await RPC -> clearPending sequence with no userId
+   threaded at all — missed entirely in the first pass. Fixed the same
+   way. A new source-inspection regression test,
+   `test/pending_operation_userid_threading_test.dart`, now scans all
+   four files (the three sheets plus this one) and fails if any
+   savePending/clearPending call is ever added — or edited — without a
+   `userId:` argument inside its own parentheses; confirmed to genuinely
+   catch the onboarding regression by reverting the fix and re-running it
+   before restoring it. A fifth test,
+   added to `test/pending_bleeding_operation_store_test.dart`, confirms
+   the fix also survives signing out entirely (not just switching to a
+   second account) between save and clear. Every other
+   `SecureLocalStore`/`PendingBleedingOperationStore` call site in the
+   repository (the two `local_*_data_source.dart` prayer/cycle caches,
+   `UserScopedPreferences`, `local_sensitive_data_cleanup.dart`'s
+   account-deletion path, and every genuinely ambient-correct "what's
+   pending for whoever is signed in right now" read) was individually
+   reviewed and confirmed to either already use explicit userId
+   correctly or to intentionally and correctly want ambient semantics —
+   none of the others share this bug's shape.
+2. **Malformed server row — CLOSED, previously undocumented.** An audit
+   against real production data sources during the persona-validation
+   wave (`production-readiness-results/persona-validation/TEST_EXECUTION_REPORT.md`,
+   `PERSONA_CATALOG.md` row I) found this is structurally impossible, not
+   merely untested: `CHECK` constraints on every enum column of both
+   `bleeding_episodes` and `bleeding_observations` reject a malformed row
+   before it can ever be written — a stronger guarantee than the original
+   gap assumed. The defensive application-level handling for this case
+   still exists (`canonical_bleeding_status_resolver.dart:169`) even
+   though it can no longer be triggered live. This closure happened
+   2026-09-22 to 09-26 — before this entry — and was never reflected in
+   `00_12_TRACEABILITY_MATRIX.md`; this entry is what closes that
+   documentation gap.
+3. **Real-device DST — PARTIALLY CLOSED.** Emulator-tier coverage is new
+   and substantial since §13 above: `integration_test/xZ_timezone_test.dart`
+   (PRAY-05) — a real Android-emulator device-timezone change + app
+   pause/resume, run 3/3 clean after 5 harness bugs were found and fixed
+   — closes the gap at that tier. The **real-hardware tier remains
+   genuinely open**: `production-readiness-results/persona-validation/E4_PHYSICAL_DEVICE_CHECKLIST.md`
+   row E4-05 stays **NOT EXECUTED — PHYSICAL DEVICE REQUIRED**. This
+   entry does not claim otherwise; only a founder/owner with real
+   hardware in hand can close it, per the checklist's own standing rule
+   that `E4` is never claimed without an owner actually running it.
+4. **Notification permission grant/deny — remains open, structurally
+   device-only.** `production-readiness-results/persona-validation/DEVICE_ONLY_GAPS.md`
+   confirms the iOS Simulator has no `simctl` service for this at all —
+   the first permission request raises a real, untappable system alert
+   that nothing in this environment can drive. `E4_PHYSICAL_DEVICE_CHECKLIST.md`
+   row E4-02 stays **NOT EXECUTED — PHYSICAL DEVICE REQUIRED**. (D-018,
+   a separate and already-closed fix, corrected the app's own *reading*
+   of permission state so a toggle can no longer lie about it — a real,
+   useful fix, but not a substitute for exercising the live OS dialog.)
+5. **Full end-to-end notification tap-through — a genuine, separate app
+   defect found and fixed this entry, independent of the live-device
+   timing gap.** The live-emulator persona attempt (REM-03,
+   `DEFECT_REGISTER.md`) reproduces FAIL 4/4, root-caused to Android's
+   own intentional inexact-alarm battery-saver deferral — by Android's
+   own design, not boundable inside a short automated test window, and
+   deliberately not "fixed" by switching to an exact alarm (that would
+   misrepresent what the real feature does in production). That
+   root-cause finding is independently re-confirmed here, not merely
+   restated. Investigating every other layer the gap could hide in
+   (payload, lifecycle, plugin init, tap-callback registration, cold-
+   vs-warm-start routing, manifest/OS-version specifics) surfaced a
+   real, separate, reproducible defect: `_consumeNotificationTap` in
+   `dashboard_screen.dart` decoded `decoded['userId']` (and
+   `episodeId`/`localDate`) via Dart's `as String?` cast, which throws a
+   `TypeError` — an uncaught crash — for any non-null, wrong-typed field
+   value (e.g. a corrupted payload, or schema drift from an old
+   notification still sitting in the shade), directly contradicting this
+   same function's own documented contract one line below ("a
+   malformed/foreign payload must never crash the dashboard"). Confirmed
+   by reverting the fix and re-running the new test, which throws `type
+   'int' is not a subtype of type 'String?' in type cast` exactly as
+   predicted, then confirmed fixed by restoring it. Fixed with a safe
+   `is String` check — the same pattern `NotificationService.pendingActiveBleedingReminders()`
+   already uses correctly for this exact payload shape. New/updated
+   test: `test/dashboard_notification_tap_stream_test.dart` gained a
+   case proving the warm-tap (already-mounted) path survives a
+   wrong-typed field — confirmed to genuinely catch the regression by
+   reverting the fix and observing it throw `type 'int' is not a
+   subtype of type 'String?' in type cast` exactly as predicted, then
+   confirmed fixed by restoring it. A dedicated cold-start-specific test
+   (mocking a non-null `getNotificationAppLaunchDetails` response, since
+   no test in this suite — including the `flutter_local_notifications`
+   package's own official test suite — exercises that API with a
+   non-null value) was attempted and dropped: it hung indefinitely in
+   this test environment for a reason not fully root-caused in the time
+   available, independent of anything in this fix. Shipping a hanging
+   test would be strictly worse than the gap it would have closed, so it
+   was removed rather than left in the suite.
+
+   **Structural proof the fix covers cold-start too, not just warm-tap**
+   (adversarial-review follow-up, same day — exact file/line references,
+   not an assumption): cold-start sets the identical state the warm path
+   does, and both are drained by the identical consumer.
+   `NotificationService.initialize()` — `lib/core/services/notification_service.dart`
+   — sets `_pendingTapPayload` from TWO places: the warm/background
+   callback, `onDidReceiveNotificationResponse` at line 138 (assignment
+   at line 141), and the cold-start recovery call,
+   `getNotificationAppLaunchDetails()` at line 151 (assignment at line
+   154) — same field, `_pendingTapPayload` (declared line 92). Both are
+   drained by the same method, `consumePendingTapPayload()` (lines
+   443-445). `DashboardScreen.initState()` —
+   `lib/features/dashboard/presentation/screens/dashboard_screen.dart`
+   — reaches that same drain from two call sites that both invoke the
+   identical private method: `addPostFrameCallback` at line 301-303
+   (the cold-start/terminated-launch consumer, run once on the
+   dashboard's first frame) and the live `onTap.listen` subscription at
+   line 309-311 (the warm/background consumer). Both call sites invoke
+   `_consumeNotificationTap()` (defined once, line 420) — there is no
+   second validation path, no cold-start-specific branch, nothing that
+   could diverge. The wrong-typed-field fix lives entirely inside that
+   one shared function, so it structurally cannot protect one path
+   without the other. Marked **PASS** (structurally proven, not
+   UNPROVEN) — dedicated *test* coverage for the cold-start entry point
+   specifically remains the disclosed gap above; the *code path* itself
+   is proven shared, which is a different and stronger claim than "the
+   warm-path test probably also covers it."
+
+   **Expanded field-safety matrix** (adversarial-review follow-up): the
+   original fix only directly addressed a wrong-typed `userId`. This
+   pass independently re-verified `episodeId` and `localDate` use the
+   identical safe `is String` pattern (confirmed already true, not a
+   new fix), and added 7 more cases to
+   `test/dashboard_notification_tap_stream_test.dart` proving none of
+   the following ever crashes the dashboard: `userId` missing entirely
+   (not just wrong-typed); `episodeId` missing entirely; `localDate`
+   missing entirely; `episodeId` wrong-typed; `localDate` wrong-typed;
+   an unknown/future payload carrying extra fields alongside the known
+   ones (ignored safely, as it structurally must be — this function
+   only ever reads 4 named keys); the top-level JSON being syntactically
+   valid but not an object at all (a bare list — covered by the
+   existing `jsonDecode(...) as Map<String, dynamic>` cast's own
+   try/catch, not a new code path); and the identical payload delivered
+   twice in a row (duplicate-tap redelivery), each delivery independently
+   validated from scratch with no state leaking between them. 13 tests
+   total in that file now, all passing. The live-device timing gap
+   (Android's inexact-alarm deferral) remains open and is not claimed
+   closed — `E4-01` is still the only real verification path for it, per
+   the existing disclosure in `DEFECT_REGISTER.md`.
+
+**Items 3 and 4 above stay explicitly `NOT EXECUTED — PHYSICAL DEVICE
+REQUIRED`** in `E4_PHYSICAL_DEVICE_CHECKLIST.md` — nothing in this entry
+changes that, and nothing in this entry should be read as claiming `E4`
+for either.
+
+All changes on this same branch, PR #4, still **draft and unmerged**.

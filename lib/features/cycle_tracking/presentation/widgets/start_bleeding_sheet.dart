@@ -114,8 +114,15 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
       _errorMessage = null;
     });
 
+    // Commit H — concurrent account-switch closure: captured once, up
+    // front (outside the try/catch below, so it's visible from the
+    // ActiveEpisodeAlreadyExistsException branch too), and threaded
+    // through every PendingBleedingOperationStore call so a session
+    // change during the awaited RPC can never redirect
+    // savePending/clearPending to a different account's bucket.
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+
     try {
-      final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
       if (userId == null) {
         throw StateError('Not signed in.');
       }
@@ -150,6 +157,7 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
           },
           createdAt: now,
         ),
+        userId: userId,
       );
 
       final result = await BleedingEpisodeRepositoryImpl().startEpisode(
@@ -161,7 +169,10 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
         timezone: timezone,
         utcOffsetMinutes: utcOffsetMinutes,
       );
-      await PendingBleedingOperationStore.clearPending(_clientOperationId);
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
 
       // Best-effort: the canonical episode/observation are already saved
       // at this point (Section 7's "prove what succeeded") — a projection
@@ -183,7 +194,10 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
       // a *different* operation genuinely holds the one-open-episode
       // slot — so leaving it pending would only make reconciliation
       // retry a call doomed to repeat this same conflict.
-      await PendingBleedingOperationStore.clearPending(_clientOperationId);
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
       if (!mounted) return;
       setState(() {
         _saving = false;
@@ -421,6 +435,12 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
       _errorMessage = null;
     });
 
+    // Commit H — concurrent account-switch closure: captured once, up
+    // front, and threaded through every PendingBleedingOperationStore
+    // call below so a session change during the awaited RPC can never
+    // redirect savePending/clearPending to a different account's bucket.
+    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+
     final now = AppClock.now();
     final timezone = await DeviceTimezone.currentId();
     final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
@@ -442,6 +462,7 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
         },
         createdAt: now,
       ),
+      userId: userId,
     );
 
     // Atomic: the episode's state transition and its closing (flow: none)
@@ -460,7 +481,10 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
     );
 
     if (result != null) {
-      await PendingBleedingOperationStore.clearPending(_clientOperationId);
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
       // Gives the still-in-use legacy CycleCalculationService/dashboard
       // engine (which reads cycle_entries, not this table) the "ended"
       // signal it needs via the same projection every other observation

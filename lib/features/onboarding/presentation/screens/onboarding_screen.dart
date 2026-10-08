@@ -719,6 +719,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             },
             createdAt: DateTime.now(),
           ),
+          userId: userId,
         );
 
         // PR #4 completion wave, Fix A: one atomic, idempotent RPC for
@@ -735,6 +736,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           );
           await PendingBleedingOperationStore.clearPending(
             _onboardingOperationId,
+            userId: userId,
           );
         } catch (_) {
           if (!mounted) return;

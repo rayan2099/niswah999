@@ -339,31 +339,34 @@ void main() {
       expect(viewModel.isSending, isFalse);
     });
 
-    test('a send failure is reported via AppErrorReporter, not silently '
-        'swallowed (RR-007)', () async {
-      final repository = FakePrivateMessagingRepository(failSends: true);
-      final viewModel = ChatDetailViewModel(
-        repository: repository,
-        conversationId: 'conv-1',
-        currentUserId: _me,
-      );
-      Object? reported;
-      AppErrorReporter.onReport =
-          (error, stack, {context, feature, retryAttempt, recordId}) {
-            reported = error;
-          };
-      addTearDown(() => AppErrorReporter.onReport = null);
+    test(
+      'a send failure is reported via AppErrorReporter, not silently '
+      'swallowed (RR-007)',
+      () async {
+        final repository = FakePrivateMessagingRepository(failSends: true);
+        final viewModel = ChatDetailViewModel(
+          repository: repository,
+          conversationId: 'conv-1',
+          currentUserId: _me,
+        );
+        Object? reported;
+        AppErrorReporter.onReport =
+            (error, stack, {context, feature, retryAttempt, recordId}) async {
+              reported = error;
+            };
+        addTearDown(() => AppErrorReporter.onReport = null);
 
-      await viewModel.sendMessage('hi');
+        await viewModel.sendMessage('hi');
 
-      expect(
-        reported,
-        isNotNull,
-        reason:
-            'previously this failure was surfaced to the user only, '
-            'with zero operator-side visibility',
-      );
-    });
+        expect(
+          reported,
+          isNotNull,
+          reason:
+              'previously this failure was surfaced to the user only, '
+              'with zero operator-side visibility',
+        );
+      },
+    );
 
     test('a manual retry after a failed send reuses the same message id — '
         'so a retry that actually reaches the server does not create a '
