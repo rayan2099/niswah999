@@ -32,4 +32,10 @@ abstract class PrivateMessagingRepositoryBase {
   /// Returns the total number of unread messages sent by other users
   /// across all of the current user's conversations.
   Future<int> fetchUnreadCount();
+
+  /// Public display names for [userIds], limited to names a user already
+  /// publishes on non-anonymous community posts. A user with no such name
+  /// is simply absent from the result — callers must never fall back to
+  /// showing the raw user id.
+  Future<Map<String, String>> fetchDisplayNames(Set<String> userIds);
 }

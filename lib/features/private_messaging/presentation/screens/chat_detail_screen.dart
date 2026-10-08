@@ -4,6 +4,7 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/private_conversation.dart';
 import '../../private_messaging_locator.dart';
+import '../conversation_title.dart';
 import '../viewmodels/chat_detail_view_model.dart';
 
 String _pm(String en, String ar) => AppLocaleController.instance.text(en, ar);
@@ -13,10 +14,14 @@ class ChatDetailScreen extends StatefulWidget {
   final PrivateConversation conversation;
   final String currentUserId;
 
+  /// The other participant's published display name, when known.
+  final String? otherDisplayName;
+
   const ChatDetailScreen({
     super.key,
     required this.conversation,
     required this.currentUserId,
+    this.otherDisplayName,
   });
 
   @override
@@ -68,9 +73,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final otherUser = widget.conversation.otherParticipant(
-      widget.currentUserId,
-    );
+    final otherUser = conversationTitle(widget.otherDisplayName);
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
@@ -112,7 +115,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     return Center(
                       child: CircularProgressIndicator(
                         color: const Color(0xFFE91E4D),
-                        semanticsLabel: _pm('Loading messages', 'جارٍ تحميل الرسائل'),
+                        semanticsLabel: _pm(
+                          'Loading messages',
+                          'جارٍ تحميل الرسائل',
+                        ),
                       ),
                     );
                   }
@@ -274,7 +280,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: Colors.white,
-                                  semanticsLabel: _pm('Sending message', 'جارٍ إرسال الرسالة'),
+                                  semanticsLabel: _pm(
+                                    'Sending message',
+                                    'جارٍ إرسال الرسالة',
+                                  ),
                                 ),
                               )
                             : const Icon(Icons.send_rounded, size: 18),

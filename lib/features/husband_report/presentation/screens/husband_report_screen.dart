@@ -9,6 +9,7 @@ import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
+import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../domain/services/husband_report_insights_engine.dart';
 import '../pdf/husband_report_pdf_builder.dart';
 
@@ -75,12 +76,18 @@ class _HusbandReportScreenState extends State<HusbandReportScreen> {
         ? null
         : await _pregnancyRepository.getForUser(userId);
 
+    final canonical = await ReportCanonicalEvidence.load(
+      userId: userId,
+      now: now,
+    );
+
     final insights = HusbandReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
       madhhab: MadhhabController.instance.selectedOrNull,
       displayName: widget.displayName,
       pregnancyProfile: pregnancyProfile,
       now: now,
+      canonical: canonical,
     );
 
     return HusbandReportPdfBuilder.build(

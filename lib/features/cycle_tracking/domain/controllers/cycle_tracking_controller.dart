@@ -91,11 +91,16 @@ class CycleTrackingController {
     }).toList();
   }
 
-  CycleTrackingSummary summarizeHistory(List<CycleLog> logs, {DateTime? now}) {
+  CycleTrackingSummary summarizeHistory(
+    List<CycleLog> logs, {
+    DateTime? now,
+    List<CanonicalEpisodeTiming> canonicalEpisodes = const [],
+  }) {
     final effectiveNow = now ?? AppClock.now();
     final calculation = _calculationService.calculate(
       logs,
       asOf: effectiveNow,
+      canonicalEpisodes: canonicalEpisodes,
     );
     final lastCycleStart = calculation.lastHaidStart;
     final averageCycleLength = calculation.averageCycleLength;

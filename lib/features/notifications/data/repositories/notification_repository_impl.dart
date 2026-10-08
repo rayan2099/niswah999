@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/preferences/user_scoped_preferences.dart';
 import '../../domain/entities/notification_preference.dart';
 import '../../domain/repositories/notification_repository.dart';
 
@@ -37,13 +38,24 @@ class NotificationRepositoryImpl implements NotificationRepository {
       leadTimeMinutes: 0,
       channels: ['local'],
     ),
+    // Commit E2 — unlike every other type here, default OFF: this one
+    // requires an explicit, contextual "would you like reminders while
+    // tracking?" ask (see the Start Bleeding sheet's own consent prompt),
+    // never a silent opt-in.
+    NotificationType.activeBleeding: const NotificationPreference(
+      type: NotificationType.activeBleeding,
+      enabled: false,
+      leadTimeMinutes: 0,
+      channels: ['local'],
+    ),
   };
 
   @override
   Future<Map<NotificationType, NotificationPreference>>
   loadPreferences() async {
     final prefs = preferences ?? await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
+    await UserScopedPreferences.adoptLegacy(prefs, const [_key]);
+    final raw = prefs.getString(UserScopedPreferences.key(_key));
     if (raw == null || raw.isEmpty) {
       return Map.of(_defaults);
     }
@@ -73,6 +85,6 @@ class NotificationRepositoryImpl implements NotificationRepository {
     final encoded = jsonEncode(
       preferences.values.map((preference) => preference.toJson()).toList(),
     );
-    await prefs.setString(_key, encoded);
+    await prefs.setString(UserScopedPreferences.key(_key), encoded);
   }
 }

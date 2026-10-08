@@ -93,7 +93,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       minHeight: 2,
                       color: AppColors.brandSecondary,
                       backgroundColor: Colors.transparent,
-                      semanticsLabel: _in('Loading insights', 'جارٍ تحميل الإحصاءات'),
+                      semanticsLabel: _in(
+                        'Loading insights',
+                        'جارٍ تحميل الإحصاءات',
+                      ),
                     ),
                   ),
                 if (_viewModel.errorMessage != null)
@@ -186,7 +189,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      _HistoryCard(logs: _viewModel.logs),
+                      _HistoryCard(
+                        logs: _viewModel.logs,
+                        canonicalEpisodes: _viewModel.canonicalEpisodes,
+                      ),
                     ],
                   ),
                 ),
@@ -926,11 +932,18 @@ class _InsightCard extends StatelessWidget {
 }
 
 class _HistoryCard extends StatelessWidget {
-  const _HistoryCard({required this.logs});
+  const _HistoryCard({required this.logs, this.canonicalEpisodes = const []});
   final List<CycleLog> logs;
+
+  /// Periods the user reported (onboarding history or live tracking),
+  /// shown from their REAL start/end dates — never as invented daily rows.
+  final List<CanonicalEpisodeTiming> canonicalEpisodes;
+
+  static String _date(DateTime d) => '${d.day}/${d.month}/${d.year}';
+
   @override
   Widget build(BuildContext context) => _Card(
-    child: logs.isEmpty
+    child: logs.isEmpty && canonicalEpisodes.isEmpty
         ? Padding(
             padding: const EdgeInsets.symmetric(vertical: 28),
             child: Column(
@@ -949,24 +962,41 @@ class _HistoryCard extends StatelessWidget {
             ),
           )
         : Column(
-            children: logs
-                .take(5)
-                .map(
-                  (log) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(
-                      Icons.calendar_today_outlined,
-                      color: AppColors.brandSecondary,
-                    ),
-                    title: Text(
-                      '${log.date.day}/${log.date.month}/${log.date.year}',
-                    ),
-                    subtitle: Text(
-                      '${_in('Cycle day', 'يوم الدورة')} ${log.cycleDay}',
-                    ),
+            children: [
+              for (final episode in canonicalEpisodes.take(5))
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.event_note_outlined,
+                    color: AppColors.brandSecondary,
                   ),
-                )
-                .toList(),
+                  title: Text(
+                    episode.endDate == null
+                        ? '${_in('Reported period', 'دورة مسجّلة')}: '
+                              '${_date(episode.startDate)}'
+                        : '${_in('Reported period', 'دورة مسجّلة')}: '
+                              '${_date(episode.startDate)} – '
+                              '${_date(episode.endDate!)}',
+                  ),
+                  subtitle: Text(
+                    episode.endDate == null
+                        ? _in('Started, not yet ended', 'بدأت ولم تنتهِ بعد')
+                        : _in('Completed', 'مكتملة'),
+                  ),
+                ),
+              for (final log in logs.take(5))
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.calendar_today_outlined,
+                    color: AppColors.brandSecondary,
+                  ),
+                  title: Text(_date(log.date)),
+                  subtitle: Text(
+                    '${_in('Cycle day', 'يوم الدورة')} ${log.cycleDay}',
+                  ),
+                ),
+            ],
           ),
   );
 }
