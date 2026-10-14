@@ -1,0 +1,8 @@
+{
+  "alwaysUpdateLinks": true,
+  "newLinkFormat": "relative",
+  "useMarkdownLinks": true,
+  "showUnsupportedFiles": true,
+  "attachmentFolderPath": "project-hub/attachments",
+  "userIgnoreFilters": ["node_modules/", "build/", "dist/", ".dart_tool/", ".git/", "coverage/"]
+}
