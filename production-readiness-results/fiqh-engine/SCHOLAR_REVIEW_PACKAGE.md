@@ -35,7 +35,9 @@ Full version with code locations: `fiqh_rule_source_matrix.md`. The four numeric
 
 ## 4. Geographic madhhab suggestion (design, not yet live)
 
-We designed (not yet shipped in the app) a feature for a user who doesn't know her madhhab: if she tells us her country (never inferred from her phone number alone), we can *suggest* a commonly-followed madhhab for that region — always phrased as "this madhhab is commonly followed in your region," never "you are Hanafi." She always has to confirm it herself; nothing is auto-assigned. The draft regional associations (Turkey→Hanafi, Morocco→Maliki, Indonesia→Shafi'i, Saudi Arabia→Hanbali, Egypt→mixed, etc.) are in `geographic_madhhab_mapping.json` — again, general-knowledge draft, not scholarly-confirmed, and several genuinely mixed regions (UAE, India, Yemen, Nigeria) were deliberately left unresolved/multi-option rather than guessed. We'd welcome your correction of any of these, and particularly your view on regions we left blank.
+This feature now has its own dedicated, complete reviewer packet — **`GEOGRAPHIC_MADHHAB_SCHOLAR_REVIEW_PACKET.md`** (plus two spreadsheets next to it) — covering all 59 country/region entries, not just the handful described below. If you're reviewing this feature specifically, start there instead of this section.
+
+In short: for a user who doesn't know her madhhab, if she tells us her country (never inferred from her phone number alone), we can *suggest* a commonly-followed madhhab for that region — always phrased as "this madhhab is commonly followed in your region," never "you are Hanafi." She always has to confirm it herself; nothing is auto-assigned. As of 2026-10-12 this draft now covers the full set of Muslim-majority countries plus a few large-Muslim-population/diaspora countries of product relevance (not just the original 13-country seed), and several genuinely mixed or out-of-scope populations (UAE, Kuwait, Sudan, Nigeria, India's country-level entry, and every majority-Shia/Ibadi/diaspora country) were deliberately left unresolved/multi-option rather than guessed — see the dedicated packet for the full reasoning on each.
 
 ## 5. Golden test cases (12)
 

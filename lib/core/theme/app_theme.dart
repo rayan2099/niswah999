@@ -47,6 +47,39 @@ class AppColors {
 
   // Shadow Color
   static const Color shadowColor = Color(0x0A000000); // black/5%
+
+  // --- Onboarding premium palette (NISWAH onboarding redesign) ---
+  // Additive, scoped to onboarding + the shared Madhhab selector. Deliberately
+  // NOT wired into ColorScheme.fromSeed above -- that feeds every screen in
+  // the app via Material's default theming, and this redesign is scoped to
+  // onboarding, not an app-wide rebrand. Exact hex values as specified.
+  static const Color deepPlum = Color(0xFF553F50); // headings, key icons
+  static const Color mutedRose = Color(
+    0xFFC66F84,
+  ); // selected/highlight/active
+  static const Color softBlush = Color(0xFFF6E8EC); // subtle selection bg
+  static const Color warmIvory = Color(0xFFFCFAF8); // page background
+  static const Color warmWhite = Color(0xFFFFFFFF); // cards/inputs
+  static const Color slateGray = Color(0xFF777681); // secondary text
+  static const Color softStone = Color(0xFFE8E2E3); // borders/separators
+  static const Color sageGreen = Color(0xFF738F83); // informational/reassuring
+
+  // Semantic tokens built from the palette above, so call sites express
+  // intent (onboardingBackground) rather than repeating a hex choice.
+  static const Color onboardingBackground = warmIvory;
+  static const Color onboardingSurface = warmWhite;
+  static const Color onboardingPrimaryText = deepPlum;
+  static const Color onboardingSecondaryText = slateGray;
+  static const Color onboardingPrimaryAction = mutedRose;
+  static const Color onboardingAccent = mutedRose;
+  static const Color onboardingSelectedBg = softBlush;
+  static const Color onboardingBorder = softStone;
+  static const Color onboardingInputFocus = mutedRose;
+  static const Color onboardingDisabled = softStone;
+  static const Color onboardingInformational = sageGreen;
+  // Error/warning/success stay on the app-wide semantic colors above
+  // (AppColors.error/.warning/.success) rather than new ones -- state colors
+  // should be consistent app-wide, not redefined per feature.
 }
 
 class AppTypography {

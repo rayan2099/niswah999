@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../../../../core/data/iso_countries.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
@@ -19,7 +21,7 @@ class MadhhabSuggestion {
     this.regionNote,
     this.mappingId,
     this.evidenceSourceIds = const [],
-    this.reviewerStatus,
+    this.evidenceStatus,
   });
 
   final MadhhabSuggestionConfidence confidence;
@@ -40,16 +42,22 @@ class MadhhabSuggestion {
   /// [MadhhabSuggestionConfidence.unresolved].
   final String? mappingId;
 
-  /// Mirrors the source JSON's `evidence_source_ids` — may be empty even
+  /// Mirrors the source JSON's `source_ids` — may be empty even
   /// for a resolved suggestion (several seed entries have none yet); never
   /// fabricated when absent.
   final List<String> evidenceSourceIds;
 
-  /// Mirrors the source JSON's `reviewer_status` (e.g. `'NOT_REVIEWED'`) —
-  /// surfaced so a future UI/report can honestly disclose that no
-  /// suggestion in this dataset has been scholar-reviewed yet, without
-  /// needing to re-derive that from the JSON file directly.
-  final String? reviewerStatus;
+  /// Mirrors the source JSON's `evidence_status` (e.g. `'SOURCE_VERIFIED'`)
+  /// — surfaced so a future UI/report can honestly disclose the tier of
+  /// trust behind a given suggestion (internet-source-verified vs. an
+  /// actual qualified scholar's sign-off) without needing to re-derive
+  /// that from the JSON file directly. Per the governance model (Knowledge-
+  /// Base Source-Verification wave, 2026-10-13), this is never surfaced to
+  /// the end user as a certainty claim either way — see
+  /// [_MadhhabGeographicSuggestionStep] in madhhab_resolution_flow.dart,
+  /// whose wording is identical regardless of which of the two eligible
+  /// statuses produced the suggestion.
+  final String? evidenceStatus;
 
   bool get isResolved => confidence != MadhhabSuggestionConfidence.unresolved;
 
@@ -67,7 +75,7 @@ class _MappingEntry {
     required this.madhahib,
     required this.confidence,
     this.evidenceSourceIds = const [],
-    this.reviewerStatus = 'NOT_REVIEWED',
+    this.evidenceStatus = 'UNVERIFIED',
   });
 
   final String mappingId;
@@ -90,26 +98,49 @@ class _MappingEntry {
   final List<String> evidenceSourceIds;
 
   /// Mirrors `geographic_madhhab_mapping.json`'s own per-entry
-  /// `reviewer_status` field exactly — a real per-entry value (not a
-  /// blanket constant), so a future entry that genuinely gets scholar
-  /// sign-off can be marked `'APPROVED'` individually without touching
-  /// this field's shape or every other entry. Every entry defaults to
-  /// `'NOT_REVIEWED'` because that is what the JSON source of truth
-  /// actually says for all fifteen entries today (verified directly
-  /// against that file, adversarial review, 2026-10-07) — not an
-  /// assumption, and not something this service invents.
-  final String reviewerStatus;
+  /// `evidence_status` field exactly — a real per-entry value (not a
+  /// blanket constant), so each entry can independently progress through
+  /// the 4-state model (Knowledge-Base Source-Verification wave,
+  /// 2026-10-13, replacing the prior binary NOT_REVIEWED/APPROVED model):
+  ///   - `'UNVERIFIED'` — the starting state for every entry; AI-drafted
+  ///     from general knowledge, not yet checked against real sources.
+  ///   - `'SOURCE_VERIFIED'` — independently checked against real,
+  ///     reputable public sources (government/academic/encyclopedic/
+  ///     major institutional reports) that explicitly support the specific
+  ///     madhhab claim, per the wave's documented evidence threshold. This
+  ///     is NOT the same as scholar approval, and is never described to
+  ///     the user as such.
+  ///   - `'SCHOLAR_REVIEWED'` — an actual qualified Islamic scholar has
+  ///     reviewed and approved this specific entry (via
+  ///     scripts/ingest_geo_madhhab_review.py, never by hand-editing this
+  ///     field).
+  ///   - `'REJECTED'` — a scholar actively reviewed and rejected this
+  ///     entry (also only ever set via that script).
+  /// Defaults to `'UNVERIFIED'` because that's what every entry in the
+  /// dataset started as before this wave's research pass; entries this
+  /// wave's research genuinely verified against real sources are
+  /// constructed below with `evidenceStatus: 'SOURCE_VERIFIED'` explicitly.
+  final String evidenceStatus;
 
-  /// The actual trust gate: only an entry explicitly marked `'APPROVED'`
-  /// may ever produce a displayed suggestion. Every entry in the dataset
-  /// is `'NOT_REVIEWED'` today, so `suggest()` currently resolves to
-  /// [MadhhabSuggestion.unresolved] for every country, including the
-  /// ones that previously appeared confident (Egypt, Morocco, ...) —
-  /// consistent and uniform, not an Afghanistan-specific carve-out. This
-  /// does not change any entry's underlying confidence/madhahib/evidence
-  /// data; it only changes whether `suggest()` is willing to surface a
-  /// match it already found.
-  bool get isApprovedForDisplay => reviewerStatus == 'APPROVED';
+  /// The actual trust gate: only `'SOURCE_VERIFIED'` or `'SCHOLAR_REVIEWED'`
+  /// may ever produce a displayed suggestion — `'UNVERIFIED'` and
+  /// `'REJECTED'` both resolve to [MadhhabSuggestion.unresolved], exactly
+  /// like a country absent from the mapping entirely. This does not
+  /// change any entry's underlying confidence/madhahib/evidence data; it
+  /// only changes whether `suggest()` is willing to surface a match it
+  /// already found.
+  ///
+  /// [MadhhabSuggestionService.debugApprovedMappingIdsForTesting] is
+  /// consulted as a second, test-only path to eligible — it lets a test
+  /// exercise the real positive path (an eligible entry actually
+  /// surfacing through the real `suggest()`) without ever marking a real
+  /// entry `'SOURCE_VERIFIED'`/`'SCHOLAR_REVIEWED'` in the dataset itself.
+  bool get isEligibleForDisplay =>
+      evidenceStatus == 'SOURCE_VERIFIED' ||
+      evidenceStatus == 'SCHOLAR_REVIEWED' ||
+      MadhhabSuggestionService.debugApprovedMappingIdsForTesting.contains(
+        mappingId,
+      );
 }
 
 /// Suggests a likely madhhab (or madhahib) from residence signals, per the
@@ -135,11 +166,21 @@ class _MappingEntry {
 class MadhhabSuggestionService {
   const MadhhabSuggestionService();
 
-  /// Mirrors `geographic_madhhab_mapping.json`'s own `_meta.generated` —
-  /// bump this alongside that file whenever the dataset changes, so a
+  /// Mirrors `geographic_madhhab_mapping.json`'s own `_meta.last_expanded`
+  /// — bump this alongside that file whenever the dataset changes, so a
   /// future scholar-review pass (or a support report) can always name
   /// which version of the mapping produced a given suggestion.
-  static const datasetVersion = '2026-09-09';
+  static const datasetVersion = '2026-10-12';
+
+  /// Test-only: mapping ids temporarily treated as if their
+  /// `reviewer_status` were `'APPROVED'` — lets a test prove the real
+  /// positive path ("an approved entry surfaces a real suggestion")
+  /// against the real dataset and the real [suggest] method, without
+  /// ever marking a real entry approved in production. Always empty
+  /// outside a test; any test that sets this must clear it afterwards
+  /// (e.g. in `tearDown`) so it can never leak into another test.
+  @visibleForTesting
+  static Set<String> debugApprovedMappingIdsForTesting = {};
 
   /// Every country *drafted* in this mapping (medium confidence or
   /// higher) — exposed for an inventory report/future-reviewer view of
@@ -154,10 +195,17 @@ class MadhhabSuggestionService {
       .toList(growable: false);
 
   // Mirrors production-readiness-results/fiqh-engine/geographic_madhhab_mapping.json
-  // (mappings with confidence "medium" or higher only — "low" entries are
-  // intentionally omitted here since this service always resolves "low" to
-  // unresolved anyway; see that file for the complete draft, including the
-  // low-confidence entries kept there for reviewer visibility).
+  // (only entries that file's own `classification` field marks
+  // "country_level" or "region_level" — i.e. a single, or small
+  // co-dominant set of, well-documented predominant madhhab. Entries
+  // classified "mixed_heterogeneous" or "insufficient_evidence" (no
+  // safe single-madhhab recommendation — majority-Shia/Ibadi
+  // populations, confessionally mixed countries, heterogeneous
+  // diaspora populations, or a genuinely split Sunni population) are
+  // intentionally omitted here since this service always resolves
+  // those to unresolved anyway; see that file for the complete draft,
+  // including every excluded entry's full evidence/caveats, kept
+  // there for reviewer visibility).
   static const List<_MappingEntry> _mapping = [
     _MappingEntry(
       mappingId: 'GEO-001',
@@ -165,6 +213,7 @@ class MadhhabSuggestionService {
       countryNameEn: 'Egypt',
       madhahib: [Madhhab.shafii, Madhhab.hanafi, Madhhab.maliki],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
       evidenceSourceIds: ['SRC-INST-001'],
     ),
     _MappingEntry(
@@ -173,6 +222,7 @@ class MadhhabSuggestionService {
       countryNameEn: 'Saudi Arabia',
       madhahib: [Madhhab.hanbali],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
       evidenceSourceIds: ['SRC-INST-002'],
     ),
     _MappingEntry(
@@ -181,6 +231,7 @@ class MadhhabSuggestionService {
       countryNameEn: 'Turkey',
       madhahib: [Madhhab.hanafi],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
     ),
     _MappingEntry(
       mappingId: 'GEO-004',
@@ -188,6 +239,7 @@ class MadhhabSuggestionService {
       countryNameEn: 'Pakistan',
       madhahib: [Madhhab.hanafi],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
     ),
     _MappingEntry(
       mappingId: 'GEO-005b',
@@ -196,6 +248,7 @@ class MadhhabSuggestionService {
       region: 'Kerala',
       madhahib: [Madhhab.shafii],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
     ),
     _MappingEntry(
       mappingId: 'GEO-006',
@@ -203,6 +256,7 @@ class MadhhabSuggestionService {
       countryNameEn: 'Morocco',
       madhahib: [Madhhab.maliki],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
       evidenceSourceIds: ['SRC-INST-001'],
     ),
     _MappingEntry(
@@ -218,6 +272,7 @@ class MadhhabSuggestionService {
       countryNameEn: 'Algeria',
       madhahib: [Madhhab.maliki],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
     ),
     _MappingEntry(
       mappingId: 'GEO-009',
@@ -225,6 +280,7 @@ class MadhhabSuggestionService {
       countryNameEn: 'Indonesia',
       madhahib: [Madhhab.shafii],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
     ),
     _MappingEntry(
       mappingId: 'GEO-010',
@@ -232,6 +288,7 @@ class MadhhabSuggestionService {
       countryNameEn: 'Malaysia',
       madhahib: [Madhhab.shafii],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
       evidenceSourceIds: ['JUR-MY-001'],
     ),
     // Afghanistan was previously absent from this mapping entirely (not a
@@ -246,6 +303,259 @@ class MadhhabSuggestionService {
       countryNameEn: 'Afghanistan',
       madhahib: [Madhhab.hanafi],
       confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+
+    // Knowledge-Base Completion wave (2026-10-12): expanded from the
+    // original 10-country/1-region seed to every country
+    // geographic_madhhab_mapping.json classifies `country_level` or
+    // `region_level` (a single, or small co-dominant set of, well-
+    // documented predominant madhhab) — covering the full set of
+    // Muslim-majority countries plus India (already present above),
+    // per the same product-relevance precedent. Countries that file
+    // classifies `mixed_heterogeneous` or `insufficient_evidence` (no
+    // safe single-madhhab recommendation — e.g. UAE/Nigeria above,
+    // or a majority-Shia/Ibadi/diaspora population) are intentionally
+    // NOT mirrored here, exactly matching this list's long-standing
+    // convention for low-confidence entries: seeing one here and
+    // getting a displayed suggestion are still two separate gates
+    // (confidence/presence here, AND `reviewer_status == 'APPROVED'`)
+    // — every entry remains `NOT_REVIEWED`, so none of these change
+    // today's live behavior; they exist so a future scholar-approval
+    // pass has a complete, ready-to-activate draft rather than an
+    // empty one. See that file for full evidence notes/caveats.
+    _MappingEntry(
+      // CORRECTED 2026-10-12: Yemen was previously `low` confidence with
+      // likely_madhahib: [shafii, hanafi] — the "hanafi" was an evidence
+      // error (conflating the north's Zaydi Shia minority with Sunni
+      // Hanafi; Zaydism is its own independent Shia legal tradition, not
+      // a Hanafi variant). Corrected to Shafi'i only, which is genuinely
+      // the majority among Yemen's Sunni population (~two-thirds of the
+      // country) — see geographic_madhhab_mapping.json GEO-013 for the
+      // full correction note.
+      mappingId: 'GEO-013',
+      countryCode: 'YE',
+      countryNameEn: 'Yemen',
+      madhahib: [Madhhab.shafii],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-015',
+      countryCode: 'JO',
+      countryNameEn: 'Jordan',
+      madhahib: [Madhhab.shafii, Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-016',
+      countryCode: 'PS',
+      countryNameEn: 'Palestine',
+      madhahib: [Madhhab.shafii, Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-017',
+      countryCode: 'SY',
+      countryNameEn: 'Syria',
+      madhahib: [Madhhab.shafii, Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-018',
+      countryCode: 'LY',
+      countryNameEn: 'Libya',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-019',
+      countryCode: 'MR',
+      countryNameEn: 'Mauritania',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.high,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-020',
+      countryCode: 'QA',
+      countryNameEn: 'Qatar',
+      madhahib: [Madhhab.hanbali],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+      evidenceSourceIds: ['SRC-INST-003'],
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-021',
+      countryCode: 'ML',
+      countryNameEn: 'Mali',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-022',
+      countryCode: 'NE',
+      countryNameEn: 'Niger',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-023',
+      countryCode: 'SN',
+      countryNameEn: 'Senegal',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-024',
+      countryCode: 'GM',
+      countryNameEn: 'Gambia',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-025',
+      countryCode: 'GN',
+      countryNameEn: 'Guinea',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-026',
+      countryCode: 'GW',
+      countryNameEn: 'Guinea-Bissau',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-027',
+      countryCode: 'SL',
+      countryNameEn: 'Sierra Leone',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-028',
+      countryCode: 'TD',
+      countryNameEn: 'Chad',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-029',
+      countryCode: 'BF',
+      countryNameEn: 'Burkina Faso',
+      madhahib: [Madhhab.maliki],
+      confidence: MadhhabSuggestionConfidence.medium,
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-030',
+      countryCode: 'SO',
+      countryNameEn: 'Somalia',
+      madhahib: [Madhhab.shafii],
+      confidence: MadhhabSuggestionConfidence.high,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-031',
+      countryCode: 'DJ',
+      countryNameEn: 'Djibouti',
+      madhahib: [Madhhab.shafii],
+      confidence: MadhhabSuggestionConfidence.high,
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-032',
+      countryCode: 'KM',
+      countryNameEn: 'Comoros',
+      madhahib: [Madhhab.shafii],
+      confidence: MadhhabSuggestionConfidence.high,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-034',
+      countryCode: 'BD',
+      countryNameEn: 'Bangladesh',
+      madhahib: [Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.high,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-035',
+      countryCode: 'BN',
+      countryNameEn: 'Brunei',
+      madhahib: [Madhhab.shafii],
+      confidence: MadhhabSuggestionConfidence.high,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-036',
+      countryCode: 'MV',
+      countryNameEn: 'Maldives',
+      madhahib: [Madhhab.shafii],
+      confidence: MadhhabSuggestionConfidence.high,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-037',
+      countryCode: 'KZ',
+      countryNameEn: 'Kazakhstan',
+      madhahib: [Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-038',
+      countryCode: 'KG',
+      countryNameEn: 'Kyrgyzstan',
+      madhahib: [Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-039',
+      countryCode: 'TJ',
+      countryNameEn: 'Tajikistan',
+      madhahib: [Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-040',
+      countryCode: 'TM',
+      countryNameEn: 'Turkmenistan',
+      madhahib: [Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-041',
+      countryCode: 'UZ',
+      countryNameEn: 'Uzbekistan',
+      madhahib: [Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.high,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-042',
+      countryCode: 'BA',
+      countryNameEn: 'Bosnia and Herzegovina',
+      madhahib: [Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
+    ),
+    _MappingEntry(
+      mappingId: 'GEO-043',
+      countryCode: 'AL',
+      countryNameEn: 'Albania',
+      madhahib: [Madhhab.hanafi],
+      confidence: MadhhabSuggestionConfidence.medium,
+      evidenceStatus: 'SOURCE_VERIFIED',
     ),
   ];
 
@@ -285,13 +595,13 @@ class MadhhabSuggestionService {
         if (entry.region != null &&
             entry.countryCode == code &&
             _sameRegion(entry.region!, city)) {
-          // Trust gate (adversarial review, 2026-10-07): a match was
-          // found, but an unreviewed mapping must never be presented as
-          // a normal Madhhab recommendation — resolve to `unresolved`
-          // exactly as if no entry existed at all, so every existing
-          // "no suggestion available" UI path (manual picker, never
-          // blocks) handles this identically, with no new state to add.
-          if (!entry.isApprovedForDisplay) return MadhhabSuggestion.unresolved;
+          // Trust gate: a match was found, but an UNVERIFIED/REJECTED
+          // mapping must never be presented as a normal Madhhab
+          // recommendation — resolve to `unresolved` exactly as if no
+          // entry existed at all, so every existing "no suggestion
+          // available" UI path (manual picker, never blocks) handles
+          // this identically, with no new state to add.
+          if (!entry.isEligibleForDisplay) return MadhhabSuggestion.unresolved;
           return MadhhabSuggestion(
             confidence: entry.confidence,
             likelyMadhahib: entry.madhahib,
@@ -299,7 +609,7 @@ class MadhhabSuggestionService {
                 'This madhhab is commonly followed in ${entry.region}, ${entry.countryNameEn}.',
             mappingId: entry.mappingId,
             evidenceSourceIds: entry.evidenceSourceIds,
-            reviewerStatus: entry.reviewerStatus,
+            evidenceStatus: entry.evidenceStatus,
           );
         }
       }
@@ -307,7 +617,7 @@ class MadhhabSuggestionService {
 
     for (final entry in _mapping) {
       if (entry.region == null && entry.countryCode == code) {
-        if (!entry.isApprovedForDisplay) return MadhhabSuggestion.unresolved;
+        if (!entry.isEligibleForDisplay) return MadhhabSuggestion.unresolved;
         return MadhhabSuggestion(
           confidence: entry.confidence,
           likelyMadhahib: entry.madhahib,
@@ -315,7 +625,7 @@ class MadhhabSuggestionService {
               'This madhhab is commonly followed in ${entry.countryNameEn}.',
           mappingId: entry.mappingId,
           evidenceSourceIds: entry.evidenceSourceIds,
-          reviewerStatus: entry.reviewerStatus,
+          evidenceStatus: entry.evidenceStatus,
         );
       }
     }
@@ -350,4 +660,20 @@ class MadhhabSuggestionService {
 
   bool _sameRegion(String a, String b) =>
       a.trim().toLowerCase() == b.trim().toLowerCase();
+
+  /// Onboarding fixes wave (2026-10-11), Part 3: the regions (if any) the
+  /// reviewed mapping says materially affect the recommendation for
+  /// [countryCode] — empty when the country alone is sufficient. Purely
+  /// data-driven from [_mapping]: a future region-level entry changes
+  /// this automatically, so the UI never needs to hardcode which
+  /// countries ask a follow-up region question.
+  List<String> regionsFor(String countryCode) {
+    final code = _normalizedCode(countryCode);
+    if (code == null) return const [];
+    return _mapping
+        .where((entry) => entry.countryCode == code && entry.region != null)
+        .map((entry) => entry.region!)
+        .toSet()
+        .toList(growable: false);
+  }
 }

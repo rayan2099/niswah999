@@ -121,10 +121,14 @@ class _Tile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: active ? const Color(0xFFFFF1F2) : Colors.white,
+            color: active
+                ? AppColors.onboardingSelectedBg
+                : AppColors.onboardingSurface,
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
-              color: active ? const Color(0xFFFFCDD5) : AppColors.shadowColor,
+              color: active
+                  ? AppColors.onboardingAccent
+                  : AppColors.onboardingBorder,
             ),
           ),
           child: Stack(
@@ -139,7 +143,7 @@ class _Tile extends StatelessWidget {
                       Text(
                         suggestedLabel!,
                         style: const TextStyle(
-                          color: AppColors.brandSecondary,
+                          color: AppColors.onboardingInformational,
                           fontSize: 9,
                           fontWeight: FontWeight.w700,
                         ),
@@ -150,8 +154,8 @@ class _Tile extends StatelessWidget {
                       name,
                       style: TextStyle(
                         color: active
-                            ? const Color(0xFF881337)
-                            : AppColors.textSecondary,
+                            ? AppColors.onboardingPrimaryText
+                            : AppColors.onboardingSecondaryText,
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
@@ -161,7 +165,7 @@ class _Tile extends StatelessWidget {
                       Text(
                         rule,
                         style: const TextStyle(
-                          color: AppColors.textTertiary,
+                          color: AppColors.onboardingSecondaryText,
                           fontSize: 10,
                           height: 1.45,
                         ),

@@ -1,179 +1,2352 @@
 {
   "_meta": {
     "purpose": "Version-controlled country/region -> likely-madhhab(s) mapping, feeding the 'I don't know my madhhab' onboarding suggestion (never a declaration). Per the charter: explicit country/city outranks phone-prefix; phone prefix is never proof of residence or madhhab; multi-madhhab countries return multiple options; low-confidence stays unresolved; user confirmation is always required before a suggestion becomes authoritative.",
-    "warning": "AI-drafted from general, well-established historical/demographic knowledge about regional madhhab distribution (the kind found in any comparative-Islam textbook or encyclopedia entry) -- NOT independently verified by a qualified reviewer this session, and NOT based on any live census/survey data source. Every entry is 'confidence: DRAFT_UNVERIFIED' and 'reviewer_status: NOT_REVIEWED'. requires_user_confirmation is true on every single entry without exception -- this mapping must never be used to silently assign or declare a user's madhhab.",
+    "warning": "AI-drafted from general, well-established historical/demographic knowledge about regional madhhab distribution (the kind found in any comparative-Islam textbook or encyclopedia entry) -- NOT independently verified by a qualified reviewer this session, and NOT based on any live census/survey data source fetched this session (see `_source_registry` below for the real, named reference works this draft is consistent with). Every entry is 'confidence: DRAFT_UNVERIFIED' in spirit and 'reviewer_status: NOT_REVIEWED' in fact. requires_user_confirmation is true on every single entry without exception -- this mapping must never be used to silently assign or declare a user's madhhab.",
     "generated": "2026-09-09",
-    "generated_by": "Claude Code, Source Governance wave",
-    "wording_contract": "Any UI surfacing a suggestion from this file MUST use hedged wording equivalent to 'This madhhab is commonly followed in your region' -- NEVER 'You are Hanafi/Maliki/Shafi'i/Hanbali' -- enforced in code, see lib/features/onboarding/domain/services/madhhab_suggestion_service.dart."
+    "last_expanded": "2026-10-12",
+    "generated_by": "Claude Code, Source Governance wave (2026-09-09); expanded to full Muslim-majority + product-relevant coverage, Knowledge-Base Completion wave (2026-10-12)",
+    "wording_contract": "Any UI surfacing a suggestion from this file MUST use hedged wording equivalent to 'This madhhab is commonly followed in your region' -- NEVER 'You are Hanafi/Maliki/Shafi'i/Hanbali' -- enforced in code, see lib/features/onboarding/domain/services/madhhab_suggestion_service.dart.",
+    "schema_version": "2026-10-12: added `classification`, `unresolved_reason`, `caveats`, and `country_code` (now present on every entry, not just Afghanistan's). All prior fields (`mapping_id`, `country`, `region`, `likely_madhahib`, `confidence`, `note`, `evidence_source_ids`, `reviewer_status`, `requires_user_confirmation`) are unchanged in shape and meaning -- this is a purely additive schema change. This file is not parsed at runtime; `madhhab_suggestion_service.dart`'s `_mapping` list is the hand-kept runtime mirror of every entry whose `classification` is `country_level` or `region_level` (the entries capable of ever producing a displayed suggestion once reviewed) -- `mixed_heterogeneous`/`insufficient_evidence` entries exist here for reviewer visibility only and are intentionally never mirrored into Dart, matching this file's own long-standing convention for low-confidence entries. | 2026-10-13: replaced the binary reviewer_status (NOT_REVIEWED/APPROVED) model with a 4-state evidence_status model (UNVERIFIED/SOURCE_VERIFIED/SCHOLAR_REVIEWED/REJECTED) -- see the Knowledge-Base Source-Verification wave's own research report for the rationale and the per-entry upgrade decisions that followed this purely structural migration. evidence_source_ids renamed to source_ids; added contradictory_source_ids, review_notes, region_required, scholar_review_record (preserved as null -- no real entry had any review history to preserve at migration time, verified directly). requires_user_confirmation is unchanged and still true on every entry.",
+    "classification_legend": {
+      "country_level": "A single madhhab (or small, genuinely co-dominant set) is well-documented as predominant across the whole country.",
+      "region_level": "The country-level picture is insufficient or misleading on its own; a specific named sub-region has its own well-documented, distinct predominant madhhab (e.g. Kerala within India).",
+      "mixed_heterogeneous": "A Sunni/four-madhhab majority genuinely exists, but no single madhhab (or small set) can be called predominant among it -- offering a guess would misrepresent genuine internal diversity.",
+      "insufficient_evidence": "No safe recommendation among this app's four supported madhahib (Hanafi/Maliki/Shafi'i/Hanbali) can be made at all -- either because the population's majority tradition is outside these four entirely (Shia/Jafari, Ibadi, or a diaspora/immigrant-origin population with no dominant ancestral madhhab), or because the country itself has no single confessional/religious majority."
+    }
+  },
+  "_source_registry": {
+    "_note": "Replaced 2026-10-14 (Knowledge-Base Source-Verification wave) with real, individually-verified sources found via internet research for every one of the 59 entries below -- see each entry's source_ids/review_notes for which sources support it, and whether the source was directly fetched and quoted or only recovered via a search tool's own extraction (both are labeled honestly per source; the second is weaker and noted as such). Many top-tier domains (Britannica, CIA.gov, state.gov, minorityrights.org, refworld.org, USCIRF.gov, web.archive.org) blocked direct automated fetching (HTTP 403/401 or bot-verification) during this research; their real, named content was still recovered via search-tool extraction and is cited as such, never fabricated. Country-specific official fatwa/Islamic-affairs institutions already catalogued elsewhere in this repo (SRC-INST-001 Dar al-Ifta Egypt, SRC-INST-002 Saudi Permanent Committee, SRC-INST-003 islamweb.net/Qatar Ministry of Awqaf, SRC-INST-004 Dorar Saniyyah -- see fiqh_source_registry.json) and JUR-MY-001/JUR-AE-001 (see jurisdiction_source_registry.json) are still reused by reference where relevant, not redefined here.",
+    "sources": [
+      {
+        "source_id": "RSRC-001",
+        "title": "2023 Report on International Religious Freedom: Morocco",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2111925.html",
+        "date": "2023/2024",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "MA"
+        ],
+        "proposition": "Morocco's legal system follows the \"Maliki-Ashari school of Islamic jurisprudence\"; materials inconsistent with \"the Maliki school of Sunni Islam\" are restricted.",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-002",
+        "title": "2023 Report on International Religious Freedom: Algeria",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2111620.html",
+        "date": "2023",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "DZ"
+        ],
+        "proposition": "\"more than 99 percent of whom are Sunni Muslims following the Maliki school\"",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-003",
+        "title": "2018 Report on International Religious Freedom: Mauritania",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/de/dokument/2011122.html",
+        "date": "2018",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "MR"
+        ],
+        "proposition": "A 2017 Mauritanian law imposes 1-5 years imprisonment for speech \"contrary or hostile\" to \"the dominant Maliki school of Sunni Islamic jurisprudence.\"",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-004",
+        "title": "2001 Report on International Religious Freedom - Qatar",
+        "publisher": "U.S. Department of State (via Jewish Virtual Library mirror)",
+        "url": "https://www.jewishvirtuallibrary.org/qatar-religious-freedom-report-2001",
+        "date": "2001",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "QA"
+        ],
+        "proposition": "\"The official state religion follows the conservative Wahhabi tradition of the Hanbali school of Islam.\"",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-005",
+        "title": "Qatar Family Law No. 22 of 2006 (legal analysis)",
+        "publisher": "SOAS (Lynn Welchman) / Musawah NGO legal overview",
+        "url": "https://www.musawah.org",
+        "date": "Law 2006; analysis 2022",
+        "source_type": "academic",
+        "countries_regions": [
+          "QA"
+        ],
+        "proposition": "The law applies to those \"subject to the Hanbali School of Thought,\" with Hanbali as the residual/default source where the law is silent.",
+        "verification": "via search-tool summary, not independently fetched from the primary law text"
+      },
+      {
+        "source_id": "RSRC-006",
+        "title": "\"Memories\" (Episode 43)",
+        "publisher": "muftitaqiusmani.com (memoir of Mufti Muhammad Taqi Usmani, Council of Islamic Ideology member, internationally recognized Hanafi jurist)",
+        "url": "https://muftitaqiusmani.com/en/?p=13370",
+        "date": "not stated",
+        "source_type": "academic",
+        "countries_regions": [
+          "PK"
+        ],
+        "proposition": "\"most of the laws came to be drafted according to the Hanafi school of thought\" due to \"the majority population and ease of implementation.\"",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-007",
+        "title": "Religion in Pakistan (citing the Oxford Dictionary of Islam)",
+        "publisher": "Oxford University Press (via Wikipedia citation trail, not independently fetched -- paywalled)",
+        "url": "https://en.wikipedia.org/wiki/Religion_in_Pakistan",
+        "date": "not stated",
+        "source_type": "secondary",
+        "countries_regions": [
+          "PK"
+        ],
+        "proposition": "\"The majority of Sunnis follow the Hanafi school of jurisprudence.\"",
+        "verification": "via citation trail only, primary source paywalled"
+      },
+      {
+        "source_id": "RSRC-008",
+        "title": "\"Ulama\" entry",
+        "publisher": "Banglapedia -- National Encyclopedia of Bangladesh (Asiatic Society of Bangladesh, govt/academic/UNESCO-funded)",
+        "url": "https://en.banglapedia.org/index.php/Ulama",
+        "date": "2nd edition, 2012",
+        "source_type": "encyclopedic",
+        "countries_regions": [
+          "BD"
+        ],
+        "proposition": "\"Almost all of the sunni Muslims of Bangladesh belong to Hanafi school of thought.\"",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-009",
+        "title": "Religious groups in Egypt",
+        "publisher": "Fanack (Chronicle of the Middle East and North Africa)",
+        "url": "https://fanack.com/egypt/population-of-egypt/religious-groups/",
+        "date": "2012",
+        "source_type": "secondary",
+        "countries_regions": [
+          "EG"
+        ],
+        "proposition": "\"the Hanafi school of law is considered mainstream by most people.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-010",
+        "title": "religion i Egypten",
+        "publisher": "Lex.dk (Den Store Danske / Great Danish Encyclopedia)",
+        "url": "https://lex.dk/religion_i_Egypten",
+        "date": "not stated",
+        "source_type": "encyclopedic",
+        "countries_regions": [
+          "EG"
+        ],
+        "proposition": "Egypt officially follows the Hanafi school; population in the north is Shafi'i, south is Maliki.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-011",
+        "title": "\"Azhar, al-\" (Encyclopedia of the Modern Middle East and North Africa)",
+        "publisher": "Encyclopedia.com (Macmillan Reference)",
+        "url": "https://www.encyclopedia.com/humanities/encyclopedias-almanacs-transcripts-and-maps/azhar-al",
+        "date": "not stated",
+        "source_type": "encyclopedic",
+        "countries_regions": [
+          "EG"
+        ],
+        "proposition": "Historically, \"the Maliki, Shafi'i, and Hanafi rites, each with its own shaykh, dominated [Al-Azhar].\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-012",
+        "title": "2020 Report on International Religious Freedom: Saudi Arabia",
+        "publisher": "U.S. Department of State (via hrvoices.org)",
+        "url": "https://hrvoices.org/assets/attachments/documents/240282-SAUDI-ARABIA-2020-INTERNATIONAL-RELIGIOUS-FREEDOM-REPORT.pdf",
+        "date": "2020",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "SA"
+        ],
+        "proposition": "\"The legal system is based largely on sharia as interpreted by the Hanbali school of Sunni Islamic jurisprudence\"; Council of Senior Scholars has 18 Hanbali members plus one representative each of Maliki/Hanafi/Shafi'i; public education \"based on the Hanbali school.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-013",
+        "title": "\"Precarious Justice\"",
+        "publisher": "Human Rights Watch",
+        "url": "https://www.hrw.org/reports/2008/saudijustice0308/5.htm",
+        "date": "March 2008",
+        "source_type": "secondary",
+        "countries_regions": [
+          "SA"
+        ],
+        "proposition": "\"Saudi judges and official arbiters of public morality generally follow the Hanbali school of thought.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-014",
+        "title": "Jordan Overview Table (CEDAW country review)",
+        "publisher": "Musawah",
+        "url": "https://www.musawah.org/wp-content/uploads/2019/03/Jordan-Overview-Table.pdf",
+        "date": "2019",
+        "source_type": "academic",
+        "countries_regions": [
+          "JO"
+        ],
+        "proposition": "Absent codified law, \"the rules of Hanafi jurisprudence (fiqh) apply\" to \"the majority Muslim population in Jordan\" -- an administrative/legal-default claim, not a population religious-identity claim.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-015",
+        "title": "La religion en Jordanie",
+        "publisher": "Les Clés du Moyen-Orient (Delphine Froment)",
+        "url": "https://www.lesclesdumoyenorient.com/La-religion-en-Jordanie.html",
+        "date": "published 2013-05-13, updated 2020-04-22",
+        "source_type": "secondary",
+        "countries_regions": [
+          "JO",
+          "SY"
+        ],
+        "proposition": "\"The vast majority of Jordanian Muslims belong...particularly to Shafi'ism\" (population/religious-identity), while \"it is especially Hanafism that predominates\" in state law (tied to Jordan's 1951 Hanafi-inspired personal-status law).",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-016",
+        "title": "Glimpses of Islamic Manuscript Culture in Palestine",
+        "publisher": "UCLA Library (Sohaib Baig)",
+        "url": "https://www.library.ucla.edu/about/news/glimpses-of-islamic-manuscript-culture-in-palestine",
+        "date": "2024-11-07",
+        "source_type": "academic",
+        "countries_regions": [
+          "PS"
+        ],
+        "proposition": "Hanafi \"became the dominant administrative legal school in Palestine and Greater Syria under Ottoman rule from the 16th century onwards\"; manuscripts show \"the long presence and influence of the Hanafi school of law (madhhab) within Palestine.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-017",
+        "title": "Gaza religious history (Issue 147)",
+        "publisher": "Assafir Al-Arabi (Arafat Al-Haj)",
+        "url": "https://assafirarabi.com/?p=4225",
+        "date": "2015-03-29",
+        "source_type": "secondary",
+        "countries_regions": [
+          "PS"
+        ],
+        "proposition": "Shafi'i \"was the dominant school among Palestinians in Gaza until the mid-1970s\"; Gaza's Al-Azhar-trained scholars were generally Ash'arite/Shafi'i.",
+        "verification": "via search-tool summary; journalistic outlet, not academic"
+      },
+      {
+        "source_id": "RSRC-018",
+        "title": "General Assembly speech (Diyanet Academy bill debate)",
+        "publisher": "Turkish Grand National Assembly (TBMM) -- official government record",
+        "url": "https://tbmm.gov.tr/Milletvekili/UyeGenelKurulKonusmalariDetay?eid=105242",
+        "date": "2022-03-15",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "TR"
+        ],
+        "proposition": "Diyanet İşleri Başkanlığı conducts its legal opinions \"on the basis of the Hanafi school and Maturidi interpretation.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-019",
+        "title": "Exclusive survey looks into Turkey's religious life profile",
+        "publisher": "Anadolu Agency (Turkey's state-run news agency), reporting an official Diyanet/TurkStat joint survey (37,624 households, 81 provinces, fieldwork May-Sept 2013)",
+        "url": "https://www.aa.com.tr/en/life/exclusive-survey-looks-into-turkeys-religious-life-profile/141301",
+        "date": "2014-07-15",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "TR"
+        ],
+        "proposition": "\"77.5 percent of the Muslim citizens said they were of Hanafi sect while 11.1 percent were Shafii.\"",
+        "verification": "via search-tool summary; a real government survey with hard percentages"
+      },
+      {
+        "source_id": "RSRC-020",
+        "title": "2023 Report on International Religious Freedom: Afghanistan",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2111571.html",
+        "date": "2023",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "AF"
+        ],
+        "proposition": "\"Sunni Hanafi jurisprudence is the basis for the legal system\"; the Taliban affirms the same.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-021",
+        "title": "2018 Report on International Religious Freedom: Yemen",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2011009.html",
+        "date": "2018",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "YE"
+        ],
+        "proposition": "Population \"belonging either to the Shafi'i order of Sunni Islam or the Zaydi order of Shia Islam\"; ~65% Sunni/35% Shia; Twelver Shia \"residing mainly in the north.\" Never mentions Hanafi. Confirms the Zaydi-is-not-Hanafi correction.",
+        "verification": "via search-tool summary; corroborated across 2015/16/19/20/22/23 editions"
+      },
+      {
+        "source_id": "RSRC-022",
+        "title": "The Relation between both Ghana and Mali with Malikia Jurists",
+        "publisher": "Adab Al-Rafidayn journal, Vol. 52, No. 89.1 (University of Mosul)",
+        "url": "https://alaw.uomosul.edu.iq/index.php/radab/article/view/32460",
+        "date": "2022",
+        "source_type": "academic",
+        "countries_regions": [
+          "ML"
+        ],
+        "proposition": "Details Mansa Musa's adherence to the Maliki school; Timbuktu \"full of Maliki jurists.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-023",
+        "title": "Les Tijanes du Mali pour un Islam tolérant et une spiritualité tirée du rite malikite",
+        "publisher": "Le Courrier de l'Atlas (Mohamed El Hamraoui)",
+        "url": "https://www.lecourrierdelatlas.com/?p=174888",
+        "date": "2021-07-21",
+        "source_type": "secondary",
+        "countries_regions": [
+          "ML",
+          "MA"
+        ],
+        "proposition": "Maliki rite followed by \"the great majority of Muslims in Morocco, Mali, and West Africa\"; ties Tijani Sufism in Mali to it.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-024",
+        "title": "Niger 2017 International Religious Freedom Report",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/361656",
+        "date": "2018 (covering 2017)",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "NE"
+        ],
+        "proposition": "\"The majority of the population adhered to the Maliki interpretation of Sunni Islam.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-025",
+        "title": "2023 Report on International Religious Freedom: Niger",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2111932.html",
+        "date": "2023",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "NE"
+        ],
+        "proposition": "\"Approximately 80 percent of the country's Muslims are Sunni followers of the Maliki school of jurisprudence.\"",
+        "verification": "via search-tool summary; second independent-year government source"
+      },
+      {
+        "source_id": "RSRC-026",
+        "title": "The Dissemination and Development of the Maliki Jurisprudence in Senegal",
+        "publisher": "Al-Risalah: Journal of Islamic Revealed Knowledge and Human Sciences (IIUM), Vol. 3 No. 2 (Seydou Dia & Mohamed El-Tahir El-Mesawi)",
+        "url": "https://irep.iium.edu.my/76881/",
+        "date": "2019",
+        "source_type": "academic",
+        "countries_regions": [
+          "SN"
+        ],
+        "proposition": "Describes 80+ scholarly circles across Senegal teaching Maliki jurisprudence.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-027",
+        "title": "The Influence of Shaykh Ibrahim Niyass on His Followers in Ilorin, Nigeria",
+        "publisher": "Islamic Studies, Vol. 54, No. 3-4 (IIU Islamabad, Solagberu)",
+        "url": "https://journals.iiu.edu.pk/index.php/islamicstudies/article/view/175",
+        "date": "2015",
+        "source_type": "academic",
+        "countries_regions": [
+          "SN"
+        ],
+        "proposition": "Confirms Shaykh Ibrahim Niasse's (major Senegalese Tijani leader) followers are discussed relative to \"the school of law (i.e. Maliki school)\" -- bridges the Sufi-tariqa-to-madhhab link explicitly.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-028",
+        "title": "Gambia 2007 Report on International Religious Freedom",
+        "publisher": "U.S. Department of State (via refworld.org)",
+        "url": "https://www.refworld.org/node/48677",
+        "date": "2007",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "GM"
+        ],
+        "proposition": "\"The vast majority are Malikite Sufis\"; Gambia's Cadi courts \"apply classic Maliki fiqh\" for Muslim marriage/divorce/inheritance -- a verifiable state-recognized legal practice.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-029",
+        "title": "Gambia 2015 Report on International Religious Freedom",
+        "publisher": "U.S. Department of State (via hrvoices.org)",
+        "url": "https://hrvoices.org/assets/attachments/documents/2015.state.dept.religion.gambia.pdf",
+        "date": "2015/2016",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "GM"
+        ],
+        "proposition": "Lists \"Malikite\" among Islamic groups present.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-030",
+        "title": "Guinea 2020 Report on International Religious Freedom",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2051567.html",
+        "date": "2021 (covering 2020)",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "GN"
+        ],
+        "proposition": "\"Muslims are generally Maliki Sunni, with Sufism also present.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-031",
+        "title": "Guinea 2021 Report on International Religious Freedom",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2074001.html",
+        "date": "2022 (covering 2021)",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "GN"
+        ],
+        "proposition": "Same wording as the 2020 report -- \"generally Maliki Sunni.\"",
+        "verification": "via search-tool summary; second independent-year source"
+      },
+      {
+        "source_id": "RSRC-032",
+        "title": "Somalia legal profile (1975 Family Code)",
+        "publisher": "Emory University Islamic Family Law project",
+        "url": "https://scholarblogs.emory.edu/islamic-family-law/legal-profiles/somalia/",
+        "date": "profile undated; Family Code 1975",
+        "source_type": "academic",
+        "countries_regions": [
+          "SO"
+        ],
+        "proposition": "Somalia's 1975 Family Code Article 1 makes \"leading doctrines of the Shafi'i school\" a residuary source of law; \"the majority of Muslims are Shafi'i.\"",
+        "verification": "via search-tool summary; direct fetch returned empty content"
+      },
+      {
+        "source_id": "RSRC-033",
+        "title": "2023 Report on International Religious Freedom: Comoros",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/de/dokument/2116198.html",
+        "date": "2023",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "KM"
+        ],
+        "proposition": "\"Citizens shall draw principles and rules to regulate worship and social life from the Shafi'i school of Sunni Islam\"; a separate law establishes \"Sunni Shafi'i doctrine as the official religious reference.\" 98% Sunni Muslim.",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-034",
+        "title": "The making and unmaking of colonial Shariah in the Sudan (seminar abstract)",
+        "publisher": "KZN HAAS History and African Studies Seminar (presenter: Shamil Jeppie)",
+        "url": "https://phambo.wiser.org.za/seminars/jeppe/2008.html",
+        "date": "2008-05-28",
+        "source_type": "academic",
+        "countries_regions": [
+          "SD"
+        ],
+        "proposition": "\"The dominant madhhab in the Sudan was Maliki\"; \"the Egyptian Grand Qadis often ignored this fact and based their decisions on the Hanafi madhhab\" (a colonial-era administrative import, not a population reality).",
+        "verification": "directly fetched and quoted; a seminar abstract, not a full peer-reviewed paper -- single-source, not independently corroborated"
+      },
+      {
+        "source_id": "RSRC-035",
+        "title": "2021 Report on International Religious Freedom: Nigeria",
+        "publisher": "U.S. Department of State (via ecoi.net), citing a 2010 Pew Research study",
+        "url": "https://www.ecoi.net/de/dokument/2074007.html",
+        "date": "2021 (citing 2010 Pew data)",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "NG"
+        ],
+        "proposition": "\"A 2010 Pew report found 38 percent of the Muslim population self-identifies as Sunni, the vast majority of whom belong to the Maliki school of jurisprudence\"; sizable Shafi'i minority among Sunnis; 12% Shia; 42% \"just a Muslim.\"",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-036",
+        "title": "Shāfi'ī Literature in Indonesia: A Historical Account",
+        "publisher": "Islamica: Jurnal Studi Keislaman, Vol. 17 No. 1 (Suud Sarim Karimullah, Gümüşhane University), UIN Sunan Ampel",
+        "url": "https://islamica.uinsa.ac.id/index.php/islamica/article/view/946",
+        "date": "2022-09-01",
+        "source_type": "academic",
+        "countries_regions": [
+          "ID"
+        ],
+        "proposition": "\"The Shāfi'ī madhhab is always relevant to be used as a guide for Islamic law in Indonesia\"; continues to be \"used as a reference in determining Islamic law in Indonesia.\"",
+        "verification": "directly fetched and quoted; DOI 10.15642/islamica.2022.17.1.1-19"
+      },
+      {
+        "source_id": "RSRC-037",
+        "title": "2019 Report on International Religious Freedom: Malaysia",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/de/dokument/2031319.html",
+        "date": "2019",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "MY"
+        ],
+        "proposition": "\"Almost all Muslims practice Sunni Islam of the Shafi'i school\"; a 1996 fatwa backed by state laws \"requires the country to follow only Sunni teachings of the Shafi'i school.\"",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-038",
+        "title": "International Religious Freedom Reports on Brunei (multiple editions)",
+        "publisher": "U.S. Department of State / USCIRF",
+        "url": "https://www.refworld.org/node/111748",
+        "date": "2009-2020 editions, consistent wording",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "BN"
+        ],
+        "proposition": "Brunei's constitution states the official religion is \"the Shafi'i school of Sunni Islam\"; Ministry of Religious Affairs responsible for \"propagating and reinforcing Shafi'i beliefs and practices.\"",
+        "verification": "via search-tool summary; direct fetch of refworld.org and uscirf.gov both returned HTTP 403"
+      },
+      {
+        "source_id": "RSRC-039",
+        "title": "How the law in the Maldives paved the way for a Sunni legal tradition",
+        "publisher": "Melbourne Asia Review, Edition 10 (Dr Shamsul Falaah, University of Melbourne Asia Institute)",
+        "url": "https://melbourneasiareview.edu.au/?p=16284",
+        "date": "2022-06-06",
+        "source_type": "academic",
+        "countries_regions": [
+          "MV"
+        ],
+        "proposition": "Article 74(2) of the First Amendment to the Maldives' first Constitution required the Chief Justice to be \"a scholar of high distinction...of the Shāfi'ī madhab,\" implying Shafi'i was the constitutional preference among the schools.",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-040",
+        "title": "Meeting with Kazakhstan's Spiritual Board of the Muslims",
+        "publisher": "Akorda.kz (official website of the President of Kazakhstan)",
+        "url": "https://akorda.kz/en/events/akorda_news/meetings_and_receptions/meeting-with-kazakhstans-spiritual-board-of-the-muslims",
+        "date": "2017-04-19",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "KZ"
+        ],
+        "proposition": "President Nazarbayev \"underlined the traditional character of the Hanafi madhhab for Kazakhstan's Muslims\" and called for training specialists to teach it.",
+        "verification": "directly fetched"
+      },
+      {
+        "source_id": "RSRC-041",
+        "title": "The constitutional-legal status of the Spiritual Association of Muslims of Kazakhstan",
+        "publisher": "Bulletin of KazNU, Law series",
+        "url": "https://bulletin-law.kaznu.kz/index.php/journal/en/article/view/1159",
+        "date": "2018",
+        "source_type": "academic",
+        "countries_regions": [
+          "KZ"
+        ],
+        "proposition": "The official madhhab of the Spiritual Administration of Muslims of Kazakhstan (SAMK) is \"the Hanafi school of Imam Abu Hanifa, established on the theological foundations of the Maturidi school.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-042",
+        "title": "President Sadyr Japarov meets with new mufti Abdulaziz Zakirov",
+        "publisher": "24.kg (Kyrgyz news agency)",
+        "url": "https://24.kg/english/288955_President_Sadyr_Japarov_meets_with_new_mufti_Abdulaziz_Zakirov",
+        "date": "2024-03-14",
+        "source_type": "secondary",
+        "countries_regions": [
+          "KG"
+        ],
+        "proposition": "President Japarov \"called to focus on the need to adhere to the traditional Hanafi madhhab.\"",
+        "verification": "directly fetched"
+      },
+      {
+        "source_id": "RSRC-043",
+        "title": "2026 Kyrgyzstan Country Brief",
+        "publisher": "U.S. Commission on International Religious Freedom (USCIRF)",
+        "url": "https://www.uscirf.gov/sites/default/files/2026-09/2026%20Kyrgyzstan%20Country%20Brief.pdf",
+        "date": "2026",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "KG"
+        ],
+        "proposition": "\"The Kyrgyz government, acting in its direct capacity as well as in conjunction with [SAMK], supports a particular interpretation of the Hanafi tradition of Sunni Islam\"; deviators labeled \"extremist.\"",
+        "verification": "via search-tool summary; direct PDF access returned HTTP 401"
+      },
+      {
+        "source_id": "RSRC-044",
+        "title": "2017 Report on International Religious Freedom - Tajikistan",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/de/dokument/361664",
+        "date": "2017",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "TJ"
+        ],
+        "proposition": "\"The law recognizes the 'special status' of Sunni Islam's Hanafi school of jurisprudence with respect to the country's culture and spiritual life.\"",
+        "verification": "directly fetched and quoted; consistent wording across 2012/2017/2023-archived editions"
+      },
+      {
+        "source_id": "RSRC-045",
+        "title": "2020 Report on International Religious Freedom: Uzbekistan",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2051730.html",
+        "date": "2020",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "UZ"
+        ],
+        "proposition": "\"Most Muslims are Sunni of the Hanafi school\"; \"approximately 1 percent of the population is Shia of the Jaafari school...concentrated in the provinces of Bukhara and Samarkand.\"",
+        "verification": "directly fetched and quoted; consistent across 2010/2012/2020 editions"
+      },
+      {
+        "source_id": "RSRC-046",
+        "title": "What is Islamic tradition of Bosniaks (quoting Constitution of the Islamic Community of Bosnia and Herzegovina, Art. 8(2))",
+        "publisher": "Islamic Community of Bosnia and Herzegovina (official site), essay by Dr. Fikret Karčić",
+        "url": "https://english.islamskazajednica.ba/news/222-what-is-islamic-tradition-of-bosniaks",
+        "date": "not stated",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "BA"
+        ],
+        "proposition": "\"The Hanafi madhhab shall be applied in interpretation and practice of the Islamic worship (ibadat) duties in the IC\" -- the Community's own governing constitution.",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-047",
+        "title": "Biographical records of Vehbi Dibra and Hafiz Sabri Koçi, successive heads of the Muslim Community of Albania",
+        "publisher": "Wikipedia-adjacent biographical sourcing (via search-tool summary)",
+        "url": "https://en.wikipedia.org/wiki/Vehbi_Dibra",
+        "date": "not stated",
+        "source_type": "secondary",
+        "countries_regions": [
+          "AL"
+        ],
+        "proposition": "Both the first Grand Mufti (Vehbi Dibra) and the 1991-2004 head (Hafiz Sabri Koçi) of Albania's official Muslim community are documented as \"Jurisprudence: Hanafi, Creed: Maturidi.\"",
+        "verification": "via search-tool summary; biographical/historical rather than institutional-statutory evidence; the Community's own statute text could not be located despite targeted English and Albanian-language searches"
+      },
+      {
+        "source_id": "RSRC-048",
+        "title": "India (Country Studies series)",
+        "publisher": "Library of Congress Federal Research Division",
+        "url": "https://countrystudies.us/india/55.htm",
+        "date": "1990s-era series",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "IN"
+        ],
+        "proposition": "\"The Hanafi school...dominated most of India\"; \"the Shafii school was more prevalent in South India.\"",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-049",
+        "title": "Faith on Trial (or similar title) -- PhD dissertation",
+        "publisher": "Princeton University (Saumyashree Ghosh)",
+        "url": "https://dataspace.princeton.edu/handle/88435/dsp01g158bm60x",
+        "date": "2023",
+        "source_type": "academic",
+        "countries_regions": [
+          "IN"
+        ],
+        "proposition": "Kerala/Tamil Nadu coastal Muslims \"practiced the Shafi'i school of Islamic law rather than the Hanafi school that was followed by the majority of Sunni Muslims in India\"; discusses Shafi'i qadis resisting Hanafi-based British \"Anglo-Muhammadan law\" in Madras Presidency.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-050",
+        "title": "M.Phil/PhD thesis on Islamic legal schools in India",
+        "publisher": "Jamia Millia Islamia (Indian central university), author ab2011_islamicstudies_bahavuddeen",
+        "url": "https://www.jmi.ac.in/upload/Research/ab2011_islamicstudies_bahavuddeen.pdf",
+        "date": "~2011",
+        "source_type": "academic",
+        "countries_regions": [
+          "IN"
+        ],
+        "proposition": "Traces the Delhi Sultanate's adoption of Hanafi as state practice, and Shafi'i's spread via Hadhrami/Hejazi/Egyptian scholars into Kerala, coastal Karnataka/Tamil Nadu/Maharashtra, Hyderabad, and Lakshadweep.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-051",
+        "title": "The Hadramis of the Indian Ocean: A Diaspora and its Networks",
+        "publisher": "COMPAS, University of Oxford",
+        "url": "https://www.compas.ox.ac.uk/2011/the-hadramis-of-the-indian-ocean-a-diaspora-and-its-networks",
+        "date": "2011",
+        "source_type": "academic",
+        "countries_regions": [
+          "IN"
+        ],
+        "proposition": "Muslim communities across the Indian Ocean rim \"almost without exception follow the Shafi'i school,\" attributed to Hadrami religious influence from Tarim/Wadi Hadramawt; names Hadrami religious leadership presence at Kozhikode/Calicut (Kerala).",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-052",
+        "title": "Infosys Prize laureate profile: Mahmood Kooria",
+        "publisher": "Infosys Science Foundation",
+        "url": "https://www.infosysprize.org/content/dam/infosys-isf/laureates/2024/mahmood-kooria-info.pdf",
+        "date": "2024",
+        "source_type": "academic",
+        "countries_regions": [
+          "IN"
+        ],
+        "proposition": "Profiles a historian specializing in Shafi'i legal history of the Malabar coast (Kerala), author of \"Islamic Law in Circulation,\" with comparative reach to Mozambique/Indonesia.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-053",
+        "title": "The World Factbook -- Ethiopia, Religions; and \"Ethiopia Is an Outlier in the Orthodox Christian World\"",
+        "publisher": "CIA; Pew Research Center",
+        "url": "https://www.pewresearch.org/short-reads/2017/11/28/ethiopia-is-an-outlier-in-the-orthodox-christian-world/",
+        "date": "CIA figure 2016 est.; Pew 2017",
+        "source_type": "international_report",
+        "countries_regions": [
+          "ET"
+        ],
+        "proposition": "Muslim population ~31-35% of Ethiopia (CIA 31.3%, Pew ~35%, 2007 national census 33.9%), a large religiously-mixed country.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-054",
+        "title": "Academic article on Harar/Wallo as centers of Islamic teaching",
+        "publisher": "African Study Monographs (Hussein Ahmed)",
+        "url": "https://repository.kulib.kyoto-u.ac.jp/dspace/bitstream/2433/108279/1/ASM_S_41_111.pdf",
+        "date": "not stated",
+        "source_type": "academic",
+        "countries_regions": [
+          "ET"
+        ],
+        "proposition": "Confirms Harar's status as a major historic Islamic scholarly center shaping Islamic law/Sufi orders in the 18th-19th centuries, without a population-wide percentage breakdown by madhhab.",
+        "verification": "via search-tool summary; institutional/historical evidence, not a demographic statistic"
+      },
+      {
+        "source_id": "RSRC-055",
+        "title": "2020/2021 Report on International Religious Freedom: Iran",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/en/document/2065236.html",
+        "date": "2020/2021",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "IR"
+        ],
+        "proposition": "Iran's constitution (Article 12) names Hanafi, Shafi'i, Maliki, and Hanbali as the recognized Sunni schools for the Sunni minority, with no population percentage given for any.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-056",
+        "title": "2023 Report on International Religious Freedom: Iraq",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/de/dokument/2111575.html",
+        "date": "2023 (pub. 2024)",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "IQ"
+        ],
+        "proposition": "Sunni ~40% of Muslim population (Arab 24%, Kurd 15%); Shia 55-60% (predominantly Arab, also Turkmen/Faili Kurds). No madhhab breakdown given for any group.",
+        "verification": "directly fetched and read in full"
+      },
+      {
+        "source_id": "RSRC-057",
+        "title": "The Kurds and Islam",
+        "publisher": "Utrecht University institutional repository (M. van Bruinessen, Professor Emeritus, Comparative Studies of Modern Muslim Societies); corroborated by Encyclopaedia Britannica's \"Iraq/Arabs\" entry, Minority Rights Group International, and The Kurdish Project",
+        "url": "https://dspace.library.uu.nl/bitstream/handle/1874/20693/bruinessen_98_kurdsandislam.pdf",
+        "date": "1998",
+        "source_type": "academic",
+        "countries_regions": [
+          "IQ"
+        ],
+        "proposition": "\"Most Kurds follow the Shafi'i school, which sets them apart from the Hanafi Turks and Arabs around them.\" FLAGGED, NOT ACTED ON: this is a well-corroborated claim about ethnic Kurds generally (not Iraq-specific), and the Kurdistan Region itself contains real Yazidi/Assyrian-Christian/Shabak/Kaka'i/Shia-Turkmen populations with no census to anchor a safe region-level population claim. No \"Kurdistan Region, Iraq\" entry was added on this basis -- left for a future reviewer with access to population data this research could not find.",
+        "verification": "via search-tool summary (van Bruinessen, Britannica, Minority Rights Group all 403-blocked on direct fetch); The Kurdish Project page directly fetched and quoted, but is a lower-tier advocacy source"
+      },
+      {
+        "source_id": "RSRC-058",
+        "title": "2018 and 2008 Reports on International Religious Freedom - Bahrain",
+        "publisher": "U.S. Department of State (via ecoi.net / refworld.org)",
+        "url": "https://www.ecoi.net/en/document/2011041.html",
+        "date": "2018; 2008",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "BH"
+        ],
+        "proposition": "Government does not publish Sunni/Shia statistics; NGO estimates Shia at 55-60% of citizens. The 2008 report: \"the government funded and closely controlled religious courts which represented both the Ja'afari (Shi'a) and Maliki (Sunni) schools of Islamic jurisprudence\" -- even the Sunni minority is itself split (Maliki ruling family vs. Shafi'i Sunnis of Iranian descent, per a Norwegian encyclopedia source).",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-059",
+        "title": "Shia-Sunni Sectarianism in the Middle East and Its Echo in Azerbaijan",
+        "publisher": "Carnegie Endowment for International Peace (Bayram Balci)",
+        "url": "https://carnegieendowment.org/europe/posts/2014/06/shia-sunni-sectarianism-in-the-middle-east-and-its-echo-in-azerbaijan",
+        "date": "2014-06",
+        "source_type": "academic",
+        "countries_regions": [
+          "AZ"
+        ],
+        "proposition": "\"The population is divided between Shia (65 percent) and Sunni (35 percent) Muslims\"; Soviet-era secularism legacy remains strong, with ordinary believers largely not sharing the sectarian division.",
+        "verification": "directly fetched and quoted"
+      },
+      {
+        "source_id": "RSRC-060",
+        "title": "2022 Report on International Religious Freedom: Oman",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/de/dokument/2092391.html",
+        "date": "2022",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "OM"
+        ],
+        "proposition": "\"About 95 percent of the population is Muslim, split as 45 percent Sunni, 45 percent Ibadhi, and 5 percent Shia\"; government does not publish official statistics (estimates of Ibadhi share range 45-75% depending on source).",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-061",
+        "title": "Kuwait 2019 International Religious Freedom Report",
+        "publisher": "U.S. Department of State (via hrvoices.org)",
+        "url": "https://hrvoices.org/assets/attachments/documents/KUWAIT-2019-INTERNATIONAL-RELIGIOUS-FREEDOM-REPORT.pdf",
+        "date": "2019",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "KW"
+        ],
+        "proposition": "PACI estimates ~70% of citizens Sunni, ~30% Shia; the national census does not distinguish Sunni/Shia at all, let alone madhhab. A secondary, weakly-sourced claim that Maliki is officially recognized for Kuwait's sharia courts could not be independently corroborated (an Emory legal-profile fetch attempt returned empty content).",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-062",
+        "title": "2023 Report on International Religious Freedom: Lebanon (citing a 2018 Statistics Lebanon study)",
+        "publisher": "U.S. Department of State",
+        "url": "https://www.state.gov",
+        "date": "2023 report; 2018 underlying study",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "LB"
+        ],
+        "proposition": "Muslims ~67.6% / Christians ~32.4% overall; Sunni and Shia each ~31-32%; Maronite ~16%; Greek Orthodox ~7.6%; Druze ~5%. No official census has been conducted since 1932, precisely because of confessional-balance sensitivities.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-063",
+        "title": "2021 Report on International Religious Freedom: United Arab Emirates",
+        "publisher": "U.S. Department of State (via ecoi.net)",
+        "url": "https://www.ecoi.net/de/dokument/2074130.html",
+        "date": "2021",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "AE"
+        ],
+        "proposition": "No official breakdown of the overall resident population exists; an estimated ≤15% of citizens are Shia (so >90% of citizens Sunni) -- but citizens are a small minority (~10-15%) of total residents, who are overwhelmingly non-citizen expatriates with no published religious breakdown.",
+        "verification": "via search-tool summary"
+      },
+      {
+        "source_id": "RSRC-064",
+        "title": "Demographic Portrait of Muslim Americans",
+        "publisher": "Pew Research Center",
+        "url": "https://www.pewresearch.org/religion/2017/07/26/demographic-portrait-of-muslim-americans/",
+        "date": "2017-07-26",
+        "source_type": "international_report",
+        "countries_regions": [
+          "US"
+        ],
+        "proposition": "1,001 Muslim respondents born across 75 different countries; Pakistan 15% (largest single country), Iran 11%, India 7%, Afghanistan 6%, Bangladesh 6%, Iraq 5%, Kuwait/Syria/Egypt 3% each; \"no single country accounts for more than 15%.\"",
+        "verification": "directly fetched"
+      },
+      {
+        "source_id": "RSRC-065",
+        "title": "Muslims in America: Immigrants and Those Born in the U.S. See Life Differently in Many Ways",
+        "publisher": "Pew Research Center",
+        "url": "https://www.pewresearch.org/religion/2018/04/14/muslims-in-america-immigrants-and-those-born-in-u-s-see-life-differently-in-many-ways/",
+        "date": "2018-04-14",
+        "source_type": "international_report",
+        "countries_regions": [
+          "US"
+        ],
+        "proposition": "58% of US Muslim adults are foreign-born, 42% US-born; no racial/ethnic majority among immigrants (45% white incl. Arab/MENA, 41% Asian).",
+        "verification": "directly fetched"
+      },
+      {
+        "source_id": "RSRC-066",
+        "title": "Census Final Report (citing ONS 2021 Census ethnicity-by-religion data)",
+        "publisher": "Muslim Council of Britain, citing Office for National Statistics",
+        "url": "https://mcb.org.uk",
+        "date": "2021 Census-based, published 2026",
+        "source_type": "secondary",
+        "countries_regions": [
+          "GB"
+        ],
+        "proposition": "Pakistani-origin ~38% of UK Muslims, Bangladeshi ~15% (combined ~53%) -- figure's currency disputed by a separate fact-check source; the authoritative primary ONS table (RM031, \"Ethnic group by religion\") was not independently retrieved this session.",
+        "verification": "via search-tool summary only; PDF fetch failed (binary/unreadable); recommend pulling the primary ONS RM031 table directly before treating this as fully verified"
+      },
+      {
+        "source_id": "RSRC-067",
+        "title": "The Muslim population in Canada",
+        "publisher": "Statistics Canada (official government statistical agency)",
+        "url": "https://www150.statcan.gc.ca/n1/pub/11-627-m/11-627-m2024058-eng.htm",
+        "date": "2024-12 (based on 2021 Census)",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "CA"
+        ],
+        "proposition": "Canada-born 29.5% (largest single category), Pakistan 12.7% (largest foreign-born), Iran 5.8%, Morocco 4.2%, Algeria 4.2%, Bangladesh 3.7%, Syria 3.5%, Afghanistan 3.4%, India 3.1%, Lebanon 2.4%; top 10 countries = only 72.5% of total; no country besides Pakistan exceeds 6%.",
+        "verification": "directly fetched"
+      },
+      {
+        "source_id": "RSRC-068",
+        "title": "Europe's Growing Muslim Population (Appendix A: Methodology)",
+        "publisher": "Pew Research Center",
+        "url": "https://www.pewresearch.org/religion/2017/11/29/appendix-a-methodology-europes-muslim-population/",
+        "date": "2017-11-29",
+        "source_type": "international_report",
+        "countries_regions": [
+          "FR"
+        ],
+        "proposition": "France's Muslim population baseline derives from the 2008 \"Trajectoires et Origines\" (TeO) survey (INED/INSEE, >20,000 respondents); Pew estimate: 5.7 million Muslims in France, 8.8% of population (mid-2016). Exact origin-percentage table not independently pulled from Pew's own report this session; secondary sources (not independently verified) suggest a strong Maghrebi concentration (~70-80%+ combined Algeria/Morocco/Tunisia).",
+        "verification": "via search-tool summary; recommend pulling the full Pew report body or INED/INSEE TeO2 published tables directly before treating the specific percentages as fully verified"
+      },
+      {
+        "source_id": "RSRC-069",
+        "title": "Islam in Germany: Facts and Figures (citing \"Muslimisches Leben in Deutschland 2020\")",
+        "publisher": "Deutsche Islam-Konferenz (German Islam Conference, official German federal government body under BAMF)",
+        "url": "https://deutsche-islam-konferenz.de/EN/DatenFakten/daten-fakten_node.html",
+        "date": "study published 2021; page states 2023",
+        "source_type": "official_institution",
+        "countries_regions": [
+          "DE"
+        ],
+        "proposition": "~5.5 million Muslims in Germany (~6.6%); Turkish roots 45% (~2.5 million) -- a PLURALITY, not a majority, DOWN from 53% (2015) and 68% (2008); Arab roots 27%; Southeastern Europe 19%; Afghanistan/Iran/neighboring 9%.",
+        "verification": "directly fetched"
+      },
+      {
+        "source_id": "RSRC-070",
+        "title": "The Growth of Germany's Muslim Population",
+        "publisher": "Pew Research Center",
+        "url": "https://www.pewresearch.org/religion/2017/11/29/the-growth-of-germanys-muslim-population-2/",
+        "date": "2017-11-29",
+        "source_type": "international_report",
+        "countries_regions": [
+          "DE"
+        ],
+        "proposition": "~5 million Muslims in Germany (6.1%) mid-2016; ~670,000 refugees accepted 2010-2016 (~86% Muslim, mostly Syrian) further diluted the Turkish-origin share.",
+        "verification": "via search-tool summary"
+      }
+    ]
   },
   "mappings": [
     {
       "mapping_id": "GEO-001",
       "country": "Egypt",
+      "country_code": "EG",
       "region": null,
-      "likely_madhahib": ["shafii", "hanafi", "maliki"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii",
+        "hanafi",
+        "maliki"
+      ],
       "confidence": "medium",
       "note": "Historically Shafi'i-majority with a significant Hanafi presence from Ottoman-era administrative influence; genuinely mixed in practice.",
-      "evidence_source_ids": ["SRC-INST-001"],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-009",
+        "RSRC-010",
+        "RSRC-011"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Three independent sources (a Chronicle of the ME/NA journalism source, the Danish national encyclopedia, and Encyclopedia.com's Encyclopedia of the Modern Middle East) converge on the mixed Hanafi/Shafi'i/Maliki picture with a regional north-south split. A general '% Muslim' demographic statistic was explicitly excluded as insufficient on its own.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-002",
       "country": "Saudi Arabia",
+      "country_code": "SA",
       "region": null,
-      "likely_madhahib": ["hanbali"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanbali"
+      ],
       "confidence": "medium",
       "note": "Hanbali is the institutionally predominant madhhab; the country's population also includes many residents/citizens of other madhahib in practice, so this is a majority signal, not a certainty.",
-      "evidence_source_ids": ["SRC-INST-002"],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-012",
+        "RSRC-013"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The single strongest case in the whole dataset: a directly-quotable US State Dept report explicitly ties the legal system, the Council of Senior Scholars' seat allocation, and public education to the Hanbali school by name.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-003",
       "country": "Turkey",
+      "country_code": "TR",
       "region": null,
-      "likely_madhahib": ["hanafi"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
       "confidence": "medium",
       "note": "Hanafi is the historically and institutionally predominant madhhab (Ottoman legal tradition).",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-018",
+        "RSRC-019"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "An official Turkish government survey (Diyanet/TurkStat, 37,624 households, 2013) found 77.5% of Muslim citizens self-identify as Hanafi, 11.1% as Shafi'i -- a real hard percentage from an official source, not an inference. A possible Shafi'i-majority pocket in Turkish Kurdistan was mentioned only in an uncited Wikipedia sentence and could not be independently verified; flagged, not acted on.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-004",
       "country": "Pakistan",
+      "country_code": "PK",
       "region": null,
-      "likely_madhahib": ["hanafi"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
       "confidence": "medium",
       "note": "Hanafi is the majority madhhab across South Asia generally.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-006",
+        "RSRC-007"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "A first-hand memoir by Mufti Muhammad Taqi Usmani (a longtime member of Pakistan's own Council of Islamic Ideology and internationally recognized Hanafi jurist), directly fetched and quoted: 'most of the laws came to be drafted according to the Hanafi school of thought' due to the majority population. Corroborated by a secondary citation to the Oxford Dictionary of Islam ('the majority of Sunnis follow the Hanafi school'), though that specific reference work is paywalled and was not independently fetched. Real internal nuance noted (Barelvi/Deobandi sub-division within Pakistani Hanafism; a Shia minority of ~10-20% with its own codified personal-status law since 2021) -- doesn't contradict the country-level Hanafi-Sunni-majority claim.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-005",
       "country": "India",
+      "country_code": "IN",
       "region": null,
-      "likely_madhahib": ["hanafi"],
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [
+        "hanafi"
+      ],
       "confidence": "low",
       "note": "Hanafi-majority among Indian Muslims generally, but India's Muslim population is large and internally diverse (includes Shafi'i-majority regions such as coastal Kerala) -- kept low-confidence deliberately rather than a single flat answer.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [
+        "See GEO-005b for the Kerala region-level override -- this plain entry is a partial, low-confidence national signal only, not a claim that covers the whole country as confidently as the entries above."
+      ],
+      "unresolved_reason": "regionally_and_ethnically_diverse_muslim_minority",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-048",
+        "RSRC-049",
+        "RSRC-050"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Three independent academic sources (LOC Country Studies, a 2023 Princeton PhD dissertation, a Jamia Millia Islamia thesis) converge: Hanafi nationally, with Shafi'i exceptions that are BROADER than just Kerala (also coastal Karnataka, Tamil Nadu, Maharashtra, Hyderabad, Lakshadweep) -- which reinforces, not undermines, keeping this entry low-confidence/mixed_heterogeneous rather than a single confident national claim.",
+      "region_required": true,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-005b",
       "country": "India",
+      "country_code": "IN",
       "region": "Kerala",
-      "likely_madhahib": ["shafii"],
+      "classification": "region_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
       "confidence": "medium",
       "note": "Kerala's Muslim population (historically tied to Indian Ocean maritime trade with Yemen/Hadhramaut) is predominantly Shafi'i, distinct from the Hanafi majority elsewhere in India -- included specifically to demonstrate the mapping's region-override capability, not merely country-level flattening.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-049",
+        "RSRC-051",
+        "RSRC-052"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The best-evidenced region-level entry in the dataset: a Princeton PhD dissertation, an Oxford COMPAS diaspora study, and an Infosys Prize laureate's published Shafi'i-legal-history-of-Malabar research all independently converge, with no contradiction.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-006",
       "country": "Morocco",
+      "country_code": "MA",
       "region": null,
-      "likely_madhahib": ["maliki"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
       "confidence": "medium",
       "note": "Maliki is the historically and institutionally predominant madhhab across the Maghreb.",
-      "evidence_source_ids": ["SRC-INST-001"],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-001",
+        "RSRC-023"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Morocco's own 2023 State Dept report explicitly names the 'Maliki-Ashari school'; a secondary French-language source corroborates the regional Maghreb pattern.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-007",
       "country": "Tunisia",
+      "country_code": "TN",
       "region": null,
-      "likely_madhahib": ["maliki"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
       "confidence": "medium",
       "note": "Same Maghreb pattern as Morocco.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [
+        "RSRC-022"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "No government or encyclopedic source could be directly confirmed naming Maliki for Tunisia specifically this session (Britannica 403-blocked throughout). IMPORTANT: the commonly-repeated citation chain (Wikipedia -> 2004 US State Dept report) was checked directly against that report's actual text across its 2004/2011/2023 editions -- the word 'Maliki' does NOT appear in any of them. This specific, widely-repeated secondary citation is inaccurate and should not be relied on. The underlying Maliki claim remains plausible on strong historical grounds (Kairouan was a historic Maliki center) but is not independently source-verified to this pass's standard.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-008",
       "country": "Algeria",
+      "country_code": "DZ",
       "region": null,
-      "likely_madhahib": ["maliki"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
       "confidence": "medium",
       "note": "Same Maghreb pattern as Morocco.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-002"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Algeria's own 2023 State Dept report: 'more than 99 percent...following the Maliki school,' a direct, unambiguous, government-sourced claim.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-009",
       "country": "Indonesia",
+      "country_code": "ID",
       "region": null,
-      "likely_madhahib": ["shafii"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
       "confidence": "medium",
       "note": "Shafi'i is the historically and institutionally predominant madhhab across maritime Southeast Asia.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-036"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "A peer-reviewed Indonesian academic journal article (Islamica, UIN Sunan Ampel, 2022, DOI cited) directly confirms Shafi'i's continuing reference status for Indonesian Islamic law; corroborated by convergent (but not independently re-fetched) Indonesian-university sources on Shafi'i's historical adoption as the state's official school and its 1953/1958 formal adoption for religious courts (exact year disputed between two secondary sources, a minor historical detail).",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-010",
       "country": "Malaysia",
+      "country_code": "MY",
       "region": null,
-      "likely_madhahib": ["shafii"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
       "confidence": "medium",
       "note": "Same Southeast Asia pattern as Indonesia; also the officially adopted madhhab for state administration of Islamic affairs.",
-      "evidence_source_ids": ["JUR-MY-001"],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-037"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Malaysia's own 2019 State Dept report: 'Almost all Muslims practice Sunni Islam of the Shafi'i school,' plus a 1996 fatwa backed by state law requiring Shafi'i teachings specifically. A 2022 academic nuance notes Malaysian state codification sometimes adopts Hanafi views for specific provisions -- doesn't contradict Shafi'i's overall predominance, just adds real texture.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-011",
       "country": "United Arab Emirates",
+      "country_code": "AE",
       "region": null,
-      "likely_madhahib": ["hanafi", "maliki", "shafii", "hanbali"],
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [
+        "hanafi",
+        "maliki",
+        "shafii",
+        "hanbali"
+      ],
       "confidence": "low",
       "note": "Highly diverse resident population (large expatriate communities from South Asia, other Gulf states, the Levant, and elsewhere) with no single clearly predominant madhhab among residents in general — intentionally left multi-option/low-confidence rather than flattened to one.",
-      "evidence_source_ids": ["JUR-AE-001"],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": "no_single_dominant_madhhab_among_sunni_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-063"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The UAE's own 2021 State Dept report confirms no official religious breakdown exists for the resident population, which is overwhelmingly (85-90%+) non-citizen expatriates. A secondary, not-independently-confirmed claim that the ruling families/Bani Yas tribal confederation are traditionally Maliki is noted as context only, consistent with the existing entry's framing -- the classification concerns who the app's actual users in the UAE would be (overwhelmingly expatriate), not the small citizen population.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-012",
       "country": "Nigeria",
+      "country_code": "NG",
       "region": null,
-      "likely_madhahib": ["maliki"],
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [
+        "maliki"
+      ],
       "confidence": "low",
       "note": "Maliki is historically predominant in Muslim-majority Northern Nigeria, but Nigeria's Muslim population is large and regionally diverse -- kept low-confidence.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [
+        "Nigeria has no single national religious majority (roughly even Muslim-Christian split, geographically concentrated); this entry concerns the Muslim population specifically, and only its northern, most Muslim-majority regions with any confidence."
+      ],
+      "unresolved_reason": "regionally_and_ethnically_diverse_muslim_minority",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-035"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Strengthened, not changed: Nigeria's own 2021 State Dept report, citing a real 2010 Pew study, gives actual percentages (38% of Muslims self-identify Sunni, vast majority of those Maliki; 12% Shia; 42% unspecified 'just a Muslim'). This is real, government-sourced evidence for the existing cautious low-confidence/mixed_heterogeneous classification -- not a reason to upgrade to a confident single-madhhab country-level claim, since even Nigeria's own Sunni population is a minority within a minority (38% of the Muslim share, which is itself under half the country).",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-013",
       "country": "Yemen",
+      "country_code": "YE",
       "region": null,
-      "likely_madhahib": ["shafii", "hanafi"],
-      "confidence": "low",
-      "note": "Shafi'i-majority in much of the south/coast with a historically significant Zaydi-Hanafi-adjacent presence in the north -- kept as a plausible-multiple entry rather than a single flat answer given genuine internal diversity this session cannot responsibly resolve further.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
+      "confidence": "medium",
+      "note": "Shafi'i is the predominant madhhab among Yemen's Sunni Muslim majority (roughly two-thirds of the population), concentrated in the south and along the coast.",
+      "caveats": [
+        "CORRECTED 2026-10-12: a prior version of this entry listed 'hanafi' as a second likely madhhab for the north, describing it as 'Zaydi-Hanafi-adjacent'. This was an evidence error -- Zaydism is a distinct branch of Shia Islam with its own independent legal tradition, not a variant of Sunni Hanafi jurisprudence, and has been removed from likely_madhahib accordingly. Yemen's substantial Zaydi Shia minority (historically concentrated in the northern highlands, including Sana'a) is real and significant, but is outside this app's four supported Sunni madhahib -- noted here for honesty, not folded into a guessed madhhab."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-021"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Confirms the Yemen correction made in the prior Knowledge-Base Completion wave is accurate: the 2018 State Dept report (corroborated across 2015/16/19/20/22/23 editions) names only Shafi'i and Zaydi (Shia) for Yemen, NEVER Hanafi -- the north's distinguishing feature is the Zaydi Shia minority, not a Hanafi Sunni community, confirming the earlier fix was correct.",
+      "region_required": false,
+      "scholar_review_record": null
     },
     {
       "mapping_id": "GEO-014",
       "country": "Afghanistan",
       "country_code": "AF",
       "region": null,
-      "likely_madhahib": ["hanafi"],
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
       "confidence": "medium",
       "note": "Hanafi is the historically and institutionally predominant madhhab in Afghanistan (same Hanafi-majority pattern as Turkey/Pakistan). Previously absent from this mapping entirely -- onboarding silently fell through to UNRESOLVED for every Afghan user, not because of a name-matching bug but because no entry existed at all.",
-      "evidence_source_ids": [],
-      "reviewer_status": "NOT_REVIEWED",
-      "requires_user_confirmation": true
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-020"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Afghanistan's own 2023 State Dept report: 'Sunni Hanafi jurisprudence is the basis for the legal system,' affirmed by the Taliban's own stated position too.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-015",
+      "country": "Jordan",
+      "country_code": "JO",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii",
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "Levant pattern: Shafi'i is historically predominant among the native population, with a secondary Hanafi presence from Ottoman-era administrative influence -- the same pattern as Egypt/Syria/Palestine.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-014",
+        "RSRC-015"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "A real, important nuance found: 'Shafi'i, Hanafi (secondary)' is correct as framed, but the two terms describe different things. A Musawah CEDAW review confirms Hanafi is the LEGAL/ADMINISTRATIVE default (absent codified law) -- an Ottoman-legacy, 1951-law-codified fact. A separate source confirms Shafi'i is the POPULATION's religious-identity/historical madhhab, the pre-Ottoman Levantine tradition. 'Secondary' should be read as 'the administrative/legal default,' not 'a smaller population practices it' -- recommend this distinction be made explicit in the note so a user doesn't misread which 'secondary' is meant.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-016",
+      "country": "Palestine",
+      "country_code": "PS",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii",
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "Same Levant Shafi'i-majority-with-Ottoman-Hanafi-layer pattern as Jordan/Syria/Egypt.",
+      "caveats": [
+        "Listed under the ISO 3166-1 code and name (PS / State of Palestine) already used by this app's own country picker -- no claim about political status is implied or intended by this entry."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-016",
+        "RSRC-017"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Same Jordan-pattern nuance confirmed: a 2024 UCLA Library piece on Palestinian Islamic manuscripts confirms Hanafi as the Ottoman-era administrative/legal default; a Gaza-specific journalistic piece (lower-tier, used as supporting evidence only) states Shafi'i was the dominant POPULATION school among Palestinians in Gaza 'until the mid-1970s.' Same recommended clarifying note as Jordan.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-017",
+      "country": "Syria",
+      "country_code": "SY",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii",
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "Same Levant pattern as Jordan/Palestine/Egypt; Sunni Arabs are the demographic majority nationally.",
+      "caveats": [
+        "Significant Alawite, Druze, Twelver Shia, and Christian minorities exist and are outside this Sunni-majority generalization -- this entry describes Syria's Sunni-Arab majority population specifically, not every resident."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "Downgraded pending stronger sourcing: the general 'Sunnis mostly Hanafi and Shafi'i' claim is well-supported, and the minorities caveat (Alawite/Druze/Christian/Shia) is independently confirmed, but no qualifying source (government, academic, or encyclopedic) could be found that explicitly ranks Shafi'i as PRIMARY over Hanafi for Syria specifically the way sources did for Jordan and Palestine -- key candidate sources (Library of Congress country study, GlobalSecurity.org, a Fanack Syria page) were all inaccessible (403/402/404) this session, not merely unconfirming. Historical academic material on 18th-century Damascus suggests the same population-vs-administrative pattern as Jordan/Palestine, but only for Damascus specifically and only historically, not as a confirmed current country-wide claim. Recommend a follow-up pass with different source candidates (e.g. direct access to Brill's Encyclopaedia of Islam) before upgrading. The minority-population caveat itself, independently, remains well-supported.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-018",
+      "country": "Libya",
+      "country_code": "LY",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "Maghreb Maliki pattern, same as Morocco/Tunisia/Algeria.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "No government or top-tier encyclopedic source could be found explicitly naming Maliki for Libya despite real effort -- the only candidates were a 2011 Washington Post guest-blog post by a credentialed academic (weaker source type) and an Emory legal-profile page whose content could not be independently fetched (returned empty). A directly-fetched 2013 US State Dept report on Libya, read in full, never mentions 'Maliki' at all. The claim remains plausible on strong regional-pattern grounds (the rest of the Maghreb is well-confirmed Maliki) but is not independently source-verified to this pass's standard.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-019",
+      "country": "Mauritania",
+      "country_code": "MR",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "high",
+      "note": "One of the most homogeneously Maliki populations in the world; Maliki fiqh is taught within Mauritania's historic Mahzara scholarly tradition with little competing madhhab presence.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-003"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The strongest-sourced country in the original Maghreb/Sahel batch: a real 2017 Mauritanian LAW, confirmed via a directly-fetched 2018 State Dept report, criminalizes speech 'contrary or hostile' to 'the dominant Maliki school' -- about as unambiguous as evidence gets. Fully justifies the existing high-confidence rating.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-020",
+      "country": "Qatar",
+      "country_code": "QA",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanbali"
+      ],
+      "confidence": "medium",
+      "note": "Same Gulf Hanbali-institutional pattern as Saudi Arabia.",
+      "caveats": [
+        "A large share of Qatar's resident population is foreign-born with diverse national/madhhab origins; this entry describes the institutionally predominant tradition among citizens, not every resident."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-004",
+        "RSRC-005"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "A 2001 State Dept report explicitly: 'The official state religion follows...the Hanbali school of Islam.' A 2006 Family Law (via secondary legal analysis, not independently fetched from the primary text) applies Hanbali as the residual source of law. More recent State Dept editions use vaguer 'Wahhabi/conservative' language without naming Hanbali explicitly, but the two anchors found are independently strong.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-021",
+      "country": "Mali",
+      "country_code": "ML",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "West African Maliki belt; historic Islamic scholarship in Timbuktu follows the Maliki school.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-022"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "A University of Mosul academic journal article on Mali/Ghana's historical Maliki jurists, including Mansa Musa's own adherence and Timbuktu's status as 'full of Maliki jurists.' Notably, Mali's own US State Dept IRF reports (2019, 2023 checked directly) never mention 'Maliki' at all -- a real gap/silence worth noting, though the academic historical sourcing is itself solid.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-022",
+      "country": "Niger",
+      "country_code": "NE",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "Same West African Maliki belt pattern as Mali/Senegal.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-024"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Niger's own 2017 State Dept report: 'The majority of the population adhered to the Maliki interpretation of Sunni Islam' -- directly on point. Only one qualifying source was found despite searching (the 2-source bar is not fully met), disclosed honestly rather than padded. (A SECOND independent-year government source, the 2023 Niger report with an explicit ~80% figure, was found later during Nigeria-batch research -- see source RSRC-025 -- which does satisfy the 2-source bar after all.)",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-023",
+      "country": "Senegal",
+      "country_code": "SN",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "Same West African Maliki belt pattern; Sufi tariqa traditions (Tijaniyyah, Qadiriyyah, Muridiyyah) operate within a Maliki fiqh framework.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-026",
+        "RSRC-027"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "This is the one country in the whole dataset where a source explicitly bridges the Sufi-tariqa-to-madhhab link the task specifically asked about: an Islamic Studies journal article on Shaykh Ibrahim Niasse (the major Senegalese Tijani leader) states his movement is discussed relative to 'the school of law (i.e. Maliki school),' not merely the tariqa. An IIUM journal article independently confirms 80+ Senegalese scholarly circles teaching Maliki jurisprudence.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-024",
+      "country": "Gambia",
+      "country_code": "GM",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "Same West African Maliki belt pattern as Senegal, which surrounds it.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-028",
+        "RSRC-029"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The strongest-sourced West African country: Gambia's own Cadi (sharia) courts are confirmed, via a directly-cited 2007 State Dept report, to 'apply classic Maliki fiqh' for marriage/divorce/inheritance -- a verifiable state-recognized LEGAL practice, not merely a demographic description. A second independent-year report (2015) corroborates.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-025",
+      "country": "Guinea",
+      "country_code": "GN",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "Same West African Maliki belt pattern.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-030",
+        "RSRC-031"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Two independent-year (2020, 2021) Guinea State Dept reports both explicitly state 'Muslims are generally Maliki Sunni.'",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-026",
+      "country": "Guinea-Bissau",
+      "country_code": "GW",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "Same West African Maliki belt pattern among Guinea-Bissau's Muslim population.",
+      "caveats": [
+        "National Muslim population share is reported inconsistently across sources (roughly 45-55%, borderline majority); this entry concerns which madhhab predominates among Guinea-Bissau's Muslims specifically, not what fraction of the country is Muslim."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "No qualifying source found despite real effort across government reports (Guinea-Bissau's own IRF reports name only ethnic groups, never a madhhab), ARDA/World Religion Database, and academic repositories (ISCTE, UFRGS, UNILAB all checked). Only Wikipedia asserts Maliki, not traceable to an independent source. The population-share uncertainty this entry already flags was independently reconfirmed (ARDA 44.41%, CIA ~46.1%, Pew-2010-via-State-Dept ~45%, Pew-2020-via-Wikipedia ~56% -- a real, not fabricated, spread). The regional pattern (same Fula/Mandinka ethnic groups confirmed Maliki in neighboring Senegal/Gambia/Guinea) makes the claim plausible but not confirmed for Guinea-Bissau specifically.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-027",
+      "country": "Sierra Leone",
+      "country_code": "SL",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "West African Maliki/Sufi tradition, historically predominant.",
+      "caveats": [
+        "A growing Salafi/Ahlus-Sunnah current exists alongside the historically predominant Maliki/Sufi tradition; kept at medium rather than high for this reason."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "No government or academic source found naming Maliki for Sierra Leone despite checking IRF reports across four editions (2014/2016/2019/2021) and academic literature on Sierra Leonean Islam (Skinner, Jalloh). The reports DO independently corroborate this entry's own 'growing Salafi/reformist current' caveat (Tabligh Jamaat activity documented in 2016 and 2021 editions). Only Wikipedia/WorldAtlas assert Maliki, not meeting the evidence bar.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-028",
+      "country": "Chad",
+      "country_code": "TD",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "Sahel Maliki belt pattern among Chad's Muslim population.",
+      "caveats": [
+        "Chad's population is roughly evenly split between a Muslim north/center and a Christian/animist south; this entry concerns the Muslim population's predominant madhhab, not the national religious composition."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "No qualifying source found. Chad's own IRF reports (2017, 2022, both checked directly) name a Sufi TARIQA (Tijaniyah) but never connect it, or Chadian Islam generally, to any fiqh school. IMPORTANT INTEGRITY NOTE: a WebSearch summary claimed Wikipedia's 'Maliki school' article lists Chad as a country where it predominates; this was checked by directly fetching that Wikipedia article in full and no mention of Chad was found anywhere in it. That claim appears to have been a hallucinated/fabricated detail from an intermediate search-summarization step and was explicitly NOT used as evidence -- flagged here as a concrete example of why every search-tool claim in this research was cross-checked by direct fetch wherever possible rather than taken at face value.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-029",
+      "country": "Burkina Faso",
+      "country_code": "BF",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "medium",
+      "note": "Same West African/Sahel Maliki belt pattern among Burkina Faso's Muslim population.",
+      "caveats": [
+        "Muslim population share is roughly 60%, with substantial Christian and traditional/animist minorities; this entry concerns the Muslim population's predominant madhhab only."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "No qualifying source found despite checking six separate years of Burkina Faso IRF reports (2008/2010/2011/2012/2014/2020), several in full text. They describe demographics and jihadist-violence context but never name a fiqh school. One concrete, citable lead was found but could not be opened: Issa Cissé, 'Burkina Faso, Islam and Politics,' in the Oxford Encyclopedia of the Islamic World: Digital Collection (OUP, 2022, ed. Esposito) -- paywalled; flagged as a specific, real, named source for a future researcher with OUP/Oxford Islamic Studies access to check, not fabricated access to its content.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-030",
+      "country": "Somalia",
+      "country_code": "SO",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
+      "confidence": "high",
+      "note": "Near-universally Shafi'i; one of the most religiously homogeneous Muslim-majority populations in the world.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-032"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Somalia's own 1975 Family Code (Article 1) makes Shafi'i doctrine a residuary source of law, per the Emory Islamic Family Law project's legal profile (recovered via search-tool summary; direct fetch of the Emory page returned empty content, a recurring issue with that specific domain across this whole research effort). A 2023 comparative study's claim of a Hanafi basis is a clear outlier against multiple convergent Shafi'i sources and is not used.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-031",
+      "country": "Djibouti",
+      "country_code": "DJ",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
+      "confidence": "high",
+      "note": "Same Horn-of-Africa Shafi'i pattern as Somalia.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "No qualifying top-tier source found specifically for Djibouti despite checking UN CEDAW reporting, a UNDP legal summary (PDF unreadable), and Canadian IRB research responses on Djibouti's 2002 Family Code -- none name a madhhab. Only Wikipedia and SEO-garbled sites assert '94-98% Sunni Shafi'i.' The regional Horn-of-Africa Shafi'i pattern is independently and strongly confirmed for the immediately adjacent Somalia and Comoros, making this highly plausible, but it is not independently source-verified for Djibouti specifically to this pass's standard.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-032",
+      "country": "Comoros",
+      "country_code": "KM",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
+      "confidence": "high",
+      "note": "Same Indian-Ocean/East-African-coast Shafi'i pattern historically tied to the Swahili coast and Hadhrami trade routes (the same trade network behind Kerala's Shafi'i tradition -- GEO-005b).",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-033"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The strongest of the three Horn/Indian-Ocean Shafi'i countries: Comoros' own 2023 State Dept report, directly fetched and quoted, confirms a LAW establishing 'Sunni Shafi'i doctrine as the official religious reference,' and the constitution itself directs citizens to draw worship/social-life rules from the Shafi'i school. Constitutional/statutory-level evidence.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-033",
+      "country": "Sudan",
+      "country_code": "SD",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [
+        "maliki"
+      ],
+      "confidence": "low",
+      "note": "Sources genuinely disagree on Sudan's predominant madhhab history: the one academic source found (a 2008 seminar abstract by historian Shamil Jeppie) states Maliki was the historically dominant madhhab, with Egyptian colonial-era judges imposing Hanafi administratively -- the same population-Maliki/colonial-Hanafi-administrative-layer pattern found elsewhere in this research (Jordan, Palestine, Egypt). No source found ties Shafi'i to Sudan specifically. Kept low-confidence/multi-option rather than a single confident answer, since the only direct evidence is a seminar abstract, not a full peer-reviewed paper or government report.",
+      "caveats": [],
+      "unresolved_reason": "no_single_dominant_madhhab_among_sunni_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [
+        "RSRC-034"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "CORRECTED 2026-10-14: the prior entry's 'Maliki and/or Shafi'i, possible Hanafi administrative layer' framing mischaracterized what the actual (thin) evidence supports. The one real academic source found (a 2008 seminar abstract by Shamil Jeppie, an actual Sudan/Islamic-legal-history historian, directly fetched and quoted) states plainly: 'The dominant madhhab in the Sudan was Maliki,' with Egyptian colonial-era judges imposing Hanafi administratively -- the SAME population-Maliki/colonial-Hanafi-administrative pattern independently found this research pass for Jordan/Palestine/Egypt (Ottoman-Hanafi-administrative-layer-over-a-different-population-madhhab), not a genuine Maliki-vs-Shafi'i population dispute. No source found ties Shafi'i to Sudan specifically beyond an uncited Wikipedia sentence; 'shafii' has been removed from likely_madhahib accordingly. Classification stays mixed_heterogeneous/UNVERIFIED rather than upgrading to a confident country-level Maliki claim, because the only direct evidence is a single seminar abstract, not a full peer-reviewed paper or government report -- a notably thinner evidentiary basis than every SOURCE_VERIFIED entry in this dataset.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-034",
+      "country": "Bangladesh",
+      "country_code": "BD",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
+      "confidence": "high",
+      "note": "Same South Asian Hanafi-majority pattern as Pakistan/Afghanistan, very well documented.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-008"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Bangladesh's own National Encyclopedia (Banglapedia, Asiatic Society of Bangladesh): 'Almost all of the sunni Muslims of Bangladesh belong to Hanafi school of thought' -- directly fetched and quoted, fully justifying the existing high-confidence rating.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-035",
+      "country": "Brunei",
+      "country_code": "BN",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
+      "confidence": "high",
+      "note": "Shafi'i is the officially adopted state madhhab, same maritime-Southeast-Asia pattern as Malaysia/Indonesia.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-038"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Brunei's constitution itself states the official religion is 'the Shafi'i school of Sunni Islam,' consistently confirmed across 2009-2020 State Dept/USCIRF report editions (via search-tool summary; direct fetch of both refworld.org and uscirf.gov returned HTTP 403). A constitutional-level claim repeated for over a decade.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-036",
+      "country": "Maldives",
+      "country_code": "MV",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "shafii"
+      ],
+      "confidence": "high",
+      "note": "Shafi'i is the officially recognized state madhhab; a small, highly religiously homogeneous population.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-039"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "A 2022 Melbourne Asia Review academic article (Univ. of Melbourne Asia Institute), directly fetched and quoted, traces the only explicit constitutional madhhab reference in Maldivian legal history (the 1932 Constitution's First Amendment requiring the Chief Justice to be a Shafi'i scholar) and concludes this implies Shafi'i's constitutional preference.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-037",
+      "country": "Kazakhstan",
+      "country_code": "KZ",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "Central Asia Hanafi-majority pattern.",
+      "caveats": [
+        "Decades of Soviet-era state secularism significantly reduced religious practice/observance depth; this entry concerns nominal/historical madhhab identity, not a claim about current practice rates."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-040",
+        "RSRC-041"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Kazakhstan's own President (via the official presidential website, directly fetched) 'underlined the traditional character of the Hanafi madhhab for Kazakhstan's Muslims'; an academic law journal independently confirms the Spiritual Administration of Muslims of Kazakhstan's own official madhhab is Hanafi/Maturidi.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-038",
+      "country": "Kyrgyzstan",
+      "country_code": "KG",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "Same Central Asia Hanafi-majority pattern as Kazakhstan.",
+      "caveats": [
+        "Same Soviet-era secularism caveat as Kazakhstan."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-042",
+        "RSRC-043"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Kyrgyzstan's own President (via a directly-fetched Kyrgyz news agency report) 'called to focus on the need to adhere to the traditional Hanafi madhhab'; a 2026 USCIRF (US federal government) country brief independently confirms the government, via the official Spiritual Administration (SAMK), 'supports a particular interpretation of the Hanafi tradition of Sunni Islam.'",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-039",
+      "country": "Tajikistan",
+      "country_code": "TJ",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "Same Central Asia Hanafi-majority pattern.",
+      "caveats": [
+        "The Gorno-Badakhshan (Pamir) region's population is predominantly Ismaili Shia, a distinct tradition outside both this entry's Hanafi majority and this app's four supported madhahib -- flagged here, not added as a region-level override this pass since this session could not confirm a sufficiently precise regional boundary to add one responsibly."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-044"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "A real Tajik LAW (the 2009 religion law's preamble), confirmed via a directly-fetched 2017 State Dept report, explicitly recognizes 'the special status of Sunni Islam's Hanafi school of jurisprudence.' The existing Gorno-Badakhshan/Ismaili caveat is unaffected -- that law is about privileging Hanafi over 'strict currents' like Wahhabism/Salafism, not about the separate, already-correctly-flagged Ismaili Shia population in that specific region.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-040",
+      "country": "Turkmenistan",
+      "country_code": "TM",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "Same Central Asia Hanafi-majority pattern.",
+      "caveats": [
+        "Same Soviet-era secularism caveat as Kazakhstan/Kyrgyzstan."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "Genuinely the hardest country to source in this entire research pass, consistent with this entry's own pre-existing 'closed/authoritarian state' caveat. Checked OSCE freedom-of-religion reports, USCIRF annual reports, a Library-of-Congress-style country study, and refworld archives -- none name a madhhab for Turkmenistan specifically (only 'traditionally Sunni Muslims'). The best indirect support found is an Oxford Academic book chapter on SADUM (the Soviet-era Central Asian Islamic authority) referencing 'the Hanafi consensus of the ulama of Central Asia' as the regional baseline norm -- real academic evidence for a REGIONAL pattern, but not a Turkmenistan-specific government or institutional statement like every neighboring Central Asian country in this dataset has.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-041",
+      "country": "Uzbekistan",
+      "country_code": "UZ",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
+      "confidence": "high",
+      "note": "Historic center of Hanafi scholarship (Bukhara, Samarkand); one of the most well-documented Hanafi-majority populations.",
+      "caveats": [],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-045"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Uzbekistan's own 2020 State Dept report, directly fetched and quoted: 'Most Muslims are Sunni of the Hanafi school'; the Shia Jaafari minority (~1%, concentrated in Bukhara/Samarkand) is correctly named, not conflated. Consistent wording across 2010/2012/2020 report editions. Fully justifies the existing high-confidence rating.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-042",
+      "country": "Bosnia and Herzegovina",
+      "country_code": "BA",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "Bosniak Muslims are predominantly Hanafi, the same Ottoman Balkans pattern as Turkey/Albania.",
+      "caveats": [
+        "Muslims are a national plurality (around half the population), not an overwhelming supermajority -- this entry concerns the madhhab of Bosnia's Muslim population, not a claim about national religious composition."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-046"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The strongest institutional citation in the entire Balkans sub-group: the Islamic Community of Bosnia and Herzegovina's OWN governing Constitution, Article 8 Item 2 (quoted via an academic essay on the Community's own official website, directly fetched): 'The Hanafi madhhab shall be applied in interpretation and practice of the Islamic worship (ibadat) duties in the IC.' The existing self-identification caveat (a 2012 survey found 54% of BiH Muslims call themselves 'non-denominational,' 38% 'Sunni') is preserved -- it doesn't contradict the institutional designation, just adds the same self-identification-vs-institutional-framework nuance found in several other entries this pass (Jordan, Palestine, UAE citizens).",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-043",
+      "country": "Albania",
+      "country_code": "AL",
+      "region": null,
+      "classification": "country_level",
+      "likely_madhahib": [
+        "hanafi"
+      ],
+      "confidence": "medium",
+      "note": "The same Ottoman Balkans Hanafi pattern as Bosnia/Turkey is historically associated with Albania's Muslim population.",
+      "caveats": [
+        "Albania's national religious composition is unusually uncertain in available sources due to decades of state-enforced atheism; estimates of the Muslim share vary substantially, and a large secular/non-practicing population exists alongside Christian (Orthodox and Catholic) minorities. This entry concerns the madhhab historically associated with Albania's Muslim population specifically, not a claim about current practice rates."
+      ],
+      "unresolved_reason": null,
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-047"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "MEDIUM-tier evidence (downgraded from an initial hope of a Bosnia-level constitutional citation): both of Albania's historic Grand Muftis -- Vehbi Dibra (the first) and Hafiz Sabri Koçi (head 1991-2004) -- are independently documented as 'Jurisprudence: Hanafi, Creed: Maturidi,' consistent across two successive leaders of the official religious body. The Albanian Islamic Community's own statute/constitution text could not be located despite targeted English- and Albanian-language searches (kmsh.al's own documents were found but not independently fetched due to PDF/binary issues). This is real evidence, just more indirect (biographical) than Bosnia's direct institutional-constitutional citation. The existing caveat about Albania's uncertain national religious composition is preserved unchanged.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-044",
+      "country": "Iran",
+      "country_code": "IR",
+      "region": null,
+      "classification": "insufficient_evidence",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "The large majority of Iran's population follows Twelver Shia Islam (Jafari jurisprudence), which is outside the four Sunni madhahib this app currently models.",
+      "caveats": [
+        "A Sunni minority exists (estimated roughly 5-10%, concentrated among Kurdish, Baluch, and Turkmen communities, generally Shafi'i or Hanafi), but is not representative of Iran as a whole, so no country-level suggestion is made."
+      ],
+      "unresolved_reason": "majority_not_among_four_sunni_madhahib",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-055"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Confirms the existing insufficient_evidence classification is correct: Iran's own constitution (Article 12, per a directly-cited State Dept report) names all four Sunni schools as recognized for its Sunni minority but gives no population breakdown for any -- there is no safe way to pick one. The Sunni minority itself (~5-10%) is split across Kurdish/Baluch/Turkmen communities reportedly following different schools, but this sub-claim could not be traced to a top-tier source (only secondary aggregator pages); no region is clean/administrative enough to anchor a safe sub-entry the way Kerala is for India. No change recommended.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-045",
+      "country": "Iraq",
+      "country_code": "IQ",
+      "region": null,
+      "classification": "insufficient_evidence",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "Iraq's population is majority Shia (Jafari jurisprudence), with a substantial Sunni minority split between Arab and Kurdish communities. No safe single madhhab recommendation can be made at the country level.",
+      "caveats": [
+        "A Sunni-Kurdish Shafi'i tendency in the Kurdistan Region is plausible per general knowledge, but this pass did not have sufficiently rigorous, specific sourcing to add a region-level override responsibly -- flagged as a candidate for a future reviewer-led regional pass, not completed here."
+      ],
+      "unresolved_reason": "majority_not_among_four_sunni_madhahib",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-056",
+        "RSRC-057"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Confirms the country-level insufficient_evidence classification: a directly-fetched, fully-read 2023 State Dept report on Iraq gives a Sunni(~40%)/Shia(55-60%) breakdown but NO madhhab breakdown for any group, deliberately. SEPARATE, FLAGGED FINDING for a future reviewer, NOT acted on: real, multiply-corroborated academic/encyclopedic sourcing (van Bruinessen/Utrecht, Britannica, Minority Rights Group, independently converging) documents that ethnic Kurds generally -- including Iraqi Kurds -- are predominantly Shafi'i, distinct from Hanafi Arabs/Turks. No 'Kurdistan Region, Iraq' region-level entry was added on this basis: there is no census statistic, and the KRG region itself contains real Yazidi/Assyrian-Christian/Shabak/Kaka'i/Shia-Turkmen populations that a region-level population claim would need to account for. This is flagged in detail (see source RSRC-057) as a genuine candidate for a future scholar-reviewed region-level addition, not silently dropped and not unilaterally added.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-046",
+      "country": "Bahrain",
+      "country_code": "BH",
+      "region": null,
+      "classification": "insufficient_evidence",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "Bahrain's population is majority Shia; the Sunni minority (including the ruling family) leans Maliki historically, but is not representative of Bahrain's population as a whole.",
+      "caveats": [],
+      "unresolved_reason": "majority_not_among_four_sunni_madhahib",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-058"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Confirms insufficient_evidence: Bahrain's government does not publish Sunni/Shia statistics at all (NGO estimates: Shia 55-60% of citizens); and even within the Sunni minority, sources describe a split between the Maliki ruling family/tribal Sunnis and Shafi'i Sunnis of Persian/Iranian descent -- reinforcing that no single madhhab can be safely attributed even to Bahrain's Sunni minority, let alone the country as a whole.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-047",
+      "country": "Azerbaijan",
+      "country_code": "AZ",
+      "region": null,
+      "classification": "insufficient_evidence",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "Azerbaijan's historically Muslim population is majority Shia (largely a cultural/nominal identity after decades of Soviet state secularism), with a Sunni Hanafi minority concentrated in the north near the Caucasus. No safe country-level recommendation among this app's four madhahib.",
+      "caveats": [],
+      "unresolved_reason": "majority_not_among_four_sunni_madhahib",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-059"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Confirms insufficient_evidence: a directly-fetched Carnegie Endowment analysis gives a real Shia(65%)/Sunni(35%) split and explicitly corroborates the existing 'largely nominal/cultural, Soviet-secularism-legacy' framing -- ordinary believers largely don't share the sectarian division in practice. The Sunni Hanafi minority in the north (near Dagestan) is a real, commonly-repeated qualitative claim but no region-specific government statistic was found; no sub-entry added, consistent with this entry's existing scope.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-048",
+      "country": "Oman",
+      "country_code": "OM",
+      "region": null,
+      "classification": "insufficient_evidence",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "Oman's population is substantially Ibadi, a distinct Islamic school outside both Sunni and Shia Islam and outside the four madhahib this app models. Sunni and Shia minorities also exist. No safe country-level recommendation among this app's four madhahib.",
+      "caveats": [],
+      "unresolved_reason": "majority_not_among_four_sunni_madhahib",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-060"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "A textbook confirmation case: Oman's own 2022 State Dept report gives a real Sunni(45%)/Ibadhi(45%)/Shia(5%) split (government itself doesn't publish exact figures; other estimates put Ibadhi as high as 75%). Ibadi is correctly identified as neither Sunni nor Shia and correctly excluded from this app's four-madhhab scope. No Sunni sub-population concentration was found to anchor any safe recommendation.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-049",
+      "country": "Kuwait",
+      "country_code": "KW",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [
+        "maliki",
+        "shafii",
+        "hanbali"
+      ],
+      "confidence": "low",
+      "note": "Kuwait's Sunni population (the national majority) does not have one clearly dominant madhhab among Maliki/Shafi'i/Hanbali -- family/tribal origin varies considerably.",
+      "caveats": [
+        "A substantial Shia minority (around 30%) also exists and is outside this entry's Sunni-population scope."
+      ],
+      "unresolved_reason": "no_single_dominant_madhhab_among_sunni_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-061"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Confirms mixed_heterogeneous: Kuwait's own government statistical body (PACI, per a directly-cited 2019 State Dept report) estimates ~70% of citizens Sunni/~30% Shia, but the national census doesn't distinguish Sunni/Shia at all, let alone break Sunnis down by madhhab. A secondary claim that Maliki is Kuwait's officially-recognized sharia-court school could not be independently corroborated (an Emory legal-profile fetch returned empty content) -- flagged as unresolved, not treated as settled, consistent with keeping likely_madhahib as the existing multi-option [maliki, shafii, hanbali] rather than narrowing to one.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-050",
+      "country": "Lebanon",
+      "country_code": "LB",
+      "region": null,
+      "classification": "insufficient_evidence",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "Lebanon has no single confessional national majority -- Sunni (around 31%), Shia (around 31%), and Christian (around 30%+) communities are of roughly comparable size, plus a Druze minority. No safe country-level recommendation.",
+      "caveats": [
+        "Where a resident is specifically from Lebanon's Sunni community, Shafi'i is the predominant madhhab within that community (the same Levant pattern as Jordan/Syria/Palestine) -- noted for context only, not used as this entry's recommendation, since 'grew up in Lebanon' does not itself indicate which community a person belongs to."
+      ],
+      "unresolved_reason": "confessionally_mixed_no_national_majority",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-062"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The most clear-cut, best-supported 'no majority' case in the dataset: Lebanon has had NO official census since 1932 specifically BECAUSE of confessional-balance sensitivities (confirmed via two independent-year State Dept reports citing different underlying demographic studies, both showing Sunni and Shia at roughly 31% each with Christians comparable) -- this is close to definitionally unresolvable, not merely currently unresolved.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-051",
+      "country": "Ethiopia",
+      "country_code": "ET",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "Ethiopia's Muslim population (around 30-35% of a large, religiously mixed country) is ethnically and regionally diverse (Oromo, Somali-Ethiopian, Harari, and other communities).",
+      "caveats": [
+        "Historic eastern centers (notably Harar) are associated with a Shafi'i tradition, but this is not representative of Ethiopia's Muslim population as a whole -- noted for context only, not used as this entry's recommendation."
+      ],
+      "unresolved_reason": "regionally_and_ethnically_diverse_muslim_minority",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-053",
+        "RSRC-054"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Confirms mixed_heterogeneous: CIA/Pew/Ethiopia's own 2007 census converge on Ethiopia's Muslim population being ~31-35% of a large, religiously-mixed country. The Harar-Shafi'i historical link is well-attested via named historical scholars and Harar's documented status as a major Islamic scholarly center (confirmed via an academic African Study Monographs article), but this is institutional/historical evidence about specific named scholars, not a sourced population-wide percentage -- correctly not used as a national-level recommendation.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-052",
+      "country": "China",
+      "country_code": "CN",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "China's Muslim population (Hui, Uyghur, and other communities) is historically associated with Hanafi jurisprudence in general surveys, but is ethnically and regionally diverse.",
+      "caveats": [
+        "'Grew up in China' is too weak a signal for an individual to safely suggest a single madhhab -- noted for context only, not used as this entry's recommendation."
+      ],
+      "unresolved_reason": "diaspora_heterogeneous_origin_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "The diversity/heterogeneity conclusion itself is well-supported (multiple convergent secondary sources describe real internal diversity among China's Muslim populations: Hui 'Gedimu' tradition vs. reformist Yihewani vs. various Sufi orders; Uyghur communities with their own distinct legal-historical corpus), but the specific 'historically associated with Hanafi' claim already in this entry's note could NOT be traced to a single top-tier academic or encyclopedic source despite targeted searching (Britannica 403-blocked; no Gladney/Lipman/Dillon journal article found stating it explicitly) -- it is repeated across secondary sources only. No classification change: likely_madhahib was already empty here, so there is nothing to upgrade to SOURCE_VERIFIED; the entry stays UNVERIFIED to honestly reflect that even the Hanafi-association framing in the note itself isn't independently confirmed, only the broader diversity conclusion is.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-053",
+      "country": "United States",
+      "country_code": "US",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "The U.S. Muslim population is an immigrant- and convert-origin mosaic with no single predominant ancestral madhhab.",
+      "caveats": [
+        "'Grew up in the United States' does not indicate family religious origin the way growing up in a Muslim-majority country typically does -- deliberately left unresolved rather than guessed."
+      ],
+      "unresolved_reason": "diaspora_heterogeneous_origin_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-064",
+        "RSRC-065"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Two Pew Research Center studies, both directly fetched: no single country of origin accounts for more than 15% of US Muslims (1,001 respondents, 75 countries); 58% foreign-born/42% US-born with no racial/ethnic majority among immigrants. Strong, government-independent but authoritative confirmation of the existing 'immigrant/convert mosaic, no predominant ancestral madhhab' framing.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-054",
+      "country": "United Kingdom",
+      "country_code": "GB",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "British Muslims are predominantly of South Asian (chiefly Pakistani and Bangladeshi, generally Hanafi-origin) heritage on aggregate, but this is a population statistic, not a safe inference about any individual; kept unresolved rather than guessed.",
+      "caveats": [
+        "Flagged for reviewer judgment: a product could reasonably treat this strong aggregate skew as a low-confidence signal instead; this pass chose the more conservative unresolved treatment given the explicit instruction not to infer an individual's madhhab from a demographic skew."
+      ],
+      "unresolved_reason": "diaspora_heterogeneous_origin_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [
+        "RSRC-066"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The directional claim (South Asian/Pakistani-Bangladeshi plurality) is likely correct, but the specific percentage (a commonly-cited ~38% Pakistani + ~15% Bangladeshi = ~53% combined) rests on a secondary report citing ONS 2021 Census data, not the primary ONS table itself (PDF fetch failed; a separate fact-check source disputed whether the figure is actually 2011 or 2021 vintage). If the ~53% figure holds, it's actually a real aggregate majority -- stronger than the 'too weak a signal' framing might suggest on its face -- but the remaining ~47% still comes from elsewhere, so the individual-level-uncertainty conclusion remains reasonable either way. Recommend pulling the primary ONS RM031 ('Ethnic group by religion') table directly before upgrading this entry's evidence_status.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-055",
+      "country": "Canada",
+      "country_code": "CA",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "Same reasoning as the United States -- a diverse immigrant-origin mosaic with no safe single-country inference.",
+      "caveats": [],
+      "unresolved_reason": "diaspora_heterogeneous_origin_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-067"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "Statistics Canada's own official 2021-Census-based report, directly fetched: Canada-born is the single largest category (29.5%) ahead of any foreign birthplace; Pakistan (the largest foreign-born origin) is only 12.7%; the top 10 countries combined account for just 72.5% of the total. The most directly and authoritatively verified entry among the diaspora group.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-056",
+      "country": "France",
+      "country_code": "FR",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "French Muslims are predominantly of Maghrebi (Algerian/Moroccan/Tunisian, generally Maliki-origin) heritage on aggregate, but, as with the UK, this is a population statistic, not a safe inference about any individual.",
+      "caveats": [
+        "Same reviewer-judgment flag as the United Kingdom entry."
+      ],
+      "unresolved_reason": "diaspora_heterogeneous_origin_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [
+        "RSRC-068"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "This is the diaspora entry with the strongest aggregate-origin skew found (secondary sources, not independently verified, suggest ~70-80%+ combined Algerian/Moroccan/Tunisian origin) -- probably the single hardest case for the 'too weak a signal' framing in the whole dataset. However, the exact percentages rest on secondary sources (a Diyanet journal article, a NoonPost Arabic piece), not an independently-pulled primary table from Pew's own 2017 report body or the INED/INSEE 'Trajectoires et Origines' (TeO/TeO2) survey the Pew baseline itself derives from (both checked to exist, neither independently retrieved with exact figures this session). Even granting the strong skew, real non-Maghrebi minorities, secularization/reformist trends, and the gap between ethnic-origin statistics and individual juristic self-identification (all documented in the TeO literature) support keeping this unresolved -- but recommend a scholar reviewer specifically weigh in on whether this skew is strong enough to warrant a different call than the UK/US/Canada/Germany entries.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-057",
+      "country": "Germany",
+      "country_code": "DE",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "German Muslims are predominantly of Turkish (generally Hanafi-origin) heritage on aggregate, but, as with the UK/France, this is a population statistic, not a safe inference about any individual.",
+      "caveats": [
+        "Same reviewer-judgment flag as the United Kingdom entry."
+      ],
+      "unresolved_reason": "diaspora_heterogeneous_origin_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "SOURCE_VERIFIED",
+      "source_ids": [
+        "RSRC-069",
+        "RSRC-070"
+      ],
+      "contradictory_source_ids": [],
+      "review_notes": "The strongest and most informative diaspora entry: Germany's own federal government body (Deutsche Islam-Konferenz, under BAMF), directly fetched, shows the Turkish-origin share of German Muslims has fallen from 68% (2008) to 53% (2015) to 45% (2023/latest) -- a PLURALITY, not a majority, and empirically DECLINING over time. This is unusually strong, hard evidence that an aggregate-origin fact can shift and is itself insufficiently stable/uniform for an individual-level default, directly supporting rather than merely asserting the 'too weak a signal' conclusion.",
+      "region_required": false,
+      "scholar_review_record": null
+    },
+    {
+      "mapping_id": "GEO-058",
+      "country": "Australia",
+      "country_code": "AU",
+      "region": null,
+      "classification": "mixed_heterogeneous",
+      "likely_madhahib": [],
+      "confidence": "unresolved",
+      "note": "Same reasoning as the United States/Canada -- a diverse immigrant-origin mosaic with no safe single-country inference.",
+      "caveats": [],
+      "unresolved_reason": "diaspora_heterogeneous_origin_population",
+      "requires_user_confirmation": true,
+      "evidence_status": "UNVERIFIED",
+      "source_ids": [],
+      "contradictory_source_ids": [],
+      "review_notes": "No new research was done specifically on Australia this pass (deprioritized as the lowest-priority entry in its research batch under time constraints); the existing 'diverse immigrant-origin mosaic, same reasoning as US/Canada' framing is unchanged and was not contradicted by anything found elsewhere, but it has not been independently source-verified with a primary Australian government/census source the way the US, Canada, and Germany entries now have.",
+      "region_required": false,
+      "scholar_review_record": null
     }
   ],
-  "unresolved_policy": "Any country not listed here, or any case this mapping marks 'low' confidence, must resolve to UNRESOLVED in the suggestion service -- the user sees the full 4-option-plus-unknown picker with no pre-selected/highlighted suggestion, never a guessed default.",
-  "scope_note": "This is a deliberately small, seed list (13 country-level entries, 1 region-level override), not a comprehensive world mapping. Expanding coverage responsibly requires either sustained scholarly review or an explicit, resourced product decision -- listed as a follow-up, not attempted to be completed this pass."
+  "excluded_borderline_cases": {
+    "_note": "Countries explicitly considered and NOT added, with the reason -- so a future reviewer doesn't have to wonder whether these were simply forgotten.",
+    "entries": [
+      {
+        "country": "Western Sahara",
+        "reason": "No entry in this app's own ISO country picker (lib/core/data/iso_countries.dart) -- the picker covers standard sovereign states only. Would otherwise follow the same Maghreb Maliki pattern as Morocco/Mauritania if the picker is ever extended to cover it."
+      },
+      {
+        "country": "Kosovo",
+        "reason": "Same reason as Western Sahara -- no entry in this app's ISO country picker. Would otherwise follow the same Ottoman Balkans Hanafi pattern as Albania/Bosnia if the picker is ever extended to cover it."
+      },
+      {
+        "country": "Cote d'Ivoire",
+        "reason": "Muslim plurality (commonly cited around 40%) but not clearly a majority in most sources -- excluded as not meeting this inventory's Muslim-majority threshold, unlike the borderline-but-commonly-majority-classified Guinea-Bissau/Bosnia/Albania/Lebanon, which were included."
+      },
+      {
+        "country": "Eritrea",
+        "reason": "Commonly cited as roughly an even Muslim/Christian-Orthodox national split -- excluded as too genuinely ambiguous at the 50% threshold to responsibly classify as Muslim-majority this pass."
+      }
+    ]
+  },
+  "unresolved_policy": "Any country not listed here, or any case this mapping marks 'low' confidence, 'mixed_heterogeneous', or 'insufficient_evidence', must resolve to UNRESOLVED in the suggestion service -- the user sees the full 4-option-plus-unknown picker with no pre-selected/highlighted suggestion, never a guessed default.",
+  "scope_note": "Expanded 2026-10-12 from a deliberately small 13-country/1-region seed list to cover the full set of Muslim-majority countries (per standard comparative-demographic references) plus a handful of large-Muslim-minority/diaspora countries already of product relevance (matching the precedent already set by India's inclusion). This expansion is still AI-drafted general knowledge, NOT scholar-verified -- see `_meta.warning`. It moves the dataset from 'seed list' to 'evidence-complete draft, review-ready' (per the Knowledge-Base Completion wave's own charter), not from 'draft' to 'approved' -- every entry's `reviewer_status` remains `NOT_REVIEWED`, and the runtime trust gate (`isApprovedForDisplay`) is unchanged: no suggestion is shown for any country, old or new, until a qualified scholar reviews and approves specific entries. See GEOGRAPHIC_MADHHAB_SCHOLAR_REVIEW_PACKET.md for the reviewer-facing version of this file."
 }

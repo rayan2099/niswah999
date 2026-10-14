@@ -10,6 +10,7 @@ import 'package:niswah/core/preferences/prayer_location_controller.dart';
 import 'package:niswah/features/auth/presentation/screens/sign_in_screen.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
+import 'package:niswah/features/madhhab_resolution/presentation/widgets/madhhab_resolution_flow.dart';
 import 'package:niswah/features/onboarding/presentation/screens/onboarding_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -184,16 +185,13 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.text('How long does your period usually last?'),
+          find.text(
+            'Would you like to add some information to improve predictions?',
+          ),
           findsOneWidget,
         );
-        await tester.ensureVisible(find.text('I’m not sure'));
-        await tester.tap(find.text('I’m not sure'));
-        await tester.pumpAndSettle();
-
-        expect(find.text('How long is your usual cycle?'), findsOneWidget);
-        await tester.ensureVisible(find.text('I’m not sure'));
-        await tester.tap(find.text('I’m not sure'));
+        await tester.ensureVisible(find.text('Skip for now'));
+        await tester.tap(find.text('Skip for now'));
         await tester.pumpAndSettle();
 
         expect(find.text('Anonymous Mode'), findsOneWidget);
@@ -201,8 +199,9 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        expect(find.text('Get Started'), findsOneWidget);
-        await tester.tap(find.text('Get Started'));
+        expect(find.text('Start tracking'), findsOneWidget);
+        await tester.ensureVisible(find.text('Start tracking'));
+        await tester.tap(find.text('Start tracking'));
         // Not pumpAndSettle: completion now shows a perpetually-animating
         // busy indicator while in flight (double-tap guard, hostile
         // self-review fix), which never itself "settles"; `onFinished` is
@@ -241,17 +240,18 @@ void main() {
           MaterialApp(
             home: OnboardingScreen(
               onFinished: () => finishedCount++,
-              initialStep: 9,
+              initialStep: 8,
             ),
           ),
         );
 
-        expect(find.text('Get Started'), findsOneWidget);
+        expect(find.text('Start tracking'), findsOneWidget);
+        await tester.ensureVisible(find.text('Start tracking'));
         // Both taps land before any pump processes the first one's
         // setState — the closest a widget test can get to a genuine
         // simultaneous double-tap.
-        await tester.tap(find.text('Get Started'));
-        await tester.tap(find.text('Get Started'));
+        await tester.tap(find.text('Start tracking'));
+        await tester.tap(find.text('Start tracking'));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 50));
 
@@ -321,7 +321,9 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.text('How long does your period usually last?'),
+          find.text(
+            'Would you like to add some information to improve predictions?',
+          ),
           findsOneWidget,
         );
       },
@@ -468,8 +470,10 @@ void main() {
   // content — never just the shared shell (progress bar/back button) with
   // an empty body. Iterates the full state machine directly via
   // initialStep. AUTH-008 removed the old embedded login step; AUTH-009
-  // removed the redundant language step — the state machine now has 8
-  // steps, with no login and no language screen anywhere in it.
+  // removed the redundant language step; the onboarding redesign folded
+  // the two estimate questions behind one optional "predictions" gate at
+  // step 6 (Part 3) — the state machine now has 8 steps, with no login
+  // and no language screen anywhere in it.
   group('all-onboarding-step state machine (no step may render empty)', () {
     final stepContent = <int, String>{
       1: 'Niswah',
@@ -477,10 +481,9 @@ void main() {
       3: 'Are you married?',
       4: 'Where are you located?',
       5: 'When did your last period start?',
-      6: 'How long does your period usually last?',
-      7: 'How long is your usual cycle?',
-      8: 'Anonymous Mode',
-      9: 'You’re all set!',
+      6: 'Would you like to add some information to improve predictions?',
+      7: 'Anonymous Mode',
+      8: 'You’re ready to get started',
     };
 
     for (final entry in stepContent.entries) {
@@ -548,10 +551,9 @@ void main() {
       3: 'هل أنتِ متزوجة؟',
       4: 'أين تسكنين؟',
       5: 'متى بدأ آخر حيض لديكِ؟',
-      6: 'كم تستمر مدة حيضكِ عادةً؟',
-      7: 'كم تستمر دورتكِ عادةً؟',
-      8: 'الوضع المجهول',
-      9: 'كل شيء جاهز!',
+      6: 'هل ترغبين في إضافة معلومات لتحسين التوقعات؟',
+      7: 'الوضع المجهول',
+      8: 'أصبحتِ جاهزة للبدء',
     };
     final englishMarkerForStep = <int, String>{
       1: 'YOUR CYCLE. YOUR FAITH. YOUR SPACE.',
@@ -559,10 +561,9 @@ void main() {
       3: 'Are you married?',
       4: 'Where are you located?',
       5: 'When did your last period start?',
-      6: 'How long does your period usually last?',
-      7: 'How long is your usual cycle?',
-      8: 'Anonymous Mode',
-      9: 'You’re all set!',
+      6: 'Would you like to add some information to improve predictions?',
+      7: 'Anonymous Mode',
+      8: 'You’re ready to get started',
     };
 
     for (final entry in arabicStepContent.entries) {
@@ -670,7 +671,7 @@ void main() {
   group('AUTH-008/AUTH-009 — full state-machine sweep, forward and '
       'backward', () {
     testWidgets(
-      'walking every step forward from 1 to 9 never shows SignInScreen or '
+      'walking every step forward from 1 to 8 never shows SignInScreen or '
       'a language screen, and step order strictly increases (no cycle)',
       (tester) async {
         AppLocaleController.instance.setArabic(false);
@@ -725,41 +726,38 @@ void main() {
         await tester.tap(find.text('I’m not sure'));
         await tester.pumpAndSettle();
 
-        // Step 6: usual period duration (estimate) — skip.
+        // Step 6: the optional predictions gate (Part 3) — decline. Both
+        // estimate questions share this same step index when accepted, so
+        // declining or walking through them never changes which literal
+        // step number is visited here.
         expect(find.byType(SignInScreen), findsNothing);
         expect(
-          find.text('How long does your period usually last?'),
+          find.text(
+            'Would you like to add some information to improve predictions?',
+          ),
           findsOneWidget,
         );
         visited.add(6);
-        await tester.ensureVisible(find.text('Continue'));
-        await tester.tap(find.text('Continue'));
+        await tester.ensureVisible(find.text('Skip for now'));
+        await tester.tap(find.text('Skip for now'));
         await tester.pumpAndSettle();
 
-        // Step 7: usual cycle length (estimate) — skip.
+        // Step 7: privacy/anonymous.
         expect(find.byType(SignInScreen), findsNothing);
-        expect(find.text('How long is your usual cycle?'), findsOneWidget);
+        expect(find.text('Anonymous Mode'), findsOneWidget);
         visited.add(7);
         await tester.ensureVisible(find.text('Continue'));
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        // Step 8: privacy/anonymous.
+        // Step 8: welcome.
         expect(find.byType(SignInScreen), findsNothing);
-        expect(find.text('Anonymous Mode'), findsOneWidget);
+        expect(find.text('You’re ready to get started'), findsOneWidget);
         visited.add(8);
-        await tester.ensureVisible(find.text('Continue'));
-        await tester.tap(find.text('Continue'));
-        await tester.pumpAndSettle();
-
-        // Step 9: welcome.
-        expect(find.byType(SignInScreen), findsNothing);
-        expect(find.text('You’re all set!'), findsOneWidget);
-        visited.add(9);
 
         expect(
           visited,
-          List<int>.generate(9, (i) => i + 1),
+          List<int>.generate(8, (i) => i + 1),
           reason:
               'every step must be visited exactly once, in strictly '
               'increasing order — a repeated or out-of-order entry would '
@@ -773,14 +771,14 @@ void main() {
         'itself has no further Back', (tester) async {
       AppLocaleController.instance.setArabic(false);
       await tester.pumpWidget(
-        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 8)),
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 7)),
       );
       await tester.pumpAndSettle();
       expect(find.text('Anonymous Mode'), findsOneWidget);
 
-      // Step 8 -> 2: repeatedly tap Back (walks 8 -> 7 -> 6 -> 5 -> 4 -> 3),
+      // Step 7 -> 2: repeatedly tap Back (walks 7 -> 6 -> 5 -> 4 -> 3),
       // asserting no SignInScreen and no language screen at any point.
-      for (var i = 0; i < 5; i++) {
+      for (var i = 0; i < 4; i++) {
         expect(find.byType(SignInScreen), findsNothing);
         expect(find.text('Choose your language'), findsNothing);
         await tester.tap(find.byTooltip('Back'));
@@ -903,6 +901,88 @@ void main() {
     );
 
     testWidgets(
+      // Manual QA fix (2026-10-11), Part 1A root cause: Continue used to
+      // gate on `MadhhabController.isSelected`, which is deliberately
+      // `false` for MadhhabSelectionState.unknown (that narrowness is
+      // correct for *other* call sites that need a real madhhab to apply
+      // Fiqh rules with). A returning visitor who already chose "I don't
+      // know" and navigated back to this grid saw her choice correctly
+      // highlighted but Continue stuck disabled, as if "I don't know"
+      // weren't a complete answer.
+      'returning to the Madhhab grid after already choosing "I don\'t '
+      'know" shows that tile active AND Continue clearly enabled — "I '
+      'don\'t know" is a complete, valid answer, not an unanswered state',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text("I'll decide later"));
+        await tester.tap(find.text("I'll decide later"));
+        await tester.pumpAndSettle();
+        expect(find.text('Are you married?'), findsOneWidget);
+
+        // Navigate back to the Madhhab grid.
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
+        expect(find.text('What is your Fiqh Madhhab?'), findsOneWidget);
+        expect(MadhhabController.instance.state, MadhhabSelectionState.unknown);
+
+        final continueButton = tester.widget<FilledButton>(
+          find.ancestor(
+            of: find.text('Continue'),
+            matching: find.byType(FilledButton),
+          ),
+        );
+        expect(
+          continueButton.onPressed,
+          isNotNull,
+          reason:
+              '"I don\'t know" must be treated as a complete answer — '
+              'Continue must not be stuck disabled',
+        );
+      },
+    );
+
+    testWidgets('picking a real Madhhab also clearly enables Continue', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await MadhhabController.instance.load();
+      AppLocaleController.instance.setArabic(false);
+      await tester.pumpWidget(
+        MaterialApp(home: OnboardingScreen(onFinished: () {}, initialStep: 2)),
+      );
+
+      var continueButton = tester.widget<FilledButton>(
+        find.ancestor(
+          of: find.text('Continue'),
+          matching: find.byType(FilledButton),
+        ),
+      );
+      expect(continueButton.onPressed, isNull);
+
+      await tester.tap(find.text('Hanafi'));
+      await tester.pump();
+
+      continueButton = tester.widget<FilledButton>(
+        find.ancestor(
+          of: find.text('Continue'),
+          matching: find.byType(FilledButton),
+        ),
+      );
+      expect(continueButton.onPressed, isNotNull);
+    });
+
+    testWidgets(
       '"Back to choices" from the explanation returns to the 5-option grid',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
@@ -931,13 +1011,20 @@ void main() {
       // reviewer_status == 'APPROVED' (no entry in the dataset has
       // this), so even a dataset-covered country now lands on the same
       // "we don't have a suggestion" state as an unmapped one — applied
-      // uniformly, not an Afghanistan-specific carve-out. Onboarding
-      // still never gets stuck: "I'll decide later" persists an honest
-      // UNKNOWN and advances, exactly as it already does for a country
-      // with no entry in the mapping at all.
-      '"Help me choose" -> a country the dataset covers but has not been '
-      'reviewer-approved -> no suggestion shown -> "I\'ll decide later" '
-      'persists UNKNOWN and advances, never a guess',
+      // uniformly when nothing is verified. Onboarding never gets stuck
+      // either way: declining a suggestion (or an unreviewed match)
+      // persists an honest UNKNOWN and advances.
+      //
+      // Knowledge-Base Source-Verification wave (2026-10-14): Saudi
+      // Arabia's entry is now genuinely SOURCE_VERIFIED (a real,
+      // directly-fetched US State Dept report), so this test's premise
+      // changed — it now covers "a country WITH a verified suggestion ->
+      // she declines it anyway -> UNKNOWN persists and onboarding still
+      // advances," not "no suggestion is shown at all." The no-dead-end
+      // guarantee itself is unchanged.
+      '"Help me choose" -> a country with a SOURCE_VERIFIED suggestion '
+      '-> she declines it anyway -> "I still don\'t know" persists '
+      'UNKNOWN and advances, never a guess',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
         await MadhhabController.instance.load();
@@ -955,48 +1042,72 @@ void main() {
         await tester.tap(find.text('Help me choose'));
         await tester.pumpAndSettle();
 
-        expect(find.text('Which country do you live in?'), findsOneWidget);
+        expect(
+          find.text(
+            'Which country did you grow up in for most of your childhood?',
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Select country'));
+        await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), 'Saudi Arabia');
-        // Required frame: onChanged's setState (which flips the Continue
-        // button from disabled to enabled) has not been processed until
-        // this pump — without it, ensureVisible/tap below would act on
-        // the still-disabled button from the pre-input frame.
         await tester.pump();
+        // Part 10/4: a searchable ISO modal, not free text — she must tap
+        // the matching country, which closes the sheet and flips Continue
+        // from disabled to enabled.
+        await tester.tap(find.widgetWithText(ListTile, 'Saudi Arabia'));
+        await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Continue'));
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
+        // Saudi Arabia's entry is SOURCE_VERIFIED, so the real suggestion
+        // step is reached, not the manual-selection fallback.
         expect(
-          find.text("We don't have a suggestion for that yet"),
+          find.text(
+            'Based on the country where you grew up, Hanbali may be '
+            'the closest fit.',
+          ),
           findsOneWidget,
-          reason:
-              'Saudi Arabia is in the draft mapping but NOT_REVIEWED — '
-              'the trust gate must treat it exactly like an unmapped '
-              'country, never present it as a confident recommendation',
+          reason: 'a verified entry must reach the real suggestion step',
         );
+        expect(find.text('Choose the Madhhab you follow'), findsNothing);
         expect(
           MadhhabController.instance.state,
           isNot(MadhhabSelectionState.selected),
+          reason: 'a suggestion is shown, but nothing is persisted until '
+              'she explicitly confirms it',
         );
 
-        await tester.ensureVisible(find.text("I'll decide later"));
-        await tester.tap(find.text("I'll decide later"));
+        await tester.ensureVisible(find.text("I still don't know"));
+        await tester.tap(find.text("I still don't know"));
         await tester.pumpAndSettle();
 
         expect(
           MadhhabController.instance.state,
           MadhhabSelectionState.unknown,
           reason:
-              'never silently guessed — an unreviewed match degrades to '
-              'exactly the same explicit-UNKNOWN outcome as no match '
-              'at all, and onboarding still advances, never stuck',
+              'never silently guessed — declining a real suggestion '
+              'degrades to exactly the same explicit-UNKNOWN outcome as '
+              'no match at all, and onboarding still advances, never stuck',
         );
         expect(find.text('Are you married?'), findsOneWidget);
       },
     );
 
     testWidgets(
-      '"Help me choose" -> an unrecognized country -> "I\'ll decide later" persists UNKNOWN, not a guess',
+      // Resolution-flow unification defect fix (2026-10-14): the
+      // post-onboarding resolution screen now routes its final selection
+      // through `setMadhhabWithConfirmation`, which can show a light
+      // "first interpretation" notice for an unknown -> selected pick.
+      // Onboarding's OWN use of the shared `MadhhabResolutionFlow` must
+      // keep calling `MadhhabController` directly and never gain that
+      // notice — there is no prior Fiqh interpretation to reinterpret
+      // this early (Last Period is a later step), so showing it here
+      // would be a false alarm, not a safeguard.
+      'accepting a real geographic suggestion during onboarding persists '
+      'it immediately with no light notice or warning dialog -- there is '
+      'no prior Fiqh interpretation to reinterpret this early',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
         await MadhhabController.instance.load();
@@ -1012,40 +1123,156 @@ void main() {
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Help me choose'));
         await tester.tap(find.text('Help me choose'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Select country'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Saudi Arabia');
+        await tester.pump();
+        await tester.tap(find.widgetWithText(ListTile, 'Saudi Arabia'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Continue'));
+        await tester.tap(find.text('Continue'));
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.text('Use Hanbali'));
+        await tester.tap(find.text('Use Hanbali'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(
+            'Niswah will now interpret your previous records according '
+            'to the Madhhab you selected. Your original entries will '
+            'not be changed.',
+          ),
+          findsNothing,
+          reason: 'onboarding runs before any bleeding history can exist '
+              '-- the light first-interpretation notice would be a false '
+              'alarm here',
+        );
+        expect(find.text('Confirm change'), findsNothing);
+        expect(
+          MadhhabController.instance.state,
+          MadhhabSelectionState.selected,
+        );
+        expect(MadhhabController.instance.selectedOrNull, Madhhab.hanbali);
+        expect(
+          find.text('Are you married?'),
+          findsOneWidget,
+          reason: 'persisted immediately and advanced -- nothing blocked it',
+        );
+      },
+    );
+
+    testWidgets(
+      // Madhhab unification (2026-10-12): onboarding's "Help me choose" '
+      // sub-step must literally render the same MadhhabResolutionFlow
+      // widget the in-app Profile/Settings change screen renders — not
+      // a lookalike copy. This is the structural half of acceptance
+      // item 1 ("onboarding uses shared resolution flow"); the
+      // behavioral half is covered by the Saudi Arabia/Afghanistan/
+      // Egypt/Japan tests above and below.
+      '"Help me choose" renders the shared MadhhabResolutionFlow widget, '
+      'not a separate onboarding-only implementation',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Help me choose'));
+        await tester.tap(find.text('Help me choose'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(MadhhabResolutionFlow),
+          findsOneWidget,
+          reason:
+              'onboarding must delegate to the shared MadhhabResolutionFlow '
+              'component rather than maintaining its own duplicate '
+              'inference/UX path',
+        );
+      },
+    );
+
+    testWidgets(
+      // Onboarding fixes wave (2026-10-11), Part 4: the previous free-text
+      // country field let her type a fictional/unrecognized country,
+      // which always degraded to "no suggestion" anyway. The searchable
+      // ISO modal replacing it eliminates that dead-end structurally —
+      // there is no way to submit something unresolvable, since Continue
+      // only enables once a real country from the list has been tapped.
+      'searching for a country not in the list shows no results and '
+      'leaves Continue disabled — dismissing the sheet and Back both '
+      'escape cleanly',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await MadhhabController.instance.load();
+        AppLocaleController.instance.setArabic(false);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OnboardingScreen(onFinished: () {}, initialStep: 2),
+          ),
+        );
+
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Help me choose'));
+        await tester.tap(find.text('Help me choose'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Select country'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), 'Nowhereland');
         await tester.pump();
-        await tester.ensureVisible(find.text('Continue'));
-        await tester.tap(find.text('Continue'));
+
+        expect(find.byType(ListTile), findsNothing);
+        expect(find.text('No countries found'), findsOneWidget);
+
+        // Dismiss the sheet (tap the scrim, well outside its bounds) —
+        // no selection was made, so the field stays unset.
+        await tester.tapAt(const Offset(20, 20));
         await tester.pumpAndSettle();
 
+        final continueButton = tester.widget<FilledButton>(
+          find.ancestor(
+            of: find.text('Continue'),
+            matching: find.byType(FilledButton),
+          ),
+        );
         expect(
-          find.text("We don't have a suggestion for that yet"),
-          findsOneWidget,
+          continueButton.onPressed,
+          isNull,
+          reason: 'no selection has been made yet — nothing to submit',
         );
 
-        await tester.ensureVisible(find.text("I'll decide later"));
-        await tester.tap(find.text("I'll decide later"));
+        await tester.tap(find.text('Back'));
         await tester.pumpAndSettle();
-
-        expect(MadhhabController.instance.state, MadhhabSelectionState.unknown);
-        expect(find.text('Are you married?'), findsOneWidget);
+        expect(find.text('No problem'), findsOneWidget);
       },
     );
 
     testWidgets(
-      // Adversarial review, 2026-10-07: Turkey used to produce a
-      // resolved Hanafi suggestion with a distinct "None of these"
-      // decline button. It is now gated the same as every other entry,
-      // so this reaches the insufficient branch instead — whose own
-      // "I'll decide later" button is wired to the exact same
-      // `onNoneOfThese` callback (onboarding_screen.dart), so the core
-      // invariant this test exists for is unchanged: declining never
-      // persists any specific madhhab, including one the (now-hidden)
-      // draft mapping would have suggested.
-      'declining on a country the draft mapping covers (Turkey) never '
-      'persists that country\'s madhhab, even though no suggestion is '
-      'actually shown',
+      // Adversarial review, 2026-10-07; onboarding fixes wave, Part 2;
+      // re-verified after the Knowledge-Base Source-Verification wave
+      // (2026-10-14): Tunisia is in the draft mapping (Maliki) but real
+      // research this pass found a widely-repeated secondary citation
+      // chain was actually inaccurate and no qualifying top-tier source —
+      // it stays UNVERIFIED (see its review_notes in
+      // geographic_madhhab_mapping.json), so this still lands directly on
+      // manual selection rather than any kind of suggestion screen.
+      // Declining (choosing "I don't know" from that manual grid) must
+      // never persist Tunisia's draft-mapped Maliki.
+      'declining on a country the draft mapping covers but stays '
+      'UNVERIFIED (Tunisia) never persists that country\'s madhhab, even '
+      'though no suggestion is actually shown',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
         await MadhhabController.instance.load();
@@ -1062,29 +1289,34 @@ void main() {
         await tester.ensureVisible(find.text('Help me choose'));
         await tester.tap(find.text('Help me choose'));
         await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField), 'Turkey');
+        await tester.tap(find.text('Select country'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Tunisia');
         await tester.pump();
+        await tester.tap(find.widgetWithText(ListTile, 'Tunisia'));
+        await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Continue'));
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
         expect(
-          find.text("We don't have a suggestion for that yet"),
+          find.text('Choose the Madhhab you follow'),
           findsOneWidget,
           reason:
-              'Turkey is in the draft mapping (Hanafi) but NOT_REVIEWED '
-              '— gated exactly like any unmapped country',
+              'Tunisia is in the draft mapping (Maliki) but UNVERIFIED '
+              '— gated exactly like any unmapped country, landing on '
+              'manual selection rather than any suggestion/error screen',
         );
-        await tester.ensureVisible(find.text("I'll decide later"));
-        await tester.tap(find.text("I'll decide later"));
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
         await tester.pumpAndSettle();
 
         expect(MadhhabController.instance.state, MadhhabSelectionState.unknown);
         expect(
           MadhhabController.instance.selectedOrNull,
-          isNot(Madhhab.hanafi),
+          isNot(Madhhab.maliki),
           reason:
-              'Turkey\'s draft mapping is Hanafi — confirming it was '
+              'Tunisia\'s draft mapping is Maliki — confirming it was '
               'never silently adopted just because the country happened '
               'to be in the dataset',
         );
