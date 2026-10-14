@@ -281,6 +281,30 @@ class MadhhabController extends ChangeNotifier {
     final client = NiswahSupabase.clientOrNull;
     final userId = client?.auth.currentUser?.id;
     if (client == null || userId == null) return;
+
+    // Effective-dated-history governance item 2 (future ruleset-version
+    // safety): capture what ruleset_version actually governed the
+    // PREVIOUS interval, read from this user's own most recent prior row
+    // if one exists — never inferred or fabricated, only ever a value
+    // that was itself once honestly recorded. Null when this is her
+    // first-ever recorded transition (nothing prior to read).
+    String? previousRulesetVersion;
+    try {
+      final priorRows = await client
+          .from('madhhab_history')
+          .select('ruleset_version')
+          .eq('user_id', userId)
+          .order('changed_at', ascending: false)
+          .limit(1);
+      final priorList = priorRows as List;
+      if (priorList.isNotEmpty) {
+        previousRulesetVersion =
+            (priorList.first as Map)['ruleset_version'] as String?;
+      }
+    } catch (_) {
+      // Best-effort — left null rather than guessed.
+    }
+
     try {
       await client.from('madhhab_history').insert({
         'user_id': userId,
@@ -289,10 +313,28 @@ class MadhhabController extends ChangeNotifier {
         'new_selection_state': _state.name,
         'new_madhhab': _selected?.name,
         'ruleset_version': MadhhabRuleEvaluator.rulesetVersion,
+        'previous_ruleset_version': previousRulesetVersion,
         'source': source,
       });
     } catch (_) {
-      // See _writeServerRow's doc comment — never blocks the selection.
+      // `previous_ruleset_version` may not exist yet on this environment
+      // (migration 20261014220000 applied separately, on the team's own
+      // schedule) — retry without it so the core audit row (the
+      // selection-state transition itself) is never lost merely because
+      // this one future-safety field isn't available yet.
+      try {
+        await client.from('madhhab_history').insert({
+          'user_id': userId,
+          'previous_selection_state': previousState.name,
+          'previous_madhhab': previousValue?.name,
+          'new_selection_state': _state.name,
+          'new_madhhab': _selected?.name,
+          'ruleset_version': MadhhabRuleEvaluator.rulesetVersion,
+          'source': source,
+        });
+      } catch (_) {
+        // See _writeServerRow's doc comment — never blocks the selection.
+      }
     }
   }
 }
