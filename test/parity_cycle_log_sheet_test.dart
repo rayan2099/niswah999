@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/preferences/madhhab_controller.dart';
@@ -11,7 +13,40 @@ void main() {
   testWidgets('Arabic blood log sheet matches the mobile reference', (
     tester,
   ) async {
-    await ParityTestHarness.pump(tester, arabic: true);
+    // Key fix (menstrual-data-integrity wave): the dashboard's "Log
+    // cycle" button (Key('today-cycle-log')) now starts a new bleeding
+    // episode (_startBleeding/showStartBleedingSheet) rather than opening
+    // this full field-rich log sheet -- that sheet is reached by tapping
+    // the cycle ring itself (Key('today-cycle-ring')) instead, which only
+    // renders once there's sufficient history (no open episode). Legacy
+    // logs still back that "sufficient history" gate independently of
+    // canonical evidence (see parity_today_stepper_consistency_test.dart).
+    final legacyLogsJson = jsonEncode([
+      {
+        'id': '1',
+        'user_id': 'local-user',
+        'date': '2026-07-15T12:00:00.000',
+        'flow': 'medium',
+        'cycle_day': 1,
+        'sync_status': 'synced',
+      },
+      {
+        'id': '2',
+        'user_id': 'local-user',
+        'date': '2026-08-15T12:00:00.000',
+        'flow': 'medium',
+        'cycle_day': 1,
+        'sync_status': 'synced',
+      },
+    ]);
+    await ParityTestHarness.pump(
+      tester,
+      arabic: true,
+      extraPrefs: {
+        'niswah_cycle_tracking_logs': legacyLogsJson,
+        'flutter.niswah_cycle_tracking_logs': legacyLogsJson,
+      },
+    );
     // Madhhab Resolution Gate wave (2026-09-16): the log sheet's default
     // (period) mode now gates on a SELECTED Madhhab — selecting one here
     // matches a real already-onboarded user and keeps this test's own
@@ -21,7 +56,8 @@ void main() {
     // selection needs to persist against; calling it any earlier hits a
     // real (nonexistent in tests) platform channel and hangs.
     await MadhhabController.instance.selectMadhhab(Madhhab.hanafi);
-    await tester.tap(find.byKey(const Key('today-cycle-log')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('today-cycle-ring')));
     await tester.pumpAndSettle();
     expect(find.text('تسجيل اليوم'), findsWidgets);
     expect(find.text('شدة التدفق'), findsOneWidget);

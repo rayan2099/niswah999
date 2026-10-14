@@ -90,8 +90,20 @@ class CycleStatusEngine {
         break;
       }
       activeStart = log.date;
-      if (log.cycleDay == 1) break;
     }
+    // Deliberately no longer also breaking on `log.cycleDay == 1`: that
+    // field defaults to 1 (CycleLog's own constructor default) and is
+    // never set at all by CanonicalFiqhEvidenceAdapter.buildEffectiveLogs,
+    // which builds every canonical-evidence-derived log this engine now
+    // receives. With that check still present, the scan broke on the very
+    // first (latest) entry for ANY canonical-backed episode, pinning
+    // activeStart to "today" regardless of the episode's true start date
+    // — bleedingDuration then collapsed to just the current day's own
+    // elapsed hours, which is below every madhhab's minimum, so a
+    // genuinely-open, well-within-bounds Haid episode always misclassified
+    // as needsAdvisory. `flow == FlowLevel.none` is the correct, sole
+    // authoritative boundary signal (an explicit "not bleeding"
+    // observation) — found and fixed via parity_today_lower_test.dart.
 
     final bleedingDuration = now.difference(activeStart);
     final daysIntoCurrentEpisode = bleedingDuration.inDays + 1 > 0
