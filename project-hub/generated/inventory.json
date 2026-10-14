@@ -1,6 +1,7 @@
 {
   "source_documents": [
     "AGENTS.md",
+    "CLAUDE.md",
     "FLUTTER_UI_PARITY_GUIDE.md",
     "MANIFEST.md",
     "README.md",

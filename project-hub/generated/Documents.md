@@ -10,11 +10,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**149 existing Markdown documents**, grouped by source folder.
+**150 existing Markdown documents**, grouped by source folder.
 
 ## .
 
 - [AGENTS.md](../../AGENTS.md)
+- [CLAUDE.md](../../CLAUDE.md)
 - [FLUTTER_UI_PARITY_GUIDE.md](../../FLUTTER_UI_PARITY_GUIDE.md)
 - [MANIFEST.md](../../MANIFEST.md)
 - [README.md](../../README.md)
