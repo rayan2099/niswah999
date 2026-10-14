@@ -72,6 +72,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [sync_project_vault.py](../../scripts/sync_project_vault.py)
 - [test_build_kb_production_candidates.py](../../scripts/test_build_kb_production_candidates.py)
 - [test_secret_redaction.py](../../scripts/test_secret_redaction.py)
+- [test_sync_project_vault.py](../../scripts/test_sync_project_vault.py)
 - [test_trust_boundary.py](../../scripts/test_trust_boundary.py)
 - [validate_migrations.sh](../../scripts/validate_migrations.sh)
 - [verify_kb_live.sql](../../scripts/verify_kb_live.sql)

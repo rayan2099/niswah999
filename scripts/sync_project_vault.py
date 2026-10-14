@@ -2,10 +2,11 @@
 """Generate project-wide Obsidian navigation from tracked files, without copying content."""
 import argparse
 import json
+import posixpath
 import re
 import subprocess
 from collections import defaultdict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote, unquote
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,8 +19,7 @@ def tracked_files():
 
 
 def link(source, target, label=None):
-    import os
-    relative = os.path.relpath(ROOT / target, (ROOT / source).parent)
+    relative = posixpath.relpath(target, str(PurePosixPath(source).parent))
     return f'[{label or Path(target).name}]({quote(relative, safe="/")})'
 
 
@@ -32,7 +32,7 @@ def generate(files):
     docs = [p for p in files if p.lower().endswith('.md') and not p.startswith('project-hub/')]
     groups = defaultdict(list)
     for p in docs:
-        groups[str(Path(p).parent)].append(p)
+        groups[str(PurePosixPath(p).parent)].append(p)
     name = 'project-hub/generated/Documents.md'
     body = f'**{len(docs)} existing Markdown documents**, grouped by source folder.\n\n'
     for folder, paths in sorted(groups.items()):
@@ -81,7 +81,7 @@ def generate(files):
         selected = [p for p in files if not p.startswith('project-hub/') and any(p == s or p.startswith(s) for s in prefixes)]
         grouped = defaultdict(list)
         for p in selected:
-            grouped[str(Path(p).parent)].append(p)
+            grouped[str(PurePosixPath(p).parent)].append(p)
         body = ''
         for folder, paths in sorted(grouped.items()):
             body += f'## {folder}\n\n' + '\n'.join('- ' + link(name, p) for p in paths) + '\n\n'
@@ -93,14 +93,14 @@ def generate(files):
 def verify_links(outputs):
     # Check new navigation and authored hub notes, not unrelated legacy links.
     notes = {p: text for p, text in outputs.items() if p.endswith('.md')}
-    notes.update({str(p.relative_to(ROOT)): p.read_text() for p in (ROOT / 'project-hub').rglob('*.md') if 'generated' not in p.relative_to(ROOT / 'project-hub').parts})
+    notes.update({p.relative_to(ROOT).as_posix(): p.read_text(encoding="utf-8") for p in (ROOT / 'project-hub').rglob('*.md') if 'generated' not in p.relative_to(ROOT / 'project-hub').parts})
     errors = []
     for source, text in notes.items():
         for href in re.findall(r'\]\(([^\n)]+)\)', text):
             if re.match(r'^[a-zA-Z][\w+.-]*:', href) or href.startswith('#'):
                 continue
             target = ((ROOT / source).parent / unquote(href.split('#')[0])).resolve()
-            if not target.is_relative_to(ROOT) or (not target.exists() and str(target.relative_to(ROOT)) not in outputs):
+            if not target.is_relative_to(ROOT) or (not target.exists() and target.relative_to(ROOT).as_posix() not in outputs):
                 errors.append(f'{source}: missing or out-of-vault target {href}')
     return errors
 
@@ -114,7 +114,7 @@ def main():
     expected = {ROOT / p for p in outputs}
     existing = {p for p in OUT.rglob('*') if p.is_file()} if OUT.exists() else set()
     if args.check:
-        errors += [f'Stale or missing: {p}' for p, text in outputs.items() if not (ROOT / p).exists() or (ROOT / p).read_text() != text]
+        errors += [f'Stale or missing: {p}' for p, text in outputs.items() if not (ROOT / p).exists() or (ROOT / p).read_text(encoding="utf-8") != text]
         errors += [f'Unexpected generated file: {p.relative_to(ROOT)}' for p in existing - expected]
     elif not errors:
         for p in existing - expected:
@@ -122,7 +122,7 @@ def main():
         for p, text in outputs.items():
             target = ROOT / p
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text)
+            target.write_text(text, encoding="utf-8", newline="\n")
     if errors:
         raise SystemExit('\n'.join(errors))
     inventory = json.loads(outputs['project-hub/generated/inventory.json'])
