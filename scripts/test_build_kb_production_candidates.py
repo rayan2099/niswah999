@@ -90,6 +90,46 @@ class BuildKbProductionCandidatesTest(unittest.TestCase):
         )
         self.assertTrue(row['evidence_snapshot_commit'])
 
+    def test_baseline_every_candidate_carries_human_review_status(self):
+        # FD-5 condition 1 (FOUNDER_DECISIONS.md): human_review_status must
+        # remain explicit on every row, always. The real disposition master
+        # has NOT_REVIEWED for all 254 rows -- confirm that value survives
+        # into every one of the 211 production candidates, not just some.
+        self.run_script()
+        candidates = self.read_generated_csv('PRODUCTION_KB_CANDIDATES.csv')
+        self.assertEqual(
+            {c['human_review_status'] for c in candidates}, {'NOT_REVIEWED'}
+        )
+
+    def test_fails_when_an_eligible_row_has_no_human_review_status(self):
+        # FD-5 condition 1: refuse to produce a candidate row with a missing
+        # review status, rather than silently seeding one. The checksum
+        # guard (separately tested above) would otherwise catch any master
+        # mutation first, so the manifest's recorded checksum is updated to
+        # match -- isolating this specific check, same technique as
+        # test_fails_when_master_has_orphaned_atom_id above.
+        master = self.read_master()
+        eligible = next(
+            r for r in master if r['production_disposition'] == 'PRODUCTION_ELIGIBLE'
+        )
+        eligible['human_review_status'] = ''
+        self.write_master(master)
+
+        manifest_path = self.kb / 'EVIDENCE_SNAPSHOT_FREEZE_MANIFEST.json'
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        new_sha = self._sha256(self.kb / 'PRODUCTION_DISPOSITION_MASTER.csv')
+        manifest['production_disposition_master']['sha256'] = new_sha
+        for artifact in manifest['source_artifact_versions']:
+            if artifact['path'].endswith('PRODUCTION_DISPOSITION_MASTER.csv'):
+                artifact['sha256'] = new_sha
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('no human_review_status', result.stderr)
+        self.assertIn(eligible['atom_id'], result.stderr)
+        self.assertFalse((self.kb / 'generated' / 'PRODUCTION_KB_CANDIDATES.csv').exists())
+
     def test_all_fail_closed_fiqh_rows_land_in_quarantine_never_candidates(self):
         self.run_script()
         master = self.read_master()

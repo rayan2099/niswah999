@@ -20,6 +20,7 @@ function hit(overrides: Partial<KnowledgeHit> = {}): KnowledgeHit {
     canonical_statement: 'Test statement.',
     qualification_note: null,
     safety_class: null,
+    human_review_status: 'NOT_REVIEWED',
     source_key: 'SRC',
     source_title: 'Source Title',
     locator: 'p.1',
@@ -73,6 +74,13 @@ Deno.test('formatKnowledgeBlock — zero hits produces the explicit no-match blo
   assertEquals(block, '[KNOWLEDGE]\nNo production-eligible knowledge item matched this request.');
 });
 
+Deno.test('formatKnowledgeBlock — always includes HUMAN_REVIEW_STATUS, the real per-row value (FD-5 condition 1)', () => {
+  const reviewedBlock = formatKnowledgeBlock([hit({ human_review_status: 'SCHOLAR_APPROVED' })]);
+  assertEquals(reviewedBlock.includes('HUMAN_REVIEW_STATUS=SCHOLAR_APPROVED'), true);
+  const unreviewedBlock = formatKnowledgeBlock([hit({ human_review_status: 'NOT_REVIEWED' })]);
+  assertEquals(unreviewedBlock.includes('HUMAN_REVIEW_STATUS=NOT_REVIEWED'), true);
+});
+
 Deno.test('citationPayload — every field comes from the hit object, never from model output', () => {
   const hits = [hit({ knowledge_key: 'A', source_key: 'S1', locator: 'p.1' })];
   const citations = citationPayload(hits);
@@ -80,6 +88,12 @@ Deno.test('citationPayload — every field comes from the hit object, never from
   assertEquals(citations[0].knowledgeKey, 'A');
   assertEquals(citations[0].sourceKey, 'S1');
   assertEquals(citations[0].url, hits[0].source_url);
+});
+
+Deno.test('citationPayload — carries humanReviewStatus through from the hit, for provenance', () => {
+  const hits = [hit({ human_review_status: 'NOT_REVIEWED' })];
+  const citations = citationPayload(hits);
+  assertEquals(citations[0].humanReviewStatus, 'NOT_REVIEWED');
 });
 
 Deno.test('citationPayload — dedupes identical version/source/locator triples', () => {

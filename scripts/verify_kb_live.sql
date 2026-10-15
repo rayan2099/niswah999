@@ -9,6 +9,7 @@ DECLARE
   bad_fiqh_madhhab integer;
   unpublished_eligible integer;
   source_missing integer;
+  review_status_missing integer;
 BEGIN
   SELECT count(*) INTO total_count
   FROM public.knowledge_items ki
@@ -58,6 +59,20 @@ BEGIN
       WHERE kis.knowledge_item_version_id = kiv.id
     );
 
+  -- FD-5 condition 1 (FOUNDER_DECISIONS.md): human_review_status must
+  -- remain explicit on every row, always. The column is NOT NULL with
+  -- no default (migration 20261015120000), so this should be
+  -- structurally impossible -- this check exists anyway as a live,
+  -- independent confirmation, the same way source_missing/
+  -- unpublished_eligible above double-check constraints that should
+  -- already hold.
+  SELECT count(*) INTO review_status_missing
+  FROM public.knowledge_item_versions kiv
+  JOIN public.knowledge_items ki ON ki.id = kiv.knowledge_item_id
+  WHERE kiv.production_eligible = true
+    AND ki.publication_state = 'PUBLISHED'
+    AND (kiv.human_review_status IS NULL OR btrim(kiv.human_review_status) = '');
+
   IF total_count <> 211 THEN
     RAISE EXCEPTION 'KB denominator mismatch: expected 211 active items, got %', total_count;
   END IF;
@@ -76,6 +91,9 @@ BEGIN
   IF source_missing <> 0 THEN
     RAISE EXCEPTION 'Found % production-eligible versions without source metadata', source_missing;
   END IF;
+  IF review_status_missing <> 0 THEN
+    RAISE EXCEPTION 'Found % production-eligible versions with no human_review_status (FD-5 condition 1)', review_status_missing;
+  END IF;
 
-  RAISE NOTICE 'KB LIVE GATE PASS: 211 active items = 74 Health/Safety + 137 Fiqh; publication/source gates clean.';
+  RAISE NOTICE 'KB LIVE GATE PASS: 211 active items = 74 Health/Safety + 137 Fiqh; publication/source/review-status gates clean.';
 END $$;
