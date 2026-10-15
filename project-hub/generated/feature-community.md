@@ -29,6 +29,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_comment_tile.dart](../../lib/features/community/presentation/widgets/community_comment_tile.dart)
 - [community_composer_sheet.dart](../../lib/features/community/presentation/widgets/community_composer_sheet.dart)
 - [community_engagement_bar.dart](../../lib/features/community/presentation/widgets/community_engagement_bar.dart)
+- [community_language_gate.dart](../../lib/features/community/presentation/widgets/community_language_gate.dart)
 - [community_post_card.dart](../../lib/features/community/presentation/widgets/community_post_card.dart)
 
 ## Test navigation hints
@@ -36,6 +37,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 Filename matches only; inspect imports and behavior to establish actual coverage.
 
 - [community_board_test.dart](../../test/community_board_test.dart)
+- [community_language_gate_test.dart](../../test/community_language_gate_test.dart)
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
 - [community_ar_390x844.png](../../test/goldens/community_ar_390x844.png)

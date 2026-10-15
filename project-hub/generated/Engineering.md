@@ -51,8 +51,6 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## lib/core/models
 
 - [cycle_log.dart](../../lib/core/models/cycle_log.dart)
-- [madhhab_type.dart](../../lib/core/models/madhhab_type.dart)
-- [user_profile.dart](../../lib/core/models/user_profile.dart)
 
 ## lib/core/network
 
@@ -61,6 +59,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## lib/core/preferences
 
+- [community_language_controller.dart](../../lib/core/preferences/community_language_controller.dart)
 - [local_preference_scope.dart](../../lib/core/preferences/local_preference_scope.dart)
 - [madhhab_controller.dart](../../lib/core/preferences/madhhab_controller.dart)
 - [marital_status_controller.dart](../../lib/core/preferences/marital_status_controller.dart)
@@ -74,7 +73,6 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [cycle_log_repository.dart](../../lib/core/services/cycle_log_repository.dart)
 - [notification_service.dart](../../lib/core/services/notification_service.dart)
-- [user_profile_repository.dart](../../lib/core/services/user_profile_repository.dart)
 
 ## lib/core/storage
 
@@ -162,4 +160,6 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20260929114500_knowledge_base_v1.sql](../../supabase/migrations/20260929114500_knowledge_base_v1.sql)
 - [20260929120000_knowledge_base_v1_qualification_and_snapshot.sql](../../supabase/migrations/20260929120000_knowledge_base_v1_qualification_and_snapshot.sql)
 - [20260930130000_retrieve_knowledge_v1_relevance_anchor.sql](../../supabase/migrations/20260930130000_retrieve_knowledge_v1_relevance_anchor.sql)
+- [20261007090000_madhhab_change_history.sql](../../supabase/migrations/20261007090000_madhhab_change_history.sql)
+- [20261007093000_community_language.sql](../../supabase/migrations/20261007093000_community_language.sql)
 - [20261015120000_kb_human_review_status_provenance.sql](../../supabase/migrations/20261015120000_kb_human_review_status_provenance.sql)

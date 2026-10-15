@@ -35,7 +35,6 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 ## Related features to inspect
 
 - [Onboarding](feature-onboarding.md)
-- [Settings](feature-settings.md)
 - [Legal](feature-legal.md)
 
 ## Requirements, decisions, and verification
