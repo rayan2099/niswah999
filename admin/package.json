@@ -1,0 +1,25 @@
+{
+  "name": "niswah-admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.3",
+    "lucide-react": "0.546.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.12",
+    "@types/react-dom": "19.0.4",
+    "@vitejs/plugin-react": "5.0.4",
+    "typescript": "5.8.2",
+    "vite": "6.4.4",
+    "vitest": "4.1.0"
+  }
+}

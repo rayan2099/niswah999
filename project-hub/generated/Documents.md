@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**149 existing Markdown documents**, grouped by source folder.
+**150 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -23,6 +23,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## docs
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
+- [admin-dashboard.md](../../docs/admin-dashboard.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)

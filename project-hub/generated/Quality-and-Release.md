@@ -13,6 +13,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## .github/workflows
 
 - [acceptance-dispatch.yml](../../.github/workflows/acceptance-dispatch.yml)
+- [admin.yml](../../.github/workflows/admin.yml)
 - [ci.yml](../../.github/workflows/ci.yml)
 - [emergency-release.yml](../../.github/workflows/emergency-release.yml)
 - [kb-review-validation.yml](../../.github/workflows/kb-review-validation.yml)
@@ -23,6 +24,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## docs
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
+- [admin-dashboard.md](../../docs/admin-dashboard.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
@@ -75,6 +77,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [test_sync_project_vault.py](../../scripts/test_sync_project_vault.py)
 - [test_trust_boundary.py](../../scripts/test_trust_boundary.py)
 - [validate_migrations.sh](../../scripts/validate_migrations.sh)
+- [verify_admin_access.sql](../../scripts/verify_admin_access.sql)
 - [verify_kb_live.sql](../../scripts/verify_kb_live.sql)
 - [verify_kb_retrieval_live.sql](../../scripts/verify_kb_retrieval_live.sql)
 - [verify_kb_review_packets.py](../../scripts/verify_kb_review_packets.py)
