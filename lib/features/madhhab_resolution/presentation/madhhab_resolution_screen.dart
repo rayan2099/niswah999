@@ -6,6 +6,8 @@ import '../../../core/preferences/madhhab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
+import '../../madhhab/presentation/widgets/madhhab_change_confirmation.dart';
+import '../../madhhab/presentation/widgets/madhhab_selector.dart';
 import '../../onboarding/domain/services/madhhab_suggestion_service.dart';
 
 String _tr(String en, String ar) => AppLocaleController.instance.text(en, ar);
@@ -160,18 +162,40 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
     _step = _entryStep;
   }
 
+  /// Routes through the one canonical transition/confirmation path
+  /// (`setMadhhabWithConfirmation`) instead of calling `MadhhabController`
+  /// directly. The previous direct-call version reasoned that this
+  /// screen's own entry gate (`!MadhhabController.instance.isSelected`)
+  /// meant the FULL warning dialog (replacing an existing selection)
+  /// could never legitimately fire here — true, but incomplete: it
+  /// missed that the LIGHT notice (`unknown -> selected`, confirming a
+  /// Madhhab for the first time over real historical logs) legitimately
+  /// fires at exactly this screen, and the direct call silently skipped
+  /// it. Only pops with a result once the change is actually
+  /// confirmed/applied — a cancelled dialog leaves her on this screen to
+  /// reconsider, never incorrectly treated as a completed selection.
   Future<void> _confirmSelection(
     Madhhab madhhab, {
     required String source,
   }) async {
+    final applied = await setMadhhabWithConfirmation(
+      context,
+      newMadhhab: madhhab,
+      source: 'resolution_$source',
+    );
+    if (!applied) return;
     MadhhabResolutionScreen.lastConfirmedSelectionSource = source;
-    await MadhhabController.instance.selectMadhhab(madhhab);
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
 
   Future<void> _stillNotSure() async {
-    await MadhhabController.instance.selectUnknown();
+    final applied = await setMadhhabWithConfirmation(
+      context,
+      newMadhhab: null,
+      source: 'resolution_still_not_sure',
+    );
+    if (!applied) return;
     if (!mounted) return;
     Navigator.of(context).pop(false);
   }
@@ -197,14 +221,14 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
     final upbringing = _upbringingAnswer;
     if (upbringing?.kind == _CountryAnswerKind.specific) {
       final suggestion = service.suggest(
-        explicitCountry: upbringing!.country!.nameEn,
+        explicitCountryCode: upbringing!.country!.code,
       );
       if (suggestion.isResolved) return _toGuidedResult(suggestion);
     }
     final family = _familyAnswer;
     if (family?.kind == _CountryAnswerKind.specific) {
       final suggestion = service.suggest(
-        explicitCountry: family!.country!.nameEn,
+        explicitCountryCode: family!.country!.code,
       );
       if (suggestion.isResolved) return _toGuidedResult(suggestion);
     }
@@ -217,7 +241,7 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
       if (answer.kind == _CountryAnswerKind.specific) {
         const service = MadhhabSuggestionService();
         final suggestion = service.suggest(
-          explicitCountry: answer.country!.nameEn,
+          explicitCountryCode: answer.country!.code,
         );
         if (suggestion.isResolved) {
           _guidedResult = _toGuidedResult(suggestion);
@@ -298,12 +322,22 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
         );
       case _Step.knownPicker:
         return _KnownPickerStep(
+          // Only non-null when this picker was reached via "Show other
+          // schools" from a resolved single-candidate guided suggestion —
+          // Requirement 6's "suggested based on your country" badge,
+          // never a pre-selection.
+          suggested:
+              _showingAllSchoolsForManualPick &&
+                  _guidedResult?.kind == _GuidedResultKind.single
+              ? _guidedResult!.single
+              : null,
           onSelected: (madhhab) => setState(() {
             _pendingConfirm = madhhab;
             _selectionSource = 'direct';
             _confirmReturnStep = _Step.knownPicker;
             _step = _Step.confirm;
           }),
+          onStillNotSure: _stillNotSure,
         );
       case _Step.confirm:
         return _ConfirmStep(
@@ -409,15 +443,14 @@ class _IntroStep extends StatelessWidget {
 }
 
 class _KnownPickerStep extends StatelessWidget {
-  const _KnownPickerStep({required this.onSelected});
+  const _KnownPickerStep({
+    required this.onSelected,
+    required this.onStillNotSure,
+    this.suggested,
+  });
   final ValueChanged<Madhhab> onSelected;
-
-  static String _name(Madhhab m) => switch (m) {
-    Madhhab.hanafi => _tr('Hanafi', 'حنفي'),
-    Madhhab.maliki => _tr('Maliki', 'مالكي'),
-    Madhhab.shafii => _tr("Shafi'i", 'شافعي'),
-    Madhhab.hanbali => _tr('Hanbali', 'حنبلي'),
-  };
+  final VoidCallback onStillNotSure;
+  final Madhhab? suggested;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -425,10 +458,18 @@ class _KnownPickerStep extends StatelessWidget {
     children: [
       _Title(_tr('What is your Fiqh Madhhab?', 'ما هو مذهبك الفقهي؟')),
       const SizedBox(height: 22),
-      for (final madhhab in Madhhab.values) ...[
-        _ChoiceCard(label: _name(madhhab), onTap: () => onSelected(madhhab)),
-        const SizedBox(height: 10),
-      ],
+      // Requirement 1/5: the shared MadhhabSelector, also used by
+      // onboarding and Settings. This step never pre-highlights a
+      // tile — it's a fresh pick within this flow, not a reflection of
+      // MadhhabController's current state (which every entry point to
+      // this screen already guarantees is unset/unknown anyway).
+      MadhhabSelector(
+        state: MadhhabSelectionState.unset,
+        selected: null,
+        suggested: suggested,
+        onSelectMadhhab: onSelected,
+        onSelectUnknown: onStillNotSure,
+      ),
     ],
   );
 }

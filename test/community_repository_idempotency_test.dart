@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/core/preferences/community_language_controller.dart';
 import 'package:niswah/features/community/domain/entities/community_comment.dart';
 import 'package:niswah/features/community/domain/entities/community_feed_page.dart';
 import 'package:niswah/features/community/domain/entities/community_post.dart';
@@ -60,6 +61,7 @@ class _FailOnceThenSucceedRepository implements CommunityRepository {
 
   @override
   Future<CommunityFeedPage> getPosts({
+    required CommunityLanguage language,
     CommunityCategory? category,
     String? currentUserId,
     DateTime? beforeCreatedAt,
@@ -107,6 +109,7 @@ void main() {
             repository: repository,
             currentUserId: 'user-1',
             currentUserName: 'Test User',
+            language: CommunityLanguage.ar,
           );
           // The real failure seen on a device during an outage.
           repository.failWith = Exception(
@@ -139,6 +142,7 @@ void main() {
           repository: repository,
           currentUserId: 'user-1',
           currentUserName: 'Test User',
+          language: CommunityLanguage.ar,
         );
 
         final firstAttempt = await viewModel.createPost(
@@ -176,6 +180,7 @@ void main() {
       final viewModel = CommunityFeedViewModel(
         repository: repository,
         currentUserId: 'user-1',
+        language: CommunityLanguage.ar,
         currentUserName: 'Test User',
       );
 
@@ -208,6 +213,7 @@ void main() {
       tags: const [],
       isAnonymous: false,
       createdAt: DateTime.now(),
+      language: CommunityLanguage.ar,
     );
 
     test('a manual retry after a failed comment submit reuses the same '

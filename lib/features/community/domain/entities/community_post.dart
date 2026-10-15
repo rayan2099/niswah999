@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/preferences/community_language_controller.dart';
 import 'community_comment.dart';
 import '../../../../core/utils/db_timestamp.dart';
 
@@ -24,6 +25,7 @@ class CommunityPost extends Equatable {
     required this.tags,
     required this.isAnonymous,
     required this.createdAt,
+    required this.language,
     this.comments = const <CommunityComment>[],
     this.commentCount = 0,
     this.likeCount = 0,
@@ -39,6 +41,11 @@ class CommunityPost extends Equatable {
   final List<String> tags;
   final bool isAnonymous;
   final DateTime createdAt;
+
+  /// Which community (Requirement 4) this post belongs to — Arabic or
+  /// English. Never auto-translated/mixed across the two: a post always
+  /// belongs to exactly the community it was created in.
+  final CommunityLanguage language;
 
   /// Full comment thread — only populated when a post is loaded standalone
   /// by the detail screen. List/feed pages leave this empty and rely on
@@ -64,6 +71,7 @@ class CommunityPost extends Equatable {
     List<String>? tags,
     bool? isAnonymous,
     DateTime? createdAt,
+    CommunityLanguage? language,
     List<CommunityComment>? comments,
     int? commentCount,
     int? likeCount,
@@ -79,6 +87,7 @@ class CommunityPost extends Equatable {
       tags: tags ?? this.tags,
       isAnonymous: isAnonymous ?? this.isAnonymous,
       createdAt: createdAt ?? this.createdAt,
+      language: language ?? this.language,
       comments: comments ?? this.comments,
       commentCount: commentCount ?? this.commentCount,
       likeCount: likeCount ?? this.likeCount,
@@ -96,6 +105,7 @@ class CommunityPost extends Equatable {
     'tags': tags,
     'is_anonymous': isAnonymous,
     'created_at': dbTimestamp(createdAt),
+    'language': language.name,
     'comments': comments.map((comment) => comment.toJson()).toList(),
   };
 
@@ -123,6 +133,13 @@ class CommunityPost extends Equatable {
       createdAt:
           DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.now(),
+      // Defensive fallback only — the DB column is NOT NULL, so this is
+      // never relied on for a real row; it only guards against a
+      // malformed/partial map in a test fixture.
+      language: CommunityLanguage.values.firstWhere(
+        (lang) => lang.name == (json['language'] as String? ?? 'ar'),
+        orElse: () => CommunityLanguage.ar,
+      ),
       comments: rawComments is List
           ? rawComments
                 .map(
@@ -146,6 +163,7 @@ class CommunityPost extends Equatable {
     tags,
     isAnonymous,
     createdAt,
+    language,
     comments,
     commentCount,
     likeCount,

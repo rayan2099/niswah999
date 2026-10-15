@@ -5,6 +5,7 @@ import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/errors/failures.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/preferences/community_language_controller.dart';
 import '../../domain/entities/community_comment.dart';
 import '../../domain/entities/community_feed_page.dart';
 import '../../domain/entities/community_post.dart';
@@ -27,6 +28,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
 
   @override
   Future<CommunityFeedPage> getPosts({
+    required CommunityLanguage language,
     CommunityCategory? category,
     String? currentUserId,
     DateTime? beforeCreatedAt,
@@ -34,11 +36,14 @@ class CommunityRepositoryImpl implements CommunityRepository {
   }) async {
     final client = _client;
     if (client == null) {
-      return _fallbackPage(category: category);
+      return _fallbackPage(language: language, category: category);
     }
 
     try {
-      var query = client.from(_postsTable).select();
+      var query = client
+          .from(_postsTable)
+          .select()
+          .eq('language', language.name);
       if (category != null) {
         query = query.eq('category', category.name);
       }
@@ -163,6 +168,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
       'is_anonymous': post.isAnonymous,
       'created_at': dbTimestamp(post.createdAt),
       'updated_at': dbTimestamp(post.createdAt),
+      'language': post.language.name,
     };
 
     final response = await client
@@ -329,15 +335,22 @@ class CommunityRepositoryImpl implements CommunityRepository {
         .eq('user_id', userId);
   }
 
-  CommunityFeedPage _fallbackPage({CommunityCategory? category}) {
-    final posts = _fallbackPosts(category: category);
+  CommunityFeedPage _fallbackPage({
+    required CommunityLanguage language,
+    CommunityCategory? category,
+  }) {
+    final posts = _fallbackPosts(language: language, category: category);
     return CommunityFeedPage(posts: posts, hasMore: false);
   }
 
-  List<CommunityPost> _fallbackPosts({CommunityCategory? category}) {
+  List<CommunityPost> _fallbackPosts({
+    required CommunityLanguage language,
+    CommunityCategory? category,
+  }) {
     final posts = [
       CommunityPost(
         id: 'community-post-1',
+        language: CommunityLanguage.ar,
         userId: 'user-1',
         authorName: _t('Alya', 'ألاء'),
         title: _t(
@@ -370,6 +383,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
       ),
       CommunityPost(
         id: 'community-post-2',
+        language: CommunityLanguage.en,
         userId: 'user-3',
         authorName: _t('Sara', 'سارة'),
         title: _t(
@@ -402,6 +416,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
       ),
       CommunityPost(
         id: 'community-post-3',
+        language: CommunityLanguage.ar,
         userId: 'user-5',
         authorName: _t('Community member', 'عضو في المجتمع'),
         title: _t(
@@ -421,6 +436,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
       ),
       CommunityPost(
         id: 'community-post-4',
+        language: CommunityLanguage.en,
         userId: 'user-6',
         authorName: _t('Mona', 'منى'),
         title: _t(
@@ -440,6 +456,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
       ),
       CommunityPost(
         id: 'community-post-5',
+        language: CommunityLanguage.ar,
         userId: 'user-7',
         authorName: _t('Community member', 'عضو في المجتمع'),
         title: _t(
@@ -459,6 +476,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
       ),
       CommunityPost(
         id: 'community-post-6',
+        language: CommunityLanguage.en,
         userId: 'user-8',
         authorName: _t('Reem', 'ريم'),
         title: _t(
@@ -478,9 +496,10 @@ class CommunityRepositoryImpl implements CommunityRepository {
       ),
     ];
 
-    return category == null
-        ? posts
-        : posts.where((post) => post.category == category).toList();
+    return posts
+        .where((post) => post.language == language)
+        .where((post) => category == null || post.category == category)
+        .toList();
   }
 
   List<CommunityComment> _fallbackComments({required String postId}) {

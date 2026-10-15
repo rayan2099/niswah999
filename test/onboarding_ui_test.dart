@@ -819,7 +819,7 @@ void main() {
           'Maliki',
           "Shafi'i",
           'Hanbali',
-          "I don't know my Madhhab",
+          "I don't know",
         ]) {
           expect(
             find.text(label),
@@ -840,13 +840,7 @@ void main() {
           ),
         );
 
-        for (final label in [
-          'حنفي',
-          'مالكي',
-          'شافعي',
-          'حنبلي',
-          'لا أعرف مذهبي',
-        ]) {
+        for (final label in ['حنفي', 'مالكي', 'شافعي', 'حنبلي', 'لا أعرف']) {
           expect(
             find.text(label),
             findsOneWidget,
@@ -869,8 +863,8 @@ void main() {
           ),
         );
 
-        await tester.ensureVisible(find.text("I don't know my Madhhab"));
-        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
         await tester.pumpAndSettle();
 
         expect(find.text('No problem'), findsOneWidget);
@@ -895,8 +889,8 @@ void main() {
           ),
         );
 
-        await tester.ensureVisible(find.text("I don't know my Madhhab"));
-        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text("I'll decide later"));
         await tester.tap(find.text("I'll decide later"));
@@ -920,8 +914,8 @@ void main() {
           ),
         );
 
-        await tester.ensureVisible(find.text("I don't know my Madhhab"));
-        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Back to choices'));
         await tester.tap(find.text('Back to choices'));
@@ -932,7 +926,18 @@ void main() {
     );
 
     testWidgets(
-      '"Help me choose" -> a recognized country -> confirming the suggestion persists SELECTED, never silently',
+      // Adversarial review, 2026-10-07: Saudi Arabia used to produce a
+      // confident Hanbali suggestion here. It is now gated behind
+      // reviewer_status == 'APPROVED' (no entry in the dataset has
+      // this), so even a dataset-covered country now lands on the same
+      // "we don't have a suggestion" state as an unmapped one — applied
+      // uniformly, not an Afghanistan-specific carve-out. Onboarding
+      // still never gets stuck: "I'll decide later" persists an honest
+      // UNKNOWN and advances, exactly as it already does for a country
+      // with no entry in the mapping at all.
+      '"Help me choose" -> a country the dataset covers but has not been '
+      'reviewer-approved -> no suggestion shown -> "I\'ll decide later" '
+      'persists UNKNOWN and advances, never a guess',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
         await MadhhabController.instance.load();
@@ -943,8 +948,8 @@ void main() {
           ),
         );
 
-        await tester.ensureVisible(find.text("I don't know my Madhhab"));
-        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Help me choose'));
         await tester.tap(find.text('Help me choose'));
@@ -961,25 +966,31 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        expect(find.text('A suggestion for you'), findsOneWidget);
+        expect(
+          find.text("We don't have a suggestion for that yet"),
+          findsOneWidget,
+          reason:
+              'Saudi Arabia is in the draft mapping but NOT_REVIEWED — '
+              'the trust gate must treat it exactly like an unmapped '
+              'country, never present it as a confident recommendation',
+        );
         expect(
           MadhhabController.instance.state,
           isNot(MadhhabSelectionState.selected),
-          reason:
-              'a displayed suggestion must never itself persist a selection',
         );
 
-        await tester.ensureVisible(
-          find.textContaining('Hanbali is my Madhhab'),
-        );
-        await tester.tap(find.textContaining('Hanbali is my Madhhab'));
+        await tester.ensureVisible(find.text("I'll decide later"));
+        await tester.tap(find.text("I'll decide later"));
         await tester.pumpAndSettle();
 
         expect(
           MadhhabController.instance.state,
-          MadhhabSelectionState.selected,
+          MadhhabSelectionState.unknown,
+          reason:
+              'never silently guessed — an unreviewed match degrades to '
+              'exactly the same explicit-UNKNOWN outcome as no match '
+              'at all, and onboarding still advances, never stuck',
         );
-        expect(MadhhabController.instance.selectedOrNull, Madhhab.hanbali);
         expect(find.text('Are you married?'), findsOneWidget);
       },
     );
@@ -996,8 +1007,8 @@ void main() {
           ),
         );
 
-        await tester.ensureVisible(find.text("I don't know my Madhhab"));
-        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Help me choose'));
         await tester.tap(find.text('Help me choose'));
@@ -1023,7 +1034,18 @@ void main() {
     );
 
     testWidgets(
-      '"None of these" on a resolved suggestion persists UNKNOWN, not the suggested madhhab',
+      // Adversarial review, 2026-10-07: Turkey used to produce a
+      // resolved Hanafi suggestion with a distinct "None of these"
+      // decline button. It is now gated the same as every other entry,
+      // so this reaches the insufficient branch instead — whose own
+      // "I'll decide later" button is wired to the exact same
+      // `onNoneOfThese` callback (onboarding_screen.dart), so the core
+      // invariant this test exists for is unchanged: declining never
+      // persists any specific madhhab, including one the (now-hidden)
+      // draft mapping would have suggested.
+      'declining on a country the draft mapping covers (Turkey) never '
+      'persists that country\'s madhhab, even though no suggestion is '
+      'actually shown',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
         await MadhhabController.instance.load();
@@ -1034,8 +1056,8 @@ void main() {
           ),
         );
 
-        await tester.ensureVisible(find.text("I don't know my Madhhab"));
-        await tester.tap(find.text("I don't know my Madhhab"));
+        await tester.ensureVisible(find.text("I don't know"));
+        await tester.tap(find.text("I don't know"));
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Help me choose'));
         await tester.tap(find.text('Help me choose'));
@@ -1046,16 +1068,25 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        expect(find.text('A suggestion for you'), findsOneWidget);
-        await tester.ensureVisible(find.textContaining("None of these"));
-        await tester.tap(find.textContaining("None of these"));
+        expect(
+          find.text("We don't have a suggestion for that yet"),
+          findsOneWidget,
+          reason:
+              'Turkey is in the draft mapping (Hanafi) but NOT_REVIEWED '
+              '— gated exactly like any unmapped country',
+        );
+        await tester.ensureVisible(find.text("I'll decide later"));
+        await tester.tap(find.text("I'll decide later"));
         await tester.pumpAndSettle();
 
         expect(MadhhabController.instance.state, MadhhabSelectionState.unknown);
         expect(
           MadhhabController.instance.selectedOrNull,
           isNot(Madhhab.hanafi),
-          reason: 'Turkey suggests Hanafi — declining it must never persist it anyway',
+          reason:
+              'Turkey\'s draft mapping is Hanafi — confirming it was '
+              'never silently adopted just because the country happened '
+              'to be in the dataset',
         );
       },
     );

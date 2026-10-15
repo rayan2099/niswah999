@@ -160,6 +160,18 @@
       "evidence_source_ids": [],
       "reviewer_status": "NOT_REVIEWED",
       "requires_user_confirmation": true
+    },
+    {
+      "mapping_id": "GEO-014",
+      "country": "Afghanistan",
+      "country_code": "AF",
+      "region": null,
+      "likely_madhahib": ["hanafi"],
+      "confidence": "medium",
+      "note": "Hanafi is the historically and institutionally predominant madhhab in Afghanistan (same Hanafi-majority pattern as Turkey/Pakistan). Previously absent from this mapping entirely -- onboarding silently fell through to UNRESOLVED for every Afghan user, not because of a name-matching bug but because no entry existed at all.",
+      "evidence_source_ids": [],
+      "reviewer_status": "NOT_REVIEWED",
+      "requires_user_confirmation": true
     }
   ],
   "unresolved_policy": "Any country not listed here, or any case this mapping marks 'low' confidence, must resolve to UNRESOLVED in the suggestion service -- the user sees the full 4-option-plus-unknown picker with no pre-selected/highlighted suggestion, never a guessed default.",

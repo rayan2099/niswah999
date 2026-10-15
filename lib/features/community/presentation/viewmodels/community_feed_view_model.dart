@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../../core/preferences/community_language_controller.dart';
 import '../../data/repositories/community_repository_impl.dart';
 import '../../domain/entities/community_post.dart';
 import '../../domain/repositories/community_repository.dart';
@@ -11,9 +12,15 @@ class CommunityFeedViewModel extends ChangeNotifier {
     CommunityRepository? repository,
     required this.currentUserId,
     required this.currentUserName,
+    required this.language,
   }) : _repository = repository ?? CommunityRepositoryImpl();
 
   final CommunityRepository _repository;
+
+  /// Which community (Requirement 4) this view model reads/writes.
+  /// Changing it (via [setLanguage]) reloads the feed — never mixes
+  /// posts from both communities into one list.
+  CommunityLanguage language;
 
   /// The signed-in user's id, or null in offline/demo mode.
   String? currentUserId;
@@ -53,6 +60,7 @@ class CommunityFeedViewModel extends ChangeNotifier {
 
     try {
       final page = await _repository.getPosts(
+        language: language,
         category: selectedCategory,
         currentUserId: currentUserId,
         pageSize: _pageSize,
@@ -80,6 +88,7 @@ class CommunityFeedViewModel extends ChangeNotifier {
 
     try {
       final page = await _repository.getPosts(
+        language: language,
         category: selectedCategory,
         currentUserId: currentUserId,
         pageSize: _pageSize,
@@ -106,6 +115,16 @@ class CommunityFeedViewModel extends ChangeNotifier {
 
   void selectCategory(CommunityCategory? category) {
     selectedCategory = category;
+    loadPosts();
+  }
+
+  /// Called when the user changes their community-language preference
+  /// from Profile/Settings while this screen is already open (it never
+  /// remounts inside the home shell's `IndexedStack`) — reloads the feed
+  /// scoped to the new community instead of showing a stale mix.
+  void setLanguage(CommunityLanguage value) {
+    if (language == value) return;
+    language = value;
     loadPosts();
   }
 
@@ -163,6 +182,7 @@ class CommunityFeedViewModel extends ChangeNotifier {
           tags: tags ?? const <String>[],
           isAnonymous: isAnonymous,
           createdAt: DateTime.now(),
+          language: language,
         ),
       );
 

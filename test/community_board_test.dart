@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/core/preferences/community_language_controller.dart';
 import 'package:niswah/features/community/domain/entities/community_comment.dart';
 import 'package:niswah/features/community/domain/entities/community_post.dart';
 
@@ -16,6 +17,7 @@ void main() {
         tags: const ['energy', 'support'],
         isAnonymous: false,
         createdAt: now,
+        language: CommunityLanguage.en,
       );
 
       final json = post.toJson();
@@ -25,7 +27,11 @@ void main() {
       expect(restored.authorName, 'Noura');
       expect(restored.category, CommunityCategory.support);
       expect(restored.tags, ['energy', 'support']);
-      expect(restored.content, 'I am feeling overwhelmed and would love encouragement.');
+      expect(
+        restored.content,
+        'I am feeling overwhelmed and would love encouragement.',
+      );
+      expect(restored.language, CommunityLanguage.en);
     });
 
     test('serializes and deserializes a comment', () {
@@ -44,7 +50,10 @@ void main() {
 
       expect(restored.postId, 'post-1');
       expect(restored.authorName, 'Huda');
-      expect(restored.content, 'You are not alone. Take it one moment at a time.');
+      expect(
+        restored.content,
+        'You are not alone. Take it one moment at a time.',
+      );
     });
   });
 }
