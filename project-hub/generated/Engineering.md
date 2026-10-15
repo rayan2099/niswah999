@@ -156,3 +156,4 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261015112724_admin_operations_monitoring.sql](../../supabase/migrations/20261015112724_admin_operations_monitoring.sql)
 - [20261015114926_admin_audience_wellbeing.sql](../../supabase/migrations/20261015114926_admin_audience_wellbeing.sql)
 - [20261015115858_admin_analytics_date_indexes.sql](../../supabase/migrations/20261015115858_admin_analytics_date_indexes.sql)
+- [20261015120952_admin_checkin_details.sql](../../supabase/migrations/20261015120952_admin_checkin_details.sql)

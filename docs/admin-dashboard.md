@@ -102,3 +102,11 @@ Verification for this addition:
 - Frontend tests: 10 passed, including missing-series gaps, zero-denominator rendering, prediction/unknown labels and country HTML escaping; TypeScript/Vite build passed.
 - [cycle_analytics_test.dart](../test/cycle_analytics_test.dart) adds focused engine-output/freshness/privacy cases. Flutter/Dart are unavailable in this workspace, so these tests and the changed mobile UI remain **unexecuted locally** and require the repository's Flutter CI plus device verification before release.
 - Browser visual QA unavailable in this workspace. Responsive styles and accessible data-table fallbacks are included; review the page on desktop/mobile before production rollout.
+
+### Screenshot check-in coverage
+
+The founder's check-in screenshot shows mood, energy, sleep (1–5) and optional notes. The existing `WellbeingRepository.upsertToday` already saves these values under the current account and device-local date, using `user_id,log_date` to update a day's entry rather than duplicate it. Notes remain in the user's own health history. No check-in is written merely by opening the sheet; displayed initial 3/5 values become submitted values only when the user saves.
+
+The [check-in details migration](../supabase/migrations/20261015120952_admin_checkin_details.sql) extends the owner-only audience helper with all five rating buckets separately for mood/energy/sleep, invalid/missing score coverage, and counts with/without nonblank optional notes. Note text is never returned. The dashboard uses today's actual check-ins as the denominator for these distributions, with an explicit label distinguishing this from overall-account coverage. It does not infer mood or conditions from notes. Existing older responses without the extension still render the other audience sections.
+
+Applied only on staging. The expanded synthetic rollback suite passed note participation, all-five buckets, anonymous/previous-day exclusion, score denominator and existing owner/AAL2 privacy checks. Frontend tests now total **11 passing**, including check-in details rendering; TypeScript/Vite build passed. No additional Flutter code changed for this screenshot follow-up. Deployment and the earlier mobile verification limits remain as described above.

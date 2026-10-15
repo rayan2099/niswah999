@@ -96,4 +96,32 @@ describe("audience and wellbeing analytics", () => {
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
   });
+  it("renders all saved rating levels and note participation without note text", () => {
+    const ratings = {
+      rows: [1, 2, 3, 4, 5].map((score) => ({
+        score,
+        users: score === 3 ? 1 : 0,
+      })),
+      unknown: 0,
+    };
+    const html = renderToStaticMarkup(
+      <Audience
+        data={{
+          ...empty,
+          total: 1,
+          today: { ...day, reports: 1, mood_reports: 1, neutral: 1 },
+          checkin_details: {
+            ratings: { mood: ratings, energy: ratings, sleep: ratings },
+            with_notes: 1,
+            without_notes: 0,
+          },
+        }}
+      />,
+    );
+    expect(html).toContain("تفاصيل التسجيل اليومي");
+    expect(html).toContain("التوزيع الكامل");
+    expect(html).toContain("تسجيلات مع ملاحظة");
+    expect(html).toContain("النص خاص بالمستخدمة");
+    expect(html).toContain("لا تُرسل للإحصاءات");
+  });
 });

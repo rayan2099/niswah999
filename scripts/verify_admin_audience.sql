@@ -53,6 +53,11 @@ do $$ declare b jsonb; d jsonb; sum_value bigint; begin
  if (d#>>'{cycle,haid}')::int<>(b#>>'{cycle,haid}')::int+1 or (d#>>'{cycle,tahara}')::int<>(b#>>'{cycle,tahara}')::int then raise exception 'FAIL made up purity';end if;
  if (d#>>'{cycle,prediction_coverage}')::int<>(b#>>'{cycle,prediction_coverage}')::int then raise exception 'FAIL unknown prediction counted';end if;
  if (d#>>'{madhhab,hanafi}')::int<>(b#>>'{madhhab,hanafi}')::int+1 or (d#>>'{madhhab,unknown}')::int<>(b#>>'{madhhab,unknown}')::int+1 or (d#>>'{madhhab,unset}')::int<>(b#>>'{madhhab,unset}')::int+1 then raise exception 'FAIL madhhab authority';end if;
+ if (d#>>'{checkin_details,with_notes}')::int<>(b#>>'{checkin_details,with_notes}')::int+2 then raise exception 'FAIL note participation';end if;
+ if (d#>>'{checkin_details,without_notes}')::int<>(b#>>'{checkin_details,without_notes}')::int then raise exception 'FAIL anonymous/old note counted';end if;
+ if (d#>>'{checkin_details,ratings,mood,rows,4,users}')::int<>(b#>>'{checkin_details,ratings,mood,rows,4,users}')::int+1 then raise exception 'FAIL full score distribution';end if;
+ if jsonb_array_length(d#>'{checkin_details,ratings,energy,rows}')<>5 then raise exception 'FAIL missing score buckets';end if;
+ if (select sum((value->>'users')::int) from jsonb_array_elements(d#>'{checkin_details,ratings,sleep,rows}'))+(d#>>'{checkin_details,ratings,sleep,unknown}')::int<>(d#>>'{today,reports}')::int then raise exception 'FAIL check-in denominator';end if;
  if jsonb_array_length(d->'trend')<>30 then raise exception 'FAIL missing day buckets';end if;
  foreach sum_value in array array[
    (select sum(value::text::bigint) from jsonb_each(d->'madhhab')),

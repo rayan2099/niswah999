@@ -49,6 +49,17 @@ export type AudienceData = {
   wellbeing_users_7d: number;
   wellbeing_users_30d: number;
   trend: DailyWellbeing[];
+  checkin_details?: {
+    ratings: Record<
+      "mood" | "energy" | "sleep",
+      {
+        rows: { score: number; users: number }[];
+        unknown: number;
+      }
+    >;
+    with_notes: number;
+    without_notes: number;
+  };
 };
 const n = (value: number) =>
   new Intl.NumberFormat("ar-SA", { maximumFractionDigits: 2 }).format(value);
@@ -292,6 +303,67 @@ export default function Audience({ data: d }: { data: AudienceData }) {
           </p>
         </section>
       </div>
+      {d.checkin_details && (
+        <>
+          <div className="stats-heading">
+            <div>
+              <h2>تفاصيل التسجيل اليومي</h2>
+              <p>
+                التقييمات كما حُفظت من شاشة المزاج والطاقة والنوم • النسب من
+                تسجيلات اليوم، وليس جميع الحسابات
+              </p>
+            </div>
+          </div>
+          <div className="stats-grid">
+            {(
+              [
+                ["mood", "المزاج"],
+                ["energy", "الطاقة"],
+                ["sleep", "النوم"],
+              ] as const
+            ).map(([key, title]) => (
+              <Breakdown
+                key={key}
+                title={title}
+                description="التوزيع الكامل على مقياس ١–٥؛ ١ الأدنى و٥ الأعلى"
+                total={t.reports}
+                rows={[
+                  ...d.checkin_details!.ratings[key].rows.map(
+                    (r): [string, number, string] => [
+                      `${n(r.score)} من ٥`,
+                      r.users,
+                      colors[r.score - 1],
+                    ],
+                  ),
+                  [
+                    "تقييم غير متوفر أو غير صالح",
+                    d.checkin_details!.ratings[key].unknown,
+                    colors[5],
+                  ],
+                ]}
+              />
+            ))}
+            <Breakdown
+              title="الملاحظات الاختيارية"
+              description="وجود ملاحظة فقط؛ النص خاص بالمستخدمة ولا يظهر للإدارة"
+              total={t.reports}
+              rows={[
+                ["تسجيلات مع ملاحظة", d.checkin_details.with_notes, colors[0]],
+                [
+                  "تسجيلات بدون ملاحظة",
+                  d.checkin_details.without_notes,
+                  colors[5],
+                ],
+              ]}
+            />
+          </div>
+          <p className="stats-note">
+            التسجيل محفوظ مرة واحدة لكل حساب وتاريخ؛ تعديل تسجيل اليوم يحدّثه
+            دون احتساب المستخدمة مرتين. تظهر الأرقام بعد الحفظ والمزامنة فقط؛
+            القيم الظاهرة قبل الضغط على «حفظ الحالة» لا تُرسل للإحصاءات.
+          </p>
+        </>
+      )}
       <section className="panel wellness-trend">
         <div className="panel-heading">
           <div>
