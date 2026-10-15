@@ -22,6 +22,11 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [main.dart](../../lib/main.dart)
 
+## lib/core/analytics
+
+- [cycle_analytics.dart](../../lib/core/analytics/cycle_analytics.dart)
+- [onboarding_milestones.dart](../../lib/core/analytics/onboarding_milestones.dart)
+
 ## lib/core/auth
 
 - [auth_controller.dart](../../lib/core/auth/auth_controller.dart)
@@ -115,6 +120,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [kb_retrieval.ts](../../supabase/functions/_shared/kb_retrieval.ts)
 - [openai_client.test.ts](../../supabase/functions/_shared/openai_client.test.ts)
 - [openai_client.ts](../../supabase/functions/_shared/openai_client.ts)
+- [operations_telemetry.test.ts](../../supabase/functions/_shared/operations_telemetry.test.ts)
+- [operations_telemetry.ts](../../supabase/functions/_shared/operations_telemetry.ts)
 - [pregnancy_status.test.ts](../../supabase/functions/_shared/pregnancy_status.test.ts)
 - [pregnancy_status.ts](../../supabase/functions/_shared/pregnancy_status.ts)
 - [rate_limit.ts](../../supabase/functions/_shared/rate_limit.ts)
@@ -144,3 +151,9 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20260929114500_knowledge_base_v1.sql](../../supabase/migrations/20260929114500_knowledge_base_v1.sql)
 - [20260929120000_knowledge_base_v1_qualification_and_snapshot.sql](../../supabase/migrations/20260929120000_knowledge_base_v1_qualification_and_snapshot.sql)
 - [20260930130000_retrieve_knowledge_v1_relevance_anchor.sql](../../supabase/migrations/20260930130000_retrieve_knowledge_v1_relevance_anchor.sql)
+- [20261015105437_admin_dashboard.sql](../../supabase/migrations/20261015105437_admin_dashboard.sql)
+- [20261015111611_admin_user_statistics.sql](../../supabase/migrations/20261015111611_admin_user_statistics.sql)
+- [20261015112724_admin_operations_monitoring.sql](../../supabase/migrations/20261015112724_admin_operations_monitoring.sql)
+- [20261015114926_admin_audience_wellbeing.sql](../../supabase/migrations/20261015114926_admin_audience_wellbeing.sql)
+- [20261015115858_admin_analytics_date_indexes.sql](../../supabase/migrations/20261015115858_admin_analytics_date_indexes.sql)
+- [20261015120952_admin_checkin_details.sql](../../supabase/migrations/20261015120952_admin_checkin_details.sql)

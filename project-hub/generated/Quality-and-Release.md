@@ -13,6 +13,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## .github/workflows
 
 - [acceptance-dispatch.yml](../../.github/workflows/acceptance-dispatch.yml)
+- [admin.yml](../../.github/workflows/admin.yml)
 - [ci.yml](../../.github/workflows/ci.yml)
 - [emergency-release.yml](../../.github/workflows/emergency-release.yml)
 - [kb-review-validation.yml](../../.github/workflows/kb-review-validation.yml)
@@ -23,6 +24,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## docs
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
+- [admin-dashboard.md](../../docs/admin-dashboard.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
@@ -75,6 +77,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [test_sync_project_vault.py](../../scripts/test_sync_project_vault.py)
 - [test_trust_boundary.py](../../scripts/test_trust_boundary.py)
 - [validate_migrations.sh](../../scripts/validate_migrations.sh)
+- [verify_admin_access.sql](../../scripts/verify_admin_access.sql)
+- [verify_admin_audience.sql](../../scripts/verify_admin_audience.sql)
+- [verify_admin_operations.sql](../../scripts/verify_admin_operations.sql)
+- [verify_admin_statistics.sql](../../scripts/verify_admin_statistics.sql)
 - [verify_kb_live.sql](../../scripts/verify_kb_live.sql)
 - [verify_kb_retrieval_live.sql](../../scripts/verify_kb_retrieval_live.sql)
 - [verify_kb_review_packets.py](../../scripts/verify_kb_review_packets.py)
@@ -106,6 +112,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_board_test.dart](../../test/community_board_test.dart)
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
+- [cycle_analytics_test.dart](../../test/cycle_analytics_test.dart)
 - [cycle_calculation_service_test.dart](../../test/cycle_calculation_service_test.dart)
 - [cycle_local_sync_idempotency_test.dart](../../test/cycle_local_sync_idempotency_test.dart)
 - [cycle_tracking_controller_test.dart](../../test/cycle_tracking_controller_test.dart)

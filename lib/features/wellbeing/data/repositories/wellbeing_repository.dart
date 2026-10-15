@@ -30,6 +30,7 @@ class WellbeingRepository {
     required int energy,
     required int sleep,
     String? notes,
+    bool? sleepy,
   }) async {
     final client = _client;
     if (client == null) return;
@@ -45,6 +46,7 @@ class WellbeingRepository {
         'mood': mood,
         'energy': energy,
         'sleep': sleep,
+        'sleepy': sleepy,
         // Always written, even when null — an edit that clears a
         // previous note must overwrite it, not leave stale text behind.
         'notes': notes,

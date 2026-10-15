@@ -516,6 +516,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         mood: result.mood,
         energy: result.energy,
         sleep: result.sleep,
+        sleepy: result.sleepy,
         notes: result.notes,
       );
       final preferences = await SharedPreferences.getInstance();
@@ -2098,11 +2099,13 @@ class _WellbeingCheckInResult {
     required this.energy,
     required this.sleep,
     this.notes,
+    this.sleepy,
   });
 
   final int mood;
   final int energy;
   final int sleep;
+  final bool? sleepy;
 
   /// Optional free-text note — null/empty when nothing was written, never
   /// a fabricated placeholder.
@@ -2120,6 +2123,7 @@ class _WellbeingCheckInSheetState extends State<_WellbeingCheckInSheet> {
   int _mood = 3;
   int _energy = 3;
   int _sleep = 3;
+  bool? _sleepy;
   final TextEditingController _notesController = TextEditingController();
 
   @override
@@ -2247,6 +2251,23 @@ class _WellbeingCheckInSheetState extends State<_WellbeingCheckInSheet> {
                 descriptionBuilder: sleepRatingDescription,
                 onChanged: (value) => setState(() => _sleep = value),
               ),
+              const SizedBox(height: 20),
+              Text(_l('Feeling sleepy? (optional)', 'هل تشعرين بالنعاس؟ (اختياري)')),
+              Wrap(
+                spacing: 10,
+                children: [
+                  ChoiceChip(
+                    label: Text(_l('Yes', 'نعم')),
+                    selected: _sleepy == true,
+                    onSelected: (selected) => setState(() => _sleepy = selected ? true : null),
+                  ),
+                  ChoiceChip(
+                    label: Text(_l('No', 'لا')),
+                    selected: _sleepy == false,
+                    onSelected: (selected) => setState(() => _sleepy = selected ? false : null),
+                  ),
+                ],
+              ),
               const SizedBox(height: 24),
               Text(
                 _l('Notes', 'ملاحظات'),
@@ -2292,6 +2313,7 @@ class _WellbeingCheckInSheetState extends State<_WellbeingCheckInSheet> {
                       mood: _mood,
                       energy: _energy,
                       sleep: _sleep,
+                      sleepy: _sleepy,
                       notes: notes.isEmpty ? null : notes,
                     ),
                   );

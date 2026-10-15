@@ -1,3 +1,4 @@
+import { observeAiEndpoint } from '../_shared/operations_telemetry.ts';
 // Supabase Edge Function: dr-niswah-chat
 //
 // Owns the "طبيبة" persona system prompt and the model call server-side —
@@ -132,7 +133,7 @@ function detectLanguage(text: string): 'ar' | 'en' {
   return /[\u0600-\u06FF]/.test(text) ? 'ar' : 'en';
 }
 
-Deno.serve(async (req) => {
+Deno.serve(observeAiEndpoint('dr-niswah-chat', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -298,6 +299,7 @@ Deno.serve(async (req) => {
     let reply: string;
     try {
       const result = await callOpenAI({
+        advisor: 'dr-niswah-chat',
         prompt: content,
         systemInstruction,
       });
@@ -393,4 +395,4 @@ Deno.serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }
-});
+}));

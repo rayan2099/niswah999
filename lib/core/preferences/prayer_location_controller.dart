@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../network/supabase_client.dart';
+import '../errors/app_error_reporter.dart';
 
 /// A resolved location to compute prayer times for: real coordinates plus a
 /// short display label (a preset city name, or "Current location").
@@ -76,6 +81,8 @@ class PrayerLocationController extends ChangeNotifier {
   ];
 
   PrayerLocation? _selected;
+  Future<void> _countryWrites = Future<void>.value();
+  int _selectionGeneration = 0;
 
   /// The location to compute prayer times for right now — never null, so
   /// callers never need their own fallback branch.
@@ -96,12 +103,35 @@ class PrayerLocationController extends ChangeNotifier {
   }
 
   Future<void> select(PrayerLocation location) async {
+    final client = NiswahSupabase.clientOrNull;
+    final userId = client?.auth.currentUser?.id;
+    final generation = ++_selectionGeneration;
     _selected = location;
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
     await preferences.setDouble(_latKey, location.latitude);
     await preferences.setDouble(_lngKey, location.longitude);
     await preferences.setString(_labelKey, location.label);
+    // Only a country attached to an explicit preset choice. No GPS lookup,
+    // default-Mecca inference, city, or coordinates are uploaded here.
+    const presetCountries = <String, String>{
+      'Riyadh': 'SA', 'Jeddah': 'SA', 'Mecca': 'SA', 'Medina': 'SA',
+      'Dubai': 'AE', 'Cairo': 'EG',
+    };
+    if (client != null && userId != null) {
+      _countryWrites = _countryWrites.then((_) async {
+       if (generation != _selectionGeneration || client.auth.currentUser?.id != userId) return;
+       try {
+        await client.from('users').update({
+          'prayer_country': presetCountries[location.label],
+        }).eq('id', userId);
+      } catch (_, stack) {
+        AppErrorReporter.report(StateError('Country preference could not be saved'), stack,
+          context: 'PrayerLocationController.select', feature: 'preferences');
+       }
+      });
+      unawaited(_countryWrites);
+    }
   }
 
   /// Requests location permission, gets a real GPS fix, persists it, and

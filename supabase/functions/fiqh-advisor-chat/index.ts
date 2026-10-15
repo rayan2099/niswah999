@@ -1,3 +1,4 @@
+import { observeAiEndpoint } from '../_shared/operations_telemetry.ts';
 // Supabase Edge Function: fiqh-advisor-chat
 // Production KB integration: only evidence-eligible, published rows are authoritative.
 
@@ -56,7 +57,7 @@ Do not diagnose medical conditions. Urgent health symptoms must be escalated to 
 Answer in the user's language. Plain prose only; no markdown.`;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(observeAiEndpoint('fiqh-advisor-chat', async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
@@ -154,6 +155,7 @@ Deno.serve(async (req) => {
 
     const systemInstruction = `${buildSystemInstruction(madhhab)}\n\n${formatContextBlock(userContext, 'fiqh_advisor')}\n\n${formatKnowledgeBlock(kbHits)}`;
     const result = await callOpenAI({
+        advisor: 'fiqh-advisor-chat',
       prompt: question,
       systemInstruction,
       timeoutMs: 30_000,
@@ -170,4 +172,4 @@ Deno.serve(async (req) => {
       status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
-});
+}));

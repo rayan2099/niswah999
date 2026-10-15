@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import '../../../../core/analytics/onboarding_milestones.dart';
 
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/localization/app_locale_controller.dart';
@@ -109,6 +113,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // otherwise re-selecting anything (or the step just looking unanswered)
     // silently overwrites their real answer via setMarried below.
     _isMarried = MaritalStatusController.instance.isMarried;
+    unawaited(OnboardingMilestones.record(
+      OnboardingMilestones.steps[_step]!,
+    ));
   }
 
   @override
@@ -403,7 +410,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  void _next() => setState(() => _step = (_step + 1).clamp(1, _totalSteps));
+  void _next() {
+    setState(() => _step = (_step + 1).clamp(1, _totalSteps));
+    unawaited(OnboardingMilestones.record(
+      OnboardingMilestones.steps[_step]!,
+    ));
+  }
 
   /// Seeds a real cycle log from the last-period date/length answered in
   /// steps 6-7 (unless the user tapped "I'm not sure"), so onboarding's
@@ -437,6 +449,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // honest, narrow, already-logged-out-loud tradeoff, not a silent one.
     try {
       await AuthRepositoryImpl().markOnboardingCompleted();
+      unawaited(OnboardingMilestones.record('completed'));
     } catch (_) {
       // Swallowed deliberately — see comment above. The local optimistic
       // update below still lets her proceed to the dashboard this session.
