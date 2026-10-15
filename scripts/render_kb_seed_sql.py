@@ -51,6 +51,7 @@ required_columns = {
     'knowledge_key', 'domain', 'category', 'topic', 'madhhab',
     'search_text_ar', 'search_text_en', 'canonical_en', 'canonical_ar',
     'safety_class', 'qualification_note', 'evidence_state',
+    'human_review_status',
     'evidence_snapshot_commit', 'primary_source_key', 'primary_source_title',
     'primary_locator', 'primary_url', 'publication_state', 'production_eligible',
 }
@@ -59,6 +60,19 @@ if missing_columns:
     raise SystemExit(
         f'{INPUT} is missing required column(s) {sorted(missing_columns)} -- '
         'was it produced by the current build_kb_production_candidates.py?'
+    )
+
+# FD-5 condition 1 (FOUNDER_DECISIONS.md): human_review_status must remain
+# explicit on every row, always. build_kb_production_candidates.py already
+# refuses to produce a candidate row without one, but this is re-checked
+# here too -- at the one point that actually renders what gets written to
+# the live database -- so a hand-edited or differently-produced candidate
+# CSV can never silently seed a row with a missing review status.
+missing_review_status = [r['knowledge_key'] for r in rows if not (r['human_review_status'] or '').strip()]
+if missing_review_status:
+    raise SystemExit(
+        f'Refusing to render seed SQL: {len(missing_review_status)} row(s) have '
+        f'no human_review_status: {sorted(missing_review_status)[:10]}'
     )
 
 snapshot_commits = {r['evidence_snapshot_commit'] for r in rows}
@@ -140,16 +154,19 @@ on conflict (knowledge_key) do update set
         sql.append(f"""
 insert into public.knowledge_item_versions (
   knowledge_item_id, version, language, canonical_statement, qualification_note,
-  safety_class, evidence_state, evidence_snapshot_commit, production_eligible, effective_from
+  safety_class, evidence_state, human_review_status, evidence_snapshot_commit,
+  production_eligible, effective_from
 )
 select id, 1, {q(language)}, {q(canonical)}, {q(r['qualification_note'])}, {q(r['safety_class'])},
-       {q(evidence_state)}, {q(r['evidence_snapshot_commit'])}, {b(r['production_eligible'])}, now()
+       {q(evidence_state)}, {q(r['human_review_status'])}, {q(r['evidence_snapshot_commit'])},
+       {b(r['production_eligible'])}, now()
 from public.knowledge_items where knowledge_key = {q(r['knowledge_key'])}
 on conflict (knowledge_item_id, version, language) do update set
   canonical_statement = excluded.canonical_statement,
   qualification_note = excluded.qualification_note,
   safety_class = excluded.safety_class,
   evidence_state = excluded.evidence_state,
+  human_review_status = excluded.human_review_status,
   evidence_snapshot_commit = excluded.evidence_snapshot_commit,
   production_eligible = excluded.production_eligible,
   effective_from = coalesce(public.knowledge_item_versions.effective_from, excluded.effective_from),

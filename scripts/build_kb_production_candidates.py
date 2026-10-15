@@ -214,6 +214,15 @@ for r in health:
     if audit_row.get('verification_status') == 'VERIFIED_WITH_QUALIFICATION':
         qualification_note = (audit_row.get('scope_restrictions') or '').strip()
 
+    human_review_status = master_by_id[atom]['human_review_status']
+    if not (human_review_status or '').strip():
+        raise SystemExit(
+            f'{atom} is PRODUCTION_ELIGIBLE but has no human_review_status in '
+            'the disposition master -- condition 1 of FD-5 (FOUNDER_DECISIONS.md) '
+            'requires this to always be explicit. Refusing to produce a candidate '
+            'row that would seed with a missing review status.'
+        )
+
     health_out.append({
         'knowledge_key': atom,
         'domain': r['domain'],
@@ -227,6 +236,7 @@ for r in health:
         'safety_class': r['escalation_class'],
         'qualification_note': qualification_note,
         'evidence_state': evidence_state,
+        'human_review_status': human_review_status,
         'evidence_snapshot_commit': frozen_commit,
         'primary_source_key': source_key,
         'primary_source_title': source_title,
@@ -264,6 +274,15 @@ for review_id, r in fiqh_all.items():
     has_secondary = bool((r.get('secondary_url') or '').strip())
     evidence_state = 'INSTITUTIONALLY_CORROBORATED' if has_secondary else 'PRIMARY_SOURCE_VERIFIED'
 
+    human_review_status = master_by_id[review_id]['human_review_status']
+    if not (human_review_status or '').strip():
+        raise SystemExit(
+            f'{review_id} is PRODUCTION_ELIGIBLE but has no human_review_status '
+            'in the disposition master -- condition 1 of FD-5 (FOUNDER_DECISIONS.md) '
+            'requires this to always be explicit. Refusing to produce a candidate '
+            'row that would seed with a missing review status.'
+        )
+
     # The Arabic question is routing metadata only. It is NOT promoted to a
     # canonical Arabic ruling. The authoritative proposition remains the
     # source-supported English proposition until reviewed Arabic wording exists.
@@ -280,6 +299,7 @@ for review_id, r in fiqh_all.items():
         'safety_class': '',
         'qualification_note': '',
         'evidence_state': evidence_state,
+        'human_review_status': human_review_status,
         'evidence_snapshot_commit': frozen_commit,
         'primary_source_key': f"{r['madhhab']}:{review_id}:primary",
         'primary_source_title': locator_title(r['primary_locator'], f"{r['madhhab'].title()} primary classical source"),

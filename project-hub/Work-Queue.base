@@ -1,0 +1,23 @@
+filters:
+  and:
+    - 'file.inFolder("project-hub/work-items") || file.inFolder("project-hub/decisions")'
+views:
+  - type: table
+    name: All work and decisions
+    order:
+      - file.name
+      - type
+      - status
+      - area
+      - owner
+      - reviewed_on
+  - type: table
+    name: Open work
+    filters:
+      and:
+        - 'status != "closed" && status != "superseded"'
+    order:
+      - file.name
+      - status
+      - area
+      - owner
