@@ -114,7 +114,16 @@ Future<bool> confirmFirstFiqhInterpretation(BuildContext context) async {
 /// MadhhabController directly) — by design, so that no dialog of either
 /// kind can ever appear before any historical data exists to be
 /// reinterpreted.
-Future<void> setMadhhabWithConfirmation(
+///
+/// Returns `true` once [newMadhhab] is the account's confirmed, persisted
+/// value (immediately for a no-op or a transition that needs no dialog;
+/// after an explicit Confirm/Continue otherwise) and `false` only when a
+/// dialog was shown and dismissed/cancelled — nothing was persisted in
+/// that case. Every caller that needs to know whether to proceed (e.g.
+/// the resolution screen deciding whether to pop with a result) must
+/// check this return value rather than assuming the call always applies
+/// the change.
+Future<bool> setMadhhabWithConfirmation(
   BuildContext context, {
   required Madhhab? newMadhhab,
   String source = 'unspecified',
@@ -124,8 +133,9 @@ Future<void> setMadhhabWithConfirmation(
   if (controller.state == MadhhabSelectionState.selected &&
       controller.selectedOrNull == newMadhhab) {
     // Selecting the currently-selected madhhab again is a genuine no-op —
-    // never persisted, never dialogued, never recorded.
-    return;
+    // never persisted, never dialogued, never recorded. Already the
+    // confirmed value, so this counts as success for the caller.
+    return true;
   }
 
   final isFullWarning = controller.state == MadhhabSelectionState.selected;
@@ -135,9 +145,9 @@ Future<void> setMadhhabWithConfirmation(
       newMadhhab != null;
 
   if (isFullWarning) {
-    if (!await confirmMadhhabChange(context)) return;
+    if (!await confirmMadhhabChange(context)) return false;
   } else if (isLightNotice) {
-    if (!await confirmFirstFiqhInterpretation(context)) return;
+    if (!await confirmFirstFiqhInterpretation(context)) return false;
   }
 
   if (newMadhhab == null) {
@@ -145,4 +155,5 @@ Future<void> setMadhhabWithConfirmation(
   } else {
     await controller.selectMadhhab(newMadhhab, source: source);
   }
+  return true;
 }

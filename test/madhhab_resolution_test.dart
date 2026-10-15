@@ -181,6 +181,174 @@ void main() {
     );
   });
 
+  group(
+    'Canonical confirmation routing (final-review fix, 2026-10-15)',
+    () {
+      // Prior defect: _confirmSelection/_stillNotSure called
+      // MadhhabController directly, bypassing setMadhhabWithConfirmation
+      // entirely, so the light first-Fiqh-interpretation notice never
+      // fired on a genuine unknown -> selected pick reached through this
+      // screen. Both now route through setMadhhabWithConfirmation, which
+      // is the only place that decides which dialog (if any) applies.
+      testWidgets(
+        'genuine UNKNOWN -> selected via the known-picker shows the light '
+        'notice (not just this screen\'s own "use this school?" step), '
+        'and Continue persists the selection and closes the screen',
+        (tester) async {
+          await MadhhabController.instance.selectUnknown();
+          await _openResolver(tester);
+
+          await tester.tap(find.text('I know my Madhhab'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text("Shafi'i"));
+          await tester.pumpAndSettle();
+
+          // This screen's own existing confirm step still appears first —
+          // unrelated to, and not a substitute for, the canonical dialog.
+          expect(
+            find.text("Use the Shafi'i school in Niswah's rulings?"),
+            findsOneWidget,
+          );
+          await tester.tap(find.text("Yes, use Shafi'i"));
+          await tester.pumpAndSettle();
+
+          // The canonical light notice now fires, because
+          // setMadhhabWithConfirmation (not MadhhabController directly)
+          // is what _confirmSelection calls.
+          expect(
+            find.textContaining('Niswah will now interpret your previous'),
+            findsOneWidget,
+          );
+          expect(find.text('Continue'), findsOneWidget);
+
+          await tester.tap(find.text('Continue'));
+          await tester.pumpAndSettle();
+
+          expect(
+            MadhhabController.instance.state,
+            MadhhabSelectionState.selected,
+          );
+          expect(MadhhabController.instance.selectedOrNull, Madhhab.shafii);
+          expect(
+            MadhhabResolutionScreen.lastConfirmedSelectionSource,
+            'direct',
+          );
+          // The screen itself closed (popped) only after the canonical
+          // operation actually succeeded.
+          expect(find.byType(MadhhabResolutionScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'genuine UNKNOWN -> selected: cancelling the light notice persists '
+        'nothing and leaves the resolution screen open',
+        (tester) async {
+          await MadhhabController.instance.selectUnknown();
+          await _openResolver(tester);
+
+          await tester.tap(find.text('I know my Madhhab'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Hanbali'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Yes, use Hanbali'));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.textContaining('Niswah will now interpret your previous'),
+            findsOneWidget,
+          );
+          await tester.tap(find.text('Cancel'));
+          await tester.pumpAndSettle();
+
+          // Nothing was persisted — state is exactly as it was before
+          // this flow started.
+          expect(
+            MadhhabController.instance.state,
+            MadhhabSelectionState.unknown,
+          );
+          expect(MadhhabController.instance.selectedOrNull, isNull);
+          expect(MadhhabResolutionScreen.lastConfirmedSelectionSource, isNull);
+          // The screen was never popped as though the selection succeeded —
+          // cancelling a dialog must not be indistinguishable from success.
+          // It also leaves her exactly where she was (this screen's own
+          // confirm step for the school she tapped), to reconsider rather
+          // than losing her place.
+          expect(find.byType(MadhhabResolutionScreen), findsOneWidget);
+          expect(
+            find.text("Use the Hanbali school in Niswah's rulings?"),
+            findsOneWidget,
+          );
+        },
+      );
+
+      testWidgets(
+        'UNSET -> selected (via load(), no prior interpretation to '
+        'reinterpret) still shows no canonical dialog beyond this '
+        'screen\'s own confirm step — no regression from the fix',
+        (tester) async {
+          await MadhhabController.instance.load();
+          await _openResolver(tester);
+
+          await tester.tap(find.text('I know my Madhhab'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Maliki'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Yes, use Maliki'));
+          await tester.pumpAndSettle();
+
+          // No light notice, no full warning — setMadhhabWithConfirmation
+          // applies the change immediately for unset -> selected.
+          expect(
+            find.textContaining('Niswah will now interpret your previous'),
+            findsNothing,
+          );
+          expect(
+            find.text('Changing your Madhhab may change the Fiqh'),
+            findsNothing,
+          );
+          expect(
+            MadhhabController.instance.state,
+            MadhhabSelectionState.selected,
+          );
+          expect(MadhhabController.instance.selectedOrNull, Madhhab.maliki);
+        },
+      );
+
+      testWidgets(
+        '"still not sure" from a genuine UNKNOWN start remains a correct '
+        'no-op (unset/unknown -> unknown never dialogs either)',
+        (tester) async {
+          await MadhhabController.instance.selectUnknown();
+          await _openResolver(tester);
+
+          await tester.tap(find.text("I don't know — help me"));
+          await tester.pumpAndSettle();
+          await tester.enterText(find.byType(TextField), 'Japan');
+          await tester.pumpAndSettle();
+          await tester.tap(find.widgetWithText(ListTile, 'Japan'));
+          await tester.pumpAndSettle();
+          await tester.enterText(find.byType(TextField), 'Japan');
+          await tester.pumpAndSettle();
+          await tester.tap(find.widgetWithText(ListTile, 'Japan'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Choose manually'));
+          await tester.pumpAndSettle();
+          await tester.pageBack();
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Still not sure'));
+          await tester.pumpAndSettle();
+
+          expect(
+            MadhhabController.instance.state,
+            MadhhabSelectionState.unknown,
+          );
+          expect(MadhhabController.instance.selectedOrNull, isNull);
+          expect(find.byType(MadhhabResolutionScreen), findsNothing);
+        },
+      );
+    },
+  );
+
   group('Guided selection (Sections 4-13)', () {
     testWidgets(
       // Adversarial review, 2026-10-07: Saudi Arabia used to be a

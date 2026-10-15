@@ -6,6 +6,7 @@ import '../../../core/preferences/madhhab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
+import '../../madhhab/presentation/widgets/madhhab_change_confirmation.dart';
 import '../../madhhab/presentation/widgets/madhhab_selector.dart';
 import '../../onboarding/domain/services/madhhab_suggestion_service.dart';
 
@@ -161,33 +162,40 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
     _step = _entryStep;
   }
 
+  /// Routes through the one canonical transition/confirmation path
+  /// (`setMadhhabWithConfirmation`) instead of calling `MadhhabController`
+  /// directly. The previous direct-call version reasoned that this
+  /// screen's own entry gate (`!MadhhabController.instance.isSelected`)
+  /// meant the FULL warning dialog (replacing an existing selection)
+  /// could never legitimately fire here — true, but incomplete: it
+  /// missed that the LIGHT notice (`unknown -> selected`, confirming a
+  /// Madhhab for the first time over real historical logs) legitimately
+  /// fires at exactly this screen, and the direct call silently skipped
+  /// it. Only pops with a result once the change is actually
+  /// confirmed/applied — a cancelled dialog leaves her on this screen to
+  /// reconsider, never incorrectly treated as a completed selection.
   Future<void> _confirmSelection(
     Madhhab madhhab, {
     required String source,
   }) async {
-    MadhhabResolutionScreen.lastConfirmedSelectionSource = source;
-    // Every call site that opens this screen already gates on
-    // `!MadhhabController.instance.isSelected` before doing so (Settings'
-    // "Help me choose" banner, the Log-my-Haidh gate) — so `state` here
-    // is always unset/unknown, never selected, meaning Requirement 2's
-    // "replacing an existing selection" warning dialog would never
-    // legitimately apply at this screen; calling the controller directly
-    // (rather than through `setMadhhabWithConfirmation`) is therefore
-    // equivalent in practice while avoiding a dialog that could never
-    // fire here. The audit-history write still happens inside
-    // `selectMadhhab` itself, regardless of caller.
-    await MadhhabController.instance.selectMadhhab(
-      madhhab,
+    final applied = await setMadhhabWithConfirmation(
+      context,
+      newMadhhab: madhhab,
       source: 'resolution_$source',
     );
+    if (!applied) return;
+    MadhhabResolutionScreen.lastConfirmedSelectionSource = source;
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
 
   Future<void> _stillNotSure() async {
-    await MadhhabController.instance.selectUnknown(
+    final applied = await setMadhhabWithConfirmation(
+      context,
+      newMadhhab: null,
       source: 'resolution_still_not_sure',
     );
+    if (!applied) return;
     if (!mounted) return;
     Navigator.of(context).pop(false);
   }
