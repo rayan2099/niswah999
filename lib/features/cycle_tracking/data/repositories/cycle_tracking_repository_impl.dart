@@ -57,9 +57,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       }
 
       final response = await query.order('date', ascending: false).limit(limit);
-      final remote = (response as List<dynamic>)
-          .map((item) => CycleLog.fromJson(item as Map<String, dynamic>))
-          .toList();
+      final remote = _parseCycleEntries(response as List<dynamic>);
 
       final merged = <String, CycleLog>{};
       for (final entry in [...localLogs, ...remote]) {
@@ -118,10 +116,43 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       if (response == null) {
         return await _localDataSource.getById(id);
       }
-      return CycleLog.fromJson(response);
+      try {
+        return CycleLog.fromJson(response);
+      } on CycleLogParseException catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'CycleTrackingRepositoryImpl.getCycleLogById',
+          feature: 'cycle_tracking',
+          recordId: id,
+        );
+        return await _localDataSource.getById(id);
+      }
     } on PostgrestException catch (error) {
       throw NetworkFailure(error.message);
     }
+  }
+
+  /// Parses remote `cycle_entries` rows one at a time so a single record
+  /// with unparseable required health data (`date`/`flow`) is quarantined
+  /// — reported and skipped — rather than discarding every other, valid
+  /// row in the same response (see [CycleLogParseException]).
+  List<CycleLog> _parseCycleEntries(List<dynamic> rows) {
+    final parsed = <CycleLog>[];
+    for (final row in rows) {
+      try {
+        parsed.add(CycleLog.fromJson(row as Map<String, dynamic>));
+      } on CycleLogParseException catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'CycleTrackingRepositoryImpl._parseCycleEntries',
+          feature: 'cycle_tracking',
+          recordId: (row as Map<String, dynamic>)['id'] as String?,
+        );
+      }
+    }
+    return parsed;
   }
 
   @override
@@ -135,7 +166,9 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     await _localDataSource.upsert(log);
     try {
       await upsertCycleLog(log);
-      await _localDataSource.upsert(log.copyWith(syncStatus: SyncStatus.synced));
+      await _localDataSource.upsert(
+        log.copyWith(syncStatus: SyncStatus.synced),
+      );
       return SyncStatus.synced;
     } on NetworkFailure catch (error, stack) {
       // Local save is authoritative for the UI; remote sync is eventually-
@@ -159,7 +192,9 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       // `pending` — automatic retry must not hammer a request that can
       // never succeed ("do not retry non-retryable errors blindly").
       if (!error.retryable) {
-        await _localDataSource.upsert(log.copyWith(syncStatus: SyncStatus.failed));
+        await _localDataSource.upsert(
+          log.copyWith(syncStatus: SyncStatus.failed),
+        );
         return SyncStatus.failed;
       }
       return SyncStatus.pending;
@@ -262,7 +297,9 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     for (final log in toRetry) {
       try {
         await upsertCycleLog(log);
-        await _localDataSource.upsert(log.copyWith(syncStatus: SyncStatus.synced));
+        await _localDataSource.upsert(
+          log.copyWith(syncStatus: SyncStatus.synced),
+        );
         synced++;
       } on NetworkFailure catch (error, stack) {
         AppErrorReporter.report(
@@ -332,9 +369,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
           .eq('user_id', sessionUser.id)
           .order('date', ascending: false)
           .limit(limit);
-      final remote = (response as List<dynamic>)
-          .map((item) => CycleLog.fromJson(item as Map<String, dynamic>))
-          .toList();
+      final remote = _parseCycleEntries(response as List<dynamic>);
 
       final merged = <String, CycleLog>{};
       for (final entry in [...localLogs, ...remote]) {

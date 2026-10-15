@@ -5,6 +5,7 @@ import '../../../../core/network/supabase_client.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/chat_thread.dart';
 import '../../domain/repositories/chat_repository.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 class ChatRepositoryImpl implements ChatRepository {
   ChatRepositoryImpl({SupabaseClient? client})
@@ -56,8 +57,8 @@ class ChatRepositoryImpl implements ChatRepository {
       'thread_type': threadType.name,
       'status': ChatThreadStatus.active.name,
       'metadata': metadata ?? const <String, dynamic>{},
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': createdAt.toIso8601String(),
+      'created_at': dbTimestamp(createdAt),
+      'updated_at': dbTimestamp(createdAt),
     };
 
     final response = await client
@@ -120,7 +121,7 @@ class ChatRepositoryImpl implements ChatRepository {
       'role': role.name,
       'content': content,
       'metadata': metadata ?? const <String, dynamic>{},
-      'created_at': DateTime.now().toIso8601String(),
+      'created_at': dbTimestamp(DateTime.now()),
     };
 
     final response = await client

@@ -149,10 +149,13 @@ class CycleSymptomDecoder {
 
   /// Recent non-empty notes across [logs], newest first, capped at [limit].
   static List<NotedEntry> recentNotes(List<CycleLog> logs, {int limit = 10}) {
-    final entries = decodeAll(logs)
-        .where((entry) => entry.notes != null && entry.notes!.trim().isNotEmpty)
-        .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final entries =
+        decodeAll(logs)
+            .where(
+              (entry) => entry.notes != null && entry.notes!.trim().isNotEmpty,
+            )
+            .toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
 
     return entries
         .take(limit)
@@ -169,13 +172,15 @@ class CycleSymptomDecoder {
     List<CycleLog> logs, {
     int limit = 10,
   }) {
-    final entries = decodeAll(logs)
-        .where(
-          (entry) =>
-              entry.bloodColor != null && entry.bloodColor!.trim().isNotEmpty,
-        )
-        .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final entries =
+        decodeAll(logs)
+            .where(
+              (entry) =>
+                  entry.bloodColor != null &&
+                  entry.bloodColor!.trim().isNotEmpty,
+            )
+            .toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
 
     return entries
         .take(limit)

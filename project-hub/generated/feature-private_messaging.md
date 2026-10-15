@@ -17,6 +17,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [private_conversation.dart](../../lib/features/private_messaging/domain/entities/private_conversation.dart)
 - [private_message.dart](../../lib/features/private_messaging/domain/entities/private_message.dart)
 - [private_messaging_repository_base.dart](../../lib/features/private_messaging/domain/repositories/private_messaging_repository_base.dart)
+- [conversation_title.dart](../../lib/features/private_messaging/presentation/conversation_title.dart)
 - [chat_detail_screen.dart](../../lib/features/private_messaging/presentation/screens/chat_detail_screen.dart)
 - [conversations_screen.dart](../../lib/features/private_messaging/presentation/screens/conversations_screen.dart)
 - [chat_detail_view_model.dart](../../lib/features/private_messaging/presentation/viewmodels/chat_detail_view_model.dart)

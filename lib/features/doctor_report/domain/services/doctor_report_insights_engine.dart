@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
+import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../../fiqh_report/domain/services/fiqh_report_insights_engine.dart';
 import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
 import '../../../wellbeing/domain/entities/wellbeing_log.dart';
@@ -89,12 +90,16 @@ class DoctorReportInsightsEngine {
     ReportSourceStatus pregnancyStatus = ReportSourceStatus.unavailable,
     ReportSourceStatus wellbeingStatus = ReportSourceStatus.available,
     ReportSourceStatus flagsStatus = ReportSourceStatus.available,
+
+    /// Canonical evidence Today rules on (see [ReportCanonicalEvidence]).
+    ReportCanonicalEvidence? canonical,
   }) {
     final cycleAndPregnancy = FiqhReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
       madhhab: madhhab,
       pregnancyProfile: pregnancyProfile,
       now: now,
+      canonical: canonical,
     );
 
     final wellbeing = WellbeingInsightsEngine.analyze(
@@ -109,6 +114,8 @@ class DoctorReportInsightsEngine {
 
     final hasAnyMeaningfulData =
         cycleLogs.isNotEmpty ||
+        (canonical?.episodes.isNotEmpty ?? false) ||
+        (canonical?.hasOpenEpisode ?? false) ||
         pregnancyProfile != null ||
         currentWellbeingLogs.isNotEmpty ||
         previousWellbeingLogs.isNotEmpty ||

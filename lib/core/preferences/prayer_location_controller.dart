@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'user_scoped_preferences.dart';
+
 /// A resolved location to compute prayer times for: real coordinates plus a
 /// short display label (a preset city name, or "Current location").
 class PrayerLocation extends Equatable {
@@ -85,23 +87,46 @@ class PrayerLocationController extends ChangeNotifier {
   /// needs to distinguish "nothing chosen yet" from "chose Mecca".
   PrayerLocation? get selectedOrNull => _selected;
 
+  /// Reads the signed-in user's own location (never another user's).
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
-    final lat = preferences.getDouble(_latKey);
-    final lng = preferences.getDouble(_lngKey);
-    final label = preferences.getString(_labelKey);
-    if (lat != null && lng != null && label != null) {
-      _selected = PrayerLocation(latitude: lat, longitude: lng, label: label);
-    }
+    await UserScopedPreferences.adoptLegacy(preferences, const [
+      _latKey,
+      _lngKey,
+      _labelKey,
+    ]);
+    final lat = preferences.getDouble(UserScopedPreferences.key(_latKey));
+    final lng = preferences.getDouble(UserScopedPreferences.key(_lngKey));
+    final label = preferences.getString(UserScopedPreferences.key(_labelKey));
+    _selected = (lat != null && lng != null && label != null)
+        ? PrayerLocation(latitude: lat, longitude: lng, label: label)
+        : null;
+    notifyListeners();
+  }
+
+  /// Forgets the in-memory location (sign-out) so the next account can never
+  /// observe it before its own [load] completes.
+  void resetInMemory() {
+    _selected = null;
+    notifyListeners();
   }
 
   Future<void> select(PrayerLocation location) async {
     _selected = location;
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setDouble(_latKey, location.latitude);
-    await preferences.setDouble(_lngKey, location.longitude);
-    await preferences.setString(_labelKey, location.label);
+    await preferences.setDouble(
+      UserScopedPreferences.key(_latKey),
+      location.latitude,
+    );
+    await preferences.setDouble(
+      UserScopedPreferences.key(_lngKey),
+      location.longitude,
+    );
+    await preferences.setString(
+      UserScopedPreferences.key(_labelKey),
+      location.label,
+    );
   }
 
   /// Requests location permission, gets a real GPS fix, persists it, and
@@ -122,7 +147,15 @@ class PrayerLocationController extends ChangeNotifier {
       throw const LocationPermissionDenied();
     }
 
-    final position = await Geolocator.getCurrentPosition();
+    // Bounded: with permission granted but no GPS fix (indoors, emulator, GPS
+    // off) getCurrentPosition() otherwise never completes and the screen
+    // spins on "detecting" forever (found live on Android). A timeout falls
+    // into the caller's honest "Unable to get your location" path.
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        timeLimit: Duration(seconds: 20),
+      ),
+    );
     final location = PrayerLocation(
       latitude: position.latitude,
       longitude: position.longitude,

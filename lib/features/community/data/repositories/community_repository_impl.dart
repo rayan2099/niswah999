@@ -9,6 +9,7 @@ import '../../domain/entities/community_comment.dart';
 import '../../domain/entities/community_feed_page.dart';
 import '../../domain/entities/community_post.dart';
 import '../../domain/repositories/community_repository.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 class CommunityRepositoryImpl implements CommunityRepository {
   CommunityRepositoryImpl({SupabaseClient? client})
@@ -160,8 +161,8 @@ class CommunityRepositoryImpl implements CommunityRepository {
       'category': post.category.name,
       'tags': post.tags,
       'is_anonymous': post.isAnonymous,
-      'created_at': post.createdAt.toIso8601String(),
-      'updated_at': post.createdAt.toIso8601String(),
+      'created_at': dbTimestamp(post.createdAt),
+      'updated_at': dbTimestamp(post.createdAt),
     };
 
     final response = await client
@@ -245,7 +246,7 @@ class CommunityRepositoryImpl implements CommunityRepository {
       'user_id': userId,
       'author_name': authorName,
       'content': content,
-      'created_at': DateTime.now().toIso8601String(),
+      'created_at': dbTimestamp(DateTime.now()),
     };
 
     final response = await client

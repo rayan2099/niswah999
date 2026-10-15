@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/notifications/domain/entities/notification_preference.dart';
+import 'user_scoped_preferences.dart';
 
 class NotificationLogEntry {
   const NotificationLogEntry({
@@ -87,9 +88,11 @@ class NotificationLogController extends ChangeNotifier {
 
   int get unreadCount => _entries.where((entry) => !entry.read).length;
 
+  /// Reads the signed-in user's own feed (never another user's).
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
-    final raw = preferences.getString(_storageKey);
+    await UserScopedPreferences.adoptLegacy(preferences, const [_storageKey]);
+    final raw = preferences.getString(UserScopedPreferences.key(_storageKey));
     if (raw == null || raw.isEmpty) {
       _entries = const [];
       notifyListeners();
@@ -98,16 +101,24 @@ class NotificationLogController extends ChangeNotifier {
 
     try {
       final decoded = jsonDecode(raw) as List<dynamic>;
-      _entries = decoded
-          .map(
-            (item) =>
-                NotificationLogEntry.fromJson(item as Map<String, dynamic>),
-          )
-          .toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      _entries =
+          decoded
+              .map(
+                (item) =>
+                    NotificationLogEntry.fromJson(item as Map<String, dynamic>),
+              )
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     } catch (_) {
       _entries = const [];
     }
+    notifyListeners();
+  }
+
+  /// Forgets the in-memory feed (sign-out) so the next account can never
+  /// observe it before its own [load] completes.
+  void resetInMemory() {
+    _entries = const [];
     notifyListeners();
   }
 
@@ -137,6 +148,9 @@ class NotificationLogController extends ChangeNotifier {
     final encoded = jsonEncode(
       _entries.map((entry) => entry.toJson()).toList(),
     );
-    await preferences.setString(_storageKey, encoded);
+    await preferences.setString(
+      UserScopedPreferences.key(_storageKey),
+      encoded,
+    );
   }
 }

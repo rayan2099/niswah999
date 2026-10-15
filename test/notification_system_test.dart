@@ -20,6 +20,41 @@ void main() {
       expect(restored.channels, ['morning', 'midday']);
     });
 
+    test('Closure Blocker 7: preferredHour/preferredMinute round-trip '
+        'through JSON — a real, persisted preference, not merely an '
+        'in-memory value that resets every app restart', () {
+      final preference = NotificationPreference(
+        type: NotificationType.activeBleeding,
+        enabled: true,
+        leadTimeMinutes: 0,
+        channels: const ['local'],
+        preferredHour: 7,
+        preferredMinute: 45,
+      );
+
+      final restored = NotificationPreference.fromJson(preference.toJson());
+
+      expect(restored.preferredHour, 7);
+      expect(restored.preferredMinute, 45);
+    });
+
+    test('preferredHour/preferredMinute are absent (never fabricated as '
+        'midnight) until explicitly customized', () {
+      final preference = NotificationPreference(
+        type: NotificationType.activeBleeding,
+        enabled: false,
+        leadTimeMinutes: 0,
+        channels: const ['local'],
+      );
+
+      expect(preference.preferredHour, isNull);
+      expect(preference.preferredMinute, isNull);
+      expect(
+        NotificationPreference.fromJson(preference.toJson()).preferredHour,
+        isNull,
+      );
+    });
+
     test('builds a daily schedule from a preference set', () {
       final preferences = {
         NotificationType.prayer: NotificationPreference(
@@ -36,7 +71,10 @@ void main() {
         ),
       };
 
-      final schedule = buildReminderSchedule(preferences: preferences, now: DateTime(2026, 8, 18, 9, 0));
+      final schedule = buildReminderSchedule(
+        preferences: preferences,
+        now: DateTime(2026, 8, 18, 9, 0),
+      );
 
       expect(schedule[NotificationType.prayer]?.enabled, isTrue);
       expect(schedule[NotificationType.cycle]?.enabled, isFalse);

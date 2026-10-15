@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 /// One day's mood/energy/sleep check-in. Maps 1:1 to the `wellbeing_logs`
 /// table (one row per user per day). All three ratings use the same 1-5
@@ -41,8 +42,8 @@ class WellbeingLog extends Equatable {
     'energy': energy,
     'sleep': sleep,
     'notes': notes,
-    'created_at': (createdAt ?? DateTime.now()).toIso8601String(),
-    'updated_at': (updatedAt ?? DateTime.now()).toIso8601String(),
+    'created_at': dbTimestamp(createdAt ?? DateTime.now()),
+    'updated_at': dbTimestamp(updatedAt ?? DateTime.now()),
   };
 
   factory WellbeingLog.fromJson(Map<String, dynamic> json) {

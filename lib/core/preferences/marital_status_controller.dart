@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'user_scoped_preferences.dart';
+
 class MaritalStatusController extends ChangeNotifier {
   MaritalStatusController._();
 
@@ -10,9 +12,20 @@ class MaritalStatusController extends ChangeNotifier {
   bool _isMarried = false;
   bool get isMarried => _isMarried;
 
+  /// Reads the signed-in user's own answer (never another user's).
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
-    _isMarried = preferences.getBool(_storageKey) ?? false;
+    await UserScopedPreferences.adoptLegacy(preferences, const [_storageKey]);
+    _isMarried =
+        preferences.getBool(UserScopedPreferences.key(_storageKey)) ?? false;
+    notifyListeners();
+  }
+
+  /// Forgets the in-memory answer (sign-out) so the next account can never
+  /// observe it before its own [load] completes.
+  void resetInMemory() {
+    _isMarried = false;
+    notifyListeners();
   }
 
   Future<void> setMarried(bool value) async {
@@ -20,6 +33,6 @@ class MaritalStatusController extends ChangeNotifier {
     _isMarried = value;
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(_storageKey, value);
+    await preferences.setBool(UserScopedPreferences.key(_storageKey), value);
   }
 }

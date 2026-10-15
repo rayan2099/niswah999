@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import 'community_comment.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 enum CommunityCategory {
   support,
@@ -94,7 +95,7 @@ class CommunityPost extends Equatable {
     'category': category.name,
     'tags': tags,
     'is_anonymous': isAnonymous,
-    'created_at': createdAt.toIso8601String(),
+    'created_at': dbTimestamp(createdAt),
     'comments': comments.map((comment) => comment.toJson()).toList(),
   };
 

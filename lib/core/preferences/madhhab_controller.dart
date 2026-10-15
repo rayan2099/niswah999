@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import '../network/supabase_client.dart';
+import 'user_scoped_preferences.dart';
 
 /// The three, deliberately-never-collapsed states a user's Madhhab
 /// selection can be in (Fiqh Remediation Wave 1, AUTH-005/AUTH-010):
@@ -62,6 +63,10 @@ class MadhhabController extends ChangeNotifier {
   /// Never falls back to a specific madhhab on any failure path.
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
+    await UserScopedPreferences.adoptLegacy(preferences, const [
+      _stateKey,
+      _valueKey,
+    ]);
     final serverRow = await _tryReadServerRow();
     if (serverRow != null) {
       _applyServerRow(serverRow);
@@ -76,9 +81,13 @@ class MadhhabController extends ChangeNotifier {
     // synced with the server (e.g. it was made offline), it is preserved
     // here rather than discarded — but is still never invented from
     // nothing.
-    final cachedState = preferences.getString(_stateKey);
+    final cachedState = preferences.getString(
+      UserScopedPreferences.key(_stateKey),
+    );
     if (cachedState == MadhhabSelectionState.selected.name) {
-      final cachedValue = preferences.getString(_valueKey);
+      final cachedValue = preferences.getString(
+        UserScopedPreferences.key(_valueKey),
+      );
       final madhhab = cachedValue == null
           ? null
           : Madhhab.values.firstWhereOrNull((v) => v.name == cachedValue);
@@ -184,11 +193,17 @@ class MadhhabController extends ChangeNotifier {
   }
 
   Future<void> _cacheLocally(SharedPreferences preferences) async {
-    await preferences.setString(_stateKey, _state.name);
+    await preferences.setString(
+      UserScopedPreferences.key(_stateKey),
+      _state.name,
+    );
     if (_state == MadhhabSelectionState.selected && _selected != null) {
-      await preferences.setString(_valueKey, _selected!.name);
+      await preferences.setString(
+        UserScopedPreferences.key(_valueKey),
+        _selected!.name,
+      );
     } else {
-      await preferences.remove(_valueKey);
+      await preferences.remove(UserScopedPreferences.key(_valueKey));
     }
   }
 

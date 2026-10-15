@@ -5,7 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../errors/app_error_reporter.dart';
 import '../network/supabase_client.dart';
+import '../preferences/local_preference_scope.dart';
 import '../preferences/madhhab_controller.dart';
+import '../services/notification_service.dart';
 
 /// Startup Auth-Gate Infinite-Spinner Investigation (AUTH-012): the
 /// server-side onboarding-status check this controller performs must never
@@ -244,6 +246,15 @@ class AuthController extends ChangeNotifier {
         // sign-out, so a different account signing in next can never
         // briefly observe it before its own load() below completes.
         MadhhabController.instance.resetInMemory();
+        // Same for every other device-local, per-user answer (marital status,
+        // TTC mode, pregnancy/Nifas, prayer city, notification feed).
+        LocalPreferenceScope.resetInMemory();
+        // Commit E9 — every scheduled reminder (the active-bleeding one
+        // especially, whose very identity is scoped to a specific
+        // user+episode) belongs to the account that just signed out; a
+        // different account signing in on this same device must never
+        // see or have suppressed by them a reminder that isn't theirs.
+        unawaited(NotificationService.instance.cancelAll());
       }
       if (signedIn != wasAuthenticated) {
         _isAuthenticated = signedIn;
@@ -261,6 +272,7 @@ class AuthController extends ChangeNotifier {
         // the same way onboarding status is re-checked on every sign-in
         // transition rather than trusted from a stale in-memory value.
         unawaited(MadhhabController.instance.load());
+        unawaited(LocalPreferenceScope.reload());
       }
     });
   }

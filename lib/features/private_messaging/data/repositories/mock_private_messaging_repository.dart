@@ -221,4 +221,8 @@ class MockPrivateMessagingRepository implements PrivateMessagingRepositoryBase {
       }
     }
   }
+
+  @override
+  Future<Map<String, String>> fetchDisplayNames(Set<String> userIds) async =>
+      const {};
 }

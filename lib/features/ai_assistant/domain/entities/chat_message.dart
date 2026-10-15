@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 enum ChatRole { user, assistant, system }
 
@@ -28,7 +29,7 @@ class ChatMessage extends Equatable {
     'role': role.name,
     'content': content,
     'metadata': metadata,
-    'created_at': createdAt.toIso8601String(),
+    'created_at': dbTimestamp(createdAt),
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {

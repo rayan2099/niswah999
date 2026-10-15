@@ -18,6 +18,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 Filename matches only; inspect imports and behavior to establish actual coverage.
 
+- [notification_settings_blocked_notice_test.dart](../../test/notification_settings_blocked_notice_test.dart)
 - [profile_account_settings_test.dart](../../test/profile_account_settings_test.dart)
 
 ## Requirements, decisions, and verification

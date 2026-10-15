@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../../../core/utils/db_timestamp.dart';
 
 enum DreamMood { peaceful, anxious, joyful, mysterious, fearful }
 
@@ -56,7 +57,7 @@ class DreamEntry extends Equatable {
     'description': description,
     'mood': mood.name,
     'tags': tags,
-    'created_at': createdAt.toIso8601String(),
+    'created_at': dbTimestamp(createdAt),
     'interpretation': interpretation,
     'rating': rating,
   };

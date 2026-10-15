@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
@@ -17,6 +18,15 @@ class ParityTestHarness {
     Size size = const Size(390, 844),
     int initialTabIndex = 0,
     Map<String, Object> extraPrefs = const {},
+    // New critical finding (Fiqh regression fix) — lets a test mount a
+    // specific screen directly (e.g. DashboardScreen with canonical-
+    // evidence injection points set) instead of the full NiswahApp, while
+    // still sharing every other piece of fixed test setup below (the
+    // clock, fonts, locale, secure-storage reset) that a real canonical
+    // evidence scenario still depends on. Wrapped in a bare MaterialApp,
+    // mirroring how every other standalone-screen widget test in this
+    // suite already mounts a screen.
+    Widget? homeOverride,
   }) async {
     AppClock.now = () => DateTime(2026, 8, 18, 12);
     tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
@@ -38,7 +48,11 @@ class ParityTestHarness {
     await AppLocaleController.instance.load();
     await MaritalStatusController.instance.load();
     await tester.binding.setSurfaceSize(size);
-    await tester.pumpWidget(NiswahApp(initialTabIndex: initialTabIndex));
+    await tester.pumpWidget(
+      homeOverride == null
+          ? NiswahApp(initialTabIndex: initialTabIndex)
+          : MaterialApp(home: homeOverride),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
   }

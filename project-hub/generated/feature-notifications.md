@@ -12,7 +12,9 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## Implementation
 
+- [notification_event_log_store.dart](../../lib/features/notifications/data/local/notification_event_log_store.dart)
 - [notification_repository_impl.dart](../../lib/features/notifications/data/repositories/notification_repository_impl.dart)
+- [notification_event.dart](../../lib/features/notifications/domain/entities/notification_event.dart)
 - [notification_preference.dart](../../lib/features/notifications/domain/entities/notification_preference.dart)
 - [notification_repository.dart](../../lib/features/notifications/domain/repositories/notification_repository.dart)
 - [notification_refresh_coordinator.dart](../../lib/features/notifications/domain/services/notification_refresh_coordinator.dart)

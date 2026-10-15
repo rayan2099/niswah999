@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/private_conversation.dart';
+import '../conversation_title.dart';
 import '../viewmodels/conversations_view_model.dart';
 import 'chat_detail_screen.dart';
 
@@ -31,6 +32,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         builder: (_) => ChatDetailScreen(
           conversation: conversation,
           currentUserId: widget.viewModel.currentUserId,
+          otherDisplayName: widget.viewModel.displayNameFor(conversation),
         ),
       ),
     );
@@ -62,7 +64,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             return Center(
               child: CircularProgressIndicator(
                 color: const Color(0xFFE91E4D),
-                semanticsLabel: _pm('Loading conversations', 'جارٍ تحميل المحادثات'),
+                semanticsLabel: _pm(
+                  'Loading conversations',
+                  'جارٍ تحميل المحادثات',
+                ),
               ),
             );
           }
@@ -129,8 +134,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     ),
                   ),
                   title: Text(
-                    conversation.otherParticipant(
-                      widget.viewModel.currentUserId,
+                    conversationTitle(
+                      widget.viewModel.displayNameFor(conversation),
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
