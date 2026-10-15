@@ -164,9 +164,10 @@ class _MappingEntry {
 /// - Multi-madhhab regions return every plausible option, not one.
 /// - Anything this pass's draft mapping marks low-confidence, any
 ///   country/region not in the mapping at all, OR any entry whose
-///   `reviewer_status` isn't `'APPROVED'` (adversarial review, 2026-10-07
-///   — every entry today, without exception) resolves to `unresolved` —
-///   never a guessed default, and never an unreviewed mapping presented
+///   `evidenceStatus` isn't `'SOURCE_VERIFIED'` or `'SCHOLAR_REVIEWED'`
+///   (Knowledge-Base Source-Verification wave, 2026-10-13 — see
+///   `_MappingEntry.isEligibleForDisplay`) resolves to `unresolved` —
+///   never a guessed default, and never an unverified mapping presented
 ///   as if it were a normal recommendation. Country-based selection
 ///   never blocks onboarding and never prevents a manual pick either
 ///   way — this only decides whether a suggestion *badge* is shown.
@@ -182,13 +183,14 @@ class MadhhabSuggestionService {
   /// which version of the mapping produced a given suggestion.
   static const datasetVersion = '2026-10-12';
 
-  /// Test-only: mapping ids temporarily treated as if their
-  /// `reviewer_status` were `'APPROVED'` — lets a test prove the real
-  /// positive path ("an approved entry surfaces a real suggestion")
+  /// Test-only: mapping ids temporarily treated as eligible for display
+  /// regardless of their real `evidenceStatus` — lets a test prove the
+  /// real positive path ("an eligible entry surfaces a real suggestion")
   /// against the real dataset and the real [suggest] method, without
-  /// ever marking a real entry approved in production. Always empty
-  /// outside a test; any test that sets this must clear it afterwards
-  /// (e.g. in `tearDown`) so it can never leak into another test.
+  /// ever marking a real entry `'SOURCE_VERIFIED'`/`'SCHOLAR_REVIEWED'` in
+  /// production. Always empty outside a test; any test that sets this
+  /// must clear it afterwards (e.g. in `tearDown`) so it can never leak
+  /// into another test.
   @visibleForTesting
   static Set<String> debugApprovedMappingIdsForTesting = {};
 
@@ -196,9 +198,9 @@ class MadhhabSuggestionService {
   /// higher) — exposed for an inventory report/future-reviewer view of
   /// coverage. Not a claim that any of these currently produce a
   /// displayed suggestion: `suggest()` additionally requires
-  /// `reviewer_status == 'APPROVED'` (adversarial review, 2026-10-07),
-  /// which no entry here has yet — see `suggest` and
-  /// `_MappingEntry.isApprovedForDisplay`.
+  /// `evidenceStatus == 'SOURCE_VERIFIED'` or `'SCHOLAR_REVIEWED'`
+  /// (Knowledge-Base Source-Verification wave, 2026-10-13) — see
+  /// `suggest` and `_MappingEntry.isEligibleForDisplay`.
   static List<String> get supportedCountries => _mapping
       .map((entry) => entry.countryNameEn)
       .toSet()
@@ -329,10 +331,12 @@ class MadhhabSuggestionService {
     // NOT mirrored here, exactly matching this list's long-standing
     // convention for low-confidence entries: seeing one here and
     // getting a displayed suggestion are still two separate gates
-    // (confidence/presence here, AND `reviewer_status == 'APPROVED'`)
-    // — every entry remains `NOT_REVIEWED`, so none of these change
-    // today's live behavior; they exist so a future scholar-approval
-    // pass has a complete, ready-to-activate draft rather than an
+    // (confidence/presence here, AND `evidenceStatus ==
+    // 'SOURCE_VERIFIED'`/`'SCHOLAR_REVIEWED'`, per each entry's own
+    // value above) — this wave's research pass has since verified many
+    // of these entries against real sources; they exist so a future
+    // scholar-approval pass has a complete, ready-to-activate draft
+    // rather than an
     // empty one. See that file for full evidence notes/caveats.
     _MappingEntry(
       // CORRECTED 2026-10-12: Yemen was previously `low` confidence with
