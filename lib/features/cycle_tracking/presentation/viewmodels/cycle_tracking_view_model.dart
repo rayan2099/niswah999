@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/analytics/cycle_analytics.dart';
+import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../../auth/domain/entities/app_user.dart';
 import '../../data/repositories/cycle_tracking_repository_impl.dart';
@@ -86,7 +90,18 @@ class CycleTrackingViewModel extends ChangeNotifier {
             (log) => log.userId == _currentUserId || log.userId == 'local-user',
           )
           .toList();
-      summary = _controller.summarizeHistory(logs);
+      final now = AppClock.now();
+      summary = _controller.summarizeHistory(logs, now: now);
+      // Engine receives account-owned logs only. Local unowned demo history
+      // must never enter account analytics.
+      final accountLogs = logs.where((log) => log.userId == _currentUserId &&
+          !log.date.isAfter(now)).toList();
+      final accountCalculation = _calculationService.calculate(accountLogs, asOf: now);
+      final accountSummary = _controller.summarizeHistory(accountLogs, now: now);
+      unawaited(CycleAnalytics.record(CycleAnalytics.snapshot(
+        logs: accountLogs, calculation: accountCalculation, summary: accountSummary,
+        madhhab: MadhhabController.instance.selectedOrNull, now: now,
+      ), _currentUserId));
     } catch (error) {
       errorMessage = error.toString();
     } finally {

@@ -9,6 +9,7 @@ export type Role =
   | "operator";
 export type Section =
   | "overview"
+  | "analytics"
   | "operations"
   | "users"
   | "support"
@@ -21,6 +22,7 @@ export const access: Record<Role, Section[]> = {
   owner: [
     "overview",
     "operations",
+    "analytics",
     "users",
     "support",
     "community",

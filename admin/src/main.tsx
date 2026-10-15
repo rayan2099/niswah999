@@ -41,11 +41,13 @@ import {
 } from "./api";
 import "./style.css";
 import Statistics from "./Statistics";
+import Audience from "./Audience";
 import Operations, { Attention } from "./Operations";
 type Row = Record<string, any>;
 const titles: Record<Section, string> = {
   overview: "نظرة عامة",
   operations: "مركز العمليات",
+  analytics: "الجمهور والعافية",
   users: "المستخدمات",
   support: "الدعم والمتابعة",
   community: "إدارة المجتمع",
@@ -57,6 +59,8 @@ const titles: Record<Section, string> = {
 const descriptions: Record<Section, string> = {
   overview: "صورة واضحة عن نسوة، والأعمال التي تحتاج انتباهك.",
   operations: "متابعة المهام والقياس التشغيلي ومسار التهيئة والذكاء الاصطناعي.",
+  analytics:
+    "توزيع الجمهور، والحالة المسجلة، واتجاهات العافية مع وضوح تغطية البيانات.",
   users: "معلومات الحساب والمساعدة، مع الحفاظ على خصوصية السجلات الصحية.",
   support: "طلبات مسجلة بواسطة الفريق، من أول متابعة حتى الحل.",
   community: "مراجعة المنشورات والتعليقات العامة وإخفاء المحتوى عند الحاجة.",
@@ -68,6 +72,7 @@ const descriptions: Record<Section, string> = {
 const icons = {
   overview: LayoutDashboard,
   operations: Activity,
+  analytics: Activity,
   users: Users,
   support: LifeBuoy,
   community: MessagesSquare,
@@ -619,6 +624,12 @@ function Dashboard({
                   owner={role === "owner"}
                 />
               )
+            )
+          ) : section === "analytics" ? (
+            loading ? (
+              <Loading />
+            ) : (
+              data && <Audience data={data} />
             )
           ) : section === "operations" ? (
             loading ? (
@@ -1191,7 +1202,7 @@ function DataTable({
   kind: string;
 }) {
   const columns: Record<
-    Exclude<Section, "overview" | "operations">,
+    Exclude<Section, "overview" | "operations" | "analytics">,
     string[]
   > = {
     users: ["الحساب", "تاريخ التسجيل", "التأكيد", "التهيئة", "آخر دخول"],
@@ -1212,11 +1223,11 @@ function DataTable({
     <table>
       <thead>
         <tr>
-          {columns[section as Exclude<Section, "overview" | "operations">].map(
-            (c) => (
-              <th key={c}>{c}</th>
-            ),
-          )}
+          {columns[
+            section as Exclude<Section, "overview" | "operations" | "analytics">
+          ].map((c) => (
+            <th key={c}>{c}</th>
+          ))}
         </tr>
       </thead>
       <tbody>

@@ -21,7 +21,7 @@ const num = (n: number) => new Intl.NumberFormat("ar-SA").format(n);
 export function percent(n: number, total: number) {
   return total > 0 ? Math.round((n / total) * 100) : 0;
 }
-function Breakdown({
+export function Breakdown({
   title,
   description,
   rows,

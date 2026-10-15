@@ -13,6 +13,7 @@ class WellbeingLog extends Equatable {
     required this.energy,
     required this.sleep,
     this.notes,
+    this.sleepy,
     this.createdAt,
     this.updatedAt,
   });
@@ -23,6 +24,7 @@ class WellbeingLog extends Equatable {
   final int mood;
   final int energy;
   final int sleep;
+  final bool? sleepy;
 
   /// Optional free-text note for the day — null/empty when nothing was
   /// written, never a fabricated placeholder.
@@ -40,6 +42,7 @@ class WellbeingLog extends Equatable {
     'mood': mood,
     'energy': energy,
     'sleep': sleep,
+    'sleepy': sleepy,
     'notes': notes,
     'created_at': (createdAt ?? DateTime.now()).toIso8601String(),
     'updated_at': (updatedAt ?? DateTime.now()).toIso8601String(),
@@ -55,6 +58,7 @@ class WellbeingLog extends Equatable {
       mood: json['mood'] as int? ?? 3,
       energy: json['energy'] as int? ?? 3,
       sleep: json['sleep'] as int? ?? 3,
+      sleepy: json['sleepy'] as bool?,
       notes: json['notes'] as String?,
       createdAt: json['created_at'] == null
           ? null
@@ -73,6 +77,7 @@ class WellbeingLog extends Equatable {
     mood,
     energy,
     sleep,
+    sleepy,
     notes,
     createdAt,
     updatedAt,

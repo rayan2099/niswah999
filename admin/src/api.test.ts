@@ -78,6 +78,8 @@ describe("deployment boundary", () => {
   });
   it("does not offer reviewers or support team-wide administration", () => {
     expect(access.support).not.toContain("staff");
+    expect(access.owner).toContain("analytics");
+    expect(access.operator).not.toContain("analytics");
     expect(access.medical_reviewer).toEqual(["knowledge"]);
     expect(access.fiqh_reviewer).toEqual(["knowledge"]);
   });
