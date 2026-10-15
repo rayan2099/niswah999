@@ -146,10 +146,20 @@ class CycleStatusEngine {
       );
     }
 
-    final confirmAt = activeStart.add(result.minimumHaid);
+    // result.minimumHaid is null for Maliki (FD-7, 2026-10-15: no
+    // time-based minimum) — needsAdvisory can then only be reached via
+    // the maximum bound, for which there is no future "will become
+    // confirmed Haid" date to show (she already would have been, from
+    // the very start, were a minimum to apply at all).
+    final minimumHaid = result.minimumHaid;
+    final confirmAt = minimumHaid == null
+        ? null
+        : activeStart.add(minimumHaid);
     return baseline(
       state: FiqhCycleState.needsAdvisory,
-      confirmAt: confirmAt.isAfter(now) ? confirmAt : null,
+      confirmAt: confirmAt != null && confirmAt.isAfter(now)
+          ? confirmAt
+          : null,
       daysIntoCurrentEpisode: daysIntoCurrentEpisode,
     );
   }

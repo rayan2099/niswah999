@@ -67,11 +67,34 @@ void main() {
               expected: FiqhCycleState.needsAdvisory,
             ),
           ],
+          // FD-7 (2026-10-15, evidence-based correction — see
+          // FOUNDER_DECISIONS.md and ENGINE_TO_KB_ATOM_CROSSWALK.md):
+          // Maliki has NO time-based minimum for Haid — unlike
+          // Shafi'i/Hanbali above, which keep their real 24h minimum
+          // (the `for` loop above is the regression proof that Maliki's
+          // change did not leak into them). These boundary cases prove
+          // the "no minimum" semantic directly: durations that would
+          // fail every other madhhab's minimum must still be `haid` for
+          // Maliki, all the way down to a single minute.
           (
-            name: 'Maliki rejects below 24h',
+            name: 'Maliki (FD-7 no minimum) accepts 1 minute of bleeding',
+            madhhab: Madhhab.maliki,
+            duration: const Duration(minutes: 1),
+            expected: FiqhCycleState.haid,
+          ),
+          (
+            name: 'Maliki (FD-7 no minimum) accepts 1 hour of bleeding',
+            madhhab: Madhhab.maliki,
+            duration: const Duration(hours: 1),
+            expected: FiqhCycleState.haid,
+          ),
+          (
+            name:
+                'Maliki (FD-7 no minimum) accepts 23h59m — below every '
+                'other madhhab\'s minimum, still haid for Maliki',
             madhhab: Madhhab.maliki,
             duration: const Duration(hours: 23, minutes: 59),
-            expected: FiqhCycleState.needsAdvisory,
+            expected: FiqhCycleState.haid,
           ),
           (
             name: 'Maliki accepts exactly 24h',
@@ -86,7 +109,7 @@ void main() {
             expected: FiqhCycleState.haid,
           ),
           (
-            name: 'Maliki rejects above 15 days',
+            name: 'Maliki rejects above 15 days (maximum is unaffected by FD-7)',
             madhhab: Madhhab.maliki,
             duration: const Duration(days: 15, minutes: 1),
             expected: FiqhCycleState.needsAdvisory,
@@ -124,6 +147,92 @@ void main() {
       expect(below.state, FiqhCycleState.needsAdvisory);
       expect(exact.state, FiqhCycleState.haid);
     });
+  });
+
+  group('FD-7 (2026-10-15) — evidence-based per-madhhab corrections', () {
+    test(
+      'minimumHaidFor is null only for Maliki — Hanafi/Shafi\'i/Hanbali '
+      'keep their real minimum, unaffected',
+      () {
+        expect(
+          MadhhabRuleEvaluator.minimumHaidFor(Madhhab.maliki),
+          isNull,
+        );
+        expect(
+          MadhhabRuleEvaluator.minimumHaidFor(Madhhab.hanafi),
+          const Duration(hours: 72),
+        );
+        expect(
+          MadhhabRuleEvaluator.minimumHaidFor(Madhhab.shafii),
+          const Duration(hours: 24),
+        );
+        expect(
+          MadhhabRuleEvaluator.minimumHaidFor(Madhhab.hanbali),
+          const Duration(hours: 24),
+        );
+      },
+    );
+
+    test(
+      'minimumPurityFor is 13 days only for Hanbali — Hanafi/Maliki/'
+      'Shafi\'i stay at 15 days, unaffected',
+      () {
+        expect(
+          MadhhabRuleEvaluator.minimumPurityFor(Madhhab.hanbali),
+          const Duration(days: 13),
+        );
+        expect(
+          MadhhabRuleEvaluator.minimumPurityFor(Madhhab.hanafi),
+          const Duration(days: 15),
+        );
+        expect(
+          MadhhabRuleEvaluator.minimumPurityFor(Madhhab.maliki),
+          const Duration(days: 15),
+        );
+        expect(
+          MadhhabRuleEvaluator.minimumPurityFor(Madhhab.shafii),
+          const Duration(days: 15),
+        );
+      },
+    );
+
+    test(
+      'evaluate() result.minimumPurity reflects the per-madhhab value, '
+      'not a single shared constant',
+      () {
+        final hanbali = evaluator.evaluate(
+          madhhab: Madhhab.hanbali,
+          hasSufficientHistory: true,
+          isBleeding: true,
+          bleedingDuration: const Duration(days: 3),
+        );
+        final hanafi = evaluator.evaluate(
+          madhhab: Madhhab.hanafi,
+          hasSufficientHistory: true,
+          isBleeding: true,
+          bleedingDuration: const Duration(days: 3),
+        );
+        expect(hanbali.minimumPurity, const Duration(days: 13));
+        expect(hanafi.minimumPurity, const Duration(days: 15));
+      },
+    );
+
+    test(
+      'evaluate() result.minimumHaid is null for Maliki even when the '
+      'resulting state is needsAdvisory (maximum-exceeded case) — proves '
+      'the result struct itself carries the explicit "no minimum" '
+      'semantic through, not just the classification decision',
+      () {
+        final result = evaluator.evaluate(
+          madhhab: Madhhab.maliki,
+          hasSufficientHistory: true,
+          isBleeding: true,
+          bleedingDuration: const Duration(days: 16),
+        );
+        expect(result.state, FiqhCycleState.needsAdvisory);
+        expect(result.minimumHaid, isNull);
+      },
+    );
   });
 
   test("Maliki preserves and evaluates the user's personal habit ('adah)", () {

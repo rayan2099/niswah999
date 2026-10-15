@@ -23,7 +23,7 @@ void main() {
     },
   );
 
-  for (final m in [Madhhab.shafii, Madhhab.maliki, Madhhab.hanbali]) {
+  for (final m in [Madhhab.shafii, Madhhab.hanbali]) {
     test('${m.name}: exactly-24-hour minimum renders as "24-hour", never '
         '"1-day" (readability regression fixed after adversarial review)', () {
       final d = describeMadhhab(m);
@@ -36,6 +36,24 @@ void main() {
       );
     });
   }
+
+  test(
+    'Maliki (FD-7, 2026-10-15): renders "No fixed minimum", never a '
+    'bare "0-hour"/"0-day" — minimumHaidFor is null, an explicit '
+    '"this bound does not exist" semantic, not numeric zero',
+    () {
+      final d = describeMadhhab(Madhhab.maliki);
+      expect(d.shortRuleEn, 'No fixed minimum · 15-day max');
+      expect(d.shortRuleAr, 'بلا حد أدنى زمني · حد أقصى 15 يوماً');
+      expect(d.shortRuleEn, isNot(contains('0-hour')));
+      expect(d.shortRuleEn, isNot(contains('0-day')));
+      expect(MadhhabRuleEvaluator.minimumHaidFor(Madhhab.maliki), isNull);
+      expect(
+        MadhhabRuleEvaluator.maximumHaidFor(Madhhab.maliki),
+        const Duration(hours: 360),
+      );
+    },
+  );
 
   test('Maliki carries the ʿāda longNote; the other three share generic '
       'wording — no jurisprudential content invented beyond the engine\'s '
