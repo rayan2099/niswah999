@@ -123,14 +123,19 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
   }
 
   /// Routes through the one canonical transition/confirmation path
-  /// (`setMadhhabWithConfirmation`) instead of calling
-  /// `MadhhabController` directly — this screen is reached post-onboarding
-  /// (Settings' "Help me choose", the Log-my-Haidh gate), where a prior
-  /// selection (or an UNKNOWN with real historical logs behind it) can
-  /// genuinely exist, so Requirement 2's light/full notices must be able
-  /// to fire here exactly as they do from Settings' own direct grid. Only
-  /// pops with a result once the change is actually confirmed/applied —
-  /// a cancelled dialog leaves her on this screen to reconsider, not
+  /// (`setMadhhabWithConfirmation`) instead of calling `MadhhabController`
+  /// directly. The previous direct-call version reasoned that this
+  /// screen's own entry gate (`!MadhhabController.instance.isSelected`)
+  /// meant the FULL warning dialog (replacing an existing selection)
+  /// could never legitimately fire here — true, but incomplete: it
+  /// missed that the LIGHT notice (`unknown -> selected`, confirming a
+  /// Madhhab for the first time over real historical logs) legitimately
+  /// fires at exactly this screen, since this screen is also reached
+  /// post-onboarding (Settings' "Help me choose", the Log-my-Haidh gate),
+  /// where a prior UNKNOWN selection with real historical logs behind it
+  /// can genuinely exist. The direct call silently skipped it. Only pops
+  /// with a result once the change is actually confirmed/applied — a
+  /// cancelled dialog leaves her on this screen to reconsider, never
   /// incorrectly treated as a completed selection.
   Future<void> _confirmSelection(
     Madhhab madhhab, {
