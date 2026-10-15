@@ -40,6 +40,7 @@ import {
   type Section,
 } from "./api";
 import "./style.css";
+import Statistics from "./Statistics";
 type Row = Record<string, any>;
 const titles: Record<Section, string> = {
   overview: "نظرة عامة",
@@ -1048,6 +1049,7 @@ function Overview({
           </article>
         ))}
       </div>
+      {owner && data.statistics && <Statistics data={data.statistics} />}
       <div className="overview-grid">
         <section className="panel">
           <div className="panel-heading">
