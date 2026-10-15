@@ -135,8 +135,27 @@ export const demoOperations = {
   alerts,
   open_incidents: 2,
   overdue_incidents: 1,
-  assignees: [],
-  incidents: [],
+  assignees: [{ user_id: "demo-operator", email: "operations@niswah.invalid" }],
+  incidents: [
+    {
+      id: "demo-incident-1",
+      title: "مراجعة طلبات الدعم التجريبية",
+      source: "support_backlog",
+      status: "open",
+      assigned_to: "demo-operator",
+      assignee_email: "operations@niswah.invalid",
+      due_at: "2026-10-14T20:59:59Z",
+    },
+    {
+      id: "demo-incident-2",
+      title: "متابعة تجربة التهيئة — مثال",
+      source: "manual",
+      status: "acknowledged",
+      assigned_to: null,
+      assignee_email: null,
+      due_at: "2099-10-20T20:59:59Z",
+    },
+  ],
   funnel: {
     state: "receiving",
     since: "2026-09-16T00:00:00Z",
@@ -176,6 +195,174 @@ export const demoOperations = {
     usage_missing: 0,
   })),
 };
+export const demoRecords: Record<string, Record<string, unknown>[]> = {
+  users: [
+    {
+      id: "demo-user-1",
+      email: "member-one@niswah.invalid",
+      verified: true,
+      onboarding_completed: true,
+      created_at: "2026-10-13T08:00:00Z",
+      last_sign_in_at: asOf,
+    },
+    {
+      id: "demo-user-2",
+      email: "member-two@niswah.invalid",
+      verified: false,
+      onboarding_completed: false,
+      created_at: "2026-10-15T08:00:00Z",
+      last_sign_in_at: null,
+    },
+  ],
+  support: [
+    {
+      id: "demo-ticket-1",
+      user_id: "demo-user-1",
+      subject: "مثال: استفسار عن إعدادات التطبيق",
+      priority: "high",
+      status: "open",
+      created_at: asOf,
+    },
+    {
+      id: "demo-ticket-2",
+      user_id: "demo-user-2",
+      subject: "مثال: متابعة تأكيد الحساب",
+      priority: "normal",
+      status: "in_progress",
+      created_at: asOf,
+    },
+  ],
+  community: [
+    {
+      id: "demo-post-1",
+      title: "مثال تجريبي: مشاركة تجربة تنظيم اليوم",
+      content: "هذا نص تجريبي لعرض شاشة مراجعة المجتمع فقط.",
+      category: "general",
+      is_anonymous: true,
+      is_hidden: false,
+      created_at: asOf,
+    },
+    {
+      id: "demo-post-2",
+      title: "مثال تجريبي: محتوى قيد المراجعة",
+      content: "هذا مثال مخفي لعرض حالة الإشراف.",
+      category: "general",
+      is_anonymous: false,
+      is_hidden: true,
+      created_at: asOf,
+    },
+  ],
+  comments: [
+    {
+      id: "demo-comment-1",
+      content: "تعليق تجريبي لعرض واجهة المراجعة.",
+      is_anonymous: true,
+      is_hidden: false,
+      created_at: asOf,
+    },
+  ],
+  content: [
+    {
+      id: "demo-draft-1",
+      title: "مثال: دليل البدء مع نسوة",
+      body: "مسودة تجريبية فقط، وليست محتوى منشوراً أو إرشاداً صحياً معتمداً.",
+      domain: "NISWAH_PRODUCT",
+      language: "ar",
+      created_at: asOf,
+    },
+    {
+      id: "demo-draft-2",
+      title: "Example: Welcome to Niswah",
+      body: "Fictional editorial draft for the dashboard preview.",
+      domain: "NISWAH_PRODUCT",
+      language: "en",
+      created_at: asOf,
+    },
+  ],
+  knowledge: [
+    {
+      id: "demo-knowledge-1",
+      knowledge_key: "DEMO-PRODUCT-001",
+      topic: "مثال لواجهة عرض الأدلة",
+      domain: "NISWAH_PRODUCT",
+      madhhab: null,
+      version: 1,
+      language: "ar",
+      publication_state: "DRAFT",
+      canonical_statement:
+        "نص تجريبي لشرح واجهة مراجعة المعرفة؛ ليس حكماً أو نصيحة طبية.",
+      qualification_note: "بيانات وهمية للمعاينة فقط.",
+      sources: [
+        {
+          title: "مرجع تجريبي لواجهة العرض",
+          locator: "موضع مرجعي تجريبي",
+          reference: "DEMO-REFERENCE",
+        },
+      ],
+      reviews: [],
+    },
+    {
+      id: "demo-knowledge-2",
+      knowledge_key: "DEMO-REVIEW-002",
+      topic: "مثال لقرار مراجعة غير منشور",
+      domain: "FIQH",
+      madhhab: "HANBALI",
+      version: 2,
+      language: "ar",
+      publication_state: "DRAFT",
+      canonical_statement: "مثال واجهة فقط؛ لا يحتوي على فتوى.",
+      sources: [],
+      reviews: [
+        {
+          decision: "changes_requested",
+          note: "قرار تجريبي: يحتاج استكمال المراجعة.",
+          created_at: asOf,
+        },
+      ],
+    },
+  ],
+  staff: [
+    {
+      user_id: "demo-owner",
+      email: "owner@niswah.invalid",
+      role: "owner",
+      active: true,
+      created_at: asOf,
+    },
+    {
+      user_id: "demo-operator",
+      email: "operations@niswah.invalid",
+      role: "operator",
+      active: true,
+      created_at: asOf,
+    },
+    {
+      user_id: "demo-editor",
+      email: "editor@niswah.invalid",
+      role: "editor",
+      active: false,
+      created_at: asOf,
+    },
+  ],
+  audit: [
+    {
+      id: "demo-audit-1",
+      action: "read.analytics",
+      actor_id: "demo-owner",
+      target_id: null,
+      details: { demo: true },
+      created_at: asOf,
+    },
+    {
+      id: "demo-audit-2",
+      action: "create_draft",
+      actor_id: "demo-editor",
+      target_id: "demo-draft-1",
+      details: { demo: true },
+      created_at: asOf,
+    },
+  ],
+};
 export function demoResponse(input: Record<string, unknown>) {
   switch (input.section) {
     case "overview":
@@ -201,7 +388,20 @@ export function demoResponse(input: Record<string, unknown>) {
       return { data: demoAudience };
     case "operations":
       return { data: demoOperations };
-    default:
-      return { data: [] };
+    default: {
+      const key =
+        input.section === "community" && input.kind === "comment"
+          ? "comments"
+          : String(input.section);
+      const query = String(input.query || "")
+        .trim()
+        .toLocaleLowerCase();
+      const rows = (demoRecords[key] || []).filter(
+        (row) =>
+          !query || JSON.stringify(row).toLocaleLowerCase().includes(query),
+      );
+      const page = Math.max(0, Math.floor(Number(input.page) || 0));
+      return { data: rows.slice(page * 25, page * 25 + 25) };
+    }
   }
 }

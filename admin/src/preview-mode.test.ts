@@ -26,6 +26,6 @@ describe("local read-only preview", () => {
       ).toBe(demoAudience.today.reports);
     }
     expect(demoResponse({ section: "analytics" }).data).toBe(demoAudience);
-    expect(demoResponse({ section: "users" }).data).toEqual([]);
+    expect(demoResponse({ section: "users" }).data).toHaveLength(2);
   });
 });

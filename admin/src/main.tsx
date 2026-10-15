@@ -41,6 +41,7 @@ import {
 } from "./api";
 import "./style.css";
 import { isDemo } from "./preview-mode";
+import { sectionHref, useSectionRoute } from "./navigation";
 import Statistics from "./Statistics";
 import Audience from "./Audience";
 import Operations, { Attention } from "./Operations";
@@ -176,7 +177,9 @@ function App() {
     [qr, setQr] = useState(""),
     [code, setCode] = useState(""),
     [mfaLoading, setMfaLoading] = useState(false);
-  const [section, setSection] = useState<Section>("overview");
+  const [section, setSection] = useSectionRoute(
+    role ? access[role] : undefined,
+  );
   useEffect(() => {
     if (!client) {
       setInitial(false);
@@ -214,7 +217,6 @@ function App() {
         if (levelError) throw levelError;
         if (!active) return;
         setRole(info.role);
-        setSection(access[info.role as Role][0]);
         if (level?.currentLevel === "aal2") {
           setReady(true);
           return;
@@ -508,6 +510,8 @@ function Dashboard({
     setPage(0);
     setQuery("");
     setSearch("");
+    setMobile(false);
+    window.scrollTo({top:0,behavior:"instant"});
     setSelected(null);
     setModal(null);
     setSuccess("");
@@ -557,10 +561,14 @@ function Dashboard({
           {access[role].map((s) => {
             const I = icons[s];
             return (
-              <button
+              <a
                 key={s}
+                href={sectionHref(s)}
+                aria-current={s === section ? "page" : undefined}
                 className={s === section ? "selected" : ""}
-                onClick={() => {
+                onClick={(e) => {
+                  if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+                  e.preventDefault();
                   setSection(s);
                   setMobile(false);
                 }}
@@ -568,7 +576,7 @@ function Dashboard({
                 <I size={19} />
                 {titles[s]}
                 {s === section && <span className="nav-dot" />}
-              </button>
+              </a>
             );
           })}
         </nav>
@@ -613,8 +621,8 @@ function Dashboard({
             <div className="notice demo-notice" role="status">
               <strong>معاينة تفاعلية — جميع الأرقام وهمية</strong>
               <span>
-                استكشف النظرة العامة والجمهور والعافية ومركز العمليات من
-                القائمة. لا يوجد اتصال ببيانات المستخدمات، ولا تُحفظ التغييرات.
+                استكشف جميع أقسام لوحة الإدارة من القائمة. لا يوجد اتصال ببيانات
+                المستخدمات، ولا تُحفظ التغييرات.
               </span>
             </div>
           )}
@@ -1510,7 +1518,7 @@ function Empty() {
   );
 }
 function DemoApp() {
-  const [section, setSection] = useState<Section>("overview");
+  const [section, setSection] = useSectionRoute();
   return (
     <Dashboard
       role="owner"

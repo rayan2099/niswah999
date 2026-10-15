@@ -144,7 +144,7 @@ small {
   flex-direction: column;
   gap: 6px;
 }
-.sidebar nav button {
+.sidebar nav a {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -155,10 +155,10 @@ small {
   color: #687c73;
   transition: background 0.15s;
 }
-.sidebar nav button:hover {
+.sidebar nav a:hover {
   background: #f4f6f1;
 }
-.sidebar nav button.selected {
+.sidebar nav a.selected {
   background: #edf2eb;
   color: #284d3e;
   font-weight: 700;
@@ -1581,4 +1581,13 @@ label textarea {
 }
 .demo-notice span {
   font-size: 12px;
+}
+
+.sidebar nav a {
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.sidebar nav a:focus-visible {
+  outline: 2px solid #73947d;
+  outline-offset: 3px;
 }

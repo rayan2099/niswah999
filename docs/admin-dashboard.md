@@ -113,8 +113,17 @@ Applied only on staging. The expanded synthetic rollback suite passed note parti
 
 ### Local interactive preview
 
-For visual exploration without an admin account or database configuration, start the Vite dev server and open `http://localhost:3100/?demo=1` (use the actual Local port printed by Vite if occupied). The development login/setup screen also has **عرض تجريبي للوحة الإدارة**. The same dashboard components display fictional overview, audience/wellbeing and operations fixtures, with a persistent sample-data banner. Other record sections have empty demonstration lists. Preview actions are read-only and return a clear message rather than persisting changes.
+For visual exploration without an admin account or database configuration, start the Vite dev server and open `http://localhost:3100/?demo=1` (use the actual Local port printed by Vite if occupied). The development login/setup screen also has **عرض تجريبي للوحة الإدارة**. The same dashboard components display fictional overview, audience/wellbeing and operations fixtures, with a persistent sample-data banner. Every record section has fictional sample rows, with working search, community post/comment tabs, and detail dialogs. Preview actions are read-only and return a clear message rather than persisting changes.
 
 The preview requires both `import.meta.env.DEV` and explicit `demo=1`; production builds retain the real login/session/MFA flow. In preview mode, `client` is null, so no Supabase client/session refresh is initialized, list calls use local fixtures, and all writes are refused locally. No credentials, staff membership, real user data or database mutations are involved. The preview is separate from verification of authenticated live behavior.
 
 Preview validation: 15 frontend tests passed, including production-mode rejection of the demo flag, fixture denominator checks, no Supabase client initialization, and mutation refusal; production TypeScript/Vite build passed. Browser visual QA remains outstanding.
+
+
+### Sidebar navigation
+
+All ten sidebar items are real links with distinct hash routes (`#/overview`, `#/operations`, `#/analytics`, `#/users`, `#/support`, `#/community`, `#/content`, `#/knowledge`, `#/staff`, `#/audit`). Hash routes preserve the local demo query and work with refresh, Back/Forward and opening links in another tab without requiring server rewrites. The current section is marked with `aria-current="page"` and a keyboard-visible focus style; selecting a section closes the mobile sidebar. Unknown routes fall back to the first permitted section. Authenticated routing respects the current staff role; backend authorization remains authoritative. The live login flow preserves an allowed deep link rather than always resetting to overview.
+
+All preview destinations now have useful fictional content, including users, tickets, community posts/comments, content drafts, source/review examples, staff roles and audit records. Detail dialogs and list search can be explored. Incident sample rows match the operational count. All preview mutations remain blocked, with no database connection. This change does not grant additional staff access or write sample data into staging/production.
+
+Navigation verification: 19 frontend tests passed, including all ten route destinations, role-constrained fallback, populated preview sections/community tabs and search/pagination. TypeScript/Vite build passed. Section changes reset page scroll and close the mobile menu. Browser visual QA remains outstanding.
