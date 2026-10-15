@@ -20,6 +20,9 @@ These links do not certify current runtime behavior, review approval, or launch 
 Filename matches only; inspect imports and behavior to establish actual coverage.
 
 - [auth_onboarding_routing_test.dart](../../test/auth_onboarding_routing_test.dart)
+- [onboarding_completion_error_test.dart](../../test/onboarding_completion_error_test.dart)
+- [onboarding_country_picker_test.dart](../../test/onboarding_country_picker_test.dart)
+- [onboarding_numeric_input_test.dart](../../test/onboarding_numeric_input_test.dart)
 - [onboarding_ui_test.dart](../../test/onboarding_ui_test.dart)
 
 ## Related features to inspect
