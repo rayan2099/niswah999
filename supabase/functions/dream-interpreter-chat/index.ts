@@ -1,3 +1,4 @@
+import { observeAiEndpoint } from '../_shared/operations_telemetry.ts';
 // Supabase Edge Function: dream-interpreter-chat
 //
 // Server-side home for the Dream Interpreter's model call, moved off the
@@ -64,7 +65,7 @@ Follow these rules for every interpretation session:
 6. **App context:**
 - A [CONTEXT] block may follow with the user's major current state (pregnancy/menstrual status, recent wellbeing, recent notes). Use it only to avoid an interpretation that plainly contradicts her current recorded state (e.g. do not interpret dream symbolism as foretelling a pregnancy she is not currently tracking, without her raising it herself). Do not treat it as dream content, do not repeat its raw field names to her, and never use it to produce a medical or fiqh ruling — that remains outside this feature's role regardless of what the context shows.`;
 
-Deno.serve(async (req) => {
+Deno.serve(observeAiEndpoint('dream-interpreter-chat', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -122,6 +123,7 @@ Deno.serve(async (req) => {
     const systemInstruction = `${SYSTEM_PROMPT}\n\n${formatContextBlock(userContext, 'dream_interpreter')}`;
 
     const result = await callOpenAI({
+        advisor: 'dream-interpreter-chat',
       prompt,
       systemInstruction,
       timeoutMs: 20_000,
@@ -142,4 +144,4 @@ Deno.serve(async (req) => {
       { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }
-});
+}));

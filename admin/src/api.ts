@@ -9,6 +9,7 @@ export type Role =
   | "operator";
 export type Section =
   | "overview"
+  | "operations"
   | "users"
   | "support"
   | "community"
@@ -19,6 +20,7 @@ export type Section =
 export const access: Record<Role, Section[]> = {
   owner: [
     "overview",
+    "operations",
     "users",
     "support",
     "community",
@@ -32,7 +34,7 @@ export const access: Record<Role, Section[]> = {
   editor: ["content"],
   medical_reviewer: ["knowledge"],
   fiqh_reviewer: ["knowledge"],
-  operator: ["overview"],
+  operator: ["overview", "operations"],
 };
 export function validateConfig(
   url: string,

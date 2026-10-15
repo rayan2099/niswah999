@@ -1,9 +1,9 @@
 name: Admin dashboard
 on:
   pull_request:
-    paths: ['admin/**', '.github/workflows/admin.yml']
+    paths: ['admin/**', 'supabase/functions/**', '.github/workflows/admin.yml']
   push:
-    paths: ['admin/**', '.github/workflows/admin.yml']
+    paths: ['admin/**', 'supabase/functions/**', '.github/workflows/admin.yml']
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,3 +20,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+  ai-telemetry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test --config supabase/functions/deno.json --allow-env --allow-net supabase/functions/_shared/openai_client.test.ts supabase/functions/_shared/operations_telemetry.test.ts

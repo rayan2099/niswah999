@@ -21,11 +21,15 @@
 //   - every request explicitly sends `store: false` -- no OpenAI-side
 //     conversation persistence, no `previous_response_id` chaining.
 
+import { emitMetric, type Advisor } from './operations_telemetry.ts';
+
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/responses';
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_RETRIES = 1;
 
 export interface OpenAiCallOptions {
+  /** Fixed server-owned advisor label for content-free generation metrics. */
+  advisor?: Advisor;
   prompt: string;
   systemInstruction: string;
   /** Per-attempt timeout in milliseconds. */
@@ -92,7 +96,7 @@ class NonRetryableOpenAiError extends Error {}
  * models (OpenAI has no documented equivalent "try a cheaper model next"
  * fallback list for this integration).
  */
-export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCallResult> {
+async function callOpenAIUnobserved(options: OpenAiCallOptions): Promise<OpenAiCallResult> {
   const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) throw new Error('OPENAI_API_KEY is not configured.');
   const model = Deno.env.get('OPENAI_MODEL');
@@ -199,4 +203,28 @@ export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCall
   }
 
   throw lastError instanceof Error ? lastError : new Error('OpenAI request failed.');
+}
+
+
+// One model outcome per generation call; token counts are the final successful
+// response only, not a billing ledger or retry-attempt cost estimate.
+export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCallResult> {
+  const started = performance.now();
+  let result: OpenAiCallResult | undefined;
+  try {
+    result = await callOpenAIUnobserved(options);
+    return result;
+  } finally {
+    if (options.advisor) {
+      await emitMetric({
+        advisor: options.advisor,
+        kind: 'model',
+        status: result ? 200 : 500,
+        duration_ms: performance.now() - started,
+        model: result?.model ?? Deno.env.get('OPENAI_MODEL'),
+        input_tokens: result?.usage?.inputTokens,
+        output_tokens: result?.usage?.outputTokens,
+      });
+    }
+  }
 }

@@ -78,6 +78,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [test_trust_boundary.py](../../scripts/test_trust_boundary.py)
 - [validate_migrations.sh](../../scripts/validate_migrations.sh)
 - [verify_admin_access.sql](../../scripts/verify_admin_access.sql)
+- [verify_admin_operations.sql](../../scripts/verify_admin_operations.sql)
 - [verify_admin_statistics.sql](../../scripts/verify_admin_statistics.sql)
 - [verify_kb_live.sql](../../scripts/verify_kb_live.sql)
 - [verify_kb_retrieval_live.sql](../../scripts/verify_kb_retrieval_live.sql)

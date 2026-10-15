@@ -41,9 +41,11 @@ import {
 } from "./api";
 import "./style.css";
 import Statistics from "./Statistics";
+import Operations, { Attention } from "./Operations";
 type Row = Record<string, any>;
 const titles: Record<Section, string> = {
   overview: "نظرة عامة",
+  operations: "مركز العمليات",
   users: "المستخدمات",
   support: "الدعم والمتابعة",
   community: "إدارة المجتمع",
@@ -54,6 +56,7 @@ const titles: Record<Section, string> = {
 };
 const descriptions: Record<Section, string> = {
   overview: "صورة واضحة عن نسوة، والأعمال التي تحتاج انتباهك.",
+  operations: "متابعة المهام والقياس التشغيلي ومسار التهيئة والذكاء الاصطناعي.",
   users: "معلومات الحساب والمساعدة، مع الحفاظ على خصوصية السجلات الصحية.",
   support: "طلبات مسجلة بواسطة الفريق، من أول متابعة حتى الحل.",
   community: "مراجعة المنشورات والتعليقات العامة وإخفاء المحتوى عند الحاجة.",
@@ -64,6 +67,7 @@ const descriptions: Record<Section, string> = {
 };
 const icons = {
   overview: LayoutDashboard,
+  operations: Activity,
   users: Users,
   support: LifeBuoy,
   community: MessagesSquare,
@@ -616,6 +620,20 @@ function Dashboard({
                 />
               )
             )
+          ) : section === "operations" ? (
+            loading ? (
+              <Loading />
+            ) : (
+              data && (
+                <Operations
+                  data={data}
+                  action={action}
+                  busy={acting}
+                  navigate={setSection}
+                  owner={role === "owner"}
+                />
+              )
+            )
           ) : (
             <>
               <div className="toolbar">
@@ -1049,6 +1067,9 @@ function Overview({
           </article>
         ))}
       </div>
+      {data.attention && (
+        <Attention data={data.attention} navigate={navigate} />
+      )}
       {owner && data.statistics && <Statistics data={data.statistics} />}
       <div className="overview-grid">
         <section className="panel">
@@ -1169,7 +1190,10 @@ function DataTable({
   action: (name: string, input: Row) => void;
   kind: string;
 }) {
-  const columns: Record<Exclude<Section, "overview">, string[]> = {
+  const columns: Record<
+    Exclude<Section, "overview" | "operations">,
+    string[]
+  > = {
     users: ["الحساب", "تاريخ التسجيل", "التأكيد", "التهيئة", "آخر دخول"],
     support: ["الموضوع", "الحساب", "الأولوية", "الحالة", "المتابعة"],
     community: ["المحتوى", "التصنيف", "التاريخ", "الظهور", "الإجراء"],
@@ -1188,9 +1212,11 @@ function DataTable({
     <table>
       <thead>
         <tr>
-          {columns[section as Exclude<Section, "overview">].map((c) => (
-            <th key={c}>{c}</th>
-          ))}
+          {columns[section as Exclude<Section, "overview" | "operations">].map(
+            (c) => (
+              <th key={c}>{c}</th>
+            ),
+          )}
         </tr>
       </thead>
       <tbody>
