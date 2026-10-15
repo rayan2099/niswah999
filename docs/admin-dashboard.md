@@ -127,3 +127,11 @@ All ten sidebar items are real links with distinct hash routes (`#/overview`, `#
 All preview destinations now have useful fictional content, including users, tickets, community posts/comments, content drafts, source/review examples, staff roles and audit records. Detail dialogs and list search can be explored. Incident sample rows match the operational count. All preview mutations remain blocked, with no database connection. This change does not grant additional staff access or write sample data into staging/production.
 
 Navigation verification: 19 frontend tests passed, including all ten route destinations, role-constrained fallback, populated preview sections/community tabs and search/pagination. TypeScript/Vite build passed. Section changes reset page scroll and close the mobile menu. Browser visual QA remains outstanding.
+
+### Section transition crash correction
+
+A DOM interaction test reproduced an actual failure switching overview → operations: React rendered the new section with the previous section's response before the loading effect ran (`Operations` tried to read missing `funnel.steps`). Analytics had the same cross-section payload risk. The dashboard now remounts its section workspace with a section-specific React key in both the authenticated and local preview entry paths, isolating data/loading/form state and cleaning up previous in-flight reads before a new view appears.
+
+`sidebar-interaction.test.ts` mounts the real application with fictional preview data, clicks all ten actual sidebar links and repeatedly transitions overview ↔ operations ↔ analytics. It failed against the prior implementation and passed after this correction, checking URL, heading, visible destination content and active link. JSDOM is a pinned development-only test dependency. This is interaction verification, not browser visual QA. No backend permissions or data contracts changed.
+
+Correction validation: all 20 frontend tests passed and production TypeScript/Vite build passed. The regression test reproduces real DOM clicks; desktop/mobile visual review remains outstanding.

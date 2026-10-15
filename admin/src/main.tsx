@@ -433,7 +433,7 @@ function App() {
     );
   return (
     <Dashboard
-      key={session.user.id}
+      key={`${session.user.id}:${section}`}
       role={role}
       email={session.user.email || ""}
       section={section}
@@ -1521,6 +1521,7 @@ function DemoApp() {
   const [section, setSection] = useSectionRoute();
   return (
     <Dashboard
+      key={section}
       role="owner"
       email="preview@niswah.invalid"
       section={section}
