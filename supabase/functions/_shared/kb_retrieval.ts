@@ -23,6 +23,7 @@ export interface KnowledgeHit {
   canonical_statement: string;
   qualification_note: string | null;
   safety_class: string | null;
+  human_review_status: string;
   source_key: string;
   source_title: string;
   locator: string;
@@ -122,6 +123,11 @@ export function formatKnowledgeBlock(hits: KnowledgeHit[]): string {
     ];
     if (first.qualification_note) lines.push(`QUALIFICATION=${first.qualification_note}`);
     if (first.safety_class) lines.push(`SAFETY_CLASS=${first.safety_class}`);
+    // Per-row, database-level value (2026-10-15, FD-5 condition 1 --
+    // FOUNDER_DECISIONS.md) rather than the model inferring/assuming a
+    // blanket status -- see migration 20261015120000 for where this
+    // column comes from and why it must never be flattened away.
+    lines.push(`HUMAN_REVIEW_STATUS=${first.human_review_status}`);
     lines.push(`CITATIONS=${citations}`);
     chunks.push(lines.join('\n'));
   }
@@ -143,5 +149,6 @@ export function citationPayload(hits: KnowledgeHit[]) {
     locator: h.locator,
     url: h.source_url,
     contentLanguage: h.content_language,
+    humanReviewStatus: h.human_review_status,
   }));
 }

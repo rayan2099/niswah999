@@ -39,3 +39,14 @@ production-readiness-results/knowledge-base/generated/
 # Python bytecode cache from running scripts/test_*.py locally.
 __pycache__/
 *.pyc
+
+# Obsidian personal layout/cache and optional local plugins; shared settings stay tracked.
+.obsidian/workspace*.json
+.obsidian/cache/
+.obsidian/plugins/
+.obsidian/graph.json
+.obsidian/appearance.json
+.obsidian/hotkeys.json
+.obsidian/bookmarks.json
+.obsidian/trash/
+.trash/
