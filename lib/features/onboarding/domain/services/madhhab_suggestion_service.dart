@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 
 import '../../../../core/data/iso_countries.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
@@ -135,12 +135,22 @@ class _MappingEntry {
   /// exercise the real positive path (an eligible entry actually
   /// surfacing through the real `suggest()`) without ever marking a real
   /// entry `'SOURCE_VERIFIED'`/`'SCHOLAR_REVIEWED'` in the dataset itself.
+  ///
+  /// Gated on `kDebugMode` (launch-readiness audit, 2026-10-15): `@visibleForTesting`
+  /// is an analyzer lint, not a runtime guard, so without this the set
+  /// would still be a reachable (if normally-empty) seam in a release
+  /// binary. `kDebugMode` is a compile-time constant that is `false` in
+  /// release builds, so the Dart compiler eliminates this whole branch —
+  /// `debugApprovedMappingIdsForTesting` cannot affect `suggest()`'s
+  /// output in release at all, matching the pattern already used by
+  /// `BuildInfo.diagnosticsEnabled`/`acceptanceMode`.
   bool get isEligibleForDisplay =>
       evidenceStatus == 'SOURCE_VERIFIED' ||
       evidenceStatus == 'SCHOLAR_REVIEWED' ||
-      MadhhabSuggestionService.debugApprovedMappingIdsForTesting.contains(
-        mappingId,
-      );
+      (kDebugMode &&
+          MadhhabSuggestionService.debugApprovedMappingIdsForTesting.contains(
+            mappingId,
+          ));
 }
 
 /// Suggests a likely madhhab (or madhahib) from residence signals, per the

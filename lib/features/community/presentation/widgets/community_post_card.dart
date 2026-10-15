@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../domain/entities/community_category_x.dart';
 import '../../domain/entities/community_post.dart';
@@ -268,7 +269,7 @@ class _CommunityPostCardState extends State<CommunityPostCard> {
 }
 
 String _relativeTime(DateTime createdAt) {
-  final difference = DateTime.now().difference(createdAt);
+  final difference = AppClock.now().difference(createdAt);
   if (difference.inDays > 0) {
     return _t('${difference.inDays} days ago', 'قبل ${difference.inDays} يوم');
   }
