@@ -144,3 +144,4 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20260929114500_knowledge_base_v1.sql](../../supabase/migrations/20260929114500_knowledge_base_v1.sql)
 - [20260929120000_knowledge_base_v1_qualification_and_snapshot.sql](../../supabase/migrations/20260929120000_knowledge_base_v1_qualification_and_snapshot.sql)
 - [20260930130000_retrieve_knowledge_v1_relevance_anchor.sql](../../supabase/migrations/20260930130000_retrieve_knowledge_v1_relevance_anchor.sql)
+- [20261015120000_kb_human_review_status_provenance.sql](../../supabase/migrations/20261015120000_kb_human_review_status_provenance.sql)

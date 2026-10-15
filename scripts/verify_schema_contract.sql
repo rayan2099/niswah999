@@ -40,7 +40,11 @@ required_columns(table_name, column_name) AS (
     -- 2026-09-09 with zero schema-contract coverage catching it. Listed
     -- explicitly so a future fresh rebuild (or a future column drift of
     -- the same kind) fails this contract loudly instead of silently.
-    ('wellbeing_logs', 'notes')
+    ('wellbeing_logs', 'notes'),
+    -- FD-5 condition 1 (FOUNDER_DECISIONS.md), added 2026-10-15: must
+    -- remain explicit on every row, always. See migration
+    -- 20261015120000 and scripts/verify_kb_live.sql's own live-data check.
+    ('knowledge_item_versions', 'human_review_status')
 ),
 required_functions(name) AS (
   VALUES
