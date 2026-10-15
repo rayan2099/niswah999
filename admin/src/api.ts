@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { isDemo } from "./preview-mode";
 export type Role =
   | "owner"
   | "support"
@@ -80,18 +81,24 @@ export const configurationError = validateConfig(
   import.meta.env.VITE_SUPABASE_PROJECT_REF || "",
   environment,
 );
-export const client = configurationError
-  ? null
-  : createClient(url, key, {
-      auth: {
-        storage: sessionStorage,
-        storageKey: "niswah-admin-session",
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false,
-      },
-    });
+export const client =
+  configurationError || isDemo
+    ? null
+    : createClient(url, key, {
+        auth: {
+          storage: sessionStorage,
+          storageKey: "niswah-admin-session",
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false,
+        },
+      });
 export async function api(action: string, input: Record<string, unknown> = {}) {
+  if (isDemo) {
+    if (action !== "list")
+      throw new Error("المعاينة للعرض فقط؛ لا تُحفظ أي تغييرات.");
+    return (await import("./demo-data")).demoResponse(input);
+  }
   if (!client) throw new Error("إعداد الاتصال غير مكتمل");
   const { data, error } = await client.rpc("niswah_admin_api", {
     p_action: action,

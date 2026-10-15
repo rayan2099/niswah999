@@ -1563,3 +1563,22 @@ label textarea {
     gap: 12px;
   }
 }
+.preview-link {
+  display: flex;
+  justify-content: center;
+  text-decoration: none;
+  margin-top: 24px;
+}
+.demo-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 24px;
+  border: 1px solid #ddc690;
+  background: #fff9e9;
+  color: #735d2d;
+  line-height: 1.8;
+}
+.demo-notice span {
+  font-size: 12px;
+}

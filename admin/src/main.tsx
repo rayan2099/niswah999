@@ -40,6 +40,7 @@ import {
   type Section,
 } from "./api";
 import "./style.css";
+import { isDemo } from "./preview-mode";
 import Statistics from "./Statistics";
 import Audience from "./Audience";
 import Operations, { Attention } from "./Operations";
@@ -442,7 +443,14 @@ function App() {
 function Gate({ children }: { children: ReactNode }) {
   return (
     <main className="gate">
-      <div className="gate-card">{children}</div>
+      <div className="gate-card">
+        {children}
+        {import.meta.env.DEV && (
+          <a className="button primary preview-link" href="/?demo=1">
+            عرض تجريبي للوحة الإدارة <ArrowLeft size={17} />
+          </a>
+        )}
+      </div>
       <aside className="gate-art">
         <div className="orbit one" />
         <div className="orbit two" />
@@ -460,6 +468,7 @@ function Gate({ children }: { children: ReactNode }) {
   );
 }
 function Env() {
+  if (isDemo) return <span className="badge">معاينة · بيانات وهمية</span>;
   return (
     <span
       className={`environment ${environment === "production" ? "production" : ""}`}
@@ -600,6 +609,15 @@ function Dashboard({
           <Env />
         </header>
         <main className="main">
+          {isDemo && (
+            <div className="notice demo-notice" role="status">
+              <strong>معاينة تفاعلية — جميع الأرقام وهمية</strong>
+              <span>
+                استكشف النظرة العامة والجمهور والعافية ومركز العمليات من
+                القائمة. لا يوجد اتصال ببيانات المستخدمات، ولا تُحفظ التغييرات.
+              </span>
+            </div>
+          )}
           <div className="page-heading">
             <div>
               <span className="eyebrow">NISWAH / OPERATIONS</span>
@@ -1089,7 +1107,7 @@ function Overview({
               <h2>الحسابات الجديدة</h2>
               <p>التسجيلات اليومية · آخر ١٤ يوماً</p>
             </div>
-            <Badge>بيانات فعلية</Badge>
+            <Badge>{isDemo ? "بيانات وهمية" : "بيانات فعلية"}</Badge>
           </div>
           <div
             className="chart"
@@ -1491,4 +1509,20 @@ function Empty() {
     </div>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+function DemoApp() {
+  const [section, setSection] = useState<Section>("overview");
+  return (
+    <Dashboard
+      role="owner"
+      email="preview@niswah.invalid"
+      section={section}
+      setSection={setSection}
+      logout={() => {
+        window.location.href = "/";
+      }}
+    />
+  );
+}
+createRoot(document.getElementById("root")!).render(
+  isDemo ? <DemoApp /> : <App />,
+);
