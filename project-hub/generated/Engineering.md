@@ -28,7 +28,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## lib/core/config
 
+- [acceptance_gate.dart](../../lib/core/config/acceptance_gate.dart)
 - [app_environment.dart](../../lib/core/config/app_environment.dart)
+- [build_info.dart](../../lib/core/config/build_info.dart)
+- [test_backend_gate.dart](../../lib/core/config/test_backend_gate.dart)
 
 ## lib/core/data
 
@@ -39,6 +42,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [app_error_reporter.dart](../../lib/core/errors/app_error_reporter.dart)
 - [failures.dart](../../lib/core/errors/failures.dart)
+- [network_failure.dart](../../lib/core/errors/network_failure.dart)
 
 ## lib/core/localization
 
@@ -52,16 +56,19 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## lib/core/network
 
+- [ai_function_gateway.dart](../../lib/core/network/ai_function_gateway.dart)
 - [supabase_client.dart](../../lib/core/network/supabase_client.dart)
 
 ## lib/core/preferences
 
+- [local_preference_scope.dart](../../lib/core/preferences/local_preference_scope.dart)
 - [madhhab_controller.dart](../../lib/core/preferences/madhhab_controller.dart)
 - [marital_status_controller.dart](../../lib/core/preferences/marital_status_controller.dart)
 - [notification_log_controller.dart](../../lib/core/preferences/notification_log_controller.dart)
 - [prayer_location_controller.dart](../../lib/core/preferences/prayer_location_controller.dart)
 - [pregnancy_status_controller.dart](../../lib/core/preferences/pregnancy_status_controller.dart)
 - [ttc_mode_controller.dart](../../lib/core/preferences/ttc_mode_controller.dart)
+- [user_scoped_preferences.dart](../../lib/core/preferences/user_scoped_preferences.dart)
 
 ## lib/core/services
 
@@ -84,10 +91,13 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## lib/core/utils
 
 - [app_clock.dart](../../lib/core/utils/app_clock.dart)
+- [db_timestamp.dart](../../lib/core/utils/db_timestamp.dart)
+- [device_timezone.dart](../../lib/core/utils/device_timezone.dart)
 
 ## lib/core/widgets
 
 - [common_widgets.dart](../../lib/core/widgets/common_widgets.dart)
+- [diagnostics_banner.dart](../../lib/core/widgets/diagnostics_banner.dart)
 - [empty_state.dart](../../lib/core/widgets/empty_state.dart)
 - [floating_nav_bar.dart](../../lib/core/widgets/floating_nav_bar.dart)
 - [load_error_banner.dart](../../lib/core/widgets/load_error_banner.dart)
@@ -141,6 +151,14 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20260909100000_wellbeing_logs_notes.sql](../../supabase/migrations/20260909100000_wellbeing_logs_notes.sql)
 - [20260914120000_madhhab_authority_state.sql](../../supabase/migrations/20260914120000_madhhab_authority_state.sql)
 - [20260914120100_madhhab_authority_drop_legacy_uppercase_check.sql](../../supabase/migrations/20260914120100_madhhab_authority_drop_legacy_uppercase_check.sql)
+- [20260917090000_bleeding_episode_model.sql](../../supabase/migrations/20260917090000_bleeding_episode_model.sql)
+- [20260917100000_start_bleeding_episode_rpc.sql](../../supabase/migrations/20260917100000_start_bleeding_episode_rpc.sql)
+- [20260918090000_end_bleeding_episode_rpc.sql](../../supabase/migrations/20260918090000_end_bleeding_episode_rpc.sql)
+- [20260918100000_record_onboarding_menstrual_history_rpc.sql](../../supabase/migrations/20260918100000_record_onboarding_menstrual_history_rpc.sql)
+- [20260919090000_correct_observation_rpc.sql](../../supabase/migrations/20260919090000_correct_observation_rpc.sql)
+- [20260920090000_daily_observation_and_baseline_rpcs.sql](../../supabase/migrations/20260920090000_daily_observation_and_baseline_rpcs.sql)
+- [20260925100000_ai_rate_limit_counters_deleted_with_user.sql](../../supabase/migrations/20260925100000_ai_rate_limit_counters_deleted_with_user.sql)
+- [20260926100000_correct_observation_serialize_concurrent.sql](../../supabase/migrations/20260926100000_correct_observation_serialize_concurrent.sql)
 - [20260929114500_knowledge_base_v1.sql](../../supabase/migrations/20260929114500_knowledge_base_v1.sql)
 - [20260929120000_knowledge_base_v1_qualification_and_snapshot.sql](../../supabase/migrations/20260929120000_knowledge_base_v1_qualification_and_snapshot.sql)
 - [20260930130000_retrieve_knowledge_v1_relevance_anchor.sql](../../supabase/migrations/20260930130000_retrieve_knowledge_v1_relevance_anchor.sql)

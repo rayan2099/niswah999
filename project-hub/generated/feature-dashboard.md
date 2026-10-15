@@ -18,6 +18,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 Filename matches only; inspect imports and behavior to establish actual coverage.
 
+- [dashboard_canonical_degraded_evidence_test.dart](../../test/dashboard_canonical_degraded_evidence_test.dart)
+- [dashboard_notification_tap_stream_test.dart](../../test/dashboard_notification_tap_stream_test.dart)
 - [dashboard_ar_390x844.png](../../test/goldens/dashboard_ar_390x844.png)
 - [dashboard_en_390x844.png](../../test/goldens/dashboard_en_390x844.png)
 - [parity_dashboard_test.dart](../../test/parity_dashboard_test.dart)

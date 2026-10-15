@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**149 existing Markdown documents**, grouped by source folder.
+**163 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -23,10 +23,13 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## docs
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
+- [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
+- [menstrual-data-integrity-contract.md](../../docs/menstrual-data-integrity-contract.md)
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
+- [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
 - [parity-checklist.md](../../docs/parity-checklist.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
@@ -178,6 +181,23 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [PF_findings.md](../../production-readiness-results/performance/PF_findings.md)
 - [PF_production_readiness_report.md](../../production-readiness-results/performance/PF_production_readiness_report.md)
+
+## production-readiness-results/persona-validation
+
+- [BEFORE_AFTER_COMPARISON.md](../../production-readiness-results/persona-validation/BEFORE_AFTER_COMPARISON.md)
+- [CROSS_SCREEN_CONSISTENCY.md](../../production-readiness-results/persona-validation/CROSS_SCREEN_CONSISTENCY.md)
+- [DEFECT_REGISTER.md](../../production-readiness-results/persona-validation/DEFECT_REGISTER.md)
+- [DEVICE_ONLY_GAPS.md](../../production-readiness-results/persona-validation/DEVICE_ONLY_GAPS.md)
+- [E4_PHYSICAL_DEVICE_CHECKLIST.md](../../production-readiness-results/persona-validation/E4_PHYSICAL_DEVICE_CHECKLIST.md)
+- [FEATURE_INVENTORY.md](../../production-readiness-results/persona-validation/FEATURE_INVENTORY.md)
+- [PERSONA_CATALOG.md](../../production-readiness-results/persona-validation/PERSONA_CATALOG.md)
+- [PRODUCTION_TEST_ACCOUNT_CLEANUP.md](../../production-readiness-results/persona-validation/PRODUCTION_TEST_ACCOUNT_CLEANUP.md)
+- [PRODUCT_DECISIONS.md](../../production-readiness-results/persona-validation/PRODUCT_DECISIONS.md)
+- [TEST_EXECUTION_REPORT.md](../../production-readiness-results/persona-validation/TEST_EXECUTION_REPORT.md)
+
+## production-readiness-results/persona-validation/SCREENSHOTS
+
+- [README.md](../../production-readiness-results/persona-validation/SCREENSHOTS/README.md)
 
 ## production-readiness-results/post-launch
 

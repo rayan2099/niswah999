@@ -21,6 +21,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_palette.dart](../../lib/features/community/presentation/community_palette.dart)
 - [community_board_screen.dart](../../lib/features/community/presentation/screens/community_board_screen.dart)
 - [post_detail_screen.dart](../../lib/features/community/presentation/screens/post_detail_screen.dart)
+- [community_error_message.dart](../../lib/features/community/presentation/viewmodels/community_error_message.dart)
 - [community_feed_view_model.dart](../../lib/features/community/presentation/viewmodels/community_feed_view_model.dart)
 - [post_detail_view_model.dart](../../lib/features/community/presentation/viewmodels/post_detail_view_model.dart)
 - [community_category_chip_bar.dart](../../lib/features/community/presentation/widgets/community_category_chip_bar.dart)
