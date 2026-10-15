@@ -90,8 +90,20 @@ class CycleStatusEngine {
         break;
       }
       activeStart = log.date;
-      if (log.cycleDay == 1) break;
     }
+    // Deliberately no longer also breaking on `log.cycleDay == 1`: that
+    // field defaults to 1 (CycleLog's own constructor default) and is
+    // never set at all by CanonicalFiqhEvidenceAdapter.buildEffectiveLogs,
+    // which builds every canonical-evidence-derived log this engine now
+    // receives. With that check still present, the scan broke on the very
+    // first (latest) entry for ANY canonical-backed episode, pinning
+    // activeStart to "today" regardless of the episode's true start date
+    // — bleedingDuration then collapsed to just the current day's own
+    // elapsed hours, which is below every madhhab's minimum, so a
+    // genuinely-open, well-within-bounds Haid episode always misclassified
+    // as needsAdvisory. `flow == FlowLevel.none` is the correct, sole
+    // authoritative boundary signal (an explicit "not bleeding"
+    // observation) — found and fixed via parity_today_lower_test.dart.
 
     final bleedingDuration = now.difference(activeStart);
     final daysIntoCurrentEpisode = bleedingDuration.inDays + 1 > 0
@@ -134,10 +146,20 @@ class CycleStatusEngine {
       );
     }
 
-    final confirmAt = activeStart.add(result.minimumHaid);
+    // result.minimumHaid is null for Maliki (FD-7, 2026-10-15: no
+    // time-based minimum) — needsAdvisory can then only be reached via
+    // the maximum bound, for which there is no future "will become
+    // confirmed Haid" date to show (she already would have been, from
+    // the very start, were a minimum to apply at all).
+    final minimumHaid = result.minimumHaid;
+    final confirmAt = minimumHaid == null
+        ? null
+        : activeStart.add(minimumHaid);
     return baseline(
       state: FiqhCycleState.needsAdvisory,
-      confirmAt: confirmAt.isAfter(now) ? confirmAt : null,
+      confirmAt: confirmAt != null && confirmAt.isAfter(now)
+          ? confirmAt
+          : null,
       daysIntoCurrentEpisode: daysIntoCurrentEpisode,
     );
   }

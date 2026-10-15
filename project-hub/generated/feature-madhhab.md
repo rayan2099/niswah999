@@ -23,6 +23,7 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [madhhab_change_confirmation_test.dart](../../test/madhhab_change_confirmation_test.dart)
 - [madhhab_controller_test.dart](../../test/madhhab_controller_test.dart)
 - [madhhab_descriptions_test.dart](../../test/madhhab_descriptions_test.dart)
+- [madhhab_history_resolver_test.dart](../../test/madhhab_history_resolver_test.dart)
 - [madhhab_resolution_test.dart](../../test/madhhab_resolution_test.dart)
 - [madhhab_ruleset_version_test.dart](../../test/madhhab_ruleset_version_test.dart)
 - [madhhab_suggestion_service_test.dart](../../test/madhhab_suggestion_service_test.dart)

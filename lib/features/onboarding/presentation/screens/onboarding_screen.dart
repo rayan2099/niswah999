@@ -1,10 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart' show CupertinoPicker;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/auth/auth_controller.dart';
+import '../../../../core/data/app_features.dart';
+import '../../../../core/data/iso_countries.dart';
+import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
@@ -16,13 +20,44 @@ import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../../cycle_tracking/data/local/pending_bleeding_operation_store.dart';
 import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
-import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
-    show Madhhab;
 import '../../../madhhab/presentation/widgets/madhhab_selector.dart';
-import '../../domain/services/madhhab_suggestion_service.dart';
+import '../../../madhhab_resolution/presentation/widgets/madhhab_resolution_flow.dart';
 
 String _tr(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
+
+/// Manual QA fix (2026-10-11), Part 2: classifies a
+/// `record_onboarding_menstrual_history` RPC failure as deterministic —
+/// retrying sends the exact same request and gets the exact same
+/// rejection every time — versus merely transient (network, timeout,
+/// anything else), which a real retry can plausibly resolve. Top-level
+/// and pure so it's directly unit-testable without a real Supabase
+/// client/session (widget tests never reach this call at all, since they
+/// have no authenticated session to trigger it with).
+///
+/// Today the one known deterministic case is `bleeding_episodes`'
+/// `bleeding_episodes_one_open_per_user` unique-violation (Postgres
+/// `23505`) — she already has a real, previously-saved open episode, so a
+/// new "last period started on X" answer can never be inserted as a
+/// second one. Confirmed as the actual cause of a real manual-QA failure
+/// on staging (2026-10-11): the test account had an open episode from an
+/// earlier successful onboarding completion during the same testing
+/// session, and a subsequent re-run hit this exact constraint.
+bool isNonRetryableDuplicateEpisodeError(Object error) =>
+    error is PostgrestException &&
+    error.code == '23505' &&
+    error.message.contains('bleeding_episodes_one_open_per_user');
+
+/// Display-only (never used for parsing/input): renders a plain int using
+/// Eastern Arabic-Indic numerals, matching the "الخطوة ٢ من ٤" style the
+/// onboarding redesign's step indicator uses in Arabic.
+String _arabicIndicDigits(int value) {
+  const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  return value.toString().split('').map((d) {
+    final i = int.tryParse(d);
+    return i == null ? d : eastern[i];
+  }).join();
+}
 
 /// PR #4 hardening, Blocker 6: no medically-motivated bound on how long
 /// ago a real bleeding start can be reported — a technical bound is still
@@ -32,6 +67,82 @@ String _tr(String english, String arabic) =>
 DateTime _earliestReportableDate(DateTime now) =>
     DateTime(now.year - 100, now.month, now.day);
 
+/// Manual QA fix (2026-10-11), Part 2: the stock `showDatePicker` inherits
+/// the app's rose-seeded `ColorScheme.fromSeed` (app_theme.dart), and
+/// Material 3 tints every elevated surface with `surfaceTintColor` derived
+/// from that same seed — the actual cause of the calendar looking "heavy
+/// pink/beige" rather than a clean, premium white. `surfaceTintColor:
+/// Colors.transparent` removes that tint; the rest of this theme override
+/// gives the dialog its own calm, high-contrast palette (white surface,
+/// the onboarding accent for the selected day/buttons) without touching
+/// the app-wide theme or any functional date-selection behavior.
+Future<DateTime?> _showOnboardingDatePicker({
+  required BuildContext context,
+  required DateTime initialDate,
+  required DateTime firstDate,
+  required DateTime lastDate,
+}) => showDatePicker(
+  context: context,
+  initialDate: initialDate,
+  firstDate: firstDate,
+  lastDate: lastDate,
+  builder: (context, child) {
+    final base = Theme.of(context);
+    return Theme(
+      data: base.copyWith(
+        colorScheme: base.colorScheme.copyWith(
+          primary: AppColors.onboardingAccent,
+          onPrimary: Colors.white,
+          surface: AppColors.onboardingSurface,
+          onSurface: AppColors.onboardingPrimaryText,
+        ),
+        datePickerTheme: DatePickerThemeData(
+          backgroundColor: AppColors.onboardingSurface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 3,
+          shadowColor: Colors.black.withValues(alpha: 0.12),
+          headerBackgroundColor: AppColors.onboardingSurface,
+          headerForegroundColor: AppColors.onboardingPrimaryText,
+          weekdayStyle: const TextStyle(
+            color: AppColors.onboardingSecondaryText,
+            fontWeight: FontWeight.w600,
+          ),
+          dayForegroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected)
+                ? Colors.white
+                : AppColors.onboardingPrimaryText,
+          ),
+          dayBackgroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected)
+                ? AppColors.onboardingAccent
+                : null,
+          ),
+          todayForegroundColor: const WidgetStatePropertyAll(
+            AppColors.onboardingAccent,
+          ),
+          todayBorder: const BorderSide(color: AppColors.onboardingAccent),
+          yearForegroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected)
+                ? Colors.white
+                : AppColors.onboardingPrimaryText,
+          ),
+          yearBackgroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected)
+                ? AppColors.onboardingAccent
+                : null,
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.onboardingAccent,
+          ),
+        ),
+      ),
+      child: child!,
+    );
+  },
+);
+
 /// Fiqh Remediation Wave 1 (Section H/I/J): the Madhhab step's own small
 /// state machine for the "I don't know my Madhhab" path. [choices] is the
 /// normal 5-option grid; the rest are only ever reached by explicitly
@@ -40,8 +151,13 @@ DateTime _earliestReportableDate(DateTime now) =>
 enum _MadhhabSubStep {
   choices,
   unknownExplanation,
-  helpAskCountry,
-  helpSuggestion,
+  // Manual QA wave (2026-10-12): the entire country → region → suggestion
+  // → manual-select sub-flow collapsed into one case rendering the
+  // shared `MadhhabResolutionFlow` widget — that widget now owns its own
+  // internal sub-step state (previously four separate enum values here:
+  // helpAskCountry/helpAskRegion/helpSuggestion/helpManualSelect), the
+  // same component the in-app Madhhab change flow uses.
+  helpFlow,
 }
 
 /// Live Onboarding Contradiction Investigation — Location UX contract
@@ -74,6 +190,13 @@ enum _PeriodSubStep { pickStart, stillHappening, pickEnd }
 /// never itself persisted.
 enum _ActiveBleedingAnswer { unanswered, active, ended, uncertain }
 
+/// Onboarding redesign, Part 3: the optional "improve predictions?" sub-flow
+/// living entirely at step 6. [ask] is the gate itself; [duration]/
+/// [cycleLength] are only ever reached after an explicit "yes" and ask the
+/// two Part-2-clarified questions one at a time, each independently
+/// skippable via its own "I'm not sure".
+enum _PredictionsSubStep { ask, duration, cycleLength }
+
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
@@ -86,7 +209,7 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-/// Streamlined onboarding flow (8 steps). Only ever shown to an already-
+/// Streamlined onboarding flow. Only ever shown to an already-
 /// authenticated user — main.dart's root router (AUTH-002's contract)
 /// gates every path here behind `auth.isAuthenticated == true`, so there
 /// is deliberately no login/signup step in this state machine (AUTH-008).
@@ -95,10 +218,27 @@ class OnboardingScreen extends StatefulWidget {
 /// language toggle, or its own sensible default) is the single language
 /// authority; asking again here would be pure duplication:
 /// 1 Splash → 2 Madhhab → 3 Married → 4 Location
-/// → 5 Last Period (active/ended/uncertain) → 6 Usual Duration (estimate)
-/// → 7 Usual Cycle Length (estimate) → 8 Privacy → 9 Welcome
+/// → 5 Last Period (active/ended/uncertain)
+/// → 6 Predictions (optional gate; only if accepted: Usual Duration then
+///   Usual Cycle Length, both still individually skippable) → 7 Privacy
+/// → 8 Welcome
+///
+/// Onboarding redesign, Part 3/9 (progressive onboarding): step 6 used to
+/// be two unconditional estimate questions (Usual Duration, Usual Cycle
+/// Length). They are now gated behind one explicit "want to improve your
+/// predictions?" choice — skipping it is a first-class, fully-supported
+/// path (basic tracking continues to work; only predictions are limited
+/// until there's enough real observed data). Because all three screens
+/// (the gate + the two estimates) share step index 6 via
+/// [_PredictionsSubStep], never advancing [_step] itself, the deferred
+/// questions never inflate the step count shown to her (Part 8) — the
+/// progress indicator is driven by [_essentialStepCount], not by how many
+/// literal screens a given path happens to pass through.
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  static const int _totalSteps = 9;
+  static const int _totalSteps = 8;
+  // Splash (1) and Welcome (_totalSteps) are not "questions" — the visible
+  // step label only counts 2..(_totalSteps - 1).
+  static const int _essentialStepCount = _totalSteps - 2;
 
   late int _step = widget.initialStep.clamp(1, _totalSteps);
   // Derived from the app-wide, SharedPreferences-persisted controller — not
@@ -109,8 +249,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // and persisted (AUTH-007).
   bool get _arabic => AppLocaleController.instance.isArabic;
   _MadhhabSubStep _madhhabSubStep = _MadhhabSubStep.choices;
-  String _madhhabHelpCountry = '';
-  MadhhabSuggestion? _madhhabSuggestion;
+  // Onboarding fixes wave (2026-10-11), Part 1: upbringing context (where
+  // she was raised), never current residence — a clearer signal for a
+  // Madhhab suggestion than where she happens to live today. Transient
+  // onboarding-flow input to MadhhabSuggestionService, not yet persisted
+  // as its own backend field: the durable result of this screen is the
+  // Madhhab selection itself (already persisted via MadhhabController),
+  // not the upbringing-country signal that led to it.
+  IsoCountry? _upbringingCountry;
   bool? _isMarried;
   _LocationStatus _locationStatus = _LocationStatus.idle;
   String? _confirmedLocationLabel;
@@ -120,6 +266,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   DateTime? _periodEndDate;
   _ActiveBleedingAnswer _activeBleedingAnswer =
       _ActiveBleedingAnswer.unanswered;
+  _PredictionsSubStep _predictionsSubStep = _PredictionsSubStep.ask;
   // Section 9: the usual-duration/usual-cycle-length questions are genuine
   // estimates, never forced. Null means genuinely unanswered — never a
   // silent default (PR #4 hardening, Blocker 6: previously a Slider
@@ -138,12 +285,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // uncertain episode has no such uniqueness guard and would happily
   // accept two identical rows. Guards the whole completion path instead.
   bool _completingOnboarding = false;
-  // PR #4 hardening, Blocker 3: a real save failure for menstrual data she
-  // explicitly supplied must never be silently swallowed while onboarding
-  // still completes as if it were recorded. Non-null blocks completion
-  // and surfaces an honest, actionable error (retry, or an explicit
-  // choice to skip) on the Welcome screen instead.
+  // PR #4 hardening, Blocker 3; manual QA fix round 3 (2026-10-11), Part
+  // 3: a real save failure for menstrual data she explicitly supplied
+  // must never be silently swallowed while onboarding still completes as
+  // if it were recorded. Non-null blocks completion and surfaces an
+  // honest, specific error — retry, or go back and review the answer
+  // actually in conflict; deliberately never a "continue without saving
+  // this" bypass for required data.
   String? _onboardingSaveError;
+  // Manual QA wave (2026-10-12): non-null only when
+  // record_onboarding_menstrual_history reports a genuine
+  // episode_conflict — she already has an open episode with a
+  // *different* start date than what she just entered. Never raised as
+  // an exception by the RPC (a real, anticipatable product situation,
+  // not a failure), so handled as its own state rather than folded into
+  // [_onboardingSaveError]'s generic retry/review flow: the baseline may
+  // already be saved, and the only two honest resolutions are deferring
+  // to the existing episode (it is never silently closed/overwritten to
+  // force this through) or going back to change what she entered.
+  DateTime? _onboardingConflictingEpisodeStartDate;
   // PR #4 completion wave, Fix A: generated once for this screen instance
   // and reused unchanged on every retry of _completeOnboarding — this is
   // exactly what lets record_onboarding_menstrual_history recognize a
@@ -196,11 +356,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
   }
 
+  /// Onboarding redesign, Part 8: the predictions gate + its two optional
+  /// estimate screens all live at `_step == 6` via [_predictionsSubStep],
+  /// so stepping "back" out of either estimate screen moves one sub-step
+  /// back (cycle length -> duration -> the gate) instead of leaving step 6
+  /// entirely — consistent with every other sub-flow in this file, where
+  /// the global chevron only ever moves within the current step's own
+  /// sub-flow before it moves to the previous top-level step.
+  void _goBack() {
+    if (_step == 6) {
+      switch (_predictionsSubStep) {
+        case _PredictionsSubStep.cycleLength:
+          setState(() => _predictionsSubStep = _PredictionsSubStep.duration);
+          return;
+        case _PredictionsSubStep.duration:
+          setState(() => _predictionsSubStep = _PredictionsSubStep.ask);
+          return;
+        case _PredictionsSubStep.ask:
+          break;
+      }
+    }
+    setState(() => _step--);
+  }
+
   @override
   Widget build(BuildContext context) => Directionality(
     textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
     child: Scaffold(
-      backgroundColor: AppColors.brandBackground,
+      backgroundColor: AppColors.onboardingBackground,
       body: SafeArea(
         child: Column(
           children: [
@@ -212,8 +395,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 builder: (_, value, _) => LinearProgressIndicator(
                   value: value,
                   minHeight: 5,
-                  backgroundColor: Colors.black.withValues(alpha: .04),
-                  color: const Color(0xFFFDA4AF),
+                  backgroundColor: AppColors.onboardingBorder,
+                  color: AppColors.onboardingAccent,
+                ),
+              ),
+            // Onboarding redesign, Part 8: "Step N of Y" counts only the
+            // essential top-level steps — the deferred predictions estimate
+            // screens share step 6's own index (see _goBack above), so they
+            // never advance this number.
+            if (_step >= 2 && _step < _totalSteps)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  _tr(
+                    'Step ${_step - 1} of $_essentialStepCount',
+                    'الخطوة ${_arabicIndicDigits(_step - 1)} من '
+                        '${_arabicIndicDigits(_essentialStepCount)}',
+                  ),
+                  style: const TextStyle(
+                    color: AppColors.onboardingSecondaryText,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             Expanded(
@@ -224,7 +427,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       top: 12,
                       start: 12,
                       child: IconButton(
-                        onPressed: () => setState(() => _step--),
+                        onPressed: _goBack,
                         tooltip: _t('Back', 'رجوع'),
                         icon: Icon(
                           // A chevron is not a directional glyph in
@@ -327,40 +530,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onSkip: _next,
     ),
     5 => _periodStep(),
-    6 => _NumberInputStep(
-      title: _t(
-        'How long does your period usually last?',
-        'كم تستمر مدة حيضكِ عادةً؟',
-      ),
-      description: _t(
-        'Just an estimate — it never replaces what you actually report day '
-            'to day.',
-        'مجرد تقدير — لا يحل أبداً محل ما تُبلغين عنه فعلياً يوماً بيوم.',
-      ),
-      initialValue: _haidLengthValue,
-      onChanged: (v) => setState(() => _haidLengthValue = v),
-      onNext: _next,
-      onUnsure: () {
-        setState(() => _haidLengthValue = null);
-        _next();
-      },
-    ),
-    7 => _NumberInputStep(
-      title: _t('How long is your usual cycle?', 'كم تستمر دورتكِ عادةً؟'),
-      description: _t(
-        'From the start of one period to the start of the next. Only an '
-            'estimate.',
-        'من بداية حيض إلى بداية الحيض التالي. مجرد تقدير.',
-      ),
-      initialValue: _cycleLengthValue,
-      onChanged: (v) => setState(() => _cycleLengthValue = v),
-      onNext: _next,
-      onUnsure: () {
-        setState(() => _cycleLengthValue = null);
-        _next();
-      },
-    ),
-    8 => _Privacy(
+    6 => _predictionsStep(),
+    7 => _Privacy(
       anonymous: _anonymous,
       onAnonymous: (v) => _setAnonymousMode(v),
       onNext: _next,
@@ -368,12 +539,97 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _ => _Welcome(
       isBusy: _completingOnboarding,
       saveError: _onboardingSaveError,
+      conflictingEpisodeStartDate: _onboardingConflictingEpisodeStartDate,
       onComplete: _completingOnboarding ? null : () => _completeOnboarding(),
-      onSkipSaving: _completingOnboarding
+      onReviewAnswers: _completingOnboarding
           ? null
-          : () => _skipSavingAndContinue(),
+          : _reviewAnswersAfterSaveFailure,
+      onKeepExistingEpisode: _completingOnboarding
+          ? null
+          : () => _keepExistingEpisodeAndContinue(),
     ),
   };
+
+  /// Onboarding redesign, Part 3: the optional predictions gate + its two
+  /// clarified estimate questions (Part 2's corrected wording). Declining
+  /// the gate — or "I'm not sure" on either estimate — advances to Privacy
+  /// exactly as before; nothing here is ever forced, and neither estimate
+  /// is asked unless she explicitly opted in.
+  Widget _predictionsStep() {
+    switch (_predictionsSubStep) {
+      case _PredictionsSubStep.ask:
+        return _PredictionsGate(
+          onAccept: () => setState(
+            () => _predictionsSubStep = _PredictionsSubStep.duration,
+          ),
+          onSkip: _next,
+        );
+      case _PredictionsSubStep.duration:
+        return _NumberWheelStep(
+          // Bug fix (confirmed manual QA, 2026-10-11): duration and cycle
+          // length are both `_NumberWheelStep` at the same tree position
+          // (step 6 never changes while moving between predictions
+          // sub-steps, so the ancestor `ConstrainedBox(key: ValueKey(_step))`
+          // doesn't remount either). With no Key of their own, Flutter's
+          // element reconciliation treated the two screens as "the same
+          // widget updated" and reused the single `_NumberWheelStepState`
+          // — including its displayed/touched value — across both
+          // questions, so whatever she chose for duration visibly carried
+          // into the cycle-length wheel. A distinct key per question forces
+          // a fresh State (seeded fresh from that question's own
+          // initialValue) on every sub-step transition.
+          key: const ValueKey('predictions_duration'),
+          // Part 2: distinct from cycle length — this is the count of
+          // bleeding days themselves, first day to last day of one episode.
+          title: _tr(
+            'How many days does your bleeding usually last?',
+            'كم يومًا يستمر نزول دم الحيض لديكِ عادةً؟',
+          ),
+          description: _tr(
+            'From the first day bleeding starts to the last day. For '
+                'example: 5 days.',
+            'من أول يوم يبدأ فيه نزول الدم إلى آخر يوم. مثلًا: ٥ أيام.',
+          ),
+          initialValue: _haidLengthValue,
+          maxValue: 20,
+          onChanged: (v) => setState(() => _haidLengthValue = v),
+          onNext: () => setState(
+            () => _predictionsSubStep = _PredictionsSubStep.cycleLength,
+          ),
+          onUnsure: () {
+            setState(() {
+              _haidLengthValue = null;
+              _predictionsSubStep = _PredictionsSubStep.cycleLength;
+            });
+          },
+        );
+      case _PredictionsSubStep.cycleLength:
+        return _NumberWheelStep(
+          key: const ValueKey('predictions_cycle_length'),
+          // Part 2: distinct from bleeding duration — this is the gap
+          // between two bleeding starts, not the bleeding itself.
+          title: _tr(
+            'How many days between the start of one period and the start '
+                'of the next?',
+            'كم يومًا بين بداية حيضكِ وبداية الحيض التالي؟',
+          ),
+          description: _tr(
+            'Counted from the first day of bleeding to the first day it '
+                'starts again. For example: 28 days.',
+            'نحسب من أول يوم لنزول الدم إلى أول يوم لنزوله مرة أخرى. مثلًا: '
+                '٢٨ يومًا.',
+          ),
+          initialValue: _cycleLengthValue,
+          maxValue: 90,
+          onChanged: (v) => setState(() => _cycleLengthValue = v),
+          onNext: _next,
+          onUnsure: () {
+            setState(() => _cycleLengthValue = null);
+            _next();
+          },
+        );
+    }
+  }
 
   /// Section 9: replaces the removed 31-day grid + fixed-Haid-length
   /// fabrication with a real calendar and an honest active/ended/uncertain
@@ -507,7 +763,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
             const SizedBox(height: 28),
             _Continue(
-              onPressed: MadhhabController.instance.isSelected ? _next : null,
+              // Manual QA fix (2026-10-11), Part 1A root cause: this used
+              // to gate on `MadhhabController.isSelected`, which is `true`
+              // only for `MadhhabSelectionState.selected` — deliberately
+              // narrow everywhere else it's used (profile_screen.dart,
+              // cycle_log_form_sheet.dart need a real madhhab to apply
+              // Fiqh rules with, so "unknown" must stay "not selected"
+              // there). But here it meant a returning visitor who'd
+              // already chosen "لا أعرف" and navigated back to this grid
+              // (her prior choice correctly shown active on the tile) saw
+              // Continue stuck disabled, as if her answer weren't
+              // complete. "لا أعرف" is a complete, valid answer for
+              // onboarding purposes — gate on the broader state instead.
+              onPressed:
+                  MadhhabController.instance.state !=
+                      MadhhabSelectionState.unset
+                  ? _next
+                  : null,
             ),
           ],
         );
@@ -515,7 +787,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       case _MadhhabSubStep.unknownExplanation:
         return _MadhhabUnknownExplanation(
           onHelpMeChoose: () =>
-              setState(() => _madhhabSubStep = _MadhhabSubStep.helpAskCountry),
+              setState(() => _madhhabSubStep = _MadhhabSubStep.helpFlow),
           onDecideLater: () async {
             await MadhhabController.instance.selectUnknown(
               source: 'onboarding',
@@ -527,48 +799,43 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               setState(() => _madhhabSubStep = _MadhhabSubStep.choices),
         );
 
-      case _MadhhabSubStep.helpAskCountry:
-        return _MadhhabHelpAskCountry(
-          initialValue: _madhhabHelpCountry,
-          onSubmit: (country) {
-            final suggestion = const MadhhabSuggestionService().suggest(
-              explicitCountry: country,
-            );
-            setState(() {
-              _madhhabHelpCountry = country;
-              _madhhabSuggestion = suggestion;
-              _madhhabSubStep = _MadhhabSubStep.helpSuggestion;
-            });
-          },
-          onBack: () => setState(
-            () => _madhhabSubStep = _MadhhabSubStep.unknownExplanation,
-          ),
-        );
-
-      case _MadhhabSubStep.helpSuggestion:
-        return _MadhhabHelpSuggestion(
-          suggestion: _madhhabSuggestion ?? MadhhabSuggestion.unresolved,
-          // Section I: a suggestion is never treated as authoritative by
-          // merely being displayed — SELECTED only happens on this
-          // explicit confirmation.
-          onConfirm: (madhhab) async {
+      case _MadhhabSubStep.helpFlow:
+        // Manual QA wave (2026-10-12): the country question, picker,
+        // region refinement, suggestion, and manual-select steps are now
+        // the one shared `MadhhabResolutionFlow` — the exact same
+        // component the in-app Madhhab change flow (Profile/Settings,
+        // Log-my-Haidh) uses, not a separate copy. Only how the result
+        // gets persisted stays onboarding-specific: direct
+        // `MadhhabController` calls, since onboarding's Madhhab step runs
+        // before any bleeding history can exist, so the "replacing an
+        // existing selection" warning dialog can never honestly apply
+        // here (unchanged reasoning from the original `.choices` case
+        // above).
+        return MadhhabResolutionFlow(
+          initialCountry: _upbringingCountry,
+          onCountryChanged: (country) => _upbringingCountry = country,
+          onSelectMadhhab: (madhhab, {required viaSuggestion}) async {
+            _upbringingCountry = null;
             await MadhhabController.instance.selectMadhhab(
               madhhab,
-              source: 'onboarding',
+              source: viaSuggestion
+                  ? 'onboarding_suggested_confirmed'
+                  : 'onboarding',
             );
             setState(() => _madhhabSubStep = _MadhhabSubStep.choices);
             _next();
           },
-          // Section J: no confirmation -> remains UNKNOWN, never SELECTED.
-          onNoneOfThese: () async {
+          onSelectUnknown: () async {
+            _upbringingCountry = null;
             await MadhhabController.instance.selectUnknown(
               source: 'onboarding',
             );
             setState(() => _madhhabSubStep = _MadhhabSubStep.choices);
             _next();
           },
-          onTryAgain: () =>
-              setState(() => _madhhabSubStep = _MadhhabSubStep.helpAskCountry),
+          onExitFirstStep: () => setState(
+            () => _madhhabSubStep = _MadhhabSubStep.unknownExplanation,
+          ),
         );
     }
   }
@@ -610,6 +877,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() {
       _completingOnboarding = true;
       _onboardingSaveError = null;
+      _onboardingConflictingEpisodeStartDate = null;
     });
 
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
@@ -726,28 +994,79 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         // everything she answered — either all of it saves, or none of
         // it does. A retry (same _onboardingOperationId) can never
         // duplicate an already-saved episode/baseline or leave one saved
-        // while the other silently vanished.
+        // while the other silently vanished. Manual QA wave (2026-10-12):
+        // the RPC now reconciles with an existing open episode (reuses
+        // it if the date matches, reports a typed conflict if it
+        // doesn't) instead of throwing a raw uniqueness violation — the
+        // baseline always saves independently either way.
         try {
-          await BleedingEpisodeRepositoryImpl().recordOnboardingHistory(
-            clientOperationId: _onboardingOperationId,
-            utcOffsetMinutes: utcOffsetMinutes,
-            episode: episode,
-            baseline: baseline,
-          );
+          final result = await BleedingEpisodeRepositoryImpl()
+              .recordOnboardingHistory(
+                clientOperationId: _onboardingOperationId,
+                utcOffsetMinutes: utcOffsetMinutes,
+                episode: episode,
+                baseline: baseline,
+              );
+
+          if (result.episodeConflict) {
+            // A real, honest situation, not a failure: her baseline (if
+            // any) is already saved above. The episode part is left
+            // exactly as it was — never silently closed/overwritten —
+            // pending her own choice below.
+            if (!mounted) return;
+            setState(() {
+              _completingOnboarding = false;
+              _onboardingConflictingEpisodeStartDate =
+                  result.conflictingEpisodeStartDate;
+            });
+            return;
+          }
+
           await PendingBleedingOperationStore.clearPending(
             _onboardingOperationId,
             userId: userId,
           );
-        } catch (_) {
+        } catch (error, stack) {
+          // Manual QA fix (2026-10-11), Part 2 root cause: this used to
+          // be `catch (_)` — the real PostgrestException (code, message,
+          // the failing table/constraint) was discarded entirely, which
+          // is exactly why only a generic message was ever available to
+          // diagnose a real failure. Reported through the app's one
+          // existing error funnel (never the record's own content — only
+          // the exception and an opaque context string), and classified:
+          // a 23505 unique-violation on bleeding_episodes' one-open-
+          // episode-per-user constraint means she already has an open
+          // episode — a real, previously-saved one, not data loss. The
+          // message below names this specific cause so "go back and
+          // review your answers" (the real resolution path — change the
+          // conflicting Last Period answer) makes sense to her.
+          AppErrorReporter.report(
+            error,
+            stack,
+            context: '_OnboardingScreenState._completeOnboarding',
+            feature: 'onboarding',
+          );
+          final isDuplicateOpenEpisode = isNonRetryableDuplicateEpisodeError(
+            error,
+          );
           if (!mounted) return;
           setState(() {
             _completingOnboarding = false;
-            _onboardingSaveError = _t(
-              "We couldn't save the information you entered. Your "
-                  'answers are still here — you can try again.',
-              'تعذر حفظ المعلومات التي أدخلتِها. إجاباتكِ ما زالت محفوظة '
-                  'هنا — يمكنكِ المحاولة مجدداً.',
-            );
+            _onboardingSaveError = isDuplicateOpenEpisode
+                ? _t(
+                    'You already have a cycle being tracked, so this '
+                        "start date couldn't be saved as a new entry. "
+                        'Your other answers are still here.',
+                    'لديكِ بالفعل دورة قيد التتبع، لذا تعذر حفظ تاريخ '
+                        'البداية هذا كسجل جديد. إجاباتكِ الأخرى ما زالت '
+                        'محفوظة.',
+                  )
+                : _t(
+                    "We couldn't save the information you entered. Your "
+                        'answers are still here — you can try again.',
+                    'تعذر حفظ المعلومات التي أدخلتِها. إجاباتكِ ما زالت '
+                        'محفوظة هنا — يمكنكِ المحاولة مجدداً.',
+                  );
           });
           return;
         }
@@ -757,13 +1076,40 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await _finishOnboarding();
   }
 
-  /// The user's own explicit choice to proceed without the save that just
-  /// failed — never automatic, never silent (Blocker 3 requires *a*
-  /// honest path forward, not that she can never leave this screen).
-  Future<void> _skipSavingAndContinue() async {
+  /// Manual QA fix round 3 (2026-10-11), Part 3 — explicit product
+  /// decision: a required-data save failure must never offer a generic
+  /// "continue without saving this" escape hatch, which could let her
+  /// reach Dashboard with menstrual tracking data she explicitly
+  /// provided silently missing. Replaces that affordance with a genuine
+  /// resolution path instead: back to the exact question most likely
+  /// responsible (Last Period — the only onboarding-completion write
+  /// that can conflict with data that already exists), where she can
+  /// change her answer (e.g. "I'm not sure" instead of a specific start
+  /// date) or confirm it's still what she means, then walk forward again.
+  /// Her already-entered predictions/privacy answers are untouched local
+  /// state, so walking forward again is fast, not a real repeat of
+  /// onboarding.
+  void _reviewAnswersAfterSaveFailure() {
+    setState(() {
+      _onboardingSaveError = null;
+      _onboardingConflictingEpisodeStartDate = null;
+      _completingOnboarding = false;
+      _step = 5;
+      _periodSubStep = _PeriodSubStep.pickStart;
+    });
+  }
+
+  /// Manual QA wave (2026-10-12) — the conflict resolution the RPC
+  /// itself refuses to guess at: she's choosing to trust her existing
+  /// open episode over the (different) date she just entered during
+  /// onboarding. Nothing is overwritten or closed to get here — the
+  /// existing episode is untouched, exactly as the RPC left it; this
+  /// only finishes onboarding (the baseline, if any, already saved
+  /// alongside the conflict result itself).
+  Future<void> _keepExistingEpisodeAndContinue() async {
     setState(() {
       _completingOnboarding = true;
-      _onboardingSaveError = null;
+      _onboardingConflictingEpisodeStartDate = null;
     });
     await _finishOnboarding();
   }
@@ -896,7 +1242,7 @@ class _Splash extends StatelessWidget {
         'Niswah',
         style: Theme.of(context).textTheme.displayLarge?.copyWith(
           fontSize: 48,
-          color: const Color(0xFF9F1239),
+          color: AppColors.onboardingPrimaryText,
           fontFamily: AppTypography.serifFamily,
         ),
       ),
@@ -905,7 +1251,7 @@ class _Splash extends StatelessWidget {
         _tr('YOUR CYCLE. YOUR FAITH. YOUR SPACE.', 'دورتكِ. دينكِ. مساحتكِ.'),
         textAlign: TextAlign.center,
         style: TextStyle(
-          color: const Color(0xFFFB7185),
+          color: AppColors.onboardingAccent,
           fontSize: 10,
           letterSpacing: 2.1,
           fontWeight: FontWeight.w700,
@@ -918,7 +1264,7 @@ class _Splash extends StatelessWidget {
       FilledButton(
         onPressed: onNext,
         style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFFE11D48),
+          backgroundColor: AppColors.onboardingPrimaryText,
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 15),
           shape: const StadiumBorder(),
         ),
@@ -977,6 +1323,71 @@ class _Choices extends StatelessWidget {
   );
 }
 
+/// Onboarding redesign, Part 3: the optional entry point to the two
+/// estimate questions. Declining is a fully-supported, equally-valid path —
+/// the copy here is deliberately reassuring, not a soft push toward "yes".
+class _PredictionsGate extends StatelessWidget {
+  const _PredictionsGate({required this.onAccept, required this.onSkip});
+  final VoidCallback onAccept;
+  final VoidCallback onSkip;
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Title(
+        _tr(
+          'Would you like to add some information to improve predictions?',
+          'هل ترغبين في إضافة معلومات لتحسين التوقعات؟',
+        ),
+      ),
+      const SizedBox(height: 14),
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.onboardingSurface,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: const [
+            BoxShadow(color: AppColors.shadowColor, blurRadius: 20),
+          ],
+        ),
+        child: Text(
+          _tr(
+            'You can start tracking right away either way. Answering a '
+                'couple of quick questions now just helps Niswah estimate '
+                'your next period sooner — if you skip it, basic tracking '
+                'still works, and predictions improve on their own as you '
+                'log real periods.',
+            'يمكنكِ بدء المتابعة فورًا في كل الحالات. الإجابة عن سؤالين '
+                'سريعين الآن تساعد نسوة على تقدير حيضكِ القادم بشكل أسرع — '
+                'وإذا تخطيتِ ذلك، تستمر المتابعة الأساسية بشكل طبيعي، '
+                'وتتحسن التوقعات تلقائيًا مع كل تسجيل فعلي.',
+          ),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.onboardingSecondaryText,
+            fontSize: 12,
+            height: 1.6,
+          ),
+        ),
+      ),
+      const SizedBox(height: 26),
+      _Continue(
+        label: _tr(
+          'Yes, help me improve predictions',
+          'نعم، ساعديني في تحسين التوقعات',
+        ),
+        onPressed: onAccept,
+        strong: true,
+      ),
+      const SizedBox(height: 10),
+      TextButton(
+        onPressed: onSkip,
+        child: Text(_tr('Skip for now', 'تخطي الآن')),
+      ),
+    ],
+  );
+}
+
 /// Fiqh Remediation Wave 1, Section H: the calm, non-punitive explanation
 /// shown after tapping "I don't know my Madhhab" — never pressures a
 /// guess, and never implies UNKNOWN is a lesser or incomplete answer.
@@ -998,25 +1409,27 @@ class _MadhhabUnknownExplanation extends StatelessWidget {
       Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppColors.onboardingSurface,
           borderRadius: BorderRadius.circular(24),
           boxShadow: const [
             BoxShadow(color: AppColors.shadowColor, blurRadius: 20),
           ],
         ),
+        // Onboarding redesign, Part 5: the task's own specified reassurance
+        // copy — tracking continues normally, Madhhab is only ever asked
+        // again when a Fiqh-guidance feature genuinely needs it.
         child: Text(
           _tr(
-            'We can help you find a likely school based on where you live '
-                '— it\'s always just a suggestion, and only becomes your choice '
-                'once you confirm it yourself. No Madhhab will ever be assumed '
-                'for you without your choosing it.',
-            'يمكن لنسوة مساعدتكِ في معرفة المذهب الشائع في منطقتكِ — وهو '
-                'دائماً مجرد اقتراح، ولا يصبح خيارك إلا بعد تأكيدكِ له بنفسكِ. '
-                'لن يُفترض لكِ أي مذهب دون اختياركِ.',
+            'It’s okay if you don’t know your Madhhab yet. You can keep '
+                'tracking your cycle as usual, and we’ll ask you to choose a '
+                'Madhhab when personalized Fiqh guidance is needed.',
+            'لا بأس إذا كنتِ لا تعرفين مذهبكِ الآن. يمكنكِ متابعة دورتكِ '
+                'كالمعتاد، وسنطلب منكِ تحديد المذهب عند الحاجة إلى إرشاد '
+                'فقهي مخصص.',
           ),
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: AppColors.textSecondary,
+            color: AppColors.onboardingSecondaryText,
             fontSize: 12,
             height: 1.6,
           ),
@@ -1039,205 +1452,6 @@ class _MadhhabUnknownExplanation extends StatelessWidget {
       ),
     ],
   );
-}
-
-/// Fiqh Remediation Wave 1, Section I: a lightweight, single-question
-/// country input — deliberately not the full Location step (city/GPS),
-/// which comes later in onboarding and is unavailable yet at this step.
-/// Feeds [MadhhabSuggestionService] directly; nothing here is persisted as
-/// a Madhhab choice.
-class _MadhhabHelpAskCountry extends StatefulWidget {
-  const _MadhhabHelpAskCountry({
-    required this.initialValue,
-    required this.onSubmit,
-    required this.onBack,
-  });
-  final String initialValue;
-  final ValueChanged<String> onSubmit;
-  final VoidCallback onBack;
-  @override
-  State<_MadhhabHelpAskCountry> createState() => _MadhhabHelpAskCountryState();
-}
-
-class _MadhhabHelpAskCountryState extends State<_MadhhabHelpAskCountry> {
-  late final _controller = TextEditingController(text: widget.initialValue);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      _Title(_tr('Which country do you live in?', 'في أي دولة تسكنين؟')),
-      const SizedBox(height: 8),
-      Text(
-        _tr(
-          'Used only to suggest a likely Madhhab — never to decide it for '
-              'you.',
-          'تُستخدم فقط لاقتراح مذهب محتمل — ولا تُستخدم أبداً لتحديده نيابةً '
-              'عنكِ.',
-        ),
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-      ),
-      const SizedBox(height: 22),
-      TextField(
-        controller: _controller,
-        textAlign: TextAlign.center,
-        decoration: InputDecoration(
-          hintText: _tr('e.g. Egypt', 'مثال: مصر'),
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
-          ),
-        ),
-        // Rebuilds so the Continue button's enabled state below reflects
-        // the current text — without this it stays disabled/stale after
-        // the first frame, since Continue's onPressed is otherwise only
-        // ever evaluated at this State's last build.
-        onChanged: (_) => setState(() {}),
-        onSubmitted: (value) => widget.onSubmit(value.trim()),
-      ),
-      const SizedBox(height: 22),
-      _Continue(
-        onPressed: _controller.text.trim().isEmpty
-            ? null
-            : () => widget.onSubmit(_controller.text.trim()),
-      ),
-      const SizedBox(height: 10),
-      TextButton(onPressed: widget.onBack, child: Text(_tr('Back', 'رجوع'))),
-    ],
-  );
-}
-
-/// Fiqh Remediation Wave 1, Sections I/J: shows the geographic suggestion
-/// (if any) and requires an explicit confirmation per school before it
-/// ever becomes a SELECTED state — never a declaration on its own.
-class _MadhhabHelpSuggestion extends StatelessWidget {
-  const _MadhhabHelpSuggestion({
-    required this.suggestion,
-    required this.onConfirm,
-    required this.onNoneOfThese,
-    required this.onTryAgain,
-  });
-  final MadhhabSuggestion suggestion;
-  final ValueChanged<Madhhab> onConfirm;
-  final VoidCallback onNoneOfThese;
-  final VoidCallback onTryAgain;
-
-  static String _madhhabName(Madhhab madhhab) => switch (madhhab) {
-    Madhhab.hanafi => _tr('Hanafi', 'الحنفي'),
-    Madhhab.maliki => _tr('Maliki', 'المالكي'),
-    Madhhab.shafii => _tr("Shafi'i", 'الشافعي'),
-    Madhhab.hanbali => _tr('Hanbali', 'الحنبلي'),
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    if (!suggestion.isResolved) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _Title(
-            _tr(
-              'We don\'t have a suggestion for that yet',
-              'لا يتوفر اقتراح لهذه المنطقة بعد',
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            _tr(
-              'That\'s alright — you can try a different spelling, or '
-                  'simply decide later. Nothing has been assumed for you.',
-              'لا بأس بذلك — يمكنكِ تجربة تهجئة مختلفة، أو تأجيل القرار '
-                  'ببساطة. لم يُفترض لكِ شيء.',
-            ),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 24),
-          _Continue(
-            label: _tr('Try again', 'المحاولة مجدداً'),
-            onPressed: onTryAgain,
-          ),
-          const SizedBox(height: 10),
-          TextButton(
-            onPressed: onNoneOfThese,
-            child: Text(_tr('I\'ll decide later', 'سأقرر لاحقاً')),
-          ),
-        ],
-      );
-    }
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _Title(
-          _tr(
-            'Madhhab suggested based on your country',
-            'المذهب المقترح بناءً على بلدك',
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (suggestion.regionNote != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Text(
-              suggestion.regionNote!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        // Section J: this is only ever a suggestion until she taps one of
-        // these — displaying it never itself changes any stored state.
-        for (final madhhab in suggestion.likelyMadhahib)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () => onConfirm(madhhab),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: Text(
-                  _tr(
-                    'Yes, ${_madhhabName(madhhab)} is my Madhhab',
-                    'نعم، مذهبي هو ${_madhhabName(madhhab)}',
-                  ),
-                ),
-              ),
-            ),
-          ),
-        const SizedBox(height: 8),
-        TextButton(
-          onPressed: onNoneOfThese,
-          child: Text(
-            _tr(
-              'None of these — I\'ll decide later',
-              'لا شيء من هذا — سأقرر لاحقاً',
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _Location extends StatelessWidget {
@@ -1291,8 +1505,8 @@ class _Location extends StatelessWidget {
         label: Text(_tr('Use current location', 'استخدام موقعي الحالي')),
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(54),
-          backgroundColor: const Color(0xFFFFF1F2),
-          foregroundColor: AppColors.haid,
+          backgroundColor: AppColors.onboardingSelectedBg,
+          foregroundColor: AppColors.onboardingPrimaryText,
         ),
       ),
       const SizedBox(height: 22),
@@ -1356,8 +1570,8 @@ class _LocationStatusBanner extends StatelessWidget {
         return const SizedBox.shrink();
       case _LocationStatus.detecting:
         return _banner(
-          color: AppColors.textSecondary,
-          background: const Color(0xFFF3F4F6),
+          color: AppColors.onboardingSecondaryText,
+          background: AppColors.onboardingBorder,
           icon: const NiswahLoadingIndicator(
             size: NiswahLoadingSize.small,
             contrast: NiswahLoadingContrast.dark,
@@ -1367,7 +1581,7 @@ class _LocationStatusBanner extends StatelessWidget {
       case _LocationStatus.selected:
         return _banner(
           color: AppColors.tahara,
-          background: const Color(0xFFECFDF5),
+          background: AppColors.success.withValues(alpha: 0.08),
           icon: const Icon(
             Icons.check_circle_rounded,
             color: AppColors.tahara,
@@ -1380,11 +1594,11 @@ class _LocationStatusBanner extends StatelessWidget {
         );
       case _LocationStatus.error:
         return _banner(
-          color: const Color(0xFF9F1239),
-          background: const Color(0xFFFFF1F2),
+          color: AppColors.error,
+          background: AppColors.error.withValues(alpha: 0.08),
           icon: const Icon(
             Icons.error_outline_rounded,
-            color: Color(0xFF9F1239),
+            color: AppColors.error,
             size: 20,
           ),
           text: _tr(
@@ -1466,7 +1680,7 @@ class _PeriodPickStart extends StatelessWidget {
 
   Future<void> _openPicker(BuildContext context) async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
+    final picked = await _showOnboardingDatePicker(
       context: context,
       initialDate: selected ?? now,
       firstDate: _earliestReportableDate(now),
@@ -1597,7 +1811,7 @@ class _PeriodPickEnd extends StatelessWidget {
 
   Future<void> _openPicker(BuildContext context) async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
+    final picked = await _showOnboardingDatePicker(
       context: context,
       initialDate: selected ?? now,
       firstDate: startDate,
@@ -1640,82 +1854,284 @@ class _PeriodPickEnd extends StatelessWidget {
   );
 }
 
+/// Onboarding redesign, Part 4: normalizes Arabic-Indic digits (٠-٩, and the
+/// Extended/Persian variant ۰-۹) to ASCII as they're typed, instead of
+/// silently dropping them. Root cause (confirmed against the Flutter SDK
+/// source): the formatter this replaces,
+/// `FilteringTextInputFormatter.digitsOnly`, is `RegExp(r'[0-9]')` — ASCII
+/// only — so on a device whose keyboard types Eastern Arabic numerals, every
+/// keystroke was deleted before `onChanged` ever fired. `int.tryParse` also
+/// only understands ASCII digits, so normalizing here (not just allowing the
+/// characters through) is what actually fixes parsing, not merely display.
 /// PR #4 hardening, Blocker 6: replaces the old Slider-based `_NumberStep`,
 /// whose hard min/max ("2-10/15 days", "15-90 days") could reject a real
 /// but unusual answer — a technical/UX bound, not a medical judgment this
-/// wave is authorized to make. A plain numeric field has no such ceiling;
-/// "I'm not sure" remains always available and never forced.
-class _NumberInputStep extends StatefulWidget {
-  const _NumberInputStep({
+/// wave is authorized to make. [minValue]/[maxValue] are a generous
+/// technical sanity bound (catch a mistyped 500, not reject a real but
+/// unusual answer), not a clinical judgment.
+///
+/// Onboarding fixes wave (2026-10-11), Part 6: replaces the previous
+/// small numeric text field (which had its own now-fixed Arabic-Indic
+/// normalization bug, and separately leaked its value into the next
+/// question — see the Key fix at the two call sites in [_predictionsStep])
+/// with a discrete vertical number wheel. A wheel has no keyboard, no
+/// typed-digit numeral system to get wrong, and structurally can only ever
+/// produce one exact integer — the entire class of bugs the text field had
+/// doesn't exist here. [CupertinoPicker] fires
+/// `HapticFeedback.selectionClick()` on every item change on its own, so
+/// "haptic feedback if existing infrastructure supports it cleanly" is
+/// satisfied for free, not something this widget re-implements.
+class _NumberWheelStep extends StatefulWidget {
+  const _NumberWheelStep({
+    super.key,
     required this.title,
     required this.description,
     required this.initialValue,
     required this.onChanged,
     required this.onNext,
     required this.onUnsure,
+    this.maxValue = 99,
   });
   final String title, description;
   final int? initialValue;
   final ValueChanged<int?> onChanged;
   final VoidCallback onNext;
   final VoidCallback onUnsure;
+  final int maxValue;
+  static const int minValue = 1;
 
   @override
-  State<_NumberInputStep> createState() => _NumberInputStepState();
+  State<_NumberWheelStep> createState() => _NumberWheelStepState();
 }
 
-class _NumberInputStepState extends State<_NumberInputStep> {
-  late final _controller = TextEditingController(
-    text: widget.initialValue?.toString() ?? '',
-  );
+class _NumberWheelStepState extends State<_NumberWheelStep> {
+  // Part 6: "prefer an unselected state initially" — the wheel itself
+  // always has to center on *some* row (that's how a wheel works), but
+  // [_touched] is what actually decides whether that row counts as a real
+  // answer. It starts true only when we're rendering a previously-entered
+  // value (e.g. navigating back to this question) — never for a freshly
+  // empty question, even though the wheel still visually centers on the
+  // midpoint row. `onChanged`/Continue never treat the untouched midpoint
+  // as if she'd chosen it.
+  late int _displayedValue =
+      widget.initialValue ?? (_NumberWheelStep.minValue + widget.maxValue) ~/ 2;
+  late bool _touched = widget.initialValue != null;
+  late final FixedExtentScrollController _scrollController =
+      FixedExtentScrollController(
+        initialItem: _displayedValue - _NumberWheelStep.minValue,
+      );
 
   @override
   void dispose() {
-    _controller.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
+  void _handleSelected(int index) {
+    final value = _NumberWheelStep.minValue + index;
+    setState(() {
+      _displayedValue = value;
+      _touched = true;
+    });
+    widget.onChanged(value);
+  }
+
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      _Title(widget.title),
-      const SizedBox(height: 8),
-      Text(
-        widget.description,
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-      ),
-      const SizedBox(height: 32),
-      TextField(
-        controller: _controller,
-        keyboardType: TextInputType.number,
-        textAlign: TextAlign.center,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        style: const TextStyle(
-          fontSize: 40,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFFFB7185),
-        ),
-        decoration: InputDecoration(
-          suffixText: _tr(' days', ' أيام'),
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
+  Widget build(BuildContext context) {
+    final itemCount = widget.maxValue - _NumberWheelStep.minValue + 1;
+    final unit = _tr('days', 'أيام');
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _Title(widget.title),
+        const SizedBox(height: 8),
+        Text(
+          widget.description,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.onboardingSecondaryText,
+            fontSize: 13,
+            height: 1.4,
           ),
         ),
-        onChanged: (text) => widget.onChanged(int.tryParse(text)),
-      ),
-      const SizedBox(height: 36),
-      _Continue(onPressed: widget.onNext),
-      TextButton(
-        onPressed: widget.onUnsure,
-        child: Text(_tr('I’m not sure', 'لست متأكدة')),
-      ),
-    ],
-  );
+        const SizedBox(height: 20),
+        // Manual QA fix round 3 (2026-10-11): a low-alpha
+        // `selectionOverlay` still visibly dulled the centered digit in
+        // practice (confirmed from a real screenshot: 9/10/11/[blank
+        // pink]/13/14/15 — "12" unreadable). Root cause, confirmed
+        // against the CupertinoPicker SDK source
+        // (packages/flutter/lib/src/cupertino/picker.dart): `children`
+        // and `selectionOverlay` are both painted inside the *same*
+        // Stack, with `selectionOverlay` added last — it is *always* the
+        // topmost layer, by construction, regardless of its own alpha.
+        // There is no opacity value that both reads as a clear highlight
+        // and never visually competes with the text underneath it.
+        //
+        // Fixed architecturally instead of cosmetically: the highlight
+        // box is now a sibling `Container` placed BEFORE the
+        // `CupertinoPicker` in our own outer `Stack`, and
+        // `selectionOverlay: null` disables the picker's own (always-on-
+        // top) overlay slot entirely. The picker's own background stays
+        // transparent, so our highlight box shows through everywhere
+        // except where the picker's own row text (now genuinely the
+        // topmost layer in *this* Stack) paints over it — the text can
+        // never be obscured, by construction, not by tuning a color.
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Semantics(
+            label: _touched
+                ? '$_displayedValue $unit'
+                : _tr('No value selected yet', 'لم يتم اختيار قيمة بعد'),
+            value: _touched ? '$_displayedValue' : null,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 92,
+                  height: 168,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Behind the wheel — a compact, clearly-visible
+                      // highlight. Neutral outline until she actually
+                      // interacts (never implies a confirmed answer); a
+                      // soft accent fill + border once touched. Can use a
+                      // normal, fully-legible-strength fill now, since it
+                      // structurally can never sit in front of the digit.
+                      Container(
+                        height: 42,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        decoration: BoxDecoration(
+                          color: _touched
+                              ? AppColors.onboardingSelectedBg
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _touched
+                                ? AppColors.onboardingAccent
+                                : AppColors.onboardingBorder,
+                            width: 1.5,
+                          ),
+                        ),
+                      ),
+                      AnimatedBuilder(
+                        animation: _scrollController,
+                        builder: (context, _) {
+                          final currentIndex = _scrollController.hasClients
+                              ? _scrollController.offset / 42
+                              : (_displayedValue - _NumberWheelStep.minValue)
+                                    .toDouble();
+                          return CupertinoPicker(
+                            scrollController: _scrollController,
+                            itemExtent: 42,
+                            backgroundColor: Colors.transparent,
+                            diameterRatio: 1.3,
+                            // Disabled entirely — see the fix note above.
+                            // The highlight is drawn separately, behind
+                            // this picker, not through this slot.
+                            selectionOverlay: null,
+                            onSelectedItemChanged: _handleSelected,
+                            children: List.generate(itemCount, (i) {
+                              final value = _NumberWheelStep.minValue + i;
+                              // Fades rows by their live distance from center
+                              // — the center row always reads clearly, rows
+                              // further away get progressively lighter,
+                              // regardless of touched state.
+                              final distance = (i - currentIndex).abs().clamp(
+                                0.0,
+                                3.0,
+                              );
+                              final fade = 1.0 - (distance / 3.0) * 0.75;
+                              return Center(
+                                child: Text(
+                                  '$value',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: distance < 0.5
+                                        ? FontWeight.w700
+                                        : FontWeight.w600,
+                                    color:
+                                        (_touched
+                                                ? AppColors
+                                                      .onboardingPrimaryText
+                                                : AppColors
+                                                      .onboardingSecondaryText)
+                                            .withValues(alpha: fade),
+                                  ),
+                                ),
+                              );
+                            }),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                SizedBox(
+                  width: 72,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        unit,
+                        style: const TextStyle(
+                          color: AppColors.onboardingSecondaryText,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (!_touched) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.unfold_more_rounded,
+                              size: 14,
+                              color: AppColors.onboardingSecondaryText
+                                  .withValues(alpha: 0.7),
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                // Manual QA's own specified Arabic hint.
+                                _tr(
+                                  'Swipe to choose the number of days',
+                                  'مرّري لاختيار عدد الأيام',
+                                ),
+                                style: TextStyle(
+                                  color: AppColors.onboardingSecondaryText
+                                      .withValues(alpha: 0.7),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.2,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        // Part 7's exact specified hierarchy: wheel, "I'm not sure", then
+        // the Continue CTA last.
+        TextButton(
+          onPressed: widget.onUnsure,
+          child: Text(_tr('I’m not sure', 'لست متأكدة')),
+        ),
+        const SizedBox(height: 8),
+        _Continue(onPressed: _touched ? widget.onNext : null),
+      ],
+    );
+  }
 }
 
 class _Privacy extends StatelessWidget {
@@ -1736,7 +2152,7 @@ class _Privacy extends StatelessWidget {
       Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: const Color(0xFF881337),
+          color: AppColors.onboardingPrimaryText,
           borderRadius: BorderRadius.circular(28),
         ),
         child: Column(
@@ -1751,7 +2167,7 @@ class _Privacy extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 value: anonymous,
                 onChanged: onAnonymous,
-                activeTrackColor: const Color(0xFFFDA4AF),
+                activeTrackColor: AppColors.mutedRose,
                 title: Text(
                   _tr('Hide my identity', 'إخفاء هويتي'),
                   style: const TextStyle(
@@ -1761,7 +2177,7 @@ class _Privacy extends StatelessWidget {
                 ),
                 secondary: const Icon(
                   Icons.bolt_rounded,
-                  color: Color(0xFFFDA4AF),
+                  color: AppColors.mutedRose,
                 ),
               ),
             ),
@@ -1770,8 +2186,8 @@ class _Privacy extends StatelessWidget {
                 'Hide identifying details throughout the community while keeping your health data private.',
                 'أخفي بياناتكِ التعريفية في المجتمع مع الحفاظ على خصوصية بياناتكِ الصحية.',
               ),
-              style: const TextStyle(
-                color: Color(0xAAFFF1F2),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 10,
                 height: 1.45,
               ),
@@ -1790,97 +2206,195 @@ class _Welcome extends StatelessWidget {
     required this.onComplete,
     this.isBusy = false,
     this.saveError,
-    this.onSkipSaving,
+    this.conflictingEpisodeStartDate,
+    this.onReviewAnswers,
+    this.onKeepExistingEpisode,
   });
   final VoidCallback? onComplete;
   // Hostile self-review fix (2026-09-17): completion writes a real
   // episode/baseline — a disabled, in-flight state prevents a rapid
   // double-tap from firing the async completion twice.
   final bool isBusy;
-  // PR #4 hardening, Blocker 3: non-null when a real save genuinely
-  // failed — completion is blocked until she either retries successfully
-  // or explicitly chooses [onSkipSaving]; never silently discarded.
+  // PR #4 hardening, Blocker 3; manual QA fix round 3 (2026-10-11), Part
+  // 3: non-null when a real save of required onboarding data genuinely
+  // failed — a generic transient-failure message (the RPC itself no
+  // longer raises the one deterministic case this used to special-case;
+  // see [conflictingEpisodeStartDate] for that). There is deliberately
+  // no "continue without saving this" affordance for this — that would
+  // risk reaching Dashboard with menstrual data she explicitly provided
+  // silently missing. The only two paths out are a real retry, or going
+  // back to review/change the answer.
   final String? saveError;
-  final VoidCallback? onSkipSaving;
+  // Manual QA wave (2026-10-12): non-null only for the RPC's typed
+  // episode_conflict — a genuinely different situation from [saveError]
+  // (nothing failed; she already has an open episode with this other
+  // start date, and the RPC correctly refused to guess which one is
+  // "right"). Mutually exclusive with [saveError] in practice.
+  final DateTime? conflictingEpisodeStartDate;
+  final VoidCallback? onReviewAnswers;
+  final VoidCallback? onKeepExistingEpisode;
   @override
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
       Container(
-        width: 80,
-        height: 80,
+        width: 60,
+        height: 60,
         decoration: const BoxDecoration(
-          color: Color(0xFFFFF1F2),
+          color: AppColors.onboardingSelectedBg,
           shape: BoxShape.circle,
         ),
         child: const Icon(
           Icons.auto_awesome_rounded,
-          color: Color(0xFFFB7185),
-          size: 38,
+          color: AppColors.onboardingAccent,
+          size: 28,
         ),
       ),
-      const SizedBox(height: 24),
+      const SizedBox(height: 16),
       Text(
-        _tr('You’re all set!', 'كل شيء جاهز!'),
+        // Part 11's exact specified completion copy.
+        _tr('You’re ready to get started', 'أصبحتِ جاهزة للبدء'),
         textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.displayMedium?.copyWith(
-          color: const Color(0xFF881337),
+        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+          color: AppColors.onboardingPrimaryText,
           fontFamily: AppTypography.serifFamily,
+          fontWeight: FontWeight.w700,
         ),
       ),
-      const SizedBox(height: 10),
+      const SizedBox(height: 8),
       Text(
         _tr(
-          'Your personalized cycle, Fiqh, wellbeing, and privacy experience is ready.',
-          'تجربتكِ المخصصة للدورة والفقه والرفاه والخصوصية جاهزة.',
+          'You can start tracking your cycle, and we’ll learn its pattern '
+              'gradually with every log.',
+          'يمكنكِ البدء بتسجيل دورتكِ، وسنتعرف على نمطها تدريجيًا مع كل '
+              'تسجيل.',
         ),
         textAlign: TextAlign.center,
         style: const TextStyle(
-          color: AppColors.textSecondary,
+          color: AppColors.onboardingSecondaryText,
           fontSize: 12,
-          height: 1.5,
+          height: 1.4,
         ),
       ),
-      const SizedBox(height: 24),
+      const SizedBox(height: 8),
+      Text(
+        _tr('This is what Niswah gives you', 'هذا ما تقدمه لكِ نسوة'),
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: AppColors.onboardingSecondaryText,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.3,
+        ),
+      ),
+      const SizedBox(height: 8),
+      // Onboarding fixes wave (2026-10-11), Part 8/9: the real product
+      // feature registry (kAppFeatures, also used by SignInScreen's own
+      // pre-auth showcase) instead of 4 generic placeholder items — "this
+      // is what Niswah gives you now", not an undersold abstraction.
+      // Compacted (manual QA, 2026-10-11 Part 1B): the completion CTA must
+      // never sit below the fold — this grid was the single biggest
+      // contributor to the screen's height.
       Container(
-        padding: const EdgeInsets.all(22),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFFFF1F2),
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: const Color(0xFFFFE4E6)),
+          color: AppColors.onboardingSelectedBg,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: AppColors.onboardingBorder),
         ),
-        child: Wrap(
-          spacing: 18,
-          runSpacing: 16,
-          children: [
-            _Feature(Icons.auto_awesome_rounded, _tr('Niswah AI', 'نسوة AI')),
-            _Feature(Icons.insights_rounded, _tr('Insights', 'الرؤى')),
-            _Feature(Icons.menu_book_rounded, _tr('Journeys', 'الرحلات')),
-            _Feature(Icons.shield_outlined, _tr('Privacy', 'الخصوصية')),
-          ],
+        child: GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: kAppFeatures.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 3.1,
+          ),
+          itemBuilder: (_, i) {
+            final feature = kAppFeatures[i];
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9),
+              decoration: BoxDecoration(
+                color: AppColors.onboardingSurface,
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: AppColors.onboardingBorder),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: feature.iconColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      feature.icon,
+                      color: feature.iconColor,
+                      size: 12,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(
+                      _tr(feature.labelEn, feature.labelAr),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.onboardingPrimaryText,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
-      if (saveError != null) ...[
-        const SizedBox(height: 20),
+      if (saveError != null || conflictingEpisodeStartDate != null) ...[
+        const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFFFF1F2),
+            color: AppColors.error.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFFECDD3)),
+            border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
           ),
           child: Text(
-            saveError!,
+            // Manual QA wave (2026-10-12): a conflict is a real,
+            // anticipatable situation, not a failure — the message
+            // names the existing episode's own date (never fabricated,
+            // always the RPC's own reconciliation result) so "keep my
+            // existing cycle" below makes sense as a real, informed
+            // choice.
+            conflictingEpisodeStartDate != null
+                ? _tr(
+                    'You already have a cycle being tracked, starting '
+                        '${_formatDate(conflictingEpisodeStartDate!)} — '
+                        "different from the date you just entered. We "
+                        "haven't changed either one.",
+                    'لديكِ بالفعل دورة قيد التتبع بدأت في '
+                        '${_formatDate(conflictingEpisodeStartDate!)} — '
+                        'وهو يختلف عن التاريخ الذي أدخلتِه للتو. لم نغيّر '
+                        'أيًا منهما.',
+                  )
+                : saveError!,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Color(0xFF9F1239),
+              color: AppColors.error,
               fontSize: 12,
               height: 1.5,
             ),
           ),
         ),
       ],
-      const SizedBox(height: 28),
+      const SizedBox(height: 20),
       isBusy
           ? const SizedBox(
               height: 54,
@@ -1892,17 +2406,46 @@ class _Welcome extends StatelessWidget {
               ),
             )
           : _Continue(
-              label: saveError != null
-                  ? _tr('Try again', 'المحاولة مجدداً')
-                  : _tr('Get Started', 'ابدئي'),
-              onPressed: onComplete,
+              // Part 11's exact specified primary action copy. Manual QA
+              // fix round 3 (2026-10-11), Part 3 — explicit product
+              // decision: retry is always the primary action for a
+              // required-data failure, whether or not an identical retry
+              // would succeed. "Go back and review answers" below is
+              // what actually resolves the deterministic case (changing
+              // the answer that's in genuine conflict) — hiding retry
+              // isn't necessary once that real path exists. A genuine
+              // episode conflict (2026-10-12) isn't a failure at all, so
+              // its own primary action is the explicit, informed choice
+              // to keep the existing episode and finish — never a retry
+              // of an identical request that would report the exact
+              // same conflict again.
+              label: conflictingEpisodeStartDate != null
+                  ? _tr(
+                      'Keep my existing cycle and continue',
+                      'الاحتفاظ بدورتي الحالية والمتابعة',
+                    )
+                  : saveError == null
+                  ? _tr('Start tracking', 'ابدئي المتابعة')
+                  : _tr('Try again', 'المحاولة مجدداً'),
+              onPressed: conflictingEpisodeStartDate != null
+                  ? onKeepExistingEpisode
+                  : onComplete,
               strong: true,
             ),
-      if (saveError != null && onSkipSaving != null)
+      // Manual QA fix round 3 (2026-10-11), Part 3: replaces the
+      // previous "Continue without saving this" — deliberately removed
+      // for a required-data failure, since it could let her reach
+      // Dashboard with menstrual data she explicitly provided silently
+      // missing. "Go back and review answers" is a genuine resolution
+      // path instead, not a bypass — offered for a conflict too, so
+      // changing what she entered (instead of keeping the existing
+      // episode) is always available.
+      if ((saveError != null || conflictingEpisodeStartDate != null) &&
+          onReviewAnswers != null)
         TextButton(
-          onPressed: onSkipSaving,
+          onPressed: onReviewAnswers,
           child: Text(
-            _tr('Continue without saving this', 'المتابعة دون حفظ هذا'),
+            _tr('Go back and review your answers', 'العودة ومراجعة الإجابات'),
           ),
         ),
     ],
@@ -1913,13 +2456,17 @@ class _Title extends StatelessWidget {
   const _Title(this.text);
   final String text;
   @override
+  // Onboarding redesign, Part 7: was `displayMedium` (28px) — oversized for
+  // a per-step question heading and visually competing with the content
+  // below it. `headlineMedium` (20px) keeps a clear heading/input
+  // relationship without dominating the screen.
   Widget build(BuildContext context) => Text(
     text,
     textAlign: TextAlign.center,
-    style: Theme.of(context).textTheme.displayMedium?.copyWith(
+    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
       fontFamily: AppTypography.serifFamily,
       fontWeight: FontWeight.w700,
-      color: const Color(0xFF4B3430),
+      color: AppColors.onboardingPrimaryText,
     ),
   );
 }
@@ -1934,21 +2481,53 @@ class _Continue extends StatelessWidget {
   final String label;
   final bool strong;
   @override
-  Widget build(BuildContext context) => FilledButton(
-    onPressed: onPressed,
-    style: FilledButton.styleFrom(
-      minimumSize: const Size.fromHeight(54),
-      backgroundColor: strong
-          ? const Color(0xFFE11D48)
-          : const Color(0xFFFB7185),
-      disabledBackgroundColor: const Color(0xFFF3F4F6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    ),
-    child: Text(
-      label == 'Continue' ? _tr('Continue', 'متابعة') : label,
-      style: const TextStyle(fontWeight: FontWeight.w700),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    final activeColor = strong
+        ? AppColors.onboardingPrimaryText
+        : AppColors.onboardingPrimaryAction;
+    // Manual QA fix (2026-10-11), Part 1A: the enabled state previously
+    // differed from disabled by color alone, which read as "ambiguously
+    // disabled" rather than clearly tappable. A soft colored glow (only
+    // when enabled) plus a touch of real elevation gives it a second,
+    // independent visual cue — never color alone.
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: enabled
+            ? [
+                BoxShadow(
+                  color: activeColor.withValues(alpha: 0.35),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : const [],
+      ),
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(54),
+          backgroundColor: activeColor,
+          disabledBackgroundColor: AppColors.onboardingDisabled,
+          disabledForegroundColor: AppColors.onboardingSecondaryText,
+          elevation: enabled ? 2 : 0,
+          shadowColor: activeColor.withValues(alpha: 0.4),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        child: Text(
+          label == 'Continue' ? _tr('Continue', 'متابعة') : label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: enabled ? Colors.white : null,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SelectCard extends StatelessWidget {
@@ -1979,10 +2558,14 @@ class _SelectCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFFFFF1F2) : Colors.white,
+          color: selected
+              ? AppColors.onboardingSelectedBg
+              : AppColors.onboardingSurface,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: selected ? const Color(0xFFFDA4AF) : AppColors.shadowColor,
+            color: selected
+                ? AppColors.onboardingAccent
+                : AppColors.onboardingBorder,
             width: 2,
           ),
         ),
@@ -2003,8 +2586,8 @@ class _SelectCard extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: selected
-                          ? const Color(0xFF881337)
-                          : AppColors.textSecondary,
+                          ? AppColors.onboardingPrimaryText
+                          : AppColors.onboardingSecondaryText,
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                     ),
@@ -2015,8 +2598,8 @@ class _SelectCard extends StatelessWidget {
                       subtitle,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        color: AppColors.textTertiary,
-                        fontSize: 8,
+                        color: AppColors.onboardingSecondaryText,
+                        fontSize: 11,
                         height: 1.3,
                       ),
                     ),
@@ -2030,40 +2613,13 @@ class _SelectCard extends StatelessWidget {
                 end: 0,
                 child: Icon(
                   Icons.check_rounded,
-                  color: Color(0xFFFB7185),
+                  color: AppColors.onboardingAccent,
                   size: 17,
                 ),
               ),
           ],
         ),
       ),
-    ),
-  );
-}
-
-class _Feature extends StatelessWidget {
-  const _Feature(this.icon, this.label);
-  final IconData icon;
-  final String label;
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 125,
-    child: Row(
-      children: [
-        Icon(icon, color: const Color(0xFFFB7185), size: 17),
-        const SizedBox(width: 7),
-        Flexible(
-          child: Text(
-            label,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF881337),
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
     ),
   );
 }

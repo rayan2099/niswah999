@@ -594,7 +594,28 @@ class BleedingEpisodeRepositoryImpl {
   /// what was recorded the first time). Throws on a genuine failure —
   /// unlike the old best-effort createEpisode/saveBaseline, onboarding
   /// completion must know honestly whether this succeeded (Blocker 3).
-  Future<({String? episodeId, String? baselineId})> recordOnboardingHistory({
+  ///
+  /// Manual QA wave (2026-10-12): [episodeId] can now come back non-null
+  /// alongside [episodeConflict] being false in two different honest
+  /// ways — a freshly-inserted episode, or an *existing* open episode
+  /// the RPC recognized as the same one she just described (same start
+  /// date) and reused rather than rejecting with a uniqueness violation.
+  /// Callers that only care "did my episode answer get recorded" don't
+  /// need to distinguish the two. [episodeConflict] is true only when
+  /// the user already has a *different* open episode (a different start
+  /// date) — in that case [episodeId] is null (nothing was recorded for
+  /// the episode part; the baseline may still have saved) and
+  /// [conflictingEpisodeStartDate] names the existing episode's own
+  /// date, for a real resolution UI rather than a generic failure.
+  Future<
+    ({
+      String? episodeId,
+      String? baselineId,
+      bool episodeConflict,
+      DateTime? conflictingEpisodeStartDate,
+    })
+  >
+  recordOnboardingHistory({
     required String clientOperationId,
     required int utcOffsetMinutes,
     BleedingEpisode? episode,
@@ -634,9 +655,14 @@ class BleedingEpisodeRepositoryImpl {
     );
 
     final row = (response as List).single as Map<String, dynamic>;
+    final conflictingDateRaw = row['conflicting_start_date'] as String?;
     return (
       episodeId: row['episode_id'] as String?,
       baselineId: row['baseline_id'] as String?,
+      episodeConflict: row['episode_conflict'] as bool? ?? false,
+      conflictingEpisodeStartDate: conflictingDateRaw == null
+          ? null
+          : DateTime.parse(conflictingDateRaw),
     );
   }
 

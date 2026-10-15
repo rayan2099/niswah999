@@ -69,10 +69,23 @@ String _formatDuration(Duration d, {required bool arabic}) {
 MadhhabDescription describeMadhhab(Madhhab madhhab) {
   final minimum = MadhhabRuleEvaluator.minimumHaidFor(madhhab);
   final maximum = MadhhabRuleEvaluator.maximumHaidFor(madhhab);
-  final minEn = _formatDuration(minimum, arabic: false);
-  final minAr = _formatDuration(minimum, arabic: true);
   final maxEn = _formatDuration(maximum, arabic: false);
   final maxAr = _formatDuration(maximum, arabic: true);
+
+  // minimum is null only for Maliki (FD-7, 2026-10-15: no time-based
+  // minimum) — rendered as explicit "no minimum" text, never a bare
+  // "0-hour"/"0-day", which would wrongly assert a bound of zero exists.
+  final String shortRuleEn;
+  final String shortRuleAr;
+  if (minimum == null) {
+    shortRuleEn = 'No fixed minimum · $maxEn max';
+    shortRuleAr = 'بلا حد أدنى زمني · حد أقصى $maxAr';
+  } else {
+    final minEn = _formatDuration(minimum, arabic: false);
+    final minAr = _formatDuration(minimum, arabic: true);
+    shortRuleEn = '$minEn min · $maxEn max';
+    shortRuleAr = 'حد أدنى $minAr · حد أقصى $maxAr';
+  }
 
   final names = switch (madhhab) {
     Madhhab.hanafi => ('Hanafi', 'حنفي'),
@@ -99,8 +112,8 @@ MadhhabDescription describeMadhhab(Madhhab madhhab) {
     madhhab: madhhab,
     nameEn: names.$1,
     nameAr: names.$2,
-    shortRuleEn: '$minEn min · $maxEn max',
-    shortRuleAr: 'حد أدنى $minAr · حد أقصى $maxAr',
+    shortRuleEn: shortRuleEn,
+    shortRuleAr: shortRuleAr,
     longNoteEn: longNote.$1,
     longNoteAr: longNote.$2,
   );

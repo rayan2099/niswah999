@@ -13,6 +13,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## Implementation
 
 - [madhhab_resolution_screen.dart](../../lib/features/madhhab_resolution/presentation/madhhab_resolution_screen.dart)
+- [madhhab_resolution_flow.dart](../../lib/features/madhhab_resolution/presentation/widgets/madhhab_resolution_flow.dart)
 
 ## Test navigation hints
 

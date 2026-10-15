@@ -28,7 +28,9 @@ class MadhhabRuleResult {
   });
 
   final FiqhCycleState state;
-  final Duration minimumHaid;
+
+  /// `null` for Maliki — see [MadhhabRuleEvaluator.minimumHaidFor].
+  final Duration? minimumHaid;
   final Duration maximumHaid;
   final Duration minimumPurity;
   final Duration? personalHabit;
@@ -73,18 +75,58 @@ class MadhhabRuleEvaluator {
   /// so UI copy describing each madhhab (e.g. [MadhhabSelector]) derives
   /// from the exact same value the engine itself uses, instead of a
   /// separately hand-typed number that could silently drift from it.
-  static Duration minimumHaidFor(Madhhab madhhab) => switch (madhhab) {
+  ///
+  /// Returns `null` for Maliki — **explicit semantic, not `Duration.zero`**.
+  /// Evidence-based correction, Founder Decision FD-7 (2026-10-15; see
+  /// `FOUNDER_DECISIONS.md` and
+  /// `production-readiness-results/fiqh-engine/ENGINE_TO_KB_ATOM_CROSSWALK.md`):
+  /// the engine previously shared Shafi'i/Hanbali's 24-hour minimum with
+  /// Maliki. The Maliki-specific KB atom for this exact proposition
+  /// (`MLK-HAID-04`, `LOCATOR_VERIFIED`/`PRODUCTION_ELIGIBLE`) states the
+  /// Maliki school recognizes no minimum duration measured by time at
+  /// all for worship rulings — even a single, brief discharge can count
+  /// as Haid — corroborated by independent external sources per FD-7. A
+  /// zero `Duration` would still assert "there is a bound, and it is
+  /// zero"; `null` means "this bound does not exist for this madhhab",
+  /// which is the actual claim. [evaluate] skips the lower-bound check
+  /// entirely when this is `null`, for Maliki only — Hanafi/Shafi'i/
+  /// Hanbali are unaffected.
+  static Duration? minimumHaidFor(Madhhab madhhab) => switch (madhhab) {
     Madhhab.hanafi => const Duration(hours: 72),
-    Madhhab.shafii ||
-    Madhhab.hanbali ||
-    Madhhab.maliki => const Duration(hours: 24),
+    Madhhab.shafii || Madhhab.hanbali => const Duration(hours: 24),
+    Madhhab.maliki => null,
   };
 
   /// The maximum duration of bleeding each madhhab recognizes as Haid.
   /// See [minimumHaidFor] for why this is a named, reusable constant.
+  /// Unaffected by FD-7 — only [minimumHaidFor] (Maliki) and
+  /// [minimumPurityFor] (Hanbali) changed.
   static Duration maximumHaidFor(Madhhab madhhab) => madhhab == Madhhab.hanafi
       ? const Duration(hours: 240)
       : const Duration(days: 15);
+
+  /// The minimum complete purity (tuhr) interval each madhhab requires
+  /// between two menstrual episodes before a later one is recognized as
+  /// its own fresh Haid rather than a resumption of the same one.
+  ///
+  /// Evidence-based correction, Founder Decision FD-7 (2026-10-15): the
+  /// engine previously used one universal 15-day constant for all four
+  /// madhahib. The Hanbali-specific KB atom for this exact proposition
+  /// (`HNB-HAID-06`, `LOCATOR_VERIFIED`/`PRODUCTION_ELIGIBLE`, citing
+  /// Kashshaf al-Qina') states **thirteen days**, not fifteen, for
+  /// Hanbali specifically — corroborated by independent external
+  /// sources per FD-7. Hanafi/Maliki/Shafi'i remain at 15 days; this is
+  /// a Madhhab-specific correction, not a generalized rule change. Only
+  /// Hanafi's branch of [evaluate] currently gates on this value as a
+  /// branch condition (the pre-existing, separately-tracked `FR-003`
+  /// enforcement asymmetry) — this function still returns each
+  /// madhhab's own correct value so that gap, when closed, inherits the
+  /// right number per madhhab instead of a single wrong-for-Hanbali
+  /// constant.
+  static Duration minimumPurityFor(Madhhab madhhab) =>
+      madhhab == Madhhab.hanbali
+          ? const Duration(days: 13)
+          : const Duration(days: 15);
 
   MadhhabRuleResult evaluate({
     required Madhhab madhhab,
@@ -96,7 +138,7 @@ class MadhhabRuleEvaluator {
   }) {
     final minimum = minimumHaidFor(madhhab);
     final maximum = maximumHaidFor(madhhab);
-    const minimumPurity = Duration(days: 15);
+    final minimumPurity = minimumPurityFor(madhhab);
 
     final FiqhCycleState state;
     if (!hasSufficientHistory) {
@@ -107,7 +149,12 @@ class MadhhabRuleEvaluator {
         purityBefore != null &&
         purityBefore < minimumPurity) {
       state = FiqhCycleState.needsAdvisory;
-    } else if (bleedingDuration < minimum || bleedingDuration > maximum) {
+    } else if ((minimum != null && bleedingDuration < minimum) ||
+        bleedingDuration > maximum) {
+      // Maliki has no time-based minimum (minimum == null) — only the
+      // maximum bound can trigger needsAdvisory for Maliki. Hanafi/
+      // Shafi'i/Hanbali are unaffected: their real minimum still gates
+      // exactly as before.
       state = FiqhCycleState.needsAdvisory;
     } else {
       state = FiqhCycleState.haid;

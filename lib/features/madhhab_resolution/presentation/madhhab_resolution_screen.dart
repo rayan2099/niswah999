@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/data/iso_countries.dart';
 import '../../../core/localization/app_locale_controller.dart';
 import '../../../core/preferences/madhhab_controller.dart';
 import '../../../core/theme/app_theme.dart';
@@ -8,7 +7,7 @@ import '../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
     show Madhhab;
 import '../../madhhab/presentation/widgets/madhhab_change_confirmation.dart';
 import '../../madhhab/presentation/widgets/madhhab_selector.dart';
-import '../../onboarding/domain/services/madhhab_suggestion_service.dart';
+import 'widgets/madhhab_resolution_flow.dart';
 
 String _tr(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -61,50 +60,16 @@ Future<bool> showMadhhabResolutionFlow(
   return result ?? false;
 }
 
-enum _Step { intro, knownPicker, confirm, guidedQ1, guidedQ2, guidedResult }
-
-enum _CountryAnswerKind { specific, multiple, unknown, preferNotToSay }
-
-class _CountryAnswer {
-  const _CountryAnswer.specific(this.country)
-    : kind = _CountryAnswerKind.specific;
-  const _CountryAnswer.multiple()
-    : kind = _CountryAnswerKind.multiple,
-      country = null;
-  const _CountryAnswer.unknown()
-    : kind = _CountryAnswerKind.unknown,
-      country = null;
-  const _CountryAnswer.preferNotToSay()
-    : kind = _CountryAnswerKind.preferNotToSay,
-      country = null;
-
-  final _CountryAnswerKind kind;
-  final IsoCountry? country;
-}
-
-enum _GuidedResultKind { single, multiple, insufficient }
-
-class _GuidedResult {
-  const _GuidedResult.single(Madhhab madhhab, this.note)
-    : kind = _GuidedResultKind.single,
-      candidates = const [],
-      _single = madhhab;
-  const _GuidedResult.multiple(this.candidates, this.note)
-    : kind = _GuidedResultKind.multiple,
-      _single = null;
-  const _GuidedResult.insufficient()
-    : kind = _GuidedResultKind.insufficient,
-      candidates = const [],
-      note = null,
-      _single = null;
-
-  final _GuidedResultKind kind;
-  final List<Madhhab> candidates;
-  final String? note;
-  final Madhhab? _single;
-
-  Madhhab get single => _single!;
-}
+// Manual QA wave (2026-10-12): was `{ intro, knownPicker, confirm,
+// guidedQ1, guidedQ2, guidedResult }` — the three guided-flow steps
+// (country, country-restated-as-family, result) were this screen's own
+// duplicate of exactly the country→suggestion/manual sub-flow onboarding
+// already had, right down to asking two separate country questions
+// ("where did you learn your religion" / "what does your family follow")
+// with free-text chips and a confidence-warning dead end before manual
+// selection. Collapsed to one `guided` step rendering the shared
+// `MadhhabResolutionFlow` — the same component onboarding uses.
+enum _Step { intro, knownPicker, confirm, guided }
 
 class MadhhabResolutionScreen extends StatefulWidget {
   const MadhhabResolutionScreen({
@@ -139,11 +104,6 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
   Madhhab? _pendingConfirm;
   String? _selectionSource; // 'direct' | 'suggested_confirmed', see lastConfirmedSelectionSource above.
   _Step _confirmReturnStep = _Step.intro;
-  bool _showingAllSchoolsForManualPick = false;
-
-  _CountryAnswer? _upbringingAnswer;
-  _CountryAnswer? _familyAnswer;
-  _GuidedResult? _guidedResult;
 
   /// The step this screen actually opened on (Section 16: Settings' two
   /// buttons skip the intro's own question, having already answered it by
@@ -157,7 +117,7 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
     _entryStep = switch (widget.start) {
       MadhhabResolutionStart.intro => _Step.intro,
       MadhhabResolutionStart.knownPicker => _Step.knownPicker,
-      MadhhabResolutionStart.guided => _Step.guidedQ1,
+      MadhhabResolutionStart.guided => _Step.guided,
     };
     _step = _entryStep;
   }
@@ -170,10 +130,13 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
   /// could never legitimately fire here — true, but incomplete: it
   /// missed that the LIGHT notice (`unknown -> selected`, confirming a
   /// Madhhab for the first time over real historical logs) legitimately
-  /// fires at exactly this screen, and the direct call silently skipped
-  /// it. Only pops with a result once the change is actually
-  /// confirmed/applied — a cancelled dialog leaves her on this screen to
-  /// reconsider, never incorrectly treated as a completed selection.
+  /// fires at exactly this screen, since this screen is also reached
+  /// post-onboarding (Settings' "Help me choose", the Log-my-Haidh gate),
+  /// where a prior UNKNOWN selection with real historical logs behind it
+  /// can genuinely exist. The direct call silently skipped it. Only pops
+  /// with a result once the change is actually confirmed/applied — a
+  /// cancelled dialog leaves her on this screen to reconsider, never
+  /// incorrectly treated as a completed selection.
   Future<void> _confirmSelection(
     Madhhab madhhab, {
     required String source,
@@ -200,67 +163,6 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
     Navigator.of(context).pop(false);
   }
 
-  _GuidedResult _toGuidedResult(MadhhabSuggestion suggestion) =>
-      suggestion.likelyMadhahib.length == 1
-      ? _GuidedResult.single(
-          suggestion.likelyMadhahib.single,
-          suggestion.regionNote,
-        )
-      : _GuidedResult.multiple(
-          suggestion.likelyMadhahib,
-          suggestion.regionNote,
-        );
-
-  /// Signal hierarchy (Sections 5/9): religious upbringing outranks
-  /// family/community; current residence is never used here at all — it is
-  /// deliberately the weakest signal in the charter's own hierarchy, and
-  /// omitting it entirely trivially guarantees it can never, by itself,
-  /// produce a suggestion (Section 8's Canada/Saudi-Arabia examples).
-  _GuidedResult _resolveGuided() {
-    const service = MadhhabSuggestionService();
-    final upbringing = _upbringingAnswer;
-    if (upbringing?.kind == _CountryAnswerKind.specific) {
-      final suggestion = service.suggest(
-        explicitCountryCode: upbringing!.country!.code,
-      );
-      if (suggestion.isResolved) return _toGuidedResult(suggestion);
-    }
-    final family = _familyAnswer;
-    if (family?.kind == _CountryAnswerKind.specific) {
-      final suggestion = service.suggest(
-        explicitCountryCode: family!.country!.code,
-      );
-      if (suggestion.isResolved) return _toGuidedResult(suggestion);
-    }
-    return const _GuidedResult.insufficient();
-  }
-
-  void _onUpbringingAnswered(_CountryAnswer answer) {
-    setState(() {
-      _upbringingAnswer = answer;
-      if (answer.kind == _CountryAnswerKind.specific) {
-        const service = MadhhabSuggestionService();
-        final suggestion = service.suggest(
-          explicitCountryCode: answer.country!.code,
-        );
-        if (suggestion.isResolved) {
-          _guidedResult = _toGuidedResult(suggestion);
-          _step = _Step.guidedResult;
-          return;
-        }
-      }
-      _step = _Step.guidedQ2;
-    });
-  }
-
-  void _onFamilyAnswered(_CountryAnswer answer) {
-    setState(() {
-      _familyAnswer = answer;
-      _guidedResult = _resolveGuided();
-      _step = _Step.guidedResult;
-    });
-  }
-
   /// Moves back one internal step, called directly by the AppBar's own
   /// back button below — deliberately NOT routed through `Navigator.pop`/
   /// `PopScope`, since a `PopScope(canPop: false)` gate (needed while the
@@ -278,13 +180,9 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
     setState(() {
       _step = switch (_step) {
         _Step.intro => _entryStep,
-        _Step.knownPicker =>
-          _showingAllSchoolsForManualPick ? _Step.guidedResult : _entryStep,
+        _Step.knownPicker => _entryStep,
         _Step.confirm => _confirmReturnStep,
-        _Step.guidedQ1 => _entryStep,
-        _Step.guidedQ2 => _Step.guidedQ1,
-        _Step.guidedResult =>
-          _familyAnswer != null ? _Step.guidedQ2 : _Step.guidedQ1,
+        _Step.guided => _entryStep,
       };
     });
   }
@@ -295,7 +193,13 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
     appBar: AppBar(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      leading: _step == _entryStep
+      // Manual QA wave (2026-10-12): while `_step == _Step.guided`, the
+      // shared `MadhhabResolutionFlow` owns its own internal back
+      // navigation (each of its own internal steps has its own visible
+      // "Back" button) — this screen's single AppBar back arrow would
+      // otherwise be a second, conflicting way to go back from the same
+      // screen.
+      leading: (_step == _entryStep || _step == _Step.guided)
           ? null
           : BackButton(onPressed: _goBackOneStep),
     ),
@@ -314,23 +218,11 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
       case _Step.intro:
         return _IntroStep(
           entryContext: widget.entryContext,
-          onKnowsMadhhab: () => setState(() {
-            _showingAllSchoolsForManualPick = false;
-            _step = _Step.knownPicker;
-          }),
-          onNeedsHelp: () => setState(() => _step = _Step.guidedQ1),
+          onKnowsMadhhab: () => setState(() => _step = _Step.knownPicker),
+          onNeedsHelp: () => setState(() => _step = _Step.guided),
         );
       case _Step.knownPicker:
         return _KnownPickerStep(
-          // Only non-null when this picker was reached via "Show other
-          // schools" from a resolved single-candidate guided suggestion —
-          // Requirement 6's "suggested based on your country" badge,
-          // never a pre-selection.
-          suggested:
-              _showingAllSchoolsForManualPick &&
-                  _guidedResult?.kind == _GuidedResultKind.single
-              ? _guidedResult!.single
-              : null,
           onSelected: (madhhab) => setState(() {
             _pendingConfirm = madhhab;
             _selectionSource = 'direct';
@@ -348,44 +240,29 @@ class _MadhhabResolutionScreenState extends State<MadhhabResolutionScreen> {
           ),
           onBack: () => setState(() => _step = _confirmReturnStep),
         );
-      case _Step.guidedQ1:
-        return _CountryQuestionStep(
-          title: _tr(
-            'Where did you learn most of your religious practice?',
-            'أين تعلّمتِ أغلب أحكامك الدينية؟',
-          ),
-          onAnswered: _onUpbringingAnswered,
-          onBack: () => setState(() => _step = _Step.intro),
-        );
-      case _Step.guidedQ2:
-        return _CountryQuestionStep(
-          title: _tr(
-            'What country or community does your family mostly follow in religious matters?',
-            'ما البلد أو المجتمع الذي تتبع عائلتك غالباً في أمور الدين؟',
-          ),
-          onAnswered: _onFamilyAnswered,
-          onBack: () => setState(() => _step = _Step.guidedQ1),
-        );
-      case _Step.guidedResult:
-        // Section 11's own "Yes, use X" action on a suggestion IS the
-        // explicit confirmation itself — routing it through the generic
-        // _ConfirmStep as well would ask the exact same question twice in
-        // a row with identical wording. That second screen is reserved for
-        // the *direct* manual-pick path (Section 3), which genuinely needs
-        // its own separate confirmation step.
-        return _GuidedResultStep(
-          result: _guidedResult!,
-          onUseSingle: () => _confirmSelection(
-            _guidedResult!.single,
-            source: 'suggested_confirmed',
-          ),
-          onUseCandidate: (madhhab) =>
-              _confirmSelection(madhhab, source: 'suggested_confirmed'),
-          onShowOtherSchools: () => setState(() {
-            _showingAllSchoolsForManualPick = true;
-            _step = _Step.knownPicker;
-          }),
-          onStillNotSure: _stillNotSure,
+      case _Step.guided:
+        // Manual QA wave (2026-10-12): the Required Fix's "one shared
+        // Madhhab recommendation/change flow everywhere" — the exact
+        // same `MadhhabResolutionFlow` onboarding uses, not a parallel
+        // copy. Persistence stays context-specific: this screen's own
+        // `_confirmSelection`/`_stillNotSure` (pop-with-result,
+        // `lastConfirmedSelectionSource` for tests) route the result
+        // through `setMadhhabWithConfirmation`, so Requirement 2's light/
+        // full notices still fire here exactly as they would from
+        // Settings' own direct grid — see `_confirmSelection`'s own doc
+        // comment above.
+        return MadhhabResolutionFlow(
+          // Preserves the pre-unification distinction: 'suggested_confirmed'
+          // only for an actual confirmed geographic suggestion, 'direct'
+          // for a manual pick from the fallback grid — no suggestion was
+          // ever shown to confirm in that case.
+          onSelectMadhhab: (madhhab, {required viaSuggestion}) =>
+              _confirmSelection(
+                madhhab,
+                source: viaSuggestion ? 'suggested_confirmed' : 'direct',
+              ),
+          onSelectUnknown: _stillNotSure,
+          onExitFirstStep: () => setState(() => _step = _entryStep),
         );
     }
   }
@@ -443,14 +320,9 @@ class _IntroStep extends StatelessWidget {
 }
 
 class _KnownPickerStep extends StatelessWidget {
-  const _KnownPickerStep({
-    required this.onSelected,
-    required this.onStillNotSure,
-    this.suggested,
-  });
+  const _KnownPickerStep({required this.onSelected, required this.onStillNotSure});
   final ValueChanged<Madhhab> onSelected;
   final VoidCallback onStillNotSure;
-  final Madhhab? suggested;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -466,7 +338,6 @@ class _KnownPickerStep extends StatelessWidget {
       MadhhabSelector(
         state: MadhhabSelectionState.unset,
         selected: null,
-        suggested: suggested,
         onSelectMadhhab: onSelected,
         onSelectUnknown: onStillNotSure,
       ),
@@ -512,230 +383,6 @@ class _ConfirmStep extends StatelessWidget {
         _SecondaryButton(label: _tr('Back', 'العودة'), onPressed: onBack),
       ],
     );
-  }
-}
-
-class _CountryQuestionStep extends StatefulWidget {
-  const _CountryQuestionStep({
-    required this.title,
-    required this.onAnswered,
-    required this.onBack,
-  });
-  final String title;
-  final ValueChanged<_CountryAnswer> onAnswered;
-  final VoidCallback onBack;
-
-  @override
-  State<_CountryQuestionStep> createState() => _CountryQuestionStepState();
-}
-
-class _CountryQuestionStepState extends State<_CountryQuestionStep> {
-  final _searchController = TextEditingController();
-  String _query = '';
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final arabic = AppLocaleController.instance.isArabic;
-    final filtered = _query.trim().isEmpty
-        ? kIsoCountries
-        : kIsoCountries
-              .where(
-                (c) =>
-                    c.nameEn.toLowerCase().contains(
-                      _query.trim().toLowerCase(),
-                    ) ||
-                    c.nameAr.contains(_query.trim()),
-              )
-              .toList();
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _Title(widget.title),
-        const SizedBox(height: 18),
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ActionChip(
-              label: Text(
-                _tr('Lived in more than one country', 'عشت في أكثر من دولة'),
-              ),
-              onPressed: () =>
-                  widget.onAnswered(const _CountryAnswer.multiple()),
-            ),
-            ActionChip(
-              label: Text(_tr("I don't know", 'لا أعرف')),
-              onPressed: () =>
-                  widget.onAnswered(const _CountryAnswer.unknown()),
-            ),
-            ActionChip(
-              label: Text(_tr('Prefer not to say', 'أفضل عدم الإجابة')),
-              onPressed: () =>
-                  widget.onAnswered(const _CountryAnswer.preferNotToSay()),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        TextField(
-          controller: _searchController,
-          decoration: InputDecoration(
-            hintText: _tr('Search for a country', 'ابحثي عن دولة'),
-            prefixIcon: const Icon(Icons.search),
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
-          ),
-          onChanged: (value) => setState(() => _query = value),
-        ),
-        const SizedBox(height: 12),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 320),
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: filtered.length,
-            itemBuilder: (_, index) {
-              final country = filtered[index];
-              return ListTile(
-                title: Text(arabic ? country.nameAr : country.nameEn),
-                onTap: () =>
-                    widget.onAnswered(_CountryAnswer.specific(country)),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 10),
-        _SecondaryButton(label: _tr('Back', 'رجوع'), onPressed: widget.onBack),
-      ],
-    );
-  }
-}
-
-class _GuidedResultStep extends StatelessWidget {
-  const _GuidedResultStep({
-    required this.result,
-    required this.onUseSingle,
-    required this.onUseCandidate,
-    required this.onShowOtherSchools,
-    required this.onStillNotSure,
-  });
-  final _GuidedResult result;
-  final VoidCallback onUseSingle;
-  final ValueChanged<Madhhab> onUseCandidate;
-  final VoidCallback onShowOtherSchools;
-  final VoidCallback onStillNotSure;
-
-  static String _name(Madhhab m) => switch (m) {
-    Madhhab.hanafi => _tr('Hanafi', 'الحنفي'),
-    Madhhab.maliki => _tr('Maliki', 'المالكي'),
-    Madhhab.shafii => _tr("Shafi'i", 'الشافعي'),
-    Madhhab.hanbali => _tr('Hanbali', 'الحنبلي'),
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    switch (result.kind) {
-      case _GuidedResultKind.single:
-        final name = _name(result.single);
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _Title(
-              _tr(
-                'The $name school may be closest to the religious '
-                    'environment you described.',
-                'قد يكون المذهب $name الأقرب للبيئة الدينية التي نشأتِ فيها.',
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _tr(
-                'This is only a suggestion — nothing is set until you '
-                    'choose it yourself.',
-                'هذا اقتراح فقط ولن نعتمد أي مذهب إلا بعد اختياركِ.',
-              ),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 22),
-            _PrimaryButton(
-              label: _tr('Yes, use $name', 'نعم، استخدمي المذهب $name'),
-              onPressed: onUseSingle,
-            ),
-            const SizedBox(height: 10),
-            _SecondaryButton(
-              label: _tr('Show other schools', 'عرض المذاهب الأخرى'),
-              onPressed: onShowOtherSchools,
-            ),
-            const SizedBox(height: 4),
-            TextButton(
-              onPressed: onStillNotSure,
-              child: Text(_tr('Still not sure', 'ما زلت غير متأكدة')),
-            ),
-          ],
-        );
-      case _GuidedResultKind.multiple:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _Title(
-              _tr(
-                'More than one school is common in the environment you '
-                    'described.',
-                'أكثر من مذهب شائع في البيئة التي وصفتِها.',
-              ),
-            ),
-            const SizedBox(height: 18),
-            for (final candidate in result.candidates) ...[
-              _ChoiceCard(
-                label: _name(candidate),
-                onTap: () => onUseCandidate(candidate),
-              ),
-              const SizedBox(height: 10),
-            ],
-            TextButton(
-              onPressed: onStillNotSure,
-              child: Text(_tr('Still not sure', 'ما زلت غير متأكدة')),
-            ),
-          ],
-        );
-      case _GuidedResultKind.insufficient:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _Title(
-              _tr(
-                "The current information isn't enough for a confident "
-                    'suggestion, and that\'s alright.',
-                'المعلومات الحالية لا تكفي لاقتراح مذهب بثقة، وهذا طبيعي.',
-              ),
-            ),
-            const SizedBox(height: 22),
-            _PrimaryButton(
-              label: _tr('Choose manually', 'اختيار المذهب يدوياً'),
-              onPressed: onShowOtherSchools,
-            ),
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: onStillNotSure,
-              child: Text(_tr('Still not sure', 'ما زلت غير متأكدة')),
-            ),
-          ],
-        );
-    }
   }
 }
 
@@ -796,32 +443,3 @@ class _SecondaryButton extends StatelessWidget {
   );
 }
 
-class _ChoiceCard extends StatelessWidget {
-  const _ChoiceCard({required this.label, required this.onTap});
-  final String label;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: label,
-    excludeSemantics: true,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.shadowColor),
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-    ),
-  );
-}

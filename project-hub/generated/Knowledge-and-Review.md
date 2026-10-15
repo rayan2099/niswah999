@@ -16,8 +16,14 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## production-readiness-results/fiqh-engine
 
+- [ENGINE_TO_KB_ATOM_CROSSWALK.md](../../production-readiness-results/fiqh-engine/ENGINE_TO_KB_ATOM_CROSSWALK.md)
 - [FIQH_AICTX_discovery.md](../../production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md)
 - [FIQH_AICTX_findings.md](../../production-readiness-results/fiqh-engine/FIQH_AICTX_findings.md)
+- [GEOGRAPHIC_MADHHAB_FOCUSED_QA_BATCH.csv](../../production-readiness-results/fiqh-engine/GEOGRAPHIC_MADHHAB_FOCUSED_QA_BATCH.csv)
+- [GEOGRAPHIC_MADHHAB_HIGH_CONFIDENCE_REVIEW_BATCH.csv](../../production-readiness-results/fiqh-engine/GEOGRAPHIC_MADHHAB_HIGH_CONFIDENCE_REVIEW_BATCH.csv)
+- [GEOGRAPHIC_MADHHAB_RESEARCH_REPORT.csv](../../production-readiness-results/fiqh-engine/GEOGRAPHIC_MADHHAB_RESEARCH_REPORT.csv)
+- [GEOGRAPHIC_MADHHAB_SCHOLAR_REVIEW_PACKET.csv](../../production-readiness-results/fiqh-engine/GEOGRAPHIC_MADHHAB_SCHOLAR_REVIEW_PACKET.csv)
+- [GEOGRAPHIC_MADHHAB_SCHOLAR_REVIEW_PACKET.md](../../production-readiness-results/fiqh-engine/GEOGRAPHIC_MADHHAB_SCHOLAR_REVIEW_PACKET.md)
 - [SCHOLAR_REVIEW_PACKAGE.md](../../production-readiness-results/fiqh-engine/SCHOLAR_REVIEW_PACKAGE.md)
 - [fiqh_rule_source_matrix.md](../../production-readiness-results/fiqh-engine/fiqh_rule_source_matrix.md)
 - [fiqh_source_registry.json](../../production-readiness-results/fiqh-engine/fiqh_source_registry.json)

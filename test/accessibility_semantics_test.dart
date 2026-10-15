@@ -667,32 +667,70 @@ void main() {
         await tester.tap(find.text('Help me choose'));
         await tester.pumpAndSettle();
 
-        // Country input step: the text field has a real accessible hint
-        // (not silence) — its own placeholder question is rendered as
-        // real, findable text, not a purely visual-only cue.
-        expect(find.text('Which country do you live in?'), findsOneWidget);
+        // Country input step (Manual QA wave, 2026-10-12): the current
+        // upbringing-country question, replacing the old free-text
+        // residence question. The question itself is real, findable
+        // text, and the tappable "Select country" summary that opens the
+        // searchable picker is itself a real, actionable control — a
+        // genuine semantics tap action, not a silent/visual-only target.
+        expect(
+          find.text(
+            'Which country did you grow up in for most of your childhood?',
+          ),
+          findsOneWidget,
+        );
+        final selectCountryFinder = find.bySemanticsLabel('Select country');
+        expect(selectCountryFinder, findsOneWidget);
+        expect(
+          tester
+              .getSemantics(selectCountryFinder)
+              .getSemanticsData()
+              .hasAction(SemanticsAction.tap),
+          isTrue,
+          reason: 'the country-picker trigger must be reachable as a '
+              'real, actionable control',
+        );
+
+        await tester.tap(find.text('Select country'));
+        await tester.pumpAndSettle();
+
+        // Inside the modal picker: the search field has a real
+        // accessible hint, not silence.
+        expect(find.text('Search for a country'), findsOneWidget);
 
         await tester.enterText(find.byType(TextField), 'Saudi Arabia');
         await tester.pump();
+        await tester.tap(find.widgetWithText(ListTile, 'Saudi Arabia'));
+        await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Continue'));
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
-        // Saudi Arabia is in the draft mapping but NOT_REVIEWED, so the
-        // trust gate (adversarial review, 2026-10-07) means this lands
-        // on the "insufficient" state, not a confident suggestion — its
-        // own two controls (Try again / I'll decide later) must be just
-        // as real, distinct, labeled, and actionable as the suggestion
-        // step's controls would have been — never a bare "button" with
-        // no context.
-        final tryAgainFinder = find.bySemanticsLabel('Try again');
-        expect(tryAgainFinder, findsOneWidget);
+        // Saudi Arabia is now SOURCE_VERIFIED (Knowledge-Base
+        // Source-Verification wave, 2026-10-14), so this lands on the
+        // real suggestion step — its three controls (accept the
+        // suggestion, choose another Madhhab, decline/"I still don't
+        // know") must each be just as real, distinct, labeled, and
+        // actionable as any other control in this flow.
+        final acceptFinder = find.bySemanticsLabel('Use Hanbali');
+        expect(acceptFinder, findsOneWidget);
         expect(
-          tester.getSemantics(tryAgainFinder).hasFlag(SemanticsFlag.isButton),
+          tester.getSemantics(acceptFinder).hasFlag(SemanticsFlag.isButton),
           isTrue,
         );
 
-        final declineFinder = find.bySemanticsLabel("I'll decide later");
+        final chooseAnotherFinder = find.bySemanticsLabel(
+          'Choose another Madhhab',
+        );
+        expect(chooseAnotherFinder, findsOneWidget);
+        expect(
+          tester
+              .getSemantics(chooseAnotherFinder)
+              .hasFlag(SemanticsFlag.isButton),
+          isTrue,
+        );
+
+        final declineFinder = find.bySemanticsLabel("I still don't know");
         expect(declineFinder, findsOneWidget);
         expect(
           tester.getSemantics(declineFinder).hasFlag(SemanticsFlag.isButton),

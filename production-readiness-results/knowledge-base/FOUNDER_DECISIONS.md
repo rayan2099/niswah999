@@ -294,3 +294,81 @@ FD-3 do not yet.
   did) — it is runtime authoritative answers specifically that must
   originate from the canonical production KB and its approved disposition
   state, never a live, unreviewed web search at answer time.
+
+## FD-7 — Evidence-based governance for engine-rule corrections (narrow exception, not a general scholar-review waiver)
+
+- **What changed**: the launch-readiness audit (2026-10-15) built a
+  crosswalk (`production-readiness-results/fiqh-engine/ENGINE_TO_KB_ATOM_CROSSWALK.md`)
+  matching `MadhhabRuleEvaluator`'s 12 hardcoded Haid/purity thresholds
+  against the 180-atom KB evidence set and found 2 genuine discrepancies
+  where the engine's hardcoded value contradicted the KB's own
+  `LOCATOR_VERIFIED`/`PRODUCTION_ELIGIBLE` evidence for the identical
+  proposition:
+  1. **Maliki minimum Haid duration**: the engine enforced a 24-hour
+     minimum (sharing Shafi'i/Hanbali's code branch); atom `MLK-HAID-04`
+     states the Maliki school recognizes no time-based minimum at all
+     for worship rulings.
+  2. **Hanbali minimum purity (tuhr) between two menses**: the engine
+     used one universal 15-day constant for all four madhahib; atom
+     `HNB-HAID-06` (citing Kashshaf al-Qina') states thirteen days for
+     Hanbali specifically.
+- **Basis for correcting these without first commissioning scholar
+  review**: (a) the internal KB crosswalk identified both conflicts from
+  evidence the KB system already treats as eligible; (b) external
+  evidence independently corroborates both corrected values (Maliki's
+  no-time-minimum position; Hanbali's 13-day minimum tuhr) — asserted by
+  the founder as the basis for this decision, not independently
+  re-verified against a primary text by this session, consistent with
+  every other entry in this file never claiming scholarly authority for
+  itself; (c) both corrections are Madhhab-specific — scoped to exactly
+  the one madhhab each applies to, with regression tests proving the
+  other three madhahib are unaffected.
+- **General policy this decision establishes** (for future corrections of
+  the same kind, not only these two): an evidence-backed correction to an
+  existing hardcoded engine rule **may ship without first commissioning
+  qualified-scholar review when all of the following hold**:
+  1. The correction is identified via a documented crosswalk against the
+     KB's own evidence set (not an ad hoc or unsourced change).
+  2. At least two independent, reputable external sources corroborate the
+     corrected value.
+  3. The correction is Madhhab-specific — it changes behavior only for
+     the madhhab(s) the evidence actually concerns, never generalized
+     across madhahib.
+  4. The correction is covered by explicit boundary/regression tests
+     proving both the new behavior and that no other madhhab inherited
+     it.
+  This does **not** waive scholar review for the engine's thresholds in
+  general — it is a narrow mechanism for closing a specific,
+  evidence-identified engine/KB contradiction quickly and transparently,
+  not a blanket exemption. The broader open question (Section 4/8 of
+  `DEFINITION_OF_DONE_BEFORE_LAUNCH.md`: whether `MadhhabRuleEvaluator`'s
+  thresholds as a whole may ship without scholar review) remains
+  `BLOCKED` and is unaffected by this decision — the 10 other hardcoded
+  values this crosswalk confirmed (not contradicted, just not yet
+  scholar-reviewed) still carry no such waiver.
+- **Current implementation state**: implemented in code this session —
+  `MadhhabRuleEvaluator.minimumHaidFor` returns `Duration?` (`null` for
+  Maliki, an explicit "this bound does not exist" semantic, never
+  `Duration.zero`); `MadhhabRuleEvaluator.minimumPurityFor` is now
+  per-madhhab (13 days for Hanbali, 15 for the other three). Every call
+  site (`evaluate()`, `CycleStatusEngine`, `describeMadhhab()`'s
+  user-facing short-rule text) was updated and tested.
+- **Risks**: a real behavior change for live classification — a Maliki
+  user with under-24-hours bleeding is now classified `haid` instead of
+  `needsAdvisory`. If the asserted external corroboration is later found
+  wrong, this is a real user-facing correctness regression in the
+  other direction. Scoped tightly (Madhhab-specific, test-covered) to
+  limit blast radius if so.
+- **Available choices**: (a) accept both corrections as implemented
+  (chosen), (b) revert either pending formal scholar review regardless
+  of the evidence basis, (c) accept the general policy above for future
+  cases but require founder sign-off per instance rather than a standing
+  policy.
+- **Code dependency**: **yes** — implemented and tested this session;
+  see `lib/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart`,
+  `test/services/multi_madhhab_engine_test.dart` ("FD-7" group),
+  `test/madhhab_descriptions_test.dart`.
+- **Status: `FOUNDER_APPROVED` (2026-10-15).** Both named corrections are
+  approved and implemented. The general 4-condition policy above is
+  approved for future use. Scholar review of the engine's thresholds as a
+  whole remains a separate, open, `BLOCKED` item.

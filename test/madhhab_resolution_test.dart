@@ -17,6 +17,8 @@ import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_eval
 import 'package:niswah/features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import 'package:niswah/features/cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
 import 'package:niswah/features/madhhab_resolution/presentation/madhhab_resolution_screen.dart';
+import 'package:niswah/features/madhhab_resolution/presentation/widgets/madhhab_resolution_flow.dart';
+import 'package:niswah/features/onboarding/domain/services/madhhab_suggestion_service.dart';
 
 Widget _harness(Widget Function(BuildContext) builder) => MaterialApp(
   home: Scaffold(body: Builder(builder: builder)),
@@ -39,6 +41,35 @@ Future<void> _openResolver(
     ),
   );
   await tester.tap(find.text('open'));
+  await tester.pumpAndSettle();
+}
+
+/// Walks "I don't know — help me" through the shared flow's country
+/// question, opens the modal picker, searches, and taps the match.
+Future<void> pickUpbringingCountry(
+  WidgetTester tester,
+  String query,
+  String matchText,
+) async {
+  await tester.tap(find.text("I don't know — help me"));
+  await tester.pumpAndSettle();
+  expect(
+    find.text(
+      'Which country did you grow up in for most of your childhood?',
+    ),
+    findsOneWidget,
+    reason:
+        'the old "Where did you learn most of your religious '
+        'practice?" / two-question chip flow must be gone — this is '
+        'the exact same upbringing-country question onboarding asks',
+  );
+  await tester.tap(find.text('Select country'));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byType(TextField), query);
+  await tester.pump();
+  await tester.tap(find.widgetWithText(ListTile, matchText));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Continue'));
   await tester.pumpAndSettle();
 }
 
@@ -321,21 +352,12 @@ void main() {
           await MadhhabController.instance.selectUnknown();
           await _openResolver(tester);
 
-          await tester.tap(find.text("I don't know — help me"));
-          await tester.pumpAndSettle();
-          await tester.enterText(find.byType(TextField), 'Japan');
-          await tester.pumpAndSettle();
-          await tester.tap(find.widgetWithText(ListTile, 'Japan'));
-          await tester.pumpAndSettle();
-          await tester.enterText(find.byType(TextField), 'Japan');
-          await tester.pumpAndSettle();
-          await tester.tap(find.widgetWithText(ListTile, 'Japan'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Choose manually'));
-          await tester.pumpAndSettle();
-          await tester.pageBack();
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Still not sure'));
+          await pickUpbringingCountry(tester, 'Japan', 'Japan');
+          // Japan is unmapped, so this lands on the manual grid (Resolution-
+          // flow unification wave, 2026-10-12) — its own "I don't know" tile
+          // is this UI's equivalent of the old screen's "Still not sure".
+          expect(find.text('Choose the Madhhab you follow'), findsOneWidget);
+          await tester.tap(find.text("I don't know"));
           await tester.pumpAndSettle();
 
           expect(
@@ -349,49 +371,41 @@ void main() {
     },
   );
 
-  group('Guided selection (Sections 4-13)', () {
+  group('Guided selection — now the shared MadhhabResolutionFlow (manual '
+      'QA wave, 2026-10-12)', () {
     testWidgets(
-      // Adversarial review, 2026-10-07: Saudi Arabia used to be a
-      // single-candidate (Hanbali) confident match. It is now gated
-      // behind reviewer_status == 'APPROVED' (madhhab_suggestion_service
-      // .dart), which no entry in the dataset has — so it now lands on
-      // the same "insufficient" manual-picker path as an unmapped
-      // country, exactly as the trust rule requires: an unreviewed
-      // mapping is never presented as a normal recommendation, and
-      // manual selection (via the shared MadhhabSelector) always stays
-      // reachable, onboarding/resolution never blocked.
-      'a country the dataset covers but has not been reviewer-approved '
-      '(Saudi Arabia) falls through to the manual picker, not a '
-      'confident suggestion',
+      // Knowledge-Base Source-Verification wave (2026-10-14): Saudi
+      // Arabia's entry is now genuinely SOURCE_VERIFIED (a real,
+      // directly-fetched US State Dept report explicitly ties Saudi
+      // Arabia's legal system to the Hanbali school) — this replaces the
+      // old "every country lands on manual selection because nothing is
+      // reviewed" test, since that premise is no longer true for this
+      // specific country. The old dead-end "المعلومات الحالية لا
+      // تكفي..." message and its "Choose manually" button remain gone
+      // either way.
+      'Saudi Arabia: SOURCE_VERIFIED -> the real suggestion step, not '
+      'manual selection',
       (tester) async {
         await MadhhabController.instance.load();
         await _openResolver(tester);
-
-        await tester.tap(find.text("I don't know — help me"));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField), 'Saudi Arabia');
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, 'Saudi Arabia'));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField), 'Saudi Arabia');
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, 'Saudi Arabia'));
-        await tester.pumpAndSettle();
+        await pickUpbringingCountry(tester, 'Saudi Arabia', 'Saudi Arabia');
 
         expect(
-          find.textContaining("isn't enough for a confident"),
+          find.text(
+            'Based on the country where you grew up, Hanbali may be '
+            'the closest fit.',
+          ),
           findsOneWidget,
         );
+        expect(find.text('Choose the Madhhab you follow'), findsNothing);
         expect(
           MadhhabController.instance.state,
           isNot(MadhhabSelectionState.selected),
+          reason: 'a suggestion is shown, but nothing is persisted until '
+              'she explicitly confirms it',
         );
 
-        await tester.tap(find.text('Choose manually'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Hanbali'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Yes, use Hanbali'));
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Use Hanbali'));
         await tester.pumpAndSettle();
 
         expect(
@@ -401,49 +415,83 @@ void main() {
         expect(MadhhabController.instance.selectedOrNull, Madhhab.hanbali);
         expect(
           MadhhabResolutionScreen.lastConfirmedSelectionSource,
-          'direct',
-          reason:
-              'a manual pick from the fallback picker is "direct", never '
-              '"suggested_confirmed" — no suggestion was ever actually '
-              'shown for her to confirm',
+          'suggested_confirmed',
+          reason: 'confirming a shown suggestion is "suggested_confirmed", '
+              'distinct from a manual pick ("direct")',
         );
       },
     );
 
     testWidgets(
-      // Egypt used to be a multi-candidate confident match (Shafi'i/
-      // Hanafi/Maliki) — same gate, same reasoning as Saudi Arabia above.
-      'a country that would have been multi-candidate (Egypt) also falls '
-      'through to the manual picker, not a pre-filtered options list',
+      // Madhhab unification (2026-10-12): the in-app Profile/Settings
+      // change screen's guided step must literally render the same
+      // MadhhabResolutionFlow widget onboarding renders — not a
+      // lookalike reimplementation. This is the structural half of
+      // acceptance item 2 ("Profile/Settings change uses same flow");
+      // the behavioral half is covered by the Saudi Arabia/Afghanistan/
+      // Egypt/Japan tests in this group.
+      '"I don\'t know — help me" renders the shared MadhhabResolutionFlow '
+      'widget, not a separate resolution-screen-only implementation',
       (tester) async {
         await MadhhabController.instance.load();
         await _openResolver(tester);
 
         await tester.tap(find.text("I don't know — help me"));
         await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField), 'Egypt');
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, 'Egypt'));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField), 'Egypt');
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, 'Egypt'));
-        await tester.pumpAndSettle();
 
         expect(
-          find.textContaining("isn't enough for a confident"),
+          find.byType(MadhhabResolutionFlow),
           findsOneWidget,
+          reason:
+              'the in-app resolution screen must delegate to the shared '
+              'MadhhabResolutionFlow component rather than maintaining '
+              'its own duplicate inference/UX path',
         );
-        expect(
-          MadhhabController.instance.state,
-          isNot(MadhhabSelectionState.selected),
-        );
+      },
+    );
 
-        await tester.tap(find.text('Choose manually'));
-        await tester.pumpAndSettle();
+    testWidgets('Afghanistan: SOURCE_VERIFIED -> the real Hanafi '
+        'suggestion, no crash, no blocked flow', (tester) async {
+      await MadhhabController.instance.load();
+      await _openResolver(tester);
+      await pickUpbringingCountry(tester, 'Afghanistan', 'Afghanistan');
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(
+          'Based on the country where you grew up, Hanafi may be '
+          'the closest fit.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Use Hanafi'));
+      await tester.pumpAndSettle();
+
+      expect(MadhhabController.instance.selectedOrNull, Madhhab.hanafi);
+      expect(
+        MadhhabResolutionScreen.lastConfirmedSelectionSource,
+        'suggested_confirmed',
+      );
+    });
+
+    testWidgets(
+      // Syria stays UNVERIFIED after real research (see its review_notes
+      // in geographic_madhhab_mapping.json) despite being a multi-madhhab
+      // country_level entry — a deliberate choice for this specific test,
+      // which exists to prove multi-candidate countries aren't somehow
+      // pre-filtered down to one option when they DO land on manual
+      // selection, not to prove Syria itself is unresolved (that's
+      // covered at the service level).
+      'a multi-candidate country that stays UNVERIFIED (Syria) lands on '
+      'the full manual grid, not a pre-filtered options list',
+      (tester) async {
+        await MadhhabController.instance.load();
+        await _openResolver(tester);
+        await pickUpbringingCountry(tester, 'Syria', 'Syria');
+
+        expect(find.text('Choose the Madhhab you follow'), findsOneWidget);
         await tester.tap(find.text('Maliki'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Yes, use Maliki'));
         await tester.pumpAndSettle();
 
         expect(MadhhabController.instance.selectedOrNull, Madhhab.maliki);
@@ -451,126 +499,307 @@ void main() {
       },
     );
 
-    testWidgets(
-      'unsupported country: insufficient evidence, no arbitrary Madhhab assigned',
-      (tester) async {
-        await MadhhabController.instance.load();
-        await _openResolver(tester);
-
-        await tester.tap(find.text("I don't know — help me"));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField), 'Japan');
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, 'Japan'));
-        await tester.pumpAndSettle();
-        // Q2 (family/community) — also answer with an unsupported country.
-        await tester.enterText(find.byType(TextField), 'Japan');
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, 'Japan'));
-        await tester.pumpAndSettle();
-
-        expect(
-          find.textContaining("isn't enough for a confident"),
-          findsOneWidget,
-        );
-        expect(MadhhabController.instance.selectedOrNull, isNull);
-      },
-    );
-
-    testWidgets('Canada case: residence alone never assigns a Madhhab', (
-      tester,
-    ) async {
+    testWidgets('an unsupported/unmapped country (Japan) also lands on manual '
+        'selection, no arbitrary Madhhab assigned', (tester) async {
       await MadhhabController.instance.load();
       await _openResolver(tester);
+      await pickUpbringingCountry(tester, 'Japan', 'Japan');
 
-      await tester.tap(find.text("I don't know — help me"));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Canada');
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ListTile, 'Canada'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Canada');
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ListTile, 'Canada'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.textContaining("isn't enough for a confident"),
-        findsOneWidget,
-        reason:
-            'Canada is not in the reviewed mapping — must never '
-            'produce a guessed suggestion',
-      );
+      expect(find.text('Choose the Madhhab you follow'), findsOneWidget);
       expect(MadhhabController.instance.selectedOrNull, isNull);
     });
 
-    testWidgets(
-      // Egypt is no longer a useful "the family signal resolved"
-      // fixture post-gate (it's gated too, same as every entry) — the
-      // signal-hierarchy logic itself (try upbringing, fall back to
-      // family) is still exercised and still verifiably reached for
-      // both questions; the end state is now uniformly "insufficient",
-      // matching the trust rule applied consistently.
-      'conflicting signals: upbringing (Canada, unmapped) then family '
-      '(Egypt, mapped but unreviewed) — both questions are genuinely '
-      'asked and both still land on "insufficient", never a guess',
-      (tester) async {
-        await MadhhabController.instance.load();
-        await _openResolver(tester);
-
-        await tester.tap(find.text("I don't know — help me"));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField), 'Canada');
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, 'Canada'));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField), 'Egypt');
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, 'Egypt'));
-        await tester.pumpAndSettle();
-
-        expect(
-          find.textContaining("isn't enough for a confident"),
-          findsOneWidget,
-          reason:
-              'both the upbringing (Canada) and family (Egypt) signals '
-              'were consulted — confirmed by this screen actually asking '
-              'both questions in sequence above — and neither produces a '
-              'displayed suggestion',
-        );
-        expect(MadhhabController.instance.selectedOrNull, isNull);
-      },
-    );
-
-    testWidgets('still not sure: retains UNKNOWN, never persists a Madhhab', (
-      tester,
-    ) async {
+    testWidgets("choosing \"I don't know\" from the manual selector persists "
+        'UNKNOWN correctly, never a guessed Madhhab', (tester) async {
       await MadhhabController.instance.load();
       await _openResolver(tester);
+      await pickUpbringingCountry(tester, 'Japan', 'Japan');
 
-      await tester.tap(find.text("I don't know — help me"));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Japan');
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ListTile, 'Japan'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Japan');
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ListTile, 'Japan'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Choose manually'));
-      await tester.pumpAndSettle();
-      // Back out of the manual picker to reach "Still not sure" instead.
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Still not sure'));
+      await tester.tap(find.text("I don't know"));
       await tester.pumpAndSettle();
 
       expect(MadhhabController.instance.state, MadhhabSelectionState.unknown);
       expect(MadhhabController.instance.selectedOrNull, isNull);
     });
+
+    testWidgets(
+      'going back from the first (country) step exits the whole flow, '
+      'returning to the explanation step — never a crash or dead end',
+      (tester) async {
+        await MadhhabController.instance.load();
+        await _openResolver(tester);
+
+        await tester.tap(find.text("I don't know — help me"));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Back'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Before logging your Haidh'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      // Knowledge-Base Source-Verification wave (2026-10-14): previously
+      // this test used the debugApprovedMappingIdsForTesting seam to
+      // simulate a future approval, since no real entry was verified yet.
+      // That future is now real (see the Saudi Arabia/Afghanistan tests
+      // above, which cover this exact ground with actual data and no
+      // override) — this test is kept only to prove the override
+      // mechanism itself still works correctly for an entry that is
+      // genuinely still UNVERIFIED (Tunisia), so it would fail without
+      // the override, unlike if it used an already-verified country.
+      'the test-only debug override still correctly makes an UNVERIFIED '
+      'entry (Tunisia) surface a suggestion through the real widget tree',
+      (tester) async {
+        expect(
+          MadhhabSuggestionService.debugApprovedMappingIdsForTesting,
+          isEmpty,
+        );
+        MadhhabSuggestionService.debugApprovedMappingIdsForTesting = {
+          'GEO-007', // Tunisia — still UNVERIFIED in the real dataset
+        };
+        try {
+          await MadhhabController.instance.load();
+          await _openResolver(tester);
+          await pickUpbringingCountry(tester, 'Tunisia', 'Tunisia');
+
+          expect(
+            find.text(
+              'Based on the country where you grew up, Maliki may be '
+              'the closest fit.',
+            ),
+            findsOneWidget,
+          );
+          expect(find.text('Choose the Madhhab you follow'), findsNothing);
+
+          await tester.tap(find.widgetWithText(OutlinedButton, 'Use Maliki'));
+          await tester.pumpAndSettle();
+
+          expect(MadhhabController.instance.selectedOrNull, Madhhab.maliki);
+          expect(
+            MadhhabResolutionScreen.lastConfirmedSelectionSource,
+            'suggested_confirmed',
+          );
+        } finally {
+          MadhhabSuggestionService.debugApprovedMappingIdsForTesting = {};
+        }
+      },
+    );
   });
+
+  group(
+    'Resolution-flow unification defect fix (2026-10-14): '
+    '_confirmSelection/_stillNotSure now route through '
+    'setMadhhabWithConfirmation instead of calling MadhhabController '
+    'directly -- one canonical transition/confirmation path for every '
+    'post-onboarding entry point, not a duplicated decision table',
+    () {
+      testWidgets(
+        'post-onboarding UNKNOWN -> Hanafi via the manual grid (an '
+        'unmapped country, "Help me choose") shows the LIGHT first-'
+        'interpretation notice, not the full warning',
+        (tester) async {
+          await MadhhabController.instance.selectUnknown();
+          await _openResolver(tester);
+          await pickUpbringingCountry(tester, 'Japan', 'Japan');
+
+          expect(find.text('Choose the Madhhab you follow'), findsOneWidget);
+          await tester.tap(find.text('Hanafi'));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.text(
+              'Niswah will now interpret your previous records according '
+              'to the Madhhab you selected. Your original entries will '
+              'not be changed.',
+            ),
+            findsOneWidget,
+            reason: 'unknown -> selected deserves a light heads-up, even '
+                'via the manual grid, not the full "replacing a selection" '
+                'warning',
+          );
+          expect(find.text('Change your Fiqh Madhhab?'), findsNothing);
+          expect(
+            MadhhabController.instance.selectedOrNull,
+            isNull,
+            reason: 'not persisted until Continue is explicitly tapped',
+          );
+
+          await tester.tap(find.text('Continue'));
+          await tester.pumpAndSettle();
+
+          expect(
+            MadhhabController.instance.state,
+            MadhhabSelectionState.selected,
+          );
+          expect(MadhhabController.instance.selectedOrNull, Madhhab.hanafi);
+          expect(
+            MadhhabResolutionScreen.lastConfirmedSelectionSource,
+            'direct',
+            reason: 'a manual pick from the fallback grid is still tagged '
+                'direct after the fix, same as before it',
+          );
+        },
+      );
+
+      testWidgets(
+        'post-onboarding UNKNOWN -> an accepted geographic suggestion '
+        '(Saudi Arabia) shows the LIGHT first-interpretation notice, and '
+        'source attribution stays suggested_confirmed',
+        (tester) async {
+          await MadhhabController.instance.selectUnknown();
+          await _openResolver(tester);
+          await pickUpbringingCountry(tester, 'Saudi Arabia', 'Saudi Arabia');
+
+          expect(
+            find.text(
+              'Based on the country where you grew up, Hanbali may be '
+              'the closest fit.',
+            ),
+            findsOneWidget,
+          );
+          await tester.tap(find.widgetWithText(OutlinedButton, 'Use Hanbali'));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.text(
+              'Niswah will now interpret your previous records according '
+              'to the Madhhab you selected. Your original entries will '
+              'not be changed.',
+            ),
+            findsOneWidget,
+          );
+          expect(
+            MadhhabController.instance.selectedOrNull,
+            isNull,
+            reason: 'not persisted until Continue is explicitly tapped',
+          );
+
+          await tester.tap(find.text('Continue'));
+          await tester.pumpAndSettle();
+
+          expect(MadhhabController.instance.selectedOrNull, Madhhab.hanbali);
+          expect(
+            MadhhabResolutionScreen.lastConfirmedSelectionSource,
+            'suggested_confirmed',
+            reason: 'provenance must survive routing through the canonical '
+                'confirmation function, same as before the fix',
+          );
+        },
+      );
+
+      testWidgets(
+        'an existing selected Madhhab -> a different Madhhab via the '
+        'known-picker shows the FULL warning, and Cancel leaves it '
+        'completely unchanged',
+        (tester) async {
+          await MadhhabController.instance.selectMadhhab(Madhhab.hanafi);
+          await _openResolver(tester, start: MadhhabResolutionStart.knownPicker);
+
+          await tester.tap(find.text("Shafi'i"));
+          await tester.pumpAndSettle();
+          expect(
+            find.text("Use the Shafi'i school in Niswah's rulings?"),
+            findsOneWidget,
+          );
+          await tester.tap(find.text("Yes, use Shafi'i"));
+          await tester.pumpAndSettle();
+
+          expect(find.text('Change your Fiqh Madhhab?'), findsOneWidget);
+          expect(
+            find.text(
+              'Niswah will now interpret your previous records according '
+              'to the Madhhab you selected. Your original entries will '
+              'not be changed.',
+            ),
+            findsNothing,
+            reason: 'replacing an existing selection is the full warning, '
+                'never the light notice',
+          );
+          expect(
+            MadhhabController.instance.selectedOrNull,
+            Madhhab.hanafi,
+            reason: 'nothing persisted until Confirm change is tapped',
+          );
+
+          await tester.tap(find.text('Cancel'));
+          await tester.pumpAndSettle();
+
+          expect(MadhhabController.instance.selectedOrNull, Madhhab.hanafi);
+          expect(
+            MadhhabResolutionScreen.lastConfirmedSelectionSource,
+            isNull,
+            reason: 'a cancelled dialog must never mark a selection as '
+                'confirmed',
+          );
+        },
+      );
+
+      testWidgets(
+        'confirming the full warning actually persists the new Madhhab, '
+        'with provenance still tagged direct',
+        (tester) async {
+          await MadhhabController.instance.selectMadhhab(Madhhab.hanafi);
+          await _openResolver(tester, start: MadhhabResolutionStart.knownPicker);
+
+          await tester.tap(find.text("Shafi'i"));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text("Yes, use Shafi'i"));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Confirm change'));
+          await tester.pumpAndSettle();
+
+          expect(MadhhabController.instance.selectedOrNull, Madhhab.shafii);
+          expect(
+            MadhhabResolutionScreen.lastConfirmedSelectionSource,
+            'direct',
+          );
+        },
+      );
+
+      testWidgets(
+        'selected A -> selected A (same value) via the known-picker is a '
+        'true no-op -- no dialog of either kind, and the flow still '
+        'closes normally',
+        (tester) async {
+          await MadhhabController.instance.selectMadhhab(Madhhab.hanafi);
+          var notifyCount = 0;
+          void listener() => notifyCount++;
+          MadhhabController.instance.addListener(listener);
+
+          await _openResolver(tester, start: MadhhabResolutionStart.knownPicker);
+          await tester.tap(find.text('Hanafi'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Yes, use Hanafi'));
+          await tester.pumpAndSettle();
+
+          expect(find.text('Change your Fiqh Madhhab?'), findsNothing);
+          expect(
+            find.text(
+              'Niswah will now interpret your previous records according '
+              'to the Madhhab you selected. Your original entries will '
+              'not be changed.',
+            ),
+            findsNothing,
+          );
+          expect(
+            notifyCount,
+            0,
+            reason: 'a true no-op never calls notifyListeners',
+          );
+          expect(MadhhabController.instance.selectedOrNull, Madhhab.hanafi);
+          expect(
+            MadhhabResolutionScreen.lastConfirmedSelectionSource,
+            'direct',
+            reason: 'a no-op still counts as a confirmed selection for the '
+                'screen\'s own pop-with-result/provenance bookkeeping',
+          );
+
+          MadhhabController.instance.removeListener(listener);
+        },
+      );
+    },
+  );
 
   group('Settings reuses the same canonical resolver (Section 16)', () {
     testWidgets('"help me choose" starts directly at the guided question', (
@@ -581,8 +810,13 @@ void main() {
 
       expect(find.text('Before logging your Haidh'), findsNothing);
       expect(
-        find.text('Where did you learn most of your religious practice?'),
+        find.text(
+          'Which country did you grow up in for most of your childhood?',
+        ),
         findsOneWidget,
+        reason:
+            'onboarding and this screen share one flow — this is the '
+            'exact same first question onboarding asks',
       );
     });
 
@@ -686,8 +920,14 @@ void main() {
       await _openResolver(tester, start: MadhhabResolutionStart.guided);
       expect(tester.takeException(), isNull);
 
-      await tester.enterText(find.byType(TextField), 'a');
+      // The country question's own field is a tappable summary — open
+      // its modal picker before interacting with its search TextField.
+      await tester.tap(find.text('Select country'));
       await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.enterText(find.byType(TextField), 'a');
+      await tester.pump();
       expect(tester.takeException(), isNull);
     });
 
@@ -696,13 +936,15 @@ void main() {
     ) async {
       await MadhhabController.instance.load();
       await _openResolver(tester, start: MadhhabResolutionStart.guided);
+      await tester.tap(find.text('Select country'));
+      await tester.pumpAndSettle();
 
       // The unfiltered list has ~195 entries — ListView.builder only
       // actually builds what's near the visible viewport, so this checks
       // the filtered-down result (the real point of this test) rather
       // than asserting on the huge unfiltered list's lazy-build state.
       await tester.enterText(find.byType(TextField), 'egy');
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(find.text('Egypt'), findsOneWidget);
       expect(find.text('Jordan'), findsNothing);
     });

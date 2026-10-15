@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/cycle_log.dart';
+import 'package:niswah/features/cycle_tracking/domain/services/canonical_fiqh_evidence_adapter.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/cycle_calculation_service.dart';
+import 'package:niswah/features/cycle_tracking/domain/services/cycle_status_engine.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/report_canonical_evidence.dart';
 import 'package:niswah/features/doctor_report/domain/services/doctor_report_insights_engine.dart';
@@ -276,4 +279,136 @@ void main() {
     );
     expect(none.contains('Pregnancy tracking is active'), isFalse);
   });
+
+  group(
+    'Canonical-adapter cycleDay-default regression (fiqh_report_insights_'
+    'engine.dart, blocker fix 2026-10-16)',
+    () {
+      // Builds the SAME production-faithful evidence CanonicalFiqhEvidence
+      // Adapter.buildEffectiveLogs actually produces -- real
+      // BleedingObservation rows through the real adapter, never a
+      // hand-typed CycleLog with an explicit cycleDay. The adapter never
+      // sets cycleDay (confirmed: zero occurrences of that identifier in
+      // canonical_fiqh_evidence_adapter.dart), so every resulting CycleLog
+      // keeps CycleLog's own constructor default of 1 -- exactly the
+      // condition that broke `if (log.cycleDay == 1) break;` for every
+      // canonical-backed open episode, in both the engine 01ef39e already
+      // fixed and the second copy fixed here.
+      List<CycleLog> openHanafiInBoundsEpisodeLogs({
+        required DateTime now,
+        required int daysOpen,
+      }) {
+        final observations = [
+          for (var i = 0; i < daysOpen; i++)
+            BleedingObservation(
+              userId: 'u1',
+              episodeId: 'e1',
+              observedDate: now.subtract(Duration(days: daysOpen - 1 - i)),
+              precision: ObservationPrecision.dateOnly,
+              flow: ObservationFlow.medium,
+              source: i == daysOpen - 1
+                  ? ObservationSource.userObserved
+                  : ObservationSource.userReportedHistorical,
+              utcOffsetMinutes: 0,
+            ),
+        ];
+        return CanonicalFiqhEvidenceAdapter.buildEffectiveLogs(
+          observations: observations,
+        );
+      }
+
+      final now = DateTime(2026, 10, 16, 12);
+      const daysOpen = 7; // Hanafi: min 72h, max 240h -- 7 days is in bounds.
+      final logs = openHanafiInBoundsEpisodeLogs(now: now, daysOpen: daysOpen);
+
+      test(
+        'sanity: the adapter really does leave every entry at the cycleDay '
+        'default (1) -- otherwise this regression test would not be '
+        'exercising the real defect at all',
+        () {
+          expect(logs, isNotEmpty);
+          expect(logs.every((log) => log.cycleDay == 1), isTrue);
+        },
+      );
+
+      test(
+        'CycleStatusEngine.evaluate() (fixed in 01ef39e) correctly reports '
+        'haid for a 7-day-old, in-bounds-for-Hanafi open episode built from '
+        'real canonical evidence',
+        () {
+          final calculation = const CycleCalculationService().calculate(
+            logs,
+            asOf: now,
+          );
+          final snapshot = const CycleStatusEngine().evaluate(
+            logs: logs,
+            calculation: calculation,
+            madhhab: Madhhab.hanafi,
+            now: now,
+          );
+          expect(snapshot.state, FiqhCycleState.haid);
+        },
+      );
+
+      ReportCanonicalEvidence canonicalEvidence() => ReportCanonicalEvidence(
+        effectiveLogs: logs,
+        episodes: [
+          CanonicalEpisodeTiming(
+            startDate: now.subtract(const Duration(days: daysOpen - 1)),
+          ),
+        ],
+        hasOpenEpisode: true,
+        evidenceUnresolved: false,
+      );
+
+      test(
+        'FiqhReportInsightsEngine.analyze() must report the same haid state '
+        'as CycleStatusEngine for the identical canonical evidence -- the '
+        'actual blocker: before the fix this returned needsAdvisory because '
+        "the scan's own cycleDay == 1 check broke on the very first "
+        '(latest) entry',
+        () {
+          final insights = FiqhReportInsightsEngine.analyze(
+            cycleLogs: const [],
+            madhhab: Madhhab.hanafi,
+            now: now,
+            canonical: canonicalEvidence(),
+          );
+          expect(insights.cycleState, FiqhCycleState.haid);
+        },
+      );
+
+      test(
+        'propagates correctly to the Doctor Report, which wraps '
+        "FiqhReportInsightsEngine's result directly",
+        () {
+          final insights = DoctorReportInsightsEngine.analyze(
+            cycleLogs: const [],
+            madhhab: Madhhab.hanafi,
+            currentWellbeingLogs: const [],
+            previousWellbeingLogs: const [],
+            recentFlags: const [],
+            now: now,
+            canonical: canonicalEvidence(),
+          );
+          expect(insights.cycleAndPregnancy.cycleState, FiqhCycleState.haid);
+        },
+      );
+
+      test(
+        'propagates correctly to the Husband Report, whose own '
+        'isBleedingNow derivation compares against this same cycleState',
+        () {
+          final insights = HusbandReportInsightsEngine.analyze(
+            cycleLogs: const [],
+            madhhab: Madhhab.hanafi,
+            displayName: 'Test',
+            now: now,
+            canonical: canonicalEvidence(),
+          );
+          expect(insights.fiqh.cycleState, FiqhCycleState.haid);
+        },
+      );
+    },
+  );
 }

@@ -35,6 +35,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## lib/core/data
 
+- [app_features.dart](../../lib/core/data/app_features.dart)
 - [countries.dart](../../lib/core/data/countries.dart)
 - [iso_countries.dart](../../lib/core/data/iso_countries.dart)
 
@@ -62,6 +63,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_language_controller.dart](../../lib/core/preferences/community_language_controller.dart)
 - [local_preference_scope.dart](../../lib/core/preferences/local_preference_scope.dart)
 - [madhhab_controller.dart](../../lib/core/preferences/madhhab_controller.dart)
+- [madhhab_history_resolver.dart](../../lib/core/preferences/madhhab_history_resolver.dart)
 - [marital_status_controller.dart](../../lib/core/preferences/marital_status_controller.dart)
 - [notification_log_controller.dart](../../lib/core/preferences/notification_log_controller.dart)
 - [prayer_location_controller.dart](../../lib/core/preferences/prayer_location_controller.dart)
@@ -162,4 +164,6 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20260930130000_retrieve_knowledge_v1_relevance_anchor.sql](../../supabase/migrations/20260930130000_retrieve_knowledge_v1_relevance_anchor.sql)
 - [20261007090000_madhhab_change_history.sql](../../supabase/migrations/20261007090000_madhhab_change_history.sql)
 - [20261007093000_community_language.sql](../../supabase/migrations/20261007093000_community_language.sql)
+- [20261012090000_record_onboarding_menstrual_history_episode_reconciliation.sql](../../supabase/migrations/20261012090000_record_onboarding_menstrual_history_episode_reconciliation.sql)
+- [20261014220000_madhhab_history_ruleset_version_future_safety.sql](../../supabase/migrations/20261014220000_madhhab_history_ruleset_version_future_safety.sql)
 - [20261015120000_kb_human_review_status_provenance.sql](../../supabase/migrations/20261015120000_kb_human_review_status_provenance.sql)

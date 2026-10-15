@@ -290,8 +290,24 @@ class FiqhReportInsightsEngine {
         break;
       }
       activeStart = log.date;
-      if (log.cycleDay == 1) break;
     }
+    // Deliberately no longer also breaking on `log.cycleDay == 1` — the
+    // same incorrect boundary removed from CycleStatusEngine.evaluate() in
+    // commit 01ef39e, for the identical reason: that field defaults to 1
+    // (CycleLog's own constructor default) and is never set by
+    // CanonicalFiqhEvidenceAdapter.buildEffectiveLogs, which builds every
+    // canonical-evidence-derived log this method receives via
+    // `canonical?.effectiveLogs` above. With the check still present here,
+    // the scan broke on the very first (latest) entry for any canonical-
+    // backed episode, pinning activeStart to "today" regardless of the
+    // episode's true start date — bleedingDuration then collapsed to the
+    // current day's own elapsed hours, always below every madhhab's
+    // minimum, so a genuinely-open, well-within-bounds Haid episode always
+    // misclassified as needsAdvisory in the Fiqh/Doctor/Husband reports.
+    // `flow == FlowLevel.none` is the correct, sole authoritative boundary
+    // signal (an explicit "not bleeding" observation) — 01ef39e fixed
+    // CycleStatusEngine's copy of this scan; this was the second,
+    // un-deduplicated copy it missed.
 
     if (madhhab == null) {
       // Currently bleeding, but no madhhab is SELECTED — never guess one.

@@ -145,27 +145,52 @@ void main() {
           await tester.ensureVisible(find.text('Help me choose'));
           await tester.tap(find.text('Help me choose'));
           await tester.pumpAndSettle();
-          expect(find.text('Which country do you live in?'), findsOneWidget);
+          // Current upbringing-country question (Manual QA wave,
+          // 2026-10-12) — replaces the old free-text "Which country do
+          // you live in?" residence question with a searchable modal
+          // picker over the upbringing country.
+          expect(
+            find.text(
+              'Which country did you grow up in for most of your childhood?',
+            ),
+            findsOneWidget,
+          );
           expect(tester.takeException(), isNull);
 
-          await tester.enterText(find.byType(TextField), 'Saudi Arabia');
+          await tester.ensureVisible(find.text('Select country'));
+          await tester.tap(find.text('Select country'));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+
+          // Tunisia: a real, researched entry that stays UNVERIFIED (see
+          // geographic_madhhab_mapping.json's own review_notes) — lands on
+          // the manual-selection fallback, exercising the same "no
+          // suggestion available, every control still reachable" layout
+          // the original test covered, with current, non-stale copy.
+          await tester.enterText(find.byType(TextField), 'Tunisia');
           await tester.pump();
+          await tester.tap(find.widgetWithText(ListTile, 'Tunisia'));
+          await tester.pumpAndSettle();
           await tester.ensureVisible(find.text('Continue'));
           await tester.tap(find.text('Continue'));
           await tester.pumpAndSettle();
-          // Saudi Arabia is in the draft mapping but NOT_REVIEWED, so the
-          // trust gate (adversarial review, 2026-10-07) means this lands
-          // on the "insufficient" state rather than a confident
-          // suggestion — still exercises the same layout at this scale.
-          expect(
-            find.text("We don't have a suggestion for that yet"),
-            findsOneWidget,
-          );
-          expect(
-            find.text("I'll decide later"),
-            findsOneWidget,
-            reason: 'the fallback control must still be reachable/usable',
-          );
+
+          expect(find.text('Choose the Madhhab you follow'), findsOneWidget);
+          for (final label in [
+            'Hanafi',
+            'Maliki',
+            "Shafi'i",
+            'Hanbali',
+            "I don't know",
+          ]) {
+            expect(
+              find.text(label),
+              findsOneWidget,
+              reason: 'every manual-selection control, including the '
+                  '"I don\'t know" fallback, must still be reachable at '
+                  '${scale}x text scale',
+            );
+          }
           expect(tester.takeException(), isNull);
         },
       );

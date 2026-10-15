@@ -1,6 +1,7 @@
 {
   "source_documents": [
     "AGENTS.md",
+    "DEFINITION_OF_DONE_BEFORE_LAUNCH.md",
     "FLUTTER_UI_PARITY_GUIDE.md",
     "MANIFEST.md",
     "README.md",
@@ -53,8 +54,10 @@
     "production-readiness-results/final-user-journey/PJ_findings.md",
     "production-readiness-results/final-user-journey/PJ_journey_traces.md",
     "production-readiness-results/final-user-journey/PJ_production_readiness_report.md",
+    "production-readiness-results/fiqh-engine/ENGINE_TO_KB_ATOM_CROSSWALK.md",
     "production-readiness-results/fiqh-engine/FIQH_AICTX_discovery.md",
     "production-readiness-results/fiqh-engine/FIQH_AICTX_findings.md",
+    "production-readiness-results/fiqh-engine/GEOGRAPHIC_MADHHAB_SCHOLAR_REVIEW_PACKET.md",
     "production-readiness-results/fiqh-engine/SCHOLAR_REVIEW_PACKAGE.md",
     "production-readiness-results/fiqh-engine/fiqh_rule_source_matrix.md",
     "production-readiness-results/functional-qa/FQ_findings.md",

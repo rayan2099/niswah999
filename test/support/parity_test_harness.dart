@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/preferences/marital_status_controller.dart';
+import 'package:niswah/core/theme/app_theme.dart';
 import 'package:niswah/core/utils/app_clock.dart';
 import 'package:niswah/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -51,7 +52,25 @@ class ParityTestHarness {
     await tester.pumpWidget(
       homeOverride == null
           ? NiswahApp(initialTabIndex: initialTabIndex)
-          : MaterialApp(home: homeOverride),
+          // Mirrors NiswahApp's own theme setup (lib/main.dart) exactly —
+          // without this, a bare MaterialApp's default (Roboto) text
+          // theme doesn't cover Arabic glyphs in the test environment,
+          // rendering tofu boxes instead of real text for anything that
+          // inherits Theme.of(context).textTheme rather than specifying
+          // an explicit font family itself. Found via
+          // parity_today_lower_test.dart's own golden capture.
+          : MaterialApp(
+              theme: arabic
+                  ? AppTheme.lightTheme.copyWith(
+                      textTheme: AppTheme.lightTheme.textTheme.apply(
+                        fontFamily: AppTypography.arabicFamily,
+                      ),
+                      primaryTextTheme: AppTheme.lightTheme.primaryTextTheme
+                          .apply(fontFamily: AppTypography.arabicFamily),
+                    )
+                  : AppTheme.lightTheme,
+              home: homeOverride,
+            ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
