@@ -105,15 +105,22 @@ jobs:
       # signed artifact — this is a deliberate gate, not an oversight: no
       # signing credential is ever hardcoded into this file or any script
       # it calls (SEC-001/DC-005 discipline, unchanged from ci.yml).
-      - name: Write .env from CI secret
+      #
+      # Environment-isolation fix (2026-10-16, follow-up to PR #24): this
+      # used to read EMERGENCY_BUILD_ENV_FILE (the real production .env)
+      # unconditionally for both app_env choices, so a build labeled
+      # "staging" was actually built against production — the identical
+      # defect PR #24 fixed in routine-release.yml. Reuses the same
+      # select_release_env_secret.sh (unchanged) and the same
+      # STAGING_BUILD_ENV_FILE secret name routine-release.yml already
+      # introduced, so configuring that one secret covers both workflows.
+      - name: Write .env from the environment-matched CI secret
         env:
-          ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+          PRODUCTION_ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+          STAGING_ENV_FILE_CONTENTS: ${{ secrets.STAGING_BUILD_ENV_FILE }}
         run: |
-          if [ -z "$ENV_FILE_CONTENTS" ]; then
-            echo "::error::EMERGENCY_BUILD_ENV_FILE secret is not configured. This workflow cannot produce a real release artifact without it. This is an owner action, not something this workflow can self-resolve."
-            exit 1
-          fi
-          printf '%s' "$ENV_FILE_CONTENTS" > .env
+          chmod +x scripts/select_release_env_secret.sh
+          ./scripts/select_release_env_secret.sh "${{ inputs.app_env }}" > .env
 
       - name: Write signing keystore + key.properties from CI secrets
         env:
