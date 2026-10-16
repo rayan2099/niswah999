@@ -95,6 +95,7 @@ jobs:
         run: |
           python3 scripts/test_assert_test_backend.py
           python3 scripts/test_verify_acceptance_results.py
+          python3 scripts/test_select_release_env_secret.py
 
       # The app's pregnancy engine and the SERVER's (the code the AI Edge
       # Functions use to build the pregnancy context) must agree: the same

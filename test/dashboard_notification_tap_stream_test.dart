@@ -206,6 +206,58 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // Device/distribution readiness audit follow-up (2026-10-16): every test
+  // above fires the tap AFTER pumpDashboard — they only ever exercise the
+  // live onTap-subscription (Closure Blocker 9's own "already mounted"
+  // path). _consumeNotificationTap has a SECOND call site
+  // (initState's addPostFrameCallback, for the terminated-launch/cold-
+  // start case: a payload already captured before this screen existed) —
+  // that call site's branch had never run with a non-null pending payload
+  // in any test, since nothing had ever set one before mounting. Firing
+  // the tap first (so it lands in NotificationService's pending-payload
+  // slot while no live subscriber exists yet), then mounting, exercises
+  // exactly that second call site instead of the first.
+  testWidgets(
+    'a tap that arrives before the dashboard ever mounts (the terminated-'
+    'launch/cold-start case) is still picked up — via initState\'s own '
+    'post-frame check, not the live subscription, since there is no '
+    'subscriber yet when this tap lands',
+    (tester) async {
+      final payload = jsonEncode({
+        'type': 'activeBleedingCheckin',
+        'userId': 'user-1',
+        'episodeId': 'episode-1',
+        'localDate': '2026-08-18',
+      });
+      await simulateNotificationTap(payload);
+      expect(
+        NotificationService.instance.consumePendingTapPayload(),
+        payload,
+        reason:
+            'sanity: the tap must actually be sitting in the pending slot '
+            'before the dashboard mounts, with no live subscriber having '
+            'drained it yet — otherwise this test would not be exercising '
+            'the cold-start call site at all. Re-seed it immediately since '
+            'this sanity read itself consumes it.',
+      );
+      await simulateNotificationTap(payload);
+
+      await pumpDashboard(tester);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        NotificationService.instance.consumePendingTapPayload(),
+        isNull,
+        reason:
+            'initState\'s post-frame callback must have drained the '
+            'pending payload that was already waiting when this screen '
+            'mounted — never left for some later, unrelated check to '
+            'stumble onto',
+      );
+    },
+  );
+
   // Commit H — adversarial review follow-up (2026-10-08). Point 3: every
   // field read from the payload must be independently proven type-safe,
   // not just the one field the original fix touched.
