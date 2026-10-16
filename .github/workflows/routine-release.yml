@@ -114,23 +114,24 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # Reuses the same three secrets as emergency-release.yml — there is
-      # only one real production .env and one real release keystore, and
-      # both workflows sign with that same identity. No new secret was
-      # created for this workflow (RD-006's charter: do not alter secrets
-      # unless strictly necessary — reusing an existing, correct secret is
-      # not an alteration). EMERGENCY_BUILD_ENV_FILE's name predates this
-      # workflow but its content (the real production .env) is not
-      # emergency-specific, so sharing it is intentional, not a naming bug.
-      - name: Write .env from CI secret
+      # Device/distribution readiness fix (2026-10-16): this used to read
+      # EMERGENCY_BUILD_ENV_FILE (the real production .env) unconditionally
+      # for BOTH app_env choices, so a build labeled "staging" was actually
+      # built against production. select_release_env_secret.sh picks the
+      # secret that matches inputs.app_env and fails loudly — never falls
+      # back to the other environment's secret — if the matching one is
+      # absent. See scripts/test_select_release_env_secret.py for the
+      # regression proof. No STAGING_BUILD_ENV_FILE secret exists yet
+      # (confirmed via `gh secret list`), so selecting "staging" fails
+      # loudly here until one is configured — a correct, explicit failure
+      # is strictly better than the previous silent production fallback.
+      - name: Write .env from the environment-matched CI secret
         env:
-          ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+          PRODUCTION_ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+          STAGING_ENV_FILE_CONTENTS: ${{ secrets.STAGING_BUILD_ENV_FILE }}
         run: |
-          if [ -z "$ENV_FILE_CONTENTS" ]; then
-            echo "::error::EMERGENCY_BUILD_ENV_FILE secret is not configured. This workflow cannot produce a real release artifact without it."
-            exit 1
-          fi
-          printf '%s' "$ENV_FILE_CONTENTS" > .env
+          chmod +x scripts/select_release_env_secret.sh
+          ./scripts/select_release_env_secret.sh "${{ inputs.app_env }}" > .env
 
       - name: Write signing keystore + key.properties from CI secrets
         env:
@@ -200,15 +201,15 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Write .env from CI secret
+      # See the identical step in build-android above for why this no
+      # longer reads EMERGENCY_BUILD_ENV_FILE unconditionally.
+      - name: Write .env from the environment-matched CI secret
         env:
-          ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+          PRODUCTION_ENV_FILE_CONTENTS: ${{ secrets.EMERGENCY_BUILD_ENV_FILE }}
+          STAGING_ENV_FILE_CONTENTS: ${{ secrets.STAGING_BUILD_ENV_FILE }}
         run: |
-          if [ -z "$ENV_FILE_CONTENTS" ]; then
-            echo "::error::EMERGENCY_BUILD_ENV_FILE secret is not configured."
-            exit 1
-          fi
-          printf '%s' "$ENV_FILE_CONTENTS" > .env
+          chmod +x scripts/select_release_env_secret.sh
+          ./scripts/select_release_env_secret.sh "${{ inputs.app_env }}" > .env
 
       # Real code signing needs the owner's Apple Developer Team ID
       # (DEVELOPMENT_TEAM — see DC-010, a separate owner action this
