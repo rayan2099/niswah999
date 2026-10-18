@@ -253,6 +253,23 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [profile_en_390x844.png](../../test/goldens/profile_en_390x844.png)
 - [today_lower_ar_390x844.png](../../test/goldens/today_lower_ar_390x844.png)
 
+## test/logging_sync_hardening
+
+- [account_deletion_pending_ops_test.dart](../../test/logging_sync_hardening/account_deletion_pending_ops_test.dart)
+- [bleeding_sheet_failure_outcomes_test.dart](../../test/logging_sync_hardening/bleeding_sheet_failure_outcomes_test.dart)
+- [cycle_logs_merge_test.dart](../../test/logging_sync_hardening/cycle_logs_merge_test.dart)
+- [legacy_log_provenance_test.dart](../../test/logging_sync_hardening/legacy_log_provenance_test.dart)
+- [observation_detail_backfill_offer_test.dart](../../test/logging_sync_hardening/observation_detail_backfill_offer_test.dart)
+- [reconcile_pending_operations_test.dart](../../test/logging_sync_hardening/reconcile_pending_operations_test.dart)
+
+## test/logging_sync_hardening/sql
+
+- [canonical_rpc_regression.sql](../../test/logging_sync_hardening/sql/canonical_rpc_regression.sql)
+
+## test/logging_sync_hardening/support
+
+- [fake_supabase.dart](../../test/logging_sync_hardening/support/fake_supabase.dart)
+
 ## test/services
 
 - [auth_controller_test.dart](../../test/services/auth_controller_test.dart)

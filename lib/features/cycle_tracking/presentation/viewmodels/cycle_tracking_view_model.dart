@@ -12,6 +12,16 @@ import '../../domain/repositories/cycle_tracking_repository.dart';
 import '../../domain/services/cycle_calculation_service.dart';
 import '../models/cycle_log_form_data.dart';
 
+/// Logging/sync hardening (proposed) — thrown by
+/// [CycleTrackingViewModel.saveLog] instead of overwriting a `cycle_entries`
+/// row that mirrors a canonical bleeding observation.
+class CanonicalMirrorEditBlockedException implements Exception {
+  const CanonicalMirrorEditBlockedException();
+
+  @override
+  String toString() => 'CanonicalMirrorEditBlockedException';
+}
+
 class CycleTrackingViewModel extends ChangeNotifier {
   CycleTrackingViewModel({
     CycleTrackingRepository? repository,
@@ -19,13 +29,24 @@ class CycleTrackingViewModel extends ChangeNotifier {
     Future<List<CanonicalEpisodeTiming>> Function(String userId)?
     canonicalEpisodeLoader,
     Future<CycleBaseline?> Function(String userId)? statedBaselineLoader,
+    Future<bool?> Function(String logId)? canonicalMirrorChecker,
   }) : _repository = repository ?? CycleTrackingRepositoryImpl(),
+       _canonicalMirrorChecker =
+           canonicalMirrorChecker ?? _defaultCanonicalMirrorChecker,
        _canonicalEpisodeLoader =
            canonicalEpisodeLoader ?? _defaultCanonicalEpisodeLoader,
        _statedBaselineLoader =
            statedBaselineLoader ?? _defaultStatedBaselineLoader {
     _authRepository = authRepository;
   }
+
+  static Future<bool?> _defaultCanonicalMirrorChecker(String logId) =>
+      BleedingEpisodeRepositoryImpl().isCanonicalObservationId(logId);
+
+  /// Logging/sync hardening (proposed) — whether a `cycle_entries` row is
+  /// the mirror of a canonical bleeding observation (see
+  /// [BleedingEpisodeRepositoryImpl.isCanonicalObservationId]).
+  final Future<bool?> Function(String logId) _canonicalMirrorChecker;
 
   /// Canonical episode start/end DATES only (never a flow) — see
   /// [CanonicalEpisodeTiming]. A read failure yields an empty list: the
@@ -176,9 +197,26 @@ class CycleTrackingViewModel extends ChangeNotifier {
       throw FormatException(validationMessage);
     }
 
+    // Logging/sync hardening (proposed): the legacy sheet never overwrites
+    // the mirror of a canonical observation — doing so would make the two
+    // read models disagree (the observation itself is the fact, and is
+    // corrected through the Calendar's correction flow). Only rows that
+    // could be a mirror (a provenance the projection writes) are checked;
+    // an undeterminable answer (offline) does not block a local edit.
+    if (existingLog != null &&
+        existingLog.dataProvenance != CycleEntryProvenance.legacyUnverified &&
+        await _canonicalMirrorChecker(existingLog.id) == true) {
+      throw const CanonicalMirrorEditBlockedException();
+    }
+
     await loadCurrentUser();
     final userId = existingLog?.userId ?? _currentUserId;
-    final log = formData.toCycleLog(userId: userId, id: existingLog?.id);
+    final log = formData.toCycleLog(
+      userId: userId,
+      id: existingLog?.id,
+      dataProvenance: existingLog?.dataProvenance,
+      today: AppClock.now(),
+    );
 
     lastSaveSyncStatus = await _repository.saveCycleLog(log);
     await loadLogs();

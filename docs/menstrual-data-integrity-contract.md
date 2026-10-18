@@ -1574,3 +1574,131 @@ changes that, and nothing in this entry should be read as claiming `E4`
 for either.
 
 All changes on this same branch, PR #4, still **draft and unmerged**.
+
+## 16. Logging/sync hardening wave (2026-10-18, branch `fix/logging-sync-hardening`) — **proposed**
+
+Status: **proposed**. This section records changes made in the working tree
+for review. It is not merged, the migration below has **not** been applied to
+any hosted Supabase project, and nothing here certifies live behavior. The
+evidence is local only: the Flutter tests listed below and the SQL regression
+script run against a temporary local Postgres 16 with the new migration
+applied. Medical and scholarly review are out of scope.
+
+The wave fixes 15 findings from an independent review of how bleeding and
+cycle data is written, stored and synced. Regression tests live in
+`test/logging_sync_hardening/`, and the SQL regression is
+`test/logging_sync_hardening/sql/canonical_rpc_regression.sql`.
+
+### Client changes (proposed)
+
+1. **Offline is the queued outcome, never an escaped exception.**
+   - `BleedingEpisodeRepositoryImpl._classifyWriteFailure` treats transport
+     errors (`http.ClientException`, `SocketException`, `TimeoutException`,
+     which postgrest does not wrap) like a retryable server error: the write
+     returns null and the operation stays queued.
+   - Every write sheet (Start, End, daily check-in YES/NO/unsure, backfill,
+     correction) now uses try/finally, so `_saving` can never stay stuck.
+   - The End sheet and the daily "No" path cancel the episode's
+     active-bleeding reminders after a queued end as well as a synced one.
+     Shared helper: `cancelActiveBleedingReminders` in `start_bleeding_sheet.dart`.
+2. **Permanent rejections are typed.**
+   - A `PostgrestException` whose SQLSTATE is `P0001`, `22xxx` or `23xxx`
+     becomes `BleedingWriteRejectedException(code, message)`.
+   - The sheets show "This couldn't be saved — it conflicts with what's
+     already recorded. Nothing was changed." in English and Arabic, and they
+     drop the queued copy.
+   - The reconciler files these failures as `validation`, so they are not
+     auto-retried.
+   - The canonical calendar's day sheet offers "Add missing entry" only
+     inside an **open** episode, because `record_bleeding_observation`
+     rejects new facts on an ended one.
+3. **Sync is pinned to one account.**
+   - `reconcilePendingOperations` captures the user id once and passes it to
+     `loadPending`, `savePending` and `clearPending`.
+   - The sync stops before and after each operation if the session user has
+     changed. One user's queued health data can no longer land in another
+     user's queue.
+4. **Legacy log provenance is preserved (§1, §5).**
+   - `CycleTrackingViewModel.saveLog` carries `existingLog.dataProvenance`
+     forward. A `legacy_unverified` row stays `legacy_unverified` after an
+     edit, as §5 requires.
+   - New manual logs from the legacy sheet are `user_reported_historical`
+     when the day is before the local today, and `user_observed` only for
+     today. Reason: §1 reserves `user_observed` for a same-day report, and
+     §5 forbids silently declaring a fact `user_observed`.
+   - The legacy sheet refuses to overwrite the `cycle_entries` mirror of a
+     canonical observation (`CanonicalMirrorEditBlockedException`) and
+     points her to the Calendar's "Correct this entry". This was the smaller
+     safe option; routing the edit through `correct_observation` was the
+     alternative. The mirror check is `isCanonicalObservationId`. If that
+     lookup is unavailable offline, the save proceeds, because it is
+     best-effort.
+5. **Onboarding conflict during background sync.** The queued onboarding
+   operation stays pending as `validation` (needs attention). Onboarding is
+   **not** marked complete.
+6. **Onboarding retry after a conflict** clears the old pending operation and
+   uses a fresh operation id. Changed baseline answers are no longer replaced
+   by the idempotent replay of the first attempt.
+7. See the migration below.
+8. See the migration below.
+9. See the migration below.
+10. See the migration below. In addition, the correction sheet offers only
+    flows that do not contradict the episode boundaries
+    (`correctionFlowOptions`):
+    - the closing observation of an ended episode: `none` or `uncertain`;
+    - the start observation: never `none`.
+11. A replayed start that hits the one-open-episode constraint (`23505`,
+    `ActiveEpisodeAlreadyExistsException`) is filed as `validation`, not
+    `unknown`, so it is no longer re-sent on every launch.
+12. When the merged `cycle_entries` list is built, a local row that is not
+    yet synced (pending or failed) takes precedence over the server copy.
+13. Account-data cleanup registers
+    `cycle_tracking_pending_bleeding_operations`, which is
+    `PendingBleedingOperationStore.clearForUser`.
+
+### Migration (proposed, not applied to any hosted project)
+
+`supabase/migrations/20261018090000_bleeding_write_boundary_validation.sql`
+uses `CREATE OR REPLACE` with unchanged signatures. Existing migrations are
+not edited.
+
+- **#8** `start_bleeding_episode` rejects a `start_date` on or before the end
+  date of an already-ended episode, which would overlap it.
+- **#9** `end_bleeding_episode` rejects an `end_date` earlier than bleeding
+  (spotting, light, medium or heavy) already recorded in the episode.
+- **Gap from the review** `record_bleeding_observation` rejects an
+  `observed_date` before the episode start.
+- **#10** `correct_observation` keeps the start and closing observations
+  consistent with the episode:
+  - their date cannot change;
+  - the start observation cannot become `none`;
+  - the closing observation cannot become bleeding;
+  - any correction must stay within the episode's start and end.
+  The existing `FOR UPDATE` / `NW409` behavior is kept.
+- **#7** `record_onboarding_menstrual_history` closes a reused open episode
+  with the same start date through `end_bleeding_episode` when she reports it
+  ended. Previously the end was silently dropped. The idempotent lookup also
+  matches the end operation id.
+
+Local verification: the regression script prints `ALL PASSED` on a database
+with this migration applied. Against the previous schema it fails at
+scenario 1 (the overlap is accepted).
+
+### Known gaps (documented, not fixed)
+
+- **#14:** source and `reported_at` for queued "today" reports are still
+  derived when the sync replays them, not when she reported. Accepting a
+  client-supplied report time would bring back caller-trusted provenance,
+  which Closure Blocker 4 removed. A bounded-skew design needs its own
+  decision.
+- **#15:** if the remote delete of a superseded `cycle_entries` row fails
+  after `projectCorrection`, nothing retries it, because the pending queue
+  has no delete operation. Fix #12 does not bring the row back while the
+  local copy is unsynced, but a synced remote leftover can still reappear.
+- **Onboarding overlap:** the overlap check (#8) applies only to
+  `start_bleeding_episode`. Episodes inserted by
+  `record_onboarding_menstrual_history` are not checked against ended
+  episodes.
+- **Reminders after a queued end:** a later notification refresh may
+  reschedule active-bleeding reminders until the queued end syncs and the
+  episode reads as ended.

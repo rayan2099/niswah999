@@ -1013,9 +1013,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             // any) is already saved above. The episode part is left
             // exactly as it was — never silently closed/overwritten —
             // pending her own choice below.
+            //
+            // Logging/sync hardening (proposed): this submission is now
+            // settled (the server answered; the baseline part — if any —
+            // is saved). Its operation id must NOT be reused for her next
+            // attempt: record_onboarding_menstrual_history's baseline part
+            // is idempotent by that id, so a resubmission with changed
+            // answers would silently get the OLD baseline back. Drop the
+            // settled operation and give the next attempt a fresh id.
+            await PendingBleedingOperationStore.clearPending(
+              _onboardingOperationId,
+              userId: userId,
+            );
             if (!mounted) return;
             setState(() {
               _completingOnboarding = false;
+              _onboardingOperationId = const Uuid().v4();
               _onboardingConflictingEpisodeStartDate =
                   result.conflictingEpisodeStartDate;
             });
