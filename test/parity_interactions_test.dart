@@ -13,7 +13,7 @@ void main() {
   testWidgets('marital status gates pregnancy tools and husband report', (
     tester,
   ) async {
-    // The pregnancy-chance card also requires sufficient cycle history —
+    // The estimated fertile-window card also requires sufficient cycle history —
     // seed two Haid starts so toggling marital status/TTC mode is the only
     // remaining variable this test is actually exercising.
     final seededLogs = jsonEncode([
@@ -39,12 +39,12 @@ void main() {
     );
     await tester.tap(find.text('Calendar'));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Chance of pregnancy'), findsNothing);
+    expect(find.text('Estimated fertile window'), findsNothing);
 
     await MaritalStatusController.instance.setMarried(true);
     await TtcModeController.instance.setEnabled(true);
     await tester.pump();
-    expect(find.text('Chance of pregnancy'), findsOneWidget);
+    expect(find.text('Estimated fertile window'), findsOneWidget);
 
     await tester.tap(find.text('Profile'));
     await tester.pump(const Duration(milliseconds: 300));

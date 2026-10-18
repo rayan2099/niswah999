@@ -79,6 +79,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## lib/core/storage
 
 - [local_sensitive_data_cleanup.dart](../../lib/core/storage/local_sensitive_data_cleanup.dart)
+- [scoped_mutation_queue.dart](../../lib/core/storage/scoped_mutation_queue.dart)
 - [secure_local_store.dart](../../lib/core/storage/secure_local_store.dart)
 
 ## lib/core/theme
@@ -91,6 +92,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## lib/core/utils
 
 - [app_clock.dart](../../lib/core/utils/app_clock.dart)
+- [calendar_day.dart](../../lib/core/utils/calendar_day.dart)
 - [db_timestamp.dart](../../lib/core/utils/db_timestamp.dart)
 - [device_timezone.dart](../../lib/core/utils/device_timezone.dart)
 

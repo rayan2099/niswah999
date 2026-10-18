@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'dart:async';
+
 import '../../../../core/utils/app_clock.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../../auth/domain/entities/app_user.dart';
@@ -10,48 +12,63 @@ import '../../domain/entities/cycle_log.dart';
 import '../../domain/repositories/cycle_tracking_repository.dart';
 import '../../domain/services/cycle_calculation_service.dart';
 import '../models/cycle_log_form_data.dart';
+import '../../data/local/prediction_history_review_store.dart';
+import '../../data/local/secure_prediction_history_review_store.dart';
+import '../../domain/entities/prediction_history_review.dart';
 
 class CycleTrackingViewModel extends ChangeNotifier {
   CycleTrackingViewModel({
     CycleTrackingRepository? repository,
     AuthRepositoryImpl? authRepository,
+    PredictionHistoryReviewStore? predictionReviewStore,
     Future<List<CanonicalEpisodeTiming>> Function(String userId)?
     canonicalEpisodeLoader,
   }) : _repository = repository ?? CycleTrackingRepositoryImpl(),
+       _predictionReviewStore =
+           predictionReviewStore ?? createPredictionHistoryReviewStore(),
        _canonicalEpisodeLoader =
            canonicalEpisodeLoader ?? _defaultCanonicalEpisodeLoader {
     _authRepository = authRepository;
+    _reviewSubscription = PredictionHistoryReviewStore.changes.listen((owner) {
+      if (owner != _currentUserId || _disposed) return;
+      if (!_savingHistoryReview) unawaited(loadLogs());
+    });
   }
 
   /// Canonical episode start/end DATES only (never a flow) — see
-  /// [CanonicalEpisodeTiming]. A read failure yields an empty list: the
-  /// legacy statistics then simply have no supplement, exactly as before,
-  /// and never a fabricated value.
+  /// [CanonicalEpisodeTiming]. Incomplete reads fail explicitly so predictions
+  /// cannot silently fall back to the potentially incomplete legacy table.
   static Future<List<CanonicalEpisodeTiming>> _defaultCanonicalEpisodeLoader(
     String userId,
   ) async {
     if (userId == 'local-user') return const [];
-    try {
-      final result = await BleedingEpisodeRepositoryImpl().getEpisodesForUser(
-        userId,
-      );
-      return (result.dataOrNull ?? const [])
-          .map(
-            (episode) => CanonicalEpisodeTiming(
-              startDate: episode.startDate,
-              endDate: episode.endDate,
-            ),
-          )
-          .toList();
-    } catch (_) {
-      return const [];
+    final result = await BleedingEpisodeRepositoryImpl().getEpisodesForUser(
+      userId,
+    );
+    if (!result.isCleanSuccess) {
+      throw StateError('Canonical cycle history could not be verified');
     }
+    return (result.dataOrNull ?? const [])
+        .map(
+          (episode) => CanonicalEpisodeTiming(
+            startDate: episode.startDate,
+            endDate: episode.endDate,
+          ),
+        )
+        .toList();
   }
 
   final Future<List<CanonicalEpisodeTiming>> Function(String userId)
   _canonicalEpisodeLoader;
 
   final CycleTrackingRepository _repository;
+  final PredictionHistoryReviewStore _predictionReviewStore;
+  late final StreamSubscription<String> _reviewSubscription;
+  bool _disposed = false;
+  bool _savingHistoryReview = false;
+  int _loadGeneration = 0;
+  int _userLoadGeneration = 0;
+  String? _summaryOwner;
   AuthRepositoryImpl? _authRepository;
   final CycleTrackingController _controller = CycleTrackingController();
   final CycleCalculationService _calculationService =
@@ -96,47 +113,124 @@ class CycleTrackingViewModel extends ChangeNotifier {
       _controller.filterLogsByPhase(logs, selectedPhase);
 
   Future<void> loadCurrentUser() async {
+    final generation = ++_userLoadGeneration;
+    AppUser? nextUser;
     try {
       final activeAuthRepository = _authRepository ?? _safeAuthRepository();
-      if (activeAuthRepository == null) {
-        _currentUser = null;
-        _currentUserId = 'local-user';
-        notifyListeners();
-        return;
-      }
-
-      _currentUser = await activeAuthRepository.currentUser;
-      _currentUserId = _currentUser?.id ?? 'local-user';
+      nextUser = await activeAuthRepository?.currentUser;
     } catch (_) {
-      _currentUser = null;
-      _currentUserId = 'local-user';
+      nextUser = null;
     }
+    if (_disposed || generation != _userLoadGeneration) return;
+    final nextOwner = nextUser?.id ?? 'local-user';
+    if (nextOwner != _currentUserId) {
+      logs = const [];
+      canonicalEpisodes = const [];
+      _summaryOwner = null;
+      summary = _controller.summarizeHistory(const []);
+    }
+    _currentUser = nextUser;
+    _currentUserId = nextOwner;
     notifyListeners();
   }
 
   Future<void> loadLogs() async {
+    if (_disposed) return;
+    final generation = ++_loadGeneration;
     isLoading = true;
     errorMessage = null;
-    notifyListeners();
+    if (!_disposed) notifyListeners();
 
     try {
       await loadCurrentUser();
+      if (_disposed || generation != _loadGeneration) return;
+      final owner = _currentUserId;
       final loadedLogs = await _repository.getCycleLogs();
-      logs = loadedLogs
-          .where(
-            (log) => log.userId == _currentUserId || log.userId == 'local-user',
-          )
+      final nextLogs = loadedLogs
+          .where((log) => log.userId == owner || log.userId == 'local-user')
           .toList();
-      canonicalEpisodes = await _canonicalEpisodeLoader(_currentUserId);
+      final nextEpisodes = await _canonicalEpisodeLoader(owner);
+      var reviews = <PredictionHistoryReview>[];
+      var reviewsVerified = true;
+      try {
+        reviews = await _predictionReviewStore.load(owner);
+      } catch (_) {
+        reviewsVerified = false;
+      }
+      if (_disposed ||
+          generation != _loadGeneration ||
+          owner != _currentUserId) {
+        return;
+      }
+      logs = nextLogs;
+      canonicalEpisodes = nextEpisodes;
+      _summaryOwner = owner;
       summary = _controller.summarizeHistory(
         logs,
         canonicalEpisodes: canonicalEpisodes,
+        historyReviews: reviews,
+        historyVerified: reviewsVerified,
       );
     } catch (error) {
+      if (_disposed || generation != _loadGeneration) return;
       errorMessage = error.toString();
+      // Do not retain another account's or a prior fetch's predictions.
+      canonicalEpisodes = const [];
+      logs = const [];
+      _summaryOwner = null;
+      summary = const CycleTrackingSummary(
+        averageCycleLength: null,
+        averagePeriodLength: null,
+        lastCycleStart: null,
+        currentPhase: CyclePhase.follicular,
+        fertileWindow: FertileWindow(start: null, end: null, peakDay: null),
+      );
     } finally {
-      isLoading = false;
-      notifyListeners();
+      if (!_disposed && generation == _loadGeneration) {
+        isLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _loadGeneration++;
+    unawaited(_reviewSubscription.cancel());
+    super.dispose();
+  }
+
+  Future<void> savePredictionHistoryReview(
+    PredictionHistoryReview review,
+  ) async {
+    if (_disposed || _savingHistoryReview) {
+      throw StateError('History review is no longer active or is saving');
+    }
+    final owner = _summaryOwner;
+    await loadCurrentUser();
+    if (_disposed ||
+        _savingHistoryReview ||
+        owner == null ||
+        owner != _currentUserId ||
+        !summary.periodPrediction.reviewGaps.any(
+          (gap) => gap.key == review.key,
+        )) {
+      throw StateError('History changed; reload before reviewing');
+    }
+    _savingHistoryReview = true;
+    try {
+      await _predictionReviewStore.save(owner, review);
+      int loadedRevision;
+      do {
+        loadedRevision = PredictionHistoryReviewStore.revisionFor(owner);
+        await loadLogs();
+      } while (loadedRevision !=
+              PredictionHistoryReviewStore.revisionFor(owner) &&
+          !_disposed &&
+          owner == _currentUserId);
+    } finally {
+      _savingHistoryReview = false;
     }
   }
 
@@ -180,6 +274,6 @@ class CycleTrackingViewModel extends ChangeNotifier {
 
   void updatePhaseFilter(CyclePhase? phase) {
     selectedPhase = phase;
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 }

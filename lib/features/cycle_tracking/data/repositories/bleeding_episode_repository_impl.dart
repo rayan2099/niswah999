@@ -4,12 +4,25 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/storage/secure_local_store.dart';
+import '../../../../core/storage/scoped_mutation_queue.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/load_result.dart';
 import '../local/pending_bleeding_operation_store.dart';
 import 'cycle_entries_projection.dart';
+
+Session _writeSession(SupabaseClient client, String? expectedUserId) {
+  final session = client.auth.currentSession;
+  if (session == null ||
+      (expectedUserId != null && session.user.id != expectedUserId)) {
+    throw StateError(
+      'The original account must be signed in to save this observation.',
+    );
+  }
+  return session;
+}
 
 /// Thrown by [BleedingEpisodeRepositoryImpl.startEpisode] specifically
 /// when the user already has an open episode — the database's
@@ -95,6 +108,7 @@ class BleedingEpisodeRepositoryImpl {
   Future<({BleedingEpisode episode, BleedingObservation observation})>
   startEpisode({
     required String clientOperationId,
+    String? expectedUserId,
     required DateTime startDate,
     required ObservationPrecision startPrecision,
     DateTime? startTime,
@@ -118,23 +132,26 @@ class BleedingEpisodeRepositoryImpl {
       localToday: localToday(utcOffsetMinutes),
     );
 
+    final session = _writeSession(client, expectedUserId);
     try {
-      final response = await client.rpc(
-        'start_bleeding_episode',
-        params: {
-          'p_client_operation_id': clientOperationId,
-          'p_start_date': _dateOnly(startDate),
-          'p_start_precision': startPrecision.value,
-          'p_start_time': startTime?.toIso8601String(),
-          'p_flow': flow.value,
-          'p_observed_time': observedTime?.toIso8601String(),
-          'p_precision': observationPrecision.value,
-          'p_timezone': timezone,
-          'p_utc_offset_minutes': utcOffsetMinutes,
-          'p_symptoms': symptoms,
-          'p_notes': notes,
-        },
-      );
+      final response = await client
+          .rpc(
+            'start_bleeding_episode',
+            params: {
+              'p_client_operation_id': clientOperationId,
+              'p_start_date': _dateOnly(startDate),
+              'p_start_precision': startPrecision.value,
+              'p_start_time': startTime?.toIso8601String(),
+              'p_flow': flow.value,
+              'p_observed_time': observedTime?.toIso8601String(),
+              'p_precision': observationPrecision.value,
+              'p_timezone': timezone,
+              'p_utc_offset_minutes': utcOffsetMinutes,
+              'p_symptoms': symptoms,
+              'p_notes': notes,
+            },
+          )
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
 
       final row = (response as List).single as Map<String, dynamic>;
       final episodeId = row['episode_id'] as String;
@@ -143,7 +160,7 @@ class BleedingEpisodeRepositoryImpl {
       return (
         episode: BleedingEpisode(
           id: episodeId,
-          userId: client.auth.currentUser!.id,
+          userId: session.user.id,
           lifecycleStatus: LifecycleStatus.open,
           continuationCertainty: ContinuationCertainty.confirmed,
           startDate: startDate,
@@ -153,7 +170,7 @@ class BleedingEpisodeRepositoryImpl {
         ),
         observation: BleedingObservation(
           id: observationId,
-          userId: client.auth.currentUser!.id,
+          userId: session.user.id,
           episodeId: episodeId,
           observedDate: startDate,
           observedTime: observedTime,
@@ -199,6 +216,7 @@ class BleedingEpisodeRepositoryImpl {
   /// erroring or double-closing.
   Future<({String episodeId, String closingObservationId})?> endEpisode({
     required String clientOperationId,
+    String? expectedUserId,
     required String episodeId,
     required DateTime endDate,
     required ObservationPrecision endPrecision,
@@ -211,21 +229,24 @@ class BleedingEpisodeRepositoryImpl {
     final client = _client;
     if (client == null) return null;
 
+    final session = _writeSession(client, expectedUserId);
     try {
-      final response = await client.rpc(
-        'end_bleeding_episode',
-        params: {
-          'p_client_operation_id': clientOperationId,
-          'p_episode_id': episodeId,
-          'p_end_date': _dateOnly(endDate),
-          'p_end_precision': endPrecision.value,
-          'p_end_time': endTime?.toIso8601String(),
-          'p_observed_time': observedTime?.toIso8601String(),
-          'p_precision': observationPrecision.value,
-          'p_timezone': timezone,
-          'p_utc_offset_minutes': utcOffsetMinutes,
-        },
-      );
+      final response = await client
+          .rpc(
+            'end_bleeding_episode',
+            params: {
+              'p_client_operation_id': clientOperationId,
+              'p_episode_id': episodeId,
+              'p_end_date': _dateOnly(endDate),
+              'p_end_precision': endPrecision.value,
+              'p_end_time': endTime?.toIso8601String(),
+              'p_observed_time': observedTime?.toIso8601String(),
+              'p_precision': observationPrecision.value,
+              'p_timezone': timezone,
+              'p_utc_offset_minutes': utcOffsetMinutes,
+            },
+          )
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
 
       final row = (response as List).single as Map<String, dynamic>;
       return (
@@ -300,6 +321,7 @@ class BleedingEpisodeRepositoryImpl {
   /// between the server committing and the response arriving).
   Future<String?> recordObservation({
     required String clientOperationId,
+    String? expectedUserId,
     required String episodeId,
     required DateTime observedDate,
     required ObservationPrecision precision,
@@ -313,22 +335,25 @@ class BleedingEpisodeRepositoryImpl {
     final client = _client;
     if (client == null) return null;
 
+    final session = _writeSession(client, expectedUserId);
     try {
-      final response = await client.rpc(
-        'record_bleeding_observation',
-        params: {
-          'p_client_operation_id': clientOperationId,
-          'p_episode_id': episodeId,
-          'p_observed_date': _dateOnly(observedDate),
-          'p_precision': precision.value,
-          'p_flow': flow.value,
-          'p_utc_offset_minutes': utcOffsetMinutes,
-          'p_observed_time': observedTime?.toIso8601String(),
-          'p_timezone': timezone,
-          'p_symptoms': symptoms,
-          'p_notes': notes,
-        },
-      );
+      final response = await client
+          .rpc(
+            'record_bleeding_observation',
+            params: {
+              'p_client_operation_id': clientOperationId,
+              'p_episode_id': episodeId,
+              'p_observed_date': _dateOnly(observedDate),
+              'p_precision': precision.value,
+              'p_flow': flow.value,
+              'p_utc_offset_minutes': utcOffsetMinutes,
+              'p_observed_time': observedTime?.toIso8601String(),
+              'p_timezone': timezone,
+              'p_symptoms': symptoms,
+              'p_notes': notes,
+            },
+          )
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
       final row = (response as List).single as Map<String, dynamic>;
       return row['observation_id'] as String?;
     } on PostgrestException catch (error, stack) {
@@ -372,6 +397,7 @@ class BleedingEpisodeRepositoryImpl {
   /// same day as the original.
   Future<String?> correctObservation({
     required String clientOperationId,
+    String? expectedUserId,
     required String supersedesId,
     required DateTime observedDate,
     required ObservationPrecision precision,
@@ -385,22 +411,25 @@ class BleedingEpisodeRepositoryImpl {
     final client = _client;
     if (client == null) return null;
 
+    final session = _writeSession(client, expectedUserId);
     try {
-      final response = await client.rpc(
-        'correct_observation',
-        params: {
-          'p_client_operation_id': clientOperationId,
-          'p_supersedes_id': supersedesId,
-          'p_observed_date': _dateOnly(observedDate),
-          'p_precision': precision.value,
-          'p_flow': flow.value,
-          'p_utc_offset_minutes': utcOffsetMinutes,
-          'p_observed_time': observedTime?.toIso8601String(),
-          'p_timezone': timezone,
-          'p_symptoms': symptoms,
-          'p_notes': notes,
-        },
-      );
+      final response = await client
+          .rpc(
+            'correct_observation',
+            params: {
+              'p_client_operation_id': clientOperationId,
+              'p_supersedes_id': supersedesId,
+              'p_observed_date': _dateOnly(observedDate),
+              'p_precision': precision.value,
+              'p_flow': flow.value,
+              'p_utc_offset_minutes': utcOffsetMinutes,
+              'p_observed_time': observedTime?.toIso8601String(),
+              'p_timezone': timezone,
+              'p_symptoms': symptoms,
+              'p_notes': notes,
+            },
+          )
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
       final row = (response as List).single as Map<String, dynamic>;
       return row['observation_id'] as String?;
     } on PostgrestException catch (error, stack) {
@@ -617,6 +646,7 @@ class BleedingEpisodeRepositoryImpl {
   >
   recordOnboardingHistory({
     required String clientOperationId,
+    String? expectedUserId,
     required int utcOffsetMinutes,
     BleedingEpisode? episode,
     CycleBaseline? baseline,
@@ -628,31 +658,35 @@ class BleedingEpisodeRepositoryImpl {
       );
     }
 
-    final response = await client.rpc(
-      'record_onboarding_menstrual_history',
-      params: {
-        'p_client_operation_id': clientOperationId,
-        'p_utc_offset_minutes': utcOffsetMinutes,
-        if (episode != null) ...{
-          'p_start_date': _dateOnly(episode.startDate),
-          'p_start_precision': episode.startPrecision.value,
-          'p_lifecycle_status': episode.lifecycleStatus.value,
-          if (episode.continuationCertainty != null)
-            'p_continuation_certainty': episode.continuationCertainty!.value,
-          if (episode.endDate != null)
-            'p_end_date': _dateOnly(episode.endDate!),
-          if (episode.endPrecision != null)
-            'p_end_precision': episode.endPrecision!.value,
-        },
-        if (baseline != null) ...{
-          if (baseline.usualBleedingDurationDays != null)
-            'p_usual_bleeding_duration_days':
-                baseline.usualBleedingDurationDays,
-          if (baseline.usualCycleLengthDays != null)
-            'p_usual_cycle_length_days': baseline.usualCycleLengthDays,
-        },
-      },
-    );
+    final session = _writeSession(client, expectedUserId);
+    final response = await client
+        .rpc(
+          'record_onboarding_menstrual_history',
+          params: {
+            'p_client_operation_id': clientOperationId,
+            'p_utc_offset_minutes': utcOffsetMinutes,
+            if (episode != null) ...{
+              'p_start_date': _dateOnly(episode.startDate),
+              'p_start_precision': episode.startPrecision.value,
+              'p_lifecycle_status': episode.lifecycleStatus.value,
+              if (episode.continuationCertainty != null)
+                'p_continuation_certainty':
+                    episode.continuationCertainty!.value,
+              if (episode.endDate != null)
+                'p_end_date': _dateOnly(episode.endDate!),
+              if (episode.endPrecision != null)
+                'p_end_precision': episode.endPrecision!.value,
+            },
+            if (baseline != null) ...{
+              if (baseline.usualBleedingDurationDays != null)
+                'p_usual_bleeding_duration_days':
+                    baseline.usualBleedingDurationDays,
+              if (baseline.usualCycleLengthDays != null)
+                'p_usual_cycle_length_days': baseline.usualCycleLengthDays,
+            },
+          },
+        )
+        .setHeader('Authorization', 'Bearer ${session.accessToken}');
 
     final row = (response as List).single as Map<String, dynamic>;
     final conflictingDateRaw = row['conflicting_start_date'] as String?;
@@ -854,10 +888,25 @@ class BleedingEpisodeRepositoryImpl {
   /// retrying either with unchanged data cannot succeed and would only
   /// ever waste a retry slot silently forever ("do not retry invalid
   /// operations indefinitely").
-  Future<void> reconcilePendingOperations({bool forceAll = false}) async {
-    final pending = await PendingBleedingOperationStore.loadPending();
+  Future<void> reconcilePendingOperations({bool forceAll = false}) {
+    final owner = SecureLocalStore.currentUserId();
+    return ScopedMutationQueue.run(
+      category: 'bleeding_reconciliation',
+      owner: owner,
+      action: () => _reconcileForOwner(owner, forceAll: forceAll),
+    );
+  }
+
+  Future<void> _reconcileForOwner(
+    String owner, {
+    required bool forceAll,
+  }) async {
+    final pending = await PendingBleedingOperationStore.loadPending(
+      userId: owner,
+    );
     var clearedAny = false;
     for (final operation in pending) {
+      if (SecureLocalStore.currentUserId() != owner) break;
       if (!forceAll && !operation.eligibleForAutomaticRetry) continue;
       // Set by the cases below when the replay produced an observation
       // the interactive path would have mirrored into the legacy read
@@ -870,6 +919,7 @@ class BleedingEpisodeRepositoryImpl {
             final params = operation.params;
             final started = await startEpisode(
               clientOperationId: operation.operationId,
+              expectedUserId: owner,
               startDate: DateTime.parse(params['startDate'] as String),
               startPrecision: ObservationPrecision.parse(
                 params['startPrecision'] as String?,
@@ -886,6 +936,7 @@ class BleedingEpisodeRepositoryImpl {
             final params = operation.params;
             final endResult = await endEpisode(
               clientOperationId: operation.operationId,
+              expectedUserId: owner,
               episodeId: params['episodeId'] as String,
               endDate: DateTime.parse(params['endDate'] as String),
               endPrecision: ObservationPrecision.parse(
@@ -931,6 +982,7 @@ class BleedingEpisodeRepositoryImpl {
             final baselineJson = params['baseline'] as Map<String, dynamic>?;
             await recordOnboardingHistory(
               clientOperationId: operation.operationId,
+              expectedUserId: owner,
               utcOffsetMinutes: params['utcOffsetMinutes'] as int,
               episode: episodeJson == null
                   ? null
@@ -995,6 +1047,7 @@ class BleedingEpisodeRepositoryImpl {
             final params = operation.params;
             final observationResult = await recordObservation(
               clientOperationId: operation.operationId,
+              expectedUserId: owner,
               episodeId: params['episodeId'] as String,
               observedDate: DateTime.parse(params['observedDate'] as String),
               precision: ObservationPrecision.parse(
@@ -1031,6 +1084,7 @@ class BleedingEpisodeRepositoryImpl {
             // resolve, not be silently retried or dropped.
             final correctionResult = await correctObservation(
               clientOperationId: operation.operationId,
+              expectedUserId: owner,
               supersedesId: params['supersedesId'] as String,
               observedDate: DateTime.parse(params['observedDate'] as String),
               precision: ObservationPrecision.parse(
@@ -1055,6 +1109,7 @@ class BleedingEpisodeRepositoryImpl {
             final baselineResult =
                 await CycleBaselineRepositoryImpl(client: _client).saveBaseline(
                   clientOperationId: operation.operationId,
+                  expectedUserId: owner,
                   usualBleedingDurationDays:
                       params['usualBleedingDurationDays'] as int?,
                   usualCycleLengthDays: params['usualCycleLengthDays'] as int?,
@@ -1066,9 +1121,13 @@ class BleedingEpisodeRepositoryImpl {
               );
             }
         }
-        await PendingBleedingOperationStore.clearPending(operation.operationId);
+        await PendingBleedingOperationStore.clearPending(
+          operation.operationId,
+          userId: owner,
+        );
         clearedAny = true;
-        if (replayedObservationId != null) {
+        if (replayedObservationId != null &&
+            SecureLocalStore.currentUserId() == owner) {
           await _projectReplayedObservation(
             replayedObservationId,
             supersededObservationId: supersededObservationId,
@@ -1094,6 +1153,7 @@ class BleedingEpisodeRepositoryImpl {
             _categorizeReconciliationError(error),
             attemptedAt: DateTime.now(),
           ),
+          userId: owner,
         );
       }
     }
@@ -1206,21 +1266,25 @@ class CycleBaselineRepositoryImpl {
   /// than creating a second version.
   Future<String?> saveBaseline({
     required String clientOperationId,
+    String? expectedUserId,
     int? usualBleedingDurationDays,
     int? usualCycleLengthDays,
   }) async {
     final client = _client;
     if (client == null) return null;
 
+    final session = _writeSession(client, expectedUserId);
     try {
-      final response = await client.rpc(
-        'save_baseline_estimate',
-        params: {
-          'p_client_operation_id': clientOperationId,
-          'p_usual_bleeding_duration_days': usualBleedingDurationDays,
-          'p_usual_cycle_length_days': usualCycleLengthDays,
-        },
-      );
+      final response = await client
+          .rpc(
+            'save_baseline_estimate',
+            params: {
+              'p_client_operation_id': clientOperationId,
+              'p_usual_bleeding_duration_days': usualBleedingDurationDays,
+              'p_usual_cycle_length_days': usualCycleLengthDays,
+            },
+          )
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
       final row = (response as List).single as Map<String, dynamic>;
       return row['baseline_id'] as String?;
     } on PostgrestException catch (error, stack) {

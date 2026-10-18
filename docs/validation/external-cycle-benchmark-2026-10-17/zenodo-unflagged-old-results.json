@@ -1,0 +1,102 @@
+{
+  "shippingMethod": "historicalMean",
+  "automaticPromotion": false,
+  "models": {
+    "historicalMean": {
+      "method": "historicalMean",
+      "predictionVersion": "cycle-prediction-v1-2026-10-17",
+      "histories": 15,
+      "historiesWithFewerThanThreeStarts": 0,
+      "evaluatedPredictions": 1996,
+      "withheldPredictions": 228,
+      "meanAbsoluteErrorDays": 19.300100200400802,
+      "medianAbsoluteErrorDays": 3.0,
+      "fractionWithin1Day": 0.2955911823647295,
+      "fractionWithin3Days": 0.6137274549098196,
+      "fractionWithin7Days": 0.8346693386773547,
+      "historyWeightedMeanAbsoluteErrorDays": 15.249749910967411,
+      "predictionsWithHistoricalRange": 1981,
+      "empiricalRangeCoverage": 0.9480060575466935,
+      "meanHistoricalRangeWidthDays": 531.432104997476,
+      "byAvailableHistory": {
+        "oneInterval": {
+          "evaluatedPredictions": 15,
+          "meanAbsoluteErrorDays": 11.466666666666667
+        },
+        "twoToFiveIntervals": {
+          "evaluatedPredictions": 60,
+          "meanAbsoluteErrorDays": 90.61666666666666
+        },
+        "sixOrMoreIntervals": {
+          "evaluatedPredictions": 1921,
+          "meanAbsoluteErrorDays": 17.133784487246224
+        }
+      },
+      "scope": "Period-start estimates only; not ovulation validation or clinical certification"
+    },
+    "recentMedian": {
+      "method": "recentMedian",
+      "predictionVersion": "cycle-prediction-v1-2026-10-17",
+      "histories": 15,
+      "historiesWithFewerThanThreeStarts": 0,
+      "evaluatedPredictions": 1996,
+      "withheldPredictions": 228,
+      "meanAbsoluteErrorDays": 8.20440881763527,
+      "medianAbsoluteErrorDays": 2.0,
+      "fractionWithin1Day": 0.4498997995991984,
+      "fractionWithin3Days": 0.7705410821643287,
+      "fractionWithin7Days": 0.9198396793587175,
+      "historyWeightedMeanAbsoluteErrorDays": 7.438464226876742,
+      "predictionsWithHistoricalRange": 1981,
+      "empiricalRangeCoverage": 0.7708228167592125,
+      "meanHistoricalRangeWidthDays": 31.280666330136295,
+      "byAvailableHistory": {
+        "oneInterval": {
+          "evaluatedPredictions": 15,
+          "meanAbsoluteErrorDays": 11.466666666666667
+        },
+        "twoToFiveIntervals": {
+          "evaluatedPredictions": 60,
+          "meanAbsoluteErrorDays": 107.46666666666667
+        },
+        "sixOrMoreIntervals": {
+          "evaluatedPredictions": 1921,
+          "meanAbsoluteErrorDays": 5.078604893284748
+        }
+      },
+      "scope": "Period-start estimates only; not ovulation validation or clinical certification"
+    },
+    "recentWeightedMean": {
+      "method": "recentWeightedMean",
+      "predictionVersion": "cycle-prediction-v1-2026-10-17",
+      "histories": 15,
+      "historiesWithFewerThanThreeStarts": 0,
+      "evaluatedPredictions": 1996,
+      "withheldPredictions": 228,
+      "meanAbsoluteErrorDays": 10.089679358717435,
+      "medianAbsoluteErrorDays": 2.0,
+      "fractionWithin1Day": 0.4218436873747495,
+      "fractionWithin3Days": 0.7249498997995992,
+      "fractionWithin7Days": 0.8977955911823647,
+      "historyWeightedMeanAbsoluteErrorDays": 9.323921496223903,
+      "predictionsWithHistoricalRange": 1981,
+      "empiricalRangeCoverage": 0.7708228167592125,
+      "meanHistoricalRangeWidthDays": 31.280666330136295,
+      "byAvailableHistory": {
+        "oneInterval": {
+          "evaluatedPredictions": 15,
+          "meanAbsoluteErrorDays": 11.466666666666667
+        },
+        "twoToFiveIntervals": {
+          "evaluatedPredictions": 60,
+          "meanAbsoluteErrorDays": 101.1
+        },
+        "sixOrMoreIntervals": {
+          "evaluatedPredictions": 1921,
+          "meanAbsoluteErrorDays": 7.236335242061426
+        }
+      },
+      "scope": "Period-start estimates only; not ovulation validation or clinical certification"
+    }
+  }
+}

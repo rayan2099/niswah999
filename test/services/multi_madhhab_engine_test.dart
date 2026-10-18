@@ -109,7 +109,8 @@ void main() {
             expected: FiqhCycleState.haid,
           ),
           (
-            name: 'Maliki rejects above 15 days (maximum is unaffected by FD-7)',
+            name:
+                'Maliki rejects above 15 days (maximum is unaffected by FD-7)',
             madhhab: Madhhab.maliki,
             duration: const Duration(days: 15, minutes: 1),
             expected: FiqhCycleState.needsAdvisory,
@@ -123,6 +124,7 @@ void main() {
           hasSufficientHistory: true,
           isBleeding: true,
           bleedingDuration: testCase.duration,
+          personalHabit: const Duration(days: 15),
           purityBefore: const Duration(days: 15),
         );
         expect(result.state, testCase.expected);
@@ -150,89 +152,74 @@ void main() {
   });
 
   group('FD-7 (2026-10-15) — evidence-based per-madhhab corrections', () {
-    test(
-      'minimumHaidFor is null only for Maliki — Hanafi/Shafi\'i/Hanbali '
-      'keep their real minimum, unaffected',
-      () {
-        expect(
-          MadhhabRuleEvaluator.minimumHaidFor(Madhhab.maliki),
-          isNull,
-        );
-        expect(
-          MadhhabRuleEvaluator.minimumHaidFor(Madhhab.hanafi),
-          const Duration(hours: 72),
-        );
-        expect(
-          MadhhabRuleEvaluator.minimumHaidFor(Madhhab.shafii),
-          const Duration(hours: 24),
-        );
-        expect(
-          MadhhabRuleEvaluator.minimumHaidFor(Madhhab.hanbali),
-          const Duration(hours: 24),
-        );
-      },
-    );
+    test('minimumHaidFor is null only for Maliki — Hanafi/Shafi\'i/Hanbali '
+        'keep their real minimum, unaffected', () {
+      expect(MadhhabRuleEvaluator.minimumHaidFor(Madhhab.maliki), isNull);
+      expect(
+        MadhhabRuleEvaluator.minimumHaidFor(Madhhab.hanafi),
+        const Duration(hours: 72),
+      );
+      expect(
+        MadhhabRuleEvaluator.minimumHaidFor(Madhhab.shafii),
+        const Duration(hours: 24),
+      );
+      expect(
+        MadhhabRuleEvaluator.minimumHaidFor(Madhhab.hanbali),
+        const Duration(hours: 24),
+      );
+    });
 
-    test(
-      'minimumPurityFor is 13 days only for Hanbali — Hanafi/Maliki/'
-      'Shafi\'i stay at 15 days, unaffected',
-      () {
-        expect(
-          MadhhabRuleEvaluator.minimumPurityFor(Madhhab.hanbali),
-          const Duration(days: 13),
-        );
-        expect(
-          MadhhabRuleEvaluator.minimumPurityFor(Madhhab.hanafi),
-          const Duration(days: 15),
-        );
-        expect(
-          MadhhabRuleEvaluator.minimumPurityFor(Madhhab.maliki),
-          const Duration(days: 15),
-        );
-        expect(
-          MadhhabRuleEvaluator.minimumPurityFor(Madhhab.shafii),
-          const Duration(days: 15),
-        );
-      },
-    );
+    test('minimumPurityFor is 13 days only for Hanbali — Hanafi/Maliki/'
+        'Shafi\'i stay at 15 days, unaffected', () {
+      expect(
+        MadhhabRuleEvaluator.minimumPurityFor(Madhhab.hanbali),
+        const Duration(days: 13),
+      );
+      expect(
+        MadhhabRuleEvaluator.minimumPurityFor(Madhhab.hanafi),
+        const Duration(days: 15),
+      );
+      expect(
+        MadhhabRuleEvaluator.minimumPurityFor(Madhhab.maliki),
+        const Duration(days: 15),
+      );
+      expect(
+        MadhhabRuleEvaluator.minimumPurityFor(Madhhab.shafii),
+        const Duration(days: 15),
+      );
+    });
 
-    test(
-      'evaluate() result.minimumPurity reflects the per-madhhab value, '
-      'not a single shared constant',
-      () {
-        final hanbali = evaluator.evaluate(
-          madhhab: Madhhab.hanbali,
-          hasSufficientHistory: true,
-          isBleeding: true,
-          bleedingDuration: const Duration(days: 3),
-        );
-        final hanafi = evaluator.evaluate(
-          madhhab: Madhhab.hanafi,
-          hasSufficientHistory: true,
-          isBleeding: true,
-          bleedingDuration: const Duration(days: 3),
-        );
-        expect(hanbali.minimumPurity, const Duration(days: 13));
-        expect(hanafi.minimumPurity, const Duration(days: 15));
-      },
-    );
+    test('evaluate() result.minimumPurity reflects the per-madhhab value, '
+        'not a single shared constant', () {
+      final hanbali = evaluator.evaluate(
+        madhhab: Madhhab.hanbali,
+        hasSufficientHistory: true,
+        isBleeding: true,
+        bleedingDuration: const Duration(days: 3),
+      );
+      final hanafi = evaluator.evaluate(
+        madhhab: Madhhab.hanafi,
+        hasSufficientHistory: true,
+        isBleeding: true,
+        bleedingDuration: const Duration(days: 3),
+      );
+      expect(hanbali.minimumPurity, const Duration(days: 13));
+      expect(hanafi.minimumPurity, const Duration(days: 15));
+    });
 
-    test(
-      'evaluate() result.minimumHaid is null for Maliki even when the '
-      'resulting state is needsAdvisory (maximum-exceeded case) — proves '
-      'the result struct itself carries the explicit "no minimum" '
-      'semantic through, not just the classification decision',
-      () {
-        final result = evaluator.evaluate(
-          madhhab: Madhhab.maliki,
-          hasSufficientHistory: true,
-          isBleeding: true,
-          bleedingDuration: const Duration(days: 16),
-        );
-        expect(result.state, FiqhCycleState.needsAdvisory);
-        expect(result.minimumHaid, isNull);
-      },
-    );
+    test('evaluate() result.minimumHaid is null for Maliki even when the '
+        'resulting state is needsAdvisory (maximum-exceeded case) — proves '
+        'the result struct itself carries the explicit "no minimum" '
+        'semantic through, not just the classification decision', () {
+      final result = evaluator.evaluate(
+        madhhab: Madhhab.maliki,
+        hasSufficientHistory: true,
+        isBleeding: true,
+        bleedingDuration: const Duration(days: 16),
+      );
+      expect(result.state, FiqhCycleState.needsAdvisory);
+      expect(result.minimumHaid, isNull);
+    });
   });
 
   test("Maliki preserves and evaluates the user's personal habit ('adah)", () {
@@ -286,12 +273,14 @@ void main() {
       hasSufficientHistory: factual.hasSufficientHistory,
       isBleeding: true,
       bleedingDuration: const Duration(hours: 48),
+      purityBefore: const Duration(days: 20),
     );
     final shafii = evaluator.evaluate(
       madhhab: Madhhab.shafii,
       hasSufficientHistory: factual.hasSufficientHistory,
       isBleeding: true,
       bleedingDuration: const Duration(hours: 48),
+      purityBefore: const Duration(days: 20),
     );
 
     expect(hanafi.state, FiqhCycleState.needsAdvisory);

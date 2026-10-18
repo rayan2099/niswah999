@@ -25,6 +25,7 @@ class MadhhabRuleResult {
     required this.minimumPurity,
     this.personalHabit,
     this.isWithinPersonalHabit,
+    this.minimumOnlyPending = false,
   });
 
   final FiqhCycleState state;
@@ -35,6 +36,9 @@ class MadhhabRuleResult {
   final Duration minimumPurity;
   final Duration? personalHabit;
   final bool? isWithinPersonalHabit;
+
+  /// A countdown must never promise resolution when another input needs review.
+  final bool minimumOnlyPending;
 }
 
 /// Applies each madhhab's duration boundaries to factual bleeding data.
@@ -68,7 +72,7 @@ class MadhhabRuleEvaluator {
   /// "the user changed Madhhab" (new row, same `ruleset_version`) from
   /// "the same Madhhab now means something different" (new row, new
   /// `ruleset_version`, same `new_madhhab` as some prior row).
-  static const String rulesetVersion = 'v1-2026-09-09';
+  static const String rulesetVersion = 'v2-2026-10-17';
 
   /// The minimum duration of bleeding each madhhab recognizes as Haid.
   /// Extracted as a named constant (rather than inlined in [evaluate])
@@ -115,18 +119,13 @@ class MadhhabRuleEvaluator {
   /// (`HNB-HAID-06`, `LOCATOR_VERIFIED`/`PRODUCTION_ELIGIBLE`, citing
   /// Kashshaf al-Qina') states **thirteen days**, not fifteen, for
   /// Hanbali specifically — corroborated by independent external
-  /// sources per FD-7. Hanafi/Maliki/Shafi'i remain at 15 days; this is
-  /// a Madhhab-specific correction, not a generalized rule change. Only
-  /// Hanafi's branch of [evaluate] currently gates on this value as a
-  /// branch condition (the pre-existing, separately-tracked `FR-003`
-  /// enforcement asymmetry) — this function still returns each
-  /// madhhab's own correct value so that gap, when closed, inherits the
-  /// right number per madhhab instead of a single wrong-for-Hanbali
-  /// constant.
+  /// sources per FD-7. Short intervals now defer to review for every
+  /// school; this does not implement the unreviewed interrupted-bleeding
+  /// rules or classify such bleeding automatically.
   static Duration minimumPurityFor(Madhhab madhhab) =>
       madhhab == Madhhab.hanbali
-          ? const Duration(days: 13)
-          : const Duration(days: 15);
+      ? const Duration(days: 13)
+      : const Duration(days: 15);
 
   MadhhabRuleResult evaluate({
     required Madhhab madhhab,
@@ -140,21 +139,29 @@ class MadhhabRuleEvaluator {
     final maximum = maximumHaidFor(madhhab);
     final minimumPurity = minimumPurityFor(madhhab);
 
+    final invalidInput =
+        bleedingDuration.isNegative ||
+        (purityBefore?.isNegative ?? false) ||
+        (personalHabit != null && personalHabit <= Duration.zero);
+    final purityNeedsReview =
+        purityBefore == null || purityBefore < minimumPurity;
+    // MLK-HAID-05 is quarantined: a flat ceiling cannot resolve the
+    // habit/istizhar distinction. Defer rather than invent that missing rule.
+    final habitNeedsReview =
+        madhhab == Madhhab.maliki &&
+        (personalHabit == null || bleedingDuration > personalHabit);
+    final belowMinimum = minimum != null && bleedingDuration < minimum;
     final FiqhCycleState state;
     if (!hasSufficientHistory) {
       state = FiqhCycleState.insufficientHistory;
     } else if (!isBleeding) {
       state = FiqhCycleState.tahara;
-    } else if (madhhab == Madhhab.hanafi &&
-        purityBefore != null &&
-        purityBefore < minimumPurity) {
+    } else if (invalidInput || purityNeedsReview || habitNeedsReview) {
       state = FiqhCycleState.needsAdvisory;
     } else if ((minimum != null && bleedingDuration < minimum) ||
         bleedingDuration > maximum) {
-      // Maliki has no time-based minimum (minimum == null) — only the
-      // maximum bound can trigger needsAdvisory for Maliki. Hanafi/
-      // Shafi'i/Hanbali are unaffected: their real minimum still gates
-      // exactly as before.
+      // Duration bounds remain school-specific. Purity/habit uncertainties
+      // have already been deferred by the preceding branch.
       state = FiqhCycleState.needsAdvisory;
     } else {
       state = FiqhCycleState.haid;
@@ -169,6 +176,13 @@ class MadhhabRuleEvaluator {
       isWithinPersonalHabit: madhhab == Madhhab.maliki && personalHabit != null
           ? bleedingDuration <= personalHabit
           : null,
+      minimumOnlyPending:
+          hasSufficientHistory &&
+          isBleeding &&
+          belowMinimum &&
+          !invalidInput &&
+          !purityNeedsReview &&
+          !habitNeedsReview,
     );
   }
 }

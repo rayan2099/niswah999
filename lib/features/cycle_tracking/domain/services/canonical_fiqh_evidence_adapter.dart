@@ -1,4 +1,5 @@
 import '../entities/bleeding_episode.dart';
+import '../../../../core/utils/calendar_day.dart';
 import '../entities/cycle_log.dart';
 
 /// Menstrual Data Integrity charter, Closure Blocker 3 — the deterministic
@@ -39,6 +40,14 @@ class CanonicalFiqhEvidenceAdapter {
   }) {
     final byDay = _effectiveByDay(observations);
 
+    final firstDayByEpisode = <String, DateTime>{};
+    for (final entry in byDay.entries) {
+      final first = firstDayByEpisode[entry.value.episodeId];
+      if (first == null || entry.key.isBefore(first)) {
+        firstDayByEpisode[entry.value.episodeId] = entry.key;
+      }
+    }
+
     final logs = <CycleLog>[];
     for (final entry in byDay.entries) {
       final flow = _flowOrNull(entry.value.flow);
@@ -51,6 +60,14 @@ class CanonicalFiqhEvidenceAdapter {
           id: entry.value.id ?? '',
           userId: entry.value.userId,
           date: entry.key,
+          // Never leave every canonical day at CycleLog's default of 1:
+          // the statistics service interprets that as a new cycle start.
+          cycleDay:
+              calendarDayDifference(
+                entry.key,
+                firstDayByEpisode[entry.value.episodeId]!,
+              ) +
+              1,
           flow: flow,
           notes: entry.value.notes,
           symptoms: entry.value.symptoms ?? const <String>[],

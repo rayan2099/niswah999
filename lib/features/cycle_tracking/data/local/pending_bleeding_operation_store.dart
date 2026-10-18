@@ -4,6 +4,7 @@ import 'package:collection/collection.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/storage/secure_local_store.dart';
+import '../../../../core/storage/scoped_mutation_queue.dart';
 
 /// Menstrual Data Integrity charter, PR #4 completion wave — Fix D. The
 /// Start/End Bleeding sheets keep their `client_operation_id` in widget
@@ -276,16 +277,21 @@ class PendingBleedingOperationStore {
   static Future<void> savePending(
     PendingBleedingOperation operation, {
     String? userId,
-  }) async {
-    final existing = await loadPending(userId: userId);
-    final updated = <String, PendingBleedingOperation>{
-      for (final op in existing) op.operationId: op,
-    };
-    updated[operation.operationId] = operation;
-    await SecureLocalStore.write(
-      _category,
-      jsonEncode(updated.values.map((op) => op.toJson()).toList()),
-      userId: userId,
+  }) {
+    final owner = userId ?? SecureLocalStore.currentUserId();
+    return ScopedMutationQueue.run(
+      category: _category,
+      owner: owner,
+      action: () async {
+        final existing = await loadPending(userId: owner);
+        final updated = {for (final op in existing) op.operationId: op};
+        updated[operation.operationId] = operation;
+        await SecureLocalStore.write(
+          _category,
+          jsonEncode(updated.values.map((op) => op.toJson()).toList()),
+          userId: owner,
+        );
+      },
     );
   }
 
@@ -308,17 +314,29 @@ class PendingBleedingOperationStore {
   /// must target the bucket the operation was actually saved into, not
   /// whoever happens to be signed in when the matching RPC call finally
   /// resolves.
-  static Future<void> clearPending(String operationId, {String? userId}) async {
-    final existing = await loadPending(userId: userId);
-    final remaining = existing
-        .where((op) => op.operationId != operationId)
-        .toList();
-    await SecureLocalStore.write(
-      _category,
-      jsonEncode(remaining.map((op) => op.toJson()).toList()),
-      userId: userId,
+  static Future<void> clearPending(String operationId, {String? userId}) {
+    final owner = userId ?? SecureLocalStore.currentUserId();
+    return ScopedMutationQueue.run(
+      category: _category,
+      owner: owner,
+      action: () async {
+        final existing = await loadPending(userId: owner);
+        final remaining = existing.where((op) => op.operationId != operationId);
+        await SecureLocalStore.write(
+          _category,
+          jsonEncode(remaining.map((op) => op.toJson()).toList()),
+          userId: owner,
+        );
+      },
     );
   }
+
+  /// Ordered after every already-enqueued mutation for this account.
+  static Future<void> clearForUser(String userId) => ScopedMutationQueue.run(
+    category: _category,
+    owner: userId,
+    action: () => SecureLocalStore.clearForUser(_category, userId),
+  );
 
   /// Closure Blocker 11 — every failure mode below is quarantined, never
   /// thrown: a `jsonDecode` failure (malformed outer JSON), a top-level

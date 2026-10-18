@@ -143,6 +143,223 @@ void main() {
       expect(a.cycleLengths, b.cycleLengths);
     });
 
+    test('a partial projection cannot erase a known completed duration', () {
+      final start = DateTime(2026, 7, 1);
+      final result = service.calculate(
+        [startLog(start), startLog(DateTime(2026, 7, 29))],
+        asOf: today,
+        canonicalEpisodes: [
+          CanonicalEpisodeTiming(
+            startDate: start,
+            endDate: DateTime(2026, 7, 6),
+          ),
+        ],
+      );
+      expect(result.cycleLengths, [28]);
+      expect(result.averagePeriodLength, 5);
+    });
+
+    test('adjacent projection retains the canonical start and duration', () {
+      final result = service.calculate(
+        [startLog(DateTime(2026, 7, 2))],
+        asOf: today,
+        canonicalEpisodes: [
+          CanonicalEpisodeTiming(
+            startDate: DateTime(2026, 7, 1),
+            endDate: DateTime(2026, 7, 6),
+          ),
+        ],
+      );
+      expect(result.haidStarts, [DateTime(2026, 7, 1)]);
+      expect(result.averagePeriodLength, 5);
+    });
+
+    test('duplicate open timing cannot hide a completed timing fact', () {
+      final start = DateTime(2026, 7, 1);
+      final open = CanonicalEpisodeTiming(startDate: start);
+      final closed = CanonicalEpisodeTiming(
+        startDate: start,
+        endDate: DateTime(2026, 7, 6),
+      );
+      for (final episodes in [
+        [open, closed],
+        [closed, open],
+      ]) {
+        final result = service.calculate(
+          const [],
+          asOf: today,
+          canonicalEpisodes: episodes,
+        );
+        expect(result.haidStarts, [start]);
+        expect(result.averagePeriodLength, 5);
+      }
+    });
+
+    test(
+      'merged durations are counted once per episode, with equal weight',
+      () {
+        final result = service.calculate(
+          [startLog(DateTime(2026, 7, 1))],
+          asOf: today,
+          canonicalEpisodes: [
+            CanonicalEpisodeTiming(
+              startDate: DateTime(2026, 7, 1),
+              endDate: DateTime(2026, 7, 6),
+            ),
+            CanonicalEpisodeTiming(
+              startDate: DateTime(2026, 7, 29),
+              endDate: DateTime(2026, 8, 7),
+            ),
+          ],
+        );
+        expect(result.averagePeriodLength, 7); // (5 + 9) / 2
+      },
+    );
+
+    test(
+      'canonical timing uses civil dates, like flat logs, on the as-of day',
+      () {
+        final result = service.calculate(
+          const [],
+          asOf: DateTime(2026, 8, 18, 15),
+          canonicalEpisodes: [
+            CanonicalEpisodeTiming(startDate: DateTime(2026, 7, 21, 12)),
+            CanonicalEpisodeTiming(startDate: DateTime(2026, 8, 18, 12)),
+            CanonicalEpisodeTiming(startDate: DateTime(2026, 8, 19)),
+          ],
+        );
+        expect(result.cycleLengths, [28]);
+        expect(result.currentCycleDay, 1);
+      },
+    );
+
+    test('an end on the as-of civil date completes the measured duration', () {
+      final result = service.calculate(
+        const [],
+        asOf: DateTime(2026, 8, 18, 15),
+        canonicalEpisodes: [
+          CanonicalEpisodeTiming(
+            startDate: DateTime(2026, 8, 13),
+            endDate: DateTime(2026, 8, 18, 12),
+          ),
+        ],
+      );
+      expect(result.averagePeriodLength, 5);
+    });
+
+    test(
+      'a fully paired log duration is not weighted twice by timing duplicates',
+      () {
+        final start = DateTime(2026, 7, 1);
+        final result = service.calculate(
+          [
+            startLog(start),
+            CycleLog(
+              id: 'ended',
+              userId: 'u',
+              date: DateTime(2026, 7, 6),
+              flow: FlowLevel.none,
+              cycleDay: 6,
+            ),
+          ],
+          asOf: today,
+          canonicalEpisodes: [
+            CanonicalEpisodeTiming(
+              startDate: start,
+              endDate: DateTime(2026, 7, 6),
+            ),
+            CanonicalEpisodeTiming(
+              startDate: DateTime(2026, 7, 29),
+              endDate: DateTime(2026, 8, 7),
+            ),
+          ],
+        );
+        expect(result.averagePeriodLength, 7);
+      },
+    );
+
+    test(
+      'a future end remains unknown in a historical civil-date calculation',
+      () {
+        final result = service.calculate(
+          const [],
+          asOf: DateTime(2026, 8, 18, 15),
+          canonicalEpisodes: [
+            CanonicalEpisodeTiming(
+              startDate: DateTime(2026, 8, 13),
+              endDate: DateTime(2026, 8, 19),
+            ),
+          ],
+        );
+        expect(result.averagePeriodLength, isNull);
+      },
+    );
+
+    test(
+      'a partial projection cannot move a reported start one day earlier',
+      () {
+        final result = service.calculate(
+          [startLog(DateTime(2026, 7, 1)), startLog(DateTime(2026, 7, 29))],
+          asOf: today,
+          canonicalEpisodes: [
+            CanonicalEpisodeTiming(startDate: DateTime(2026, 7, 2)),
+          ],
+        );
+        expect(result.haidStarts, [
+          DateTime(2026, 7, 2),
+          DateTime(2026, 7, 29),
+        ]);
+        expect(result.cycleLengths, [27]);
+      },
+    );
+
+    test('explicit canonical duration takes precedence over a conflicting projection pair', () {
+      final result = service.calculate(
+        [
+          startLog(DateTime(2026, 7, 1)),
+          CycleLog(
+            id: 'end',
+            userId: 'u',
+            date: DateTime(2026, 7, 8),
+            flow: FlowLevel.none,
+            cycleDay: 8,
+          ),
+        ],
+        asOf: today,
+        canonicalEpisodes: [
+          CanonicalEpisodeTiming(
+            startDate: DateTime(2026, 7, 1),
+            endDate: DateTime(2026, 7, 6),
+          ),
+        ],
+      );
+      expect(result.averagePeriodLength, 5);
+    });
+
+    test('a first known flow several days into a canonical period is not a second start', () {
+      final result = service.calculate(
+        [
+          CycleLog(
+            id: 'first-known-flow',
+            userId: 'u',
+            date: DateTime(2026, 7, 4),
+            flow: FlowLevel.light,
+            cycleDay: 4,
+          ),
+        ],
+        asOf: today,
+        canonicalEpisodes: [
+          CanonicalEpisodeTiming(
+            startDate: DateTime(2026, 7, 1),
+            endDate: DateTime(2026, 7, 6),
+          ),
+        ],
+      );
+      expect(result.haidStarts, [DateTime(2026, 7, 1)]);
+      expect(result.cycleLengths, isEmpty);
+      expect(result.averagePeriodLength, 5);
+    });
+
     test('supplying no canonical episodes changes nothing (default)', () {
       final without = service.calculate([startLog(today)], asOf: today);
       final withEmpty = service.calculate(

@@ -7,6 +7,7 @@ import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl
 import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/entities/load_result.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
+import '../../../cycle_tracking/data/local/secure_prediction_history_review_store.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../data/local/notification_event_log_store.dart';
 import '../../data/repositories/notification_repository_impl.dart';
@@ -83,7 +84,16 @@ class NotificationRefreshCoordinator {
     // for "now" everywhere else; this was the one outlier.
     final now = AppClock.now();
 
+    // Local check-in cancellation must precede unrelated forecast/network reads.
+    await _refreshActiveBleeding(
+      preferences: preferences,
+      userId: userId,
+      bleedingRepository: bleedingRepository ?? BleedingEpisodeRepositoryImpl(),
+      now: now,
+    );
     await _refreshCycle(
+      userId: userId,
+      bleedingRepository: bleedingRepository ?? BleedingEpisodeRepositoryImpl(),
       preferences: preferences,
       cycleRepository: cycleRepository ?? CycleTrackingRepositoryImpl(),
       now: now,
@@ -95,12 +105,6 @@ class NotificationRefreshCoordinator {
       now: now,
     );
     await _refreshWellbeingDaily(preferences: preferences);
-    await _refreshActiveBleeding(
-      preferences: preferences,
-      userId: userId,
-      bleedingRepository: bleedingRepository ?? BleedingEpisodeRepositoryImpl(),
-      now: now,
-    );
   }
 
   /// Commit E — the recurring daily check-in reminder, tied to a real
@@ -401,27 +405,52 @@ class NotificationRefreshCoordinator {
   }
 
   static Future<void> _refreshCycle({
+    required String? userId,
+    required BleedingEpisodeRepositoryImpl bleedingRepository,
     required Map<NotificationType, NotificationPreference> preferences,
     required CycleTrackingRepositoryImpl cycleRepository,
     required DateTime now,
   }) async {
     final enabled = preferences[NotificationType.cycle]?.enabled ?? false;
-    if (!enabled) {
+    if (!enabled || userId == null) {
       await NotificationService.instance.cancel(
         NotificationScheduler.cycleNotificationId,
       );
       return;
     }
 
-    final logs = await cycleRepository.getCycleLogs(limit: 1000);
-    final calculation = const CycleCalculationService().calculate(
-      logs,
-      asOf: now,
-    );
-    final plan = NotificationScheduler.planCycleReminder(
-      calculation: calculation,
-      now: now,
-    );
+    PlannedNotification? plan;
+    try {
+      final episodes = await bleedingRepository.getEpisodesForUser(userId);
+      if (episodes.isCleanSuccess) {
+        final reviews = await createPredictionHistoryReviewStore().load(userId);
+        final logs = await cycleRepository.getCycleLogs(limit: 1000);
+        final calculation = const CycleCalculationService().calculate(
+          logs
+              .where(
+                (log) => log.userId == userId || log.userId == 'local-user',
+              )
+              .toList(),
+          asOf: now,
+          canonicalEpisodes: [
+            for (final episode in episodes.dataOrNull ?? <BleedingEpisode>[])
+              CanonicalEpisodeTiming(
+                startDate: episode.startDate,
+                endDate: episode.endDate,
+              ),
+          ],
+        );
+        plan = NotificationScheduler.planCycleReminder(
+          calculation: calculation,
+          now: now,
+          historyReviews: reviews,
+        );
+      }
+    } catch (_) {
+      // A failed read must cancel an old cycle reminder, not preserve it as
+      // though the records were verified. A later refresh can retry.
+      plan = null;
+    }
     await _apply(NotificationScheduler.cycleNotificationId, plan);
   }
 

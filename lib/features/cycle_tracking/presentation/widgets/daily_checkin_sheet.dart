@@ -6,6 +6,7 @@ import '../../../../core/network/supabase_client.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_day.dart';
 import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../notifications/domain/services/notification_scheduler.dart';
@@ -131,6 +132,7 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
 
     final repository = BleedingEpisodeRepositoryImpl();
     final observationId = await repository.recordObservation(
+      expectedUserId: userId,
       clientOperationId: _clientOperationId,
       episodeId: widget.episodeId,
       observedDate: today,
@@ -220,6 +222,7 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
 
     final repository = BleedingEpisodeRepositoryImpl();
     final result = await repository.endEpisode(
+      expectedUserId: userId,
       clientOperationId: _clientOperationId,
       episodeId: widget.episodeId,
       endDate: endDate,
@@ -433,7 +436,7 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
   List<Widget> _buildNoEndDate() {
     final now = AppClock.now();
     final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
+    final yesterday = addCalendarDays(today, -1);
     final yesterdayReachable = !yesterday.isBefore(widget.episodeStartDate);
 
     return [
@@ -589,6 +592,7 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
 
     final repository = BleedingEpisodeRepositoryImpl();
     final observationId = await repository.recordObservation(
+      expectedUserId: userId,
       clientOperationId: _clientOperationId,
       episodeId: widget.episodeId,
       observedDate: observedDate,

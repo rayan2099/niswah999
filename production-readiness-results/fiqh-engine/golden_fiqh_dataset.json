@@ -2,9 +2,10 @@
   "_meta": {
     "purpose": "Version-controlled golden fiqh test dataset per FIQH_ENGINE_ACCURACY_AUDIT_MASTER.md Phase 9.",
     "warning": "expected_classification / expected_calculations in every case are ENGINEERING-DERIVED — traced directly from the current production code (MadhhabRuleEvaluator, lib/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart). They are NOT a claim of religious correctness. Every case's review_status is NOT_REVIEWED until a qualified scholar/domain reviewer confirms it. See FIQH_AICTX_findings.md's Scholar Review Gate section.",
-    "engine_version": "unversioned in production code as of this audit (2026-09-09) — no explicit rule-version identifier exists yet; see FIQH-2/FIQH-3 findings for related gaps",
+    "engine_version": "v2-2026-10-17 (engineering regression expectations, NOT scholar approved)",
     "source_code_reference": "lib/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart",
-    "source_mapping_added": "2026-09-09, Source Governance wave -- source_ids reference production-readiness-results/fiqh-engine/fiqh_source_registry.json. Mapping is at the madhhab-reference-work level (title), not passage-level -- see that registry's own _meta.warning. disputed_or_ambiguous flags cases warranting closer reviewer attention, not defects."
+    "source_mapping_added": "2026-09-09, Source Governance wave -- source_ids reference production-readiness-results/fiqh-engine/fiqh_source_registry.json. Mapping is at the madhhab-reference-work level (title), not passage-level -- see that registry's own _meta.warning. disputed_or_ambiguous flags cases warranting closer reviewer attention, not defects.",
+    "updated": "2026-10-17: conservative habit deferral; existing FD-7 thresholds reflected; all review statuses remain NOT_REVIEWED."
   },
   "cases": [
     {
@@ -147,7 +148,7 @@
       "expected_calculations": {
         "minimumHaid_hours": 24,
         "maximumHaid_days": 15,
-        "minimumPurity_days": 15
+        "minimumPurity_days": 13
       },
       "expected_user_explanation": "Not enough logged history to establish a baseline — the engine does not attempt a classification.",
       "source_ids": [
@@ -169,14 +170,14 @@
         "purityBefore_days": 20,
         "personalHabit_days": 6
       },
-      "expected_classification": "haid",
+      "expected_classification": "needsAdvisory",
       "expected_calculations": {
-        "minimumHaid_hours": 24,
+        "minimumHaid_hours": null,
         "maximumHaid_days": 15,
         "minimumPurity_days": 15,
         "isWithinPersonalHabit": false
       },
-      "expected_user_explanation": "Within Maliki's general 1-15 day range and thus classified haid by this engine's current logic; the engine separately reports the bleeding exceeded her previously-established 6-day personal habit (isWithinPersonalHabit=false) as informational context, not as a factor changing the classification itself.",
+      "expected_user_explanation": "Habit exceeded: defer to qualified review rather than classify by a flat ceiling.",
       "source_ids": [
         "SRC-MALIKI-001",
         "SRC-MALIKI-002",
@@ -184,7 +185,7 @@
       ],
       "review_status": "NOT_REVIEWED",
       "disputed_or_ambiguous": true,
-      "disputed_note": "Whether exceeding a previously-established personal habit should be purely informational (current behavior) or should itself affect classification is a genuine fiqh question specific to the Maliki 'adah framework, not resolved by this session."
+      "disputed_note": "The legal outcome remains unreviewed. Engineering now defers instead of supplying an automatic ruling."
     },
     {
       "case_id": "FIQH-CASE-008",
@@ -225,7 +226,7 @@
       "expected_calculations": {
         "minimumHaid_hours": 24,
         "maximumHaid_days": 15,
-        "minimumPurity_days": 15
+        "minimumPurity_days": 13
       },
       "expected_user_explanation": "No current bleeding recorded — classified as a state of purity (tuhr).",
       "source_ids": [
@@ -252,8 +253,8 @@
           "reason": "30h < Hanafi's 72h minimum"
         },
         "maliki": {
-          "classification": "haid",
-          "reason": "30h > Maliki's 24h minimum, well under 15-day maximum"
+          "classification": "needsAdvisory",
+          "reason": "Maliki habit context is missing; automatic classification is withheld."
         },
         "shafii": {
           "classification": "haid",

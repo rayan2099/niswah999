@@ -29,10 +29,10 @@ void main() {
     );
   }
 
-  test('empty history is tahara with no episode day', () {
+  test('empty history remains unresolved with no episode day', () {
     final snapshot = evaluate(const [], DateTime(2026, 1, 1));
 
-    expect(snapshot.state, FiqhCycleState.tahara);
+    expect(snapshot.state, FiqhCycleState.insufficientHistory);
     expect(snapshot.daysIntoCurrentEpisode, isNull);
     expect(snapshot.cycleDayEstimate, isNull);
   });
@@ -109,19 +109,14 @@ void main() {
     },
   );
 
-  test('insufficient history despite currently bleeding: state falls back to '
-      'tahara and daysIntoCurrentEpisode must NOT leak through — otherwise '
-      'state and daysIntoCurrentEpisode would disagree the same way this fix '
-      'exists to prevent', () {
-    final logs = [bleeding('only-start', DateTime(2026, 3, 1))];
-    final now = DateTime(2026, 3, 3);
-
-    final snapshot = evaluate(logs, now);
-
-    expect(snapshot.state, FiqhCycleState.tahara);
-    expect(snapshot.daysIntoCurrentEpisode, isNull);
+  test('bleeding with insufficient history never becomes purity', () {
+    final snapshot = evaluate([
+      bleeding('only-start', DateTime(2026, 3, 1)),
+    ], DateTime(2026, 3, 3));
+    expect(snapshot.state, FiqhCycleState.insufficientHistory);
+    expect(snapshot.daysIntoCurrentEpisode, 3);
+    expect(snapshot.confirmAt, isNull);
     expect(snapshot.cycleDayEstimate, isNull);
-    expect(snapshot.averagePeriodLength, isNull);
   });
 
   group('Fiqh Remediation Wave 1 (Section E/P) — no madhhab SELECTED', () {

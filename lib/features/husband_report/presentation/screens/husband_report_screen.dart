@@ -10,6 +10,8 @@ import '../../../../core/utils/app_clock.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
+import '../../../cycle_tracking/domain/entities/prediction_history_review.dart';
+import '../../../cycle_tracking/data/local/secure_prediction_history_review_store.dart';
 import '../../domain/services/husband_report_insights_engine.dart';
 import '../pdf/husband_report_pdf_builder.dart';
 
@@ -80,6 +82,15 @@ class _HusbandReportScreenState extends State<HusbandReportScreen> {
       userId: userId,
       now: now,
     );
+    var historyVerified = true;
+    var reviews = <PredictionHistoryReview>[];
+    try {
+      reviews = await createPredictionHistoryReviewStore().load(
+        userId ?? 'local-user',
+      );
+    } catch (_) {
+      historyVerified = false;
+    }
 
     final insights = HusbandReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
@@ -88,6 +99,8 @@ class _HusbandReportScreenState extends State<HusbandReportScreen> {
       pregnancyProfile: pregnancyProfile,
       now: now,
       canonical: canonical,
+      historyReviews: reviews,
+      historyVerified: historyVerified,
     );
 
     return HusbandReportPdfBuilder.build(

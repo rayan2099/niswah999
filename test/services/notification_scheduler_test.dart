@@ -34,12 +34,65 @@ void main() {
 
       final plan = NotificationScheduler.planCycleReminder(
         calculation: calculation,
-        now: DateTime(2026, 1, 10),
+        now: DateTime(2026, 1, 30),
       );
 
       // predicted next start = Jan 29 + 28 = Feb 26; lead day = Feb 23.
       expect(plan, isNotNull);
       expect(plan!.fireAt, DateTime(2026, 2, 23, 9));
+    });
+
+    test(
+      'a future last start does not schedule from unavailable future history',
+      () {
+        final calculation = CycleCalculationResult(
+          haidStarts: [DateTime(2026, 1, 1), DateTime(2026, 1, 29)],
+          currentCycleDay: 1,
+          averageCycleLength: 28,
+          cycleLengths: const [28],
+        );
+        expect(
+          NotificationScheduler.planCycleReminder(
+            calculation: calculation,
+            now: DateTime(2026, 1, 10),
+          ),
+          isNull,
+        );
+      },
+    );
+    test('unknown gaps, excessive variation and unverified review reads cannot bypass forecast withholding', () {
+      for (final lengths in [
+        [28, 200, 29],
+        [20, 45],
+      ]) {
+        final calculation = CycleCalculationResult(
+          haidStarts: [DateTime(2025, 1, 1), DateTime(2026, 10, 1)],
+          currentCycleDay: 1,
+          averageCycleLength: 60,
+          cycleLengths: lengths,
+        );
+        expect(
+          NotificationScheduler.planCycleReminder(
+            calculation: calculation,
+            now: DateTime(2026, 10, 1),
+          ),
+          isNull,
+        );
+      }
+      final regular = CycleCalculationResult(
+        haidStarts: [DateTime(2026, 9, 3), DateTime(2026, 10, 1)],
+        currentCycleDay: 1,
+        averageCycleLength: 28,
+        cycleLengths: const [28],
+      );
+      expect(
+        NotificationScheduler.planCycleReminder(
+          calculation: regular,
+          now: DateTime(2026, 10, 1),
+          historyVerified: false,
+        ),
+        isNull,
+      );
     });
 
     test('a predicted date already in the past plans nothing', () {
@@ -178,6 +231,55 @@ void main() {
           ? ObservationSource.userObserved
           : null,
     );
+
+    for (final today in [DateTime(2026, 10, 31), DateTime(2027, 3, 13)]) {
+      test(
+        'rolling check-ins schedule and cancel four distinct civil days from $today',
+        () {
+          final expectedDays = [
+            for (var offset = 0; offset < 4; offset++)
+              DateTime(today.year, today.month, today.day + offset),
+          ];
+          final plans =
+              ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+                episode: openEpisode(),
+                todaysObservationCount: 0,
+                now: DateTime(today.year, today.month, today.day, 8),
+                leadHour: 18,
+                leadMinute: 0,
+                daysAhead: 4,
+              );
+          expect(plans, hasLength(4));
+          expect(
+            plans.map(
+              (p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day),
+            ),
+            expectedDays,
+          );
+          expect(plans.map((p) => p.id).toSet(), hasLength(4));
+          final ids = ActiveBleedingReminderScheduler.rollingWindowReminderIds(
+            userId: 'user-1',
+            episodeId: 'episode-1',
+            today: today,
+            daysAhead: 4,
+          );
+          final expectedIds = [
+            for (final day in expectedDays)
+              ActiveBleedingReminderScheduler.reminderId(
+                userId: 'user-1',
+                episodeId: 'episode-1',
+                localDay: day,
+              ),
+          ];
+          expect(ids, expectedIds);
+          expect(ids, plans.map((p) => p.id));
+          expect(
+            plans.every((p) => p.fireAt.hour == 18 && p.fireAt.minute == 0),
+            isTrue,
+          );
+        },
+      );
+    }
 
     group('isEligible (E1)', () {
       test('an open, confirmed episode is eligible', () {

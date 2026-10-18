@@ -66,7 +66,7 @@ void main() {
   });
 
   group('FiqhReportInsightsEngine — sparse history', () {
-    test('no logs at all reports tahara with no averages', () {
+    test('no logs at all reports insufficient history with no averages', () {
       final insights = FiqhReportInsightsEngine.analyze(
         cycleLogs: const [],
         madhhab: Madhhab.hanbali,
@@ -74,7 +74,7 @@ void main() {
       );
 
       expect(insights.mode, FiqhReportMode.cycle);
-      expect(insights.cycleState, FiqhCycleState.tahara);
+      expect(insights.cycleState, FiqhCycleState.insufficientHistory);
       expect(insights.hasEnoughForAverages, isFalse);
       expect(insights.averageCycleLengthDays, isNull);
       expect(insights.notes, isEmpty);
@@ -211,15 +211,22 @@ void main() {
       },
     );
 
-    test('not currently bleeding with null madhhab still correctly reports '
-        'tahara — a null madhhab never blocks a determination that holds '
-        'regardless of madhhab', () {
+    test('no observations with null madhhab cannot establish purity', () {
       final insights = FiqhReportInsightsEngine.analyze(
         cycleLogs: const [],
         madhhab: null,
         now: DateTime(2026, 1, 20),
       );
 
+      expect(insights.cycleState, FiqhCycleState.insufficientHistory);
+    });
+
+    test('an explicit no-bleeding observation remains independent of madhhab selection', () {
+      final insights = FiqhReportInsightsEngine.analyze(
+        cycleLogs: [_log(20, flow: FlowLevel.none)],
+        madhhab: null,
+        now: DateTime(2026, 1, 20),
+      );
       expect(insights.cycleState, FiqhCycleState.tahara);
     });
 

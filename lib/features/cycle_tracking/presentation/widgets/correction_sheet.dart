@@ -129,6 +129,7 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
 
     try {
       final observationId = await repository.correctObservation(
+        expectedUserId: userId,
         clientOperationId: _clientOperationId,
         supersedesId: _supersedesId,
         observedDate: widget.target.observedDate,

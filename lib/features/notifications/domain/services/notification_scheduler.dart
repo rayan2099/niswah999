@@ -2,6 +2,10 @@ import 'dart:convert';
 
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_day.dart';
+import '../../../cycle_tracking/domain/entities/prediction_history_review.dart';
+import '../../../cycle_tracking/domain/services/cycle_prediction_service.dart';
+
 import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
@@ -62,23 +66,26 @@ class NotificationScheduler {
   static const nifasWarningDay = 35;
   static const nifasWindowDays = 40;
 
-  /// Predicted next period start = last haid start + average cycle length;
-  /// plans a reminder [cycleLeadDays] before that, at 9am.
+  /// Uses the shared history checks and predictor; withheld/overdue estimates
+  /// must never survive as a separately calculated reminder date.
   static PlannedNotification? planCycleReminder({
     required CycleCalculationResult calculation,
     required DateTime now,
+    List<PredictionHistoryReview> historyReviews = const [],
+    bool historyVerified = true,
   }) {
-    if (!calculation.hasSufficientHistory) return null;
-
-    final predictedStart = calculation.lastHaidStart!.add(
-      Duration(days: calculation.averageCycleLength!),
+    final prediction = const CyclePredictionService().predict(
+      lastStart: calculation.lastHaidStart,
+      cycleLengths: calculation.cycleLengths,
+      now: now,
+      historyReviews: historyReviews,
+      historyVerified: historyVerified,
     );
-    final fireDay = DateTime(
-      predictedStart.year,
-      predictedStart.month,
-      predictedStart.day,
-    ).subtract(const Duration(days: cycleLeadDays));
-    final fireAt = fireDay.add(const Duration(hours: 9));
+    if (!prediction.hasFutureEstimate || prediction.expectedStart == null) {
+      return null;
+    }
+    final fireDay = addCalendarDays(prediction.expectedStart!, -cycleLeadDays);
+    final fireAt = DateTime(fireDay.year, fireDay.month, fireDay.day, 9);
 
     if (!fireAt.isAfter(now)) return null;
 
@@ -365,7 +372,7 @@ class ActiveBleedingReminderScheduler {
     for (var offset = 0; offset < daysAhead; offset++) {
       // E6 — only today's own obligation can actually be known yet.
       if (offset == 0 && todaysObservationCount > 0) continue;
-      final localDay = today.add(Duration(days: offset));
+      final localDay = addCalendarDays(today, offset);
       final plan = _planForDay(
         userId: episode.userId,
         episodeId: episodeId,
@@ -399,7 +406,7 @@ class ActiveBleedingReminderScheduler {
     (offset) => reminderId(
       userId: userId,
       episodeId: episodeId,
-      localDay: today.add(Duration(days: offset)),
+      localDay: addCalendarDays(today, offset),
     ),
   );
 

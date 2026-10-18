@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'features/cycle_tracking/data/local/prediction_history_review_store.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -609,17 +610,26 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   // IndexedStack and never remount, so a screen-owned instance would
   // otherwise keep showing stale data until the app restarts.
   late final CycleTrackingViewModel _cycleViewModel;
+  StreamSubscription<String>? _predictionReviewSubscription;
 
   @override
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex.clamp(0, 4);
     _cycleViewModel = CycleTrackingViewModel()..loadLogs();
+    _predictionReviewSubscription = PredictionHistoryReviewStore.changes.listen((owner) {
+      if (mounted && owner == NiswahSupabase.clientOrNull?.auth.currentUser?.id) {
+        unawaited(_refreshNotifications().catchError((Object error, StackTrace stack) {
+          AppErrorReporter.report(error, stack, context: 'refresh notifications after prediction history review');
+        }));
+      }
+    });
     WidgetsBinding.instance.addObserver(this);
     // Recompute what should be scheduled the moment the home shell is
     // reachable (i.e. the user is signed in) — mirrors how the reports
     // recompute fresh each time they're opened, applied to scheduling.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       unawaited(_refreshNotifications());
       // App-start retry trigger — one of two triggers (with app-resume,
       // below) that make CycleTrackingViewModel.saveLog's "backs up
@@ -639,6 +649,8 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_predictionReviewSubscription?.cancel());
+    _cycleViewModel.dispose();
     super.dispose();
   }
 

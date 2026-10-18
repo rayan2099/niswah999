@@ -296,11 +296,16 @@ void main() {
 
         expect(await cycleSource.loadLogs(), isNotEmpty);
         expect(await prayerSource.loadLogs(), isNotEmpty);
+        await SecureLocalStore.write(
+          'prediction_history_reviews_v1', '{"version":1,"reviews":[]}',
+        );
+        expect(await SecureLocalStore.read('prediction_history_reviews_v1'), isNotNull);
 
         await cleanUpLocalSensitiveDataForDeletedAccount('user-deleted');
 
         expect(await cycleSource.loadLogs(), isEmpty);
         expect(await prayerSource.loadLogs(), isEmpty);
+        expect(await SecureLocalStore.read('prediction_history_reviews_v1'), isNull);
       },
     );
 

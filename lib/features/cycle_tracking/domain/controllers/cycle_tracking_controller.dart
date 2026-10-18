@@ -1,6 +1,10 @@
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_day.dart';
 import '../entities/cycle_log.dart';
 import '../services/cycle_calculation_service.dart';
+import '../services/cycle_prediction_service.dart';
+import '../entities/period_prediction.dart';
+import '../entities/prediction_history_review.dart';
 
 class CycleTrackingController {
   const CycleTrackingController({
@@ -14,7 +18,7 @@ class CycleTrackingController {
     required DateTime cycleStart,
     required int averageCycleLength,
   }) {
-    final daysSinceStart = date.difference(cycleStart).inDays;
+    final daysSinceStart = calendarDayDifference(date, cycleStart);
     if (daysSinceStart < 0) {
       return CyclePhase.follicular;
     }
@@ -40,22 +44,17 @@ class CycleTrackingController {
     return CyclePhase.luteal;
   }
 
-  /// Projects [cycleStart] forward by whole cycle lengths until the result
-  /// is no longer in the past relative to [now] — a naive single addition
-  /// silently lands in the past the moment a period is even one day late,
-  /// which is exactly the bug this guards against. A projection landing
-  /// exactly on [now] is left alone: being due *today* is correct, not
-  /// overdue.
+  /// One estimate from the last recorded start. An overdue estimate stays
+  /// overdue; advancing by whole cycles would invent unrecorded periods.
   DateTime predictNextPeriodStart({
     required DateTime cycleStart,
     required int averageCycleLength,
     required DateTime now,
   }) {
-    var next = cycleStart.add(Duration(days: averageCycleLength));
-    while (next.isBefore(now)) {
-      next = next.add(Duration(days: averageCycleLength));
+    if (averageCycleLength <= 0) {
+      throw ArgumentError.value(averageCycleLength, 'averageCycleLength');
     }
-    return next;
+    return addCalendarDays(cycleStart, averageCycleLength);
   }
 
   /// Standard "luteal phase = 14 days" heuristic: ovulation is estimated
@@ -71,11 +70,13 @@ class CycleTrackingController {
       averageCycleLength: averageCycleLength,
       now: now,
     );
-    final ovulationDay = predictedNextPeriodStart.subtract(
-      const Duration(days: 14),
-    );
-    final start = ovulationDay.subtract(const Duration(days: 5));
-    final end = ovulationDay.add(const Duration(days: 1));
+    final today = DateTime(now.year, now.month, now.day);
+    if (predictedNextPeriodStart.isBefore(today)) {
+      return const FertileWindow(start: null, end: null, peakDay: null);
+    }
+    final ovulationDay = addCalendarDays(predictedNextPeriodStart, -14);
+    final start = addCalendarDays(ovulationDay, -5);
+    final end = addCalendarDays(ovulationDay, 1);
 
     return FertileWindow(start: start, end: end, peakDay: ovulationDay);
   }
@@ -95,6 +96,10 @@ class CycleTrackingController {
     List<CycleLog> logs, {
     DateTime? now,
     List<CanonicalEpisodeTiming> canonicalEpisodes = const [],
+    PeriodPredictionMethod predictionMethod =
+        PeriodPredictionMethod.historicalMean,
+    List<PredictionHistoryReview> historyReviews = const [],
+    bool historyVerified = true,
   }) {
     final effectiveNow = now ?? AppClock.now();
     final calculation = _calculationService.calculate(
@@ -109,26 +114,33 @@ class CycleTrackingController {
     // require a *plausible* average — never predict from a degenerate
     // interval like a 2-day "cycle length" just because the arithmetic
     // technically produced a number.
-    final canProject =
-        lastCycleStart != null && calculation.hasPlausibleAverage;
+    final prediction = const CyclePredictionService().predict(
+      lastStart: lastCycleStart,
+      cycleLengths: calculation.cycleLengths,
+      now: effectiveNow,
+      method: predictionMethod,
+      historyReviews: historyReviews,
+      historyVerified: historyVerified,
+    );
+    final canProject = prediction.hasFutureEstimate;
+    // Derived phase/fertile dates must use the same eligible intervals as
+    // the period estimate, never the old all-history descriptive average.
+    final projectedCycleLength =
+        prediction.expectedStart == null || lastCycleStart == null
+        ? null
+        : calendarDayDifference(prediction.expectedStart!, lastCycleStart);
     final currentPhase = canProject
         ? calculatePhase(
             date: effectiveNow,
-            cycleStart: lastCycleStart,
-            averageCycleLength: averageCycleLength!,
+            cycleStart: lastCycleStart!,
+            averageCycleLength: projectedCycleLength!,
           )
         : CyclePhase.follicular;
-    final nextPeriodStart = canProject
-        ? predictNextPeriodStart(
-            cycleStart: lastCycleStart,
-            averageCycleLength: averageCycleLength!,
-            now: effectiveNow,
-          )
-        : null;
+    final nextPeriodStart = canProject ? prediction.expectedStart : null;
     final fertileWindow = canProject
         ? calculateFertileWindow(
-            cycleStart: lastCycleStart,
-            averageCycleLength: averageCycleLength!,
+            cycleStart: lastCycleStart!,
+            averageCycleLength: projectedCycleLength!,
             now: effectiveNow,
           )
         : const FertileWindow(start: null, end: null, peakDay: null);
@@ -141,6 +153,7 @@ class CycleTrackingController {
       fertileWindow: fertileWindow,
       nextPeriodStart: nextPeriodStart,
       hasPlausibleAverage: calculation.hasPlausibleAverage,
+      periodPrediction: prediction,
     );
   }
 

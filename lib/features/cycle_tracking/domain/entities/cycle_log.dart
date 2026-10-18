@@ -1,5 +1,7 @@
 import 'package:collection/collection.dart';
 import 'package:equatable/equatable.dart';
+
+import 'period_prediction.dart';
 import '../../../../core/utils/db_timestamp.dart';
 
 /// Thrown by [CycleLog.fromJson] when a record's required health fields
@@ -206,6 +208,9 @@ class CycleTrackingSummary extends Equatable {
     required this.fertileWindow,
     this.nextPeriodStart,
     this.hasPlausibleAverage = false,
+    this.periodPrediction = const PeriodPrediction(
+      status: PeriodPredictionStatus.insufficientHistory,
+    ),
   });
 
   final int? averageCycleLength;
@@ -213,10 +218,10 @@ class CycleTrackingSummary extends Equatable {
   final DateTime? lastCycleStart;
   final CyclePhase currentPhase;
   final FertileWindow fertileWindow;
+  final PeriodPrediction periodPrediction;
 
-  /// Predicted start of the next period, rolled forward past [DateTime]s
-  /// that have already elapsed — never a date in the past relative to the
-  /// `now` given to [CycleTrackingController.summarizeHistory].
+  /// One next-period estimate; null once overdue or input-ineligible.
+  /// [periodPrediction] retains an overdue estimate with an explicit status.
   final DateTime? nextPeriodStart;
 
   /// Mirrors [CycleCalculationResult.hasPlausibleAverage] — [averageCycleLength]
@@ -237,6 +242,7 @@ class CycleTrackingSummary extends Equatable {
     fertileWindow,
     nextPeriodStart,
     hasPlausibleAverage,
+    periodPrediction,
   ];
 }
 

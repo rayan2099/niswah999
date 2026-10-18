@@ -1,5 +1,8 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_day.dart';
+import '../../../cycle_tracking/domain/entities/prediction_history_review.dart';
+
 import '../../../cycle_tracking/domain/controllers/cycle_tracking_controller.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
@@ -72,6 +75,8 @@ class HusbandReportInsightsEngine {
     /// Canonical evidence (see [ReportCanonicalEvidence]) — the current state
     /// and the predictions must agree with Today, not with the legacy table.
     ReportCanonicalEvidence? canonical,
+    List<PredictionHistoryReview> historyReviews = const [],
+    bool historyVerified = true,
   }) {
     final fiqh = FiqhReportInsightsEngine.analyze(
       cycleLogs: cycleLogs,
@@ -86,11 +91,16 @@ class HusbandReportInsightsEngine {
     DateTime? fertileEnd;
     DateTime? fertilePeakDay;
     CycleSegmentPlan? segmentPlan;
-    if (fiqh.mode == FiqhReportMode.cycle) {
+    if (fiqh.mode == FiqhReportMode.cycle &&
+        fiqh.pregnancy == null &&
+        (canonical == null ||
+            (!canonical.unavailable && !canonical.evidenceUnresolved))) {
       final summary = const CycleTrackingController().summarizeHistory(
         canonical?.effectiveLogs ?? cycleLogs,
         now: now,
         canonicalEpisodes: canonical?.episodes ?? const [],
+        historyReviews: historyReviews,
+        historyVerified: historyVerified,
       );
       nextPeriodDate = summary.nextPeriodStart;
       fertileStart = summary.fertileWindow.start;
@@ -98,7 +108,9 @@ class HusbandReportInsightsEngine {
       fertilePeakDay = summary.fertileWindow.peakDay;
 
       final cycleStart = summary.lastCycleStart;
-      final cycleLength = summary.averageCycleLength;
+      final cycleLength = summary.nextPeriodStart == null || cycleStart == null
+          ? null
+          : calendarDayDifference(summary.nextPeriodStart!, cycleStart);
       final periodLength = summary.averagePeriodLength;
       // Fiqh Remediation Wave 1 (Section E): `isBleedingNow` below is
       // fiqh-derived (`FiqhCycleState.haid`) — if the madhhab is
@@ -112,7 +124,9 @@ class HusbandReportInsightsEngine {
           cycleLength != null &&
           periodLength != null &&
           summary.hasPlausibleAverage &&
-          fiqh.cycleState != FiqhCycleState.madhhabUnresolved) {
+          (fiqh.cycleState == FiqhCycleState.haid ||
+              fiqh.cycleState == FiqhCycleState.tahara) &&
+          summary.nextPeriodStart != null) {
         final cycleDayEstimate = now.difference(cycleStart).inDays + 1;
         segmentPlan = const CycleSegmentPlanner().plan(
           cycleLength: cycleLength,

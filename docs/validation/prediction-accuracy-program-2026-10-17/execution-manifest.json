@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-17",
+  "baselineRevision": "7db6fcd",
+  "protocolFreezeCommit": "e3e147e7c170ff5e940a52870d374e93cd9d40d7",
+  "protocolFreezeType": "Local pre-score commit; not external preregistration or trusted timestamp",
+  "sourceDOI": "10.5281/zenodo.15598359",
+  "sourceSHA256": "7712b11290d2d34384eaa3bca02739067a0dd6ddc8bd90c6fe91c545efffe28f",
+  "inputHistoriesSHA256": "5d28408fa4143a49eb9e6f34ba4ca1d202e13ecb8f5049bd1f46d3d2200bdb0b",
+  "foldArtifactSHA256": "254e0266cd3453f2f9da1741fd3d446e2f270200cc8b9bc6c9bb6ffd4f09a400",
+  "protocolSHA256": "9e371a4fc3a478f442ed051b66eaf57a337f3bddf87e2c9f781a45237b6f0dfa",
+  "independentValidation": false,
+  "prospectiveValidation": false,
+  "defaultModelChanged": false,
+  "runtimeParity": "Point-by-point agreement for baseline, median and trimmed candidate on all 9,263 full historical prefixes; all original scores, group selections, bootstrap results and forecast coverage unchanged",
+  "runtime": "Dart 3.13.0; offline package configuration; Python standard-library model evaluation",
+  "verification": {
+    "pureDartTestsPerTimezone": 202,
+    "timezones": [
+      "Asia/Riyadh",
+      "America/New_York"
+    ],
+    "candidatePythonTests": 15,
+    "prospectiveSchemaAcceptedSyntheticCases": 2,
+    "prospectiveSchemaRejectedSyntheticCases": 6,
+    "FlutterIntegrationRun": false,
+    "repeatedOn": "2026-10-18",
+    "aggregateReproductionExact": true,
+    "testDependencyLockSHA256": "8c13fafb5ff9da6d59a8a6edd4e44c1969e38fc755bce3abb28ca9650dc54cd4"
+  },
+  "sha256": {
+    "lib/features/cycle_tracking/domain/entities/period_prediction.dart": "d3ff99108f5a282f266135294ea6da72d0e33637be2c93b7756e0854b1652f3a",
+    "lib/features/cycle_tracking/domain/services/cycle_prediction_service.dart": "e7a01b0cdef42be7d60ab5c73822db378208dddfdef4a9ea35780b05cd074d6c",
+    "scripts/evaluate_cycle_candidates.py": "493a0d379b2e113d1ea1415852e8506885d9eed2e44fabdc31584ddbf6b59421",
+    "scripts/export_cycle_evaluation_folds.dart": "0cafb7e9e3448ceafa7d5254b4e6cc1dafd1de38cdecdfcc0fa31ae005eaaae5",
+    "scripts/test_evaluate_cycle_candidates.py": "0006d7825cefcb50c4cb5e811973e665737b933c5629a187bea2132a2c25ac9b",
+    "test/cycle_accuracy_export_test.dart": "2c4f5f0afb6288cdff150690b8b09d4d74768d9f11c23923b913f0698a0c491b",
+    "test/cycle_prediction_service_test.dart": "d2356138fc9b7d98d0619e1cae187b9ee4877125fff2b2c4b4719c6fb5316c3d"
+  },
+  "prospectiveSchemaSHA256": "03bf76af14ea5afd1bf667027b240c20a59dd5e5c7b2bbc1d65e5dfce0743eab",
+  "initialFoldArtifactSHA256": "d1ed640c5bf305344761fd5976338dfb84d357a26e32daf1b464572c4375f9f6"
+}

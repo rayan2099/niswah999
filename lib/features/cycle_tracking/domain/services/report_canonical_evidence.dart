@@ -5,6 +5,8 @@ import '../entities/load_result.dart';
 import 'canonical_bleeding_status_resolver.dart';
 import 'canonical_fiqh_evidence_adapter.dart';
 import 'cycle_calculation_service.dart';
+import 'cycle_status_engine.dart';
+import 'madhhab_rule_evaluator.dart';
 
 /// The evidence the Fiqh / Husband / Doctor reports must use for the CURRENT
 /// state and the cycle statistics — the same canonical, post-correction
@@ -39,6 +41,35 @@ class ReportCanonicalEvidence {
 
   /// The canonical read itself failed — genuinely unknown, never "no data".
   final bool unavailable;
+
+  /// Shared by reports and chat: incomplete reads never become purity.
+  FiqhCycleState currentClassification({
+    required Madhhab? madhhab,
+    required DateTime now,
+  }) {
+    if (unavailable ||
+        evidenceUnresolved ||
+        (hasOpenEpisode && effectiveLogs.isEmpty)) {
+      return FiqhCycleState.insufficientHistory;
+    }
+    final sorted = [...effectiveLogs]..sort((a, b) => a.date.compareTo(b.date));
+    final calculation = const CycleCalculationService().calculate(
+      sorted,
+      asOf: now,
+    );
+    if (hasOpenEpisode &&
+        (sorted.isEmpty || sorted.last.flow == FlowLevel.none)) {
+      return FiqhCycleState.insufficientHistory;
+    }
+    return const CycleStatusEngine()
+        .evaluate(
+          logs: sorted,
+          calculation: calculation,
+          madhhab: madhhab,
+          now: now,
+        )
+        .state;
+  }
 
   /// Same definition the dashboard uses: an excluded "I'm not sure" day only
   /// matters when it falls on/after the currently open episode's start.
@@ -79,9 +110,35 @@ class ReportCanonicalEvidence {
       );
     }
 
-    final status = await CanonicalBleedingStatusResolver(repo)
-        .resolve(userId: userId, now: now);
+    return fromResults(
+      episodesResult: episodesResult,
+      observationsResult: observationsResult,
+      now: now,
+    );
+  }
+
+  /// Resolve from the reads already made; a second episode fetch can fail
+  /// or race a save and must not silently change the evidence snapshot.
+  static ReportCanonicalEvidence fromResults({
+    required LoadResult<List<BleedingEpisode>> episodesResult,
+    required LoadResult<List<BleedingObservation>> observationsResult,
+    required DateTime now,
+  }) {
+    if (episodesResult is LoadUnavailable<List<BleedingEpisode>> ||
+        observationsResult is LoadUnavailable<List<BleedingObservation>>) {
+      return const ReportCanonicalEvidence(
+        effectiveLogs: [],
+        episodes: [],
+        hasOpenEpisode: false,
+        evidenceUnresolved: true,
+        unavailable: true,
+      );
+    }
     final episodes = episodesResult.dataOrNull ?? const <BleedingEpisode>[];
+    final status = CanonicalBleedingStatusResolver.resolveFromEpisodes(
+      episodes: episodes,
+      now: now,
+    );
     final observations =
         observationsResult.dataOrNull ?? const <BleedingObservation>[];
     final quarantined = switch (observationsResult) {
@@ -100,6 +157,8 @@ class ReportCanonicalEvidence {
       ],
       hasOpenEpisode: status.state == RingFactualState.factualOpenEpisode,
       evidenceUnresolved:
+          episodesResult is LoadDegraded<List<BleedingEpisode>> ||
+          observationsResult is LoadDegraded<List<BleedingObservation>> ||
           quarantined > 0 ||
           hasMaterialUnresolvedEvidence(
             observations: observations,

@@ -1,8 +1,11 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_day.dart';
+
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
+import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
@@ -126,7 +129,7 @@ class _HaidEpisode {
   const _HaidEpisode({required this.start, required this.end});
   final DateTime start;
   final DateTime end;
-  int get durationDays => end.difference(start).inDays + 1;
+  int get durationDays => calendarDayDifference(end, start) + 1;
 }
 
 /// Composes three existing, already-tested pieces of domain logic —
@@ -212,14 +215,16 @@ class FiqhReportInsightsEngine {
         canonical != null &&
         canonical.hasOpenEpisode &&
         (canonical.evidenceUnresolved || sorted.isEmpty);
-    final cycleState = openButUnresolved
-        ? FiqhCycleState.insufficientHistory
-        : _currentCycleState(
-            sortedLogs: sorted,
-            madhhab: madhhab,
-            hasSufficientHistory: calculation.hasSufficientHistory,
-            now: now,
-          );
+    final cycleState = canonical != null
+        ? canonical.currentClassification(madhhab: madhhab, now: now)
+        : const CycleStatusEngine()
+              .evaluate(
+                logs: sorted,
+                calculation: calculation,
+                madhhab: madhhab,
+                now: now,
+              )
+              .state;
 
     return FiqhReportInsights.cycle(
       madhhab: madhhab,
@@ -268,61 +273,5 @@ class FiqhReportInsightsEngine {
       episodes.add(_HaidEpisode(start: episodeStart, end: episodeEnd));
     }
     return episodes;
-  }
-
-  static FiqhCycleState _currentCycleState({
-    required List<CycleLog> sortedLogs,
-    required Madhhab? madhhab,
-    required bool hasSufficientHistory,
-    required DateTime now,
-  }) {
-    if (sortedLogs.isEmpty) return FiqhCycleState.tahara;
-
-    final latest = sortedLogs.last;
-    if (latest.flow == FlowLevel.none) return FiqhCycleState.tahara;
-
-    var activeStart = latest.date;
-    DateTime? previousPurityStart;
-    for (var index = sortedLogs.length - 1; index >= 0; index--) {
-      final log = sortedLogs[index];
-      if (log.flow == FlowLevel.none) {
-        previousPurityStart = log.date;
-        break;
-      }
-      activeStart = log.date;
-    }
-    // Deliberately no longer also breaking on `log.cycleDay == 1` — the
-    // same incorrect boundary removed from CycleStatusEngine.evaluate() in
-    // commit 01ef39e, for the identical reason: that field defaults to 1
-    // (CycleLog's own constructor default) and is never set by
-    // CanonicalFiqhEvidenceAdapter.buildEffectiveLogs, which builds every
-    // canonical-evidence-derived log this method receives via
-    // `canonical?.effectiveLogs` above. With the check still present here,
-    // the scan broke on the very first (latest) entry for any canonical-
-    // backed episode, pinning activeStart to "today" regardless of the
-    // episode's true start date — bleedingDuration then collapsed to the
-    // current day's own elapsed hours, always below every madhhab's
-    // minimum, so a genuinely-open, well-within-bounds Haid episode always
-    // misclassified as needsAdvisory in the Fiqh/Doctor/Husband reports.
-    // `flow == FlowLevel.none` is the correct, sole authoritative boundary
-    // signal (an explicit "not bleeding" observation) — 01ef39e fixed
-    // CycleStatusEngine's copy of this scan; this was the second,
-    // un-deduplicated copy it missed.
-
-    if (madhhab == null) {
-      // Currently bleeding, but no madhhab is SELECTED — never guess one.
-      return FiqhCycleState.madhhabUnresolved;
-    }
-
-    final result = const MadhhabRuleEvaluator().evaluate(
-      madhhab: madhhab,
-      hasSufficientHistory: hasSufficientHistory,
-      isBleeding: true,
-      bleedingDuration: now.difference(activeStart),
-      purityBefore: previousPurityStart == null
-          ? null
-          : activeStart.difference(previousPurityStart),
-    );
-    return result.state;
   }
 }

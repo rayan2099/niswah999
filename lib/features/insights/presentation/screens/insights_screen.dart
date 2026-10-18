@@ -3,12 +3,16 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_day.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
+import '../../../cycle_tracking/domain/entities/period_prediction.dart';
+import '../../../cycle_tracking/domain/entities/prediction_history_review.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/period_prediction_details.dart';
 
 String _in(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -42,13 +46,20 @@ class _InsightsScreenState extends State<InsightsScreen> {
   }
 
   @override
+  void dispose() {
+    if (widget.viewModel == null) _viewModel.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _viewModel,
     builder: (context, _) {
       final summary = _viewModel.summary;
       final calculation = _viewModel.cycleCalculation;
       final enoughData = calculation.hasSufficientHistory;
-      final canPredict = enoughData && calculation.hasPlausibleAverage;
+      final canPredict =
+          enoughData && summary.periodPrediction.hasFutureEstimate;
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: SafeArea(
@@ -145,6 +156,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       const SizedBox(height: 28),
                       _PredictionCard(
                         summary: summary,
+                        onSaveReview: _viewModel.savePredictionHistoryReview,
+                        onReloadHistory: _viewModel.loadLogs,
                         hasData: enoughData,
                         canPredict: canPredict,
                       ),
@@ -240,10 +253,14 @@ class _PredictionCard extends StatelessWidget {
     required this.summary,
     required this.hasData,
     required this.canPredict,
+    required this.onSaveReview,
+    required this.onReloadHistory,
   });
   final CycleTrackingSummary summary;
   final bool hasData;
   final bool canPredict;
+  final Future<void> Function(PredictionHistoryReview) onSaveReview;
+  final Future<void> Function() onReloadHistory;
 
   String _date(DateTime? value) =>
       value == null ? '—' : '${value.day}/${value.month}/${value.year}';
@@ -253,9 +270,7 @@ class _PredictionCard extends StatelessWidget {
     final nextPeriod = canPredict ? summary.nextPeriodStart : null;
     final daysUntil = nextPeriod == null
         ? null
-        : DateUtils.dateOnly(nextPeriod)
-              .difference(DateUtils.dateOnly(AppClock.now()))
-              .inDays;
+        : calendarDayDifference(nextPeriod, AppClock.now());
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
@@ -292,12 +307,12 @@ class _PredictionCard extends StatelessWidget {
                             )
                           : !canPredict
                           ? _in(
-                              'Log a couple more cycles for a reliable prediction.',
-                              'سجّلي بضع دورات إضافية للحصول على توقع موثوق.',
+                              'A prediction is unavailable from this history.',
+                              'لا يتوفر توقع من هذا السجل.',
                             )
                           : _in(
-                              'Accuracy improves with every factual log.',
-                              'تتحسن الدقة مع كل تسجيل حقيقي.',
+                              'Calendar estimates can differ from actual dates.',
+                              'قد تختلف التقديرات التقويمية عن المواعيد الفعلية.',
                             ),
                       style: const TextStyle(
                         color: AppColors.textTertiary,
@@ -316,7 +331,14 @@ class _PredictionCard extends StatelessWidget {
                 child: _PredictionValue(
                   label: _in('EXPECTED PERIOD', 'الحيض المتوقع'),
                   value: _date(nextPeriod),
-                  note: daysUntil == null
+                  note:
+                      summary.periodPrediction.status ==
+                          PeriodPredictionStatus.overdue
+                      ? _in('Previous estimate passed', 'مضى التقدير السابق')
+                      : summary.periodPrediction.status ==
+                            PeriodPredictionStatus.historyNeedsReview
+                      ? _in('Review your records', 'راجعي سجلك')
+                      : daysUntil == null
                       ? _in('Insufficient data', 'بيانات غير كافية')
                       : _in(
                           'In about ${daysUntil.clamp(0, 999)} days',
@@ -342,6 +364,12 @@ class _PredictionCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 16),
+          PeriodPredictionDetails(
+            prediction: summary.periodPrediction,
+            onSaveReview: onSaveReview,
+            onReloadHistory: onReloadHistory,
           ),
         ],
       ),
