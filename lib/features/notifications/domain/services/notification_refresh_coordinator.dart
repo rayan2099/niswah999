@@ -84,6 +84,13 @@ class NotificationRefreshCoordinator {
     // for "now" everywhere else; this was the one outlier.
     final now = AppClock.now();
 
+    // Local check-in cancellation must precede unrelated forecast/network reads.
+    await _refreshActiveBleeding(
+      preferences: preferences,
+      userId: userId,
+      bleedingRepository: bleedingRepository ?? BleedingEpisodeRepositoryImpl(),
+      now: now,
+    );
     await _refreshCycle(
       userId: userId,
       bleedingRepository: bleedingRepository ?? BleedingEpisodeRepositoryImpl(),
@@ -98,12 +105,6 @@ class NotificationRefreshCoordinator {
       now: now,
     );
     await _refreshWellbeingDaily(preferences: preferences);
-    await _refreshActiveBleeding(
-      preferences: preferences,
-      userId: userId,
-      bleedingRepository: bleedingRepository ?? BleedingEpisodeRepositoryImpl(),
-      now: now,
-    );
   }
 
   /// Commit E — the recurring daily check-in reminder, tied to a real

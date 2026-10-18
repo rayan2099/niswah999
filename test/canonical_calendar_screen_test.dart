@@ -338,6 +338,7 @@ void main() {
     'a predicted day is visually distinct from a confirmed bleeding day '
     '— dashed border, never the same solid fill',
     (tester) async {
+      AppClock.now = () => DateTime(2026, 7, 20, 12);
       final firstEpisode = _episode(
         id: 'ep-first',
         start: DateTime(2026, 6, 1),
@@ -348,17 +349,13 @@ void main() {
         start: DateTime(2026, 7, 1),
         end: DateTime(2026, 7, 5),
       );
-      // Average gap: 30 days -> predicted next start ~2026-07-31,
-      // safely inside the fixed test clock's own month (August 2026)
-      // once navigated there is unnecessary; predicted start actually
-      // lands July 31 — navigate to July to see it alongside real data.
+      // The July 31 estimate must still be in the future. An August
+      // clock correctly withholds it; never weaken overdue protection.
       await pumpCalendar(
         tester,
         episodes: [firstEpisode, secondEpisode],
         observations: const [],
       );
-      await tester.tap(find.byIcon(Icons.chevron_left_rounded));
-      await tester.pumpAndSettle();
       expect(find.text('July 2026'), findsOneWidget);
 
       final predictedCell = tester.widget<CustomPaint>(

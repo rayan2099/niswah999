@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -171,6 +172,20 @@ class _FakeUnavailableRepository extends BleedingEpisodeRepositoryImpl {
 /// different `TZ=` values (see scripts/run_notification_clock_matrix.sh)
 /// exercises positive, negative, half-hour and +14 offsets, and the
 /// UTC-date vs local-date disagreement, against the same wall times.
+// Allows the forecast request to remain in flight while asserting that
+// a local opt-out has already completed its platform cancellation.
+class _BlockingCycleHistoryRepository extends _FakeUnavailableRepository {
+  final started = Completer<void>();
+  final release = Completer<LoadResult<List<BleedingEpisode>>>();
+
+  @override
+  Future<LoadResult<List<BleedingEpisode>>> getEpisodesForUser(String userId) {
+    getEpisodesForUserCallCount++;
+    started.complete();
+    return release.future;
+  }
+}
+
 class _ClockScenario {
   const _ClockScenario(this.name, this.clock);
   final String name;
@@ -322,6 +337,11 @@ void _suite(_ClockScenario scenario) {
     final current = await preferenceRepository.loadPreferences();
     current[NotificationType.activeBleeding] =
         current[NotificationType.activeBleeding]!.copyWith(enabled: true);
+    // This suite measures active-check-in reads, independently of the
+    // separately enabled forecast feature and its legitimate history read.
+    current[NotificationType.cycle] = current[NotificationType.cycle]!.copyWith(
+      enabled: false,
+    );
     await preferenceRepository.savePreferences(current);
   });
 
@@ -568,6 +588,44 @@ void _suite(_ClockScenario scenario) {
             'Supabase read) to discover what to cancel',
       );
     });
+
+    test(
+      'local opt-out cancels before an unrelated forecast request completes',
+      () async {
+        await NotificationRefreshCoordinator.refresh(
+          userId: 'user-1',
+          bleedingRepository: _FakeOpenEpisodeRepository(),
+        );
+        expect(
+          activeBleedingPendingIds(userId: 'user-1'),
+          hasLength(expectedWindowCount()),
+        );
+        await setActiveBleedingEnabled(false);
+        final preferences = NotificationRepositoryImpl();
+        final current = await preferences.loadPreferences();
+        current[NotificationType.cycle] = current[NotificationType.cycle]!
+            .copyWith(enabled: true);
+        await preferences.savePreferences(current);
+        final blocked = _BlockingCycleHistoryRepository();
+        final refresh = NotificationRefreshCoordinator.refresh(
+          userId: 'user-1',
+          bleedingRepository: blocked,
+        );
+        await blocked.started.future;
+        try {
+          expect(
+            activeBleedingPendingIds(userId: 'user-1'),
+            isEmpty,
+            reason: 'local cancellation must finish while forecast history is still blocked',
+          );
+        } finally {
+          blocked.release.complete(
+            const LoadUnavailable(LoadErrorCategory.network),
+          );
+          await refresh;
+        }
+      },
+    );
 
     test('2. Supabase unavailable while enabled — no false inference of '
         'episode end (a read failure stays honestly unknown)', () async {

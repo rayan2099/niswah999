@@ -47,9 +47,9 @@ void main() {
     await tester.pumpWidget(tree()); // the parent rebuilds after the switch
     await tester.pumpAndSettle();
     expect(find.text('Tahara'), findsNothing);
-    expect(find.text('Expected Haid'), findsNothing);
+    expect(find.text('Estimated period start'), findsNothing);
     expect(find.text('طهارة'), findsWidgets);
-    expect(find.text('حيض متوقع'), findsOneWidget);
+    expect(find.text('بداية دورة تقديرية'), findsOneWidget);
     AppLocaleController.instance.setArabic(false);
   });
 }

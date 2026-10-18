@@ -83,3 +83,24 @@ passed schema rebuild, local bootstrap, secret-redaction and project-map checks.
 reported zero errors but 35 notices against a 27-notice ceiling, preventing full tests/builds
 from running. The new missing-block notices were corrected without changing the threshold;
 the subsequent run, rather than that initial run, must establish full-suite success.
+
+### Full-suite follow-up
+
+Run [39111427547](https://github.com/rayan2099/niswah999/actions/runs/39111427547)
+passed the analyzer (24 notices, zero errors, below the unchanged ceiling of 27), database
+rebuild, local bootstrap and navigation. The full Flutter test step executed and reported
+1,290 passes, 32 failures and two skips; builds were consequently skipped.
+
+Triage identified two runtime coordination issues: saving a history review triggered both
+a broadcast reload and a directly awaited reload, allowing the save to return before the
+winning refresh completed; and local daily-reminder cancellation ran after an unrelated
+forecast history read. The former now performs one awaited save refresh; the latter now
+cancels local check-in reminders before starting forecast reads. A new blocked-request
+regression requires cancellation to complete while the forecast request is still unresolved.
+
+The existing active-check-in suite now explicitly disables the separate cycle-forecast
+preference while asserting zero forecast-history reads, then enables it in the blocked-read
+regression. Other tests now require honest failed-load states, unknown fiqh state for empty
+history, current estimated-date wording, and a genuinely future calendar estimate rather
+than an overdue one. No withholding, empty-history or CI acceptance gate was relaxed.
+These full-suite follow-up changes require the next remote run to verify them.

@@ -211,15 +211,22 @@ void main() {
       },
     );
 
-    test('not currently bleeding with null madhhab still correctly reports '
-        'tahara — a null madhhab never blocks a determination that holds '
-        'regardless of madhhab', () {
+    test('no observations with null madhhab cannot establish purity', () {
       final insights = FiqhReportInsightsEngine.analyze(
         cycleLogs: const [],
         madhhab: null,
         now: DateTime(2026, 1, 20),
       );
 
+      expect(insights.cycleState, FiqhCycleState.insufficientHistory);
+    });
+
+    test('an explicit no-bleeding observation remains independent of madhhab selection', () {
+      final insights = FiqhReportInsightsEngine.analyze(
+        cycleLogs: [_log(20, flow: FlowLevel.none)],
+        madhhab: null,
+        now: DateTime(2026, 1, 20),
+      );
       expect(insights.cycleState, FiqhCycleState.tahara);
     });
 

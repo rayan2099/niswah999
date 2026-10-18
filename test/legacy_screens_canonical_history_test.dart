@@ -95,8 +95,10 @@ void main() {
     expect(find.text(_insufficientCalendar), findsNothing);
   });
 
-  testWidgets('a FAILED canonical read degrades to the previous behavior '
-      'honestly — no crash, no fabricated history', (tester) async {
+  testWidgets('a FAILED canonical read clears derived history and offers retry '
+      'without falling back to an unverified compatibility copy', (
+    tester,
+  ) async {
     final vm = _returningUserViewModel(canonicalLoads: false);
     await ParityTestHarness.pump(
       tester,
@@ -107,8 +109,10 @@ void main() {
     await vm.loadLogs();
     await tester.pumpAndSettle();
 
-    expect(vm.cycleCalculation.haidStarts, hasLength(1));
-    expect(find.text(_insufficientInsights), findsOneWidget);
+    expect(vm.cycleCalculation.haidStarts, isEmpty);
+    expect(vm.errorMessage, isNotNull);
+    expect(find.text('Insights could not be loaded.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
   });
 
   testWidgets('with genuinely no history anywhere the honest empty states '

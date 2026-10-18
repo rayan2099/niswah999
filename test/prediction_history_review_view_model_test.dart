@@ -25,6 +25,7 @@ void main() {
   late List<CanonicalEpisodeTiming> episodes;
   late PredictionHistoryReviewStore store;
   late Map<String, String> disk;
+  var canonicalLoads = 0;
   final today = DateTime(2026, 10, 1, 12);
   setUp(() {
     AppClock.now = () => today;
@@ -42,6 +43,7 @@ void main() {
         ),
     ];
     disk = {};
+    canonicalLoads = 0;
     store = PredictionHistoryReviewStore(
       read: (owner) async => disk[owner],
       write: (owner, raw) async {
@@ -55,7 +57,10 @@ void main() {
       CycleTrackingViewModel(
         repository: _ReadOnlyRepository(),
         predictionReviewStore: override ?? store,
-        canonicalEpisodeLoader: (_) async => episodes,
+        canonicalEpisodeLoader: (_) async {
+          canonicalLoads++;
+          return episodes;
+        },
       );
 
   test(
@@ -77,6 +82,11 @@ void main() {
         ),
       );
       expect(vm.summary.periodPrediction.hasFutureEstimate, isTrue);
+      expect(
+        canonicalLoads,
+        2,
+        reason: 'one initial load and one completed save refresh',
+      );
       expect(vm.summary.periodPrediction.intervalCount, 2);
       expect(vm.canonicalEpisodes.length, 5);
       vm.dispose();

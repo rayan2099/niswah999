@@ -30,7 +30,9 @@ class CycleTrackingViewModel extends ChangeNotifier {
            canonicalEpisodeLoader ?? _defaultCanonicalEpisodeLoader {
     _authRepository = authRepository;
     _reviewSubscription = PredictionHistoryReviewStore.changes.listen((owner) {
-      if (owner == _currentUserId && !_disposed) unawaited(loadLogs());
+      if (owner == _currentUserId && !_disposed && !_savingHistoryReview) {
+        unawaited(loadLogs());
+      }
     });
   }
 
@@ -64,6 +66,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
   final PredictionHistoryReviewStore _predictionReviewStore;
   late final StreamSubscription<String> _reviewSubscription;
   bool _disposed = false;
+  bool _savingHistoryReview = false;
   int _loadGeneration = 0;
   int _userLoadGeneration = 0;
   String? _summaryOwner;
@@ -155,7 +158,9 @@ class CycleTrackingViewModel extends ChangeNotifier {
       } catch (_) {
         reviewsVerified = false;
       }
-      if (_disposed || generation != _loadGeneration || owner != _currentUserId) {
+      if (_disposed ||
+          generation != _loadGeneration ||
+          owner != _currentUserId) {
         return;
       }
       logs = nextLogs;
@@ -200,7 +205,9 @@ class CycleTrackingViewModel extends ChangeNotifier {
   Future<void> savePredictionHistoryReview(
     PredictionHistoryReview review,
   ) async {
-    if (_disposed) throw StateError('History review is no longer active');
+    if (_disposed || _savingHistoryReview) {
+      throw StateError('History review is no longer active or is saving');
+    }
     final owner = _summaryOwner;
     await loadCurrentUser();
     if (_disposed ||
@@ -211,8 +218,13 @@ class CycleTrackingViewModel extends ChangeNotifier {
         )) {
       throw StateError('History changed; reload before reviewing');
     }
-    await _predictionReviewStore.save(owner, review);
-    await loadLogs();
+    _savingHistoryReview = true;
+    try {
+      await _predictionReviewStore.save(owner, review);
+      await loadLogs();
+    } finally {
+      _savingHistoryReview = false;
+    }
   }
 
   Future<void> saveLog(
