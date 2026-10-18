@@ -21,6 +21,7 @@ import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/preferences/user_scoped_preferences.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
@@ -40,6 +41,7 @@ import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_mode
 import '../../../cycle_tracking/presentation/screens/canonical_calendar_screen.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
 import '../../../cycle_tracking/presentation/widgets/daily_checkin_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/log_day_entry_router.dart';
 import '../../../cycle_tracking/presentation/widgets/predicted_range_text.dart';
 import '../../../cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
 import '../../../dream_interpreter/presentation/screens/dream_interpreter_screen.dart';
@@ -792,7 +794,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ] else if (hasOpenEpisode ||
                               !calculation.hasSufficientHistory ||
-                              !calculation.hasPlausibleAverage) ...[
+                              !calculation.hasPlausibleAverage ||
+                              // The ring lays out a predicted cycle and
+                              // counts down to its phases — never drawn
+                              // when the predictor itself declined (every
+                              // interval outside the predictable range, or
+                              // only her stated estimate to go on).
+                              !calculation.canPredictFromHistory) ...[
                             // Commit F3 — an explicit ring state, not
                             // "insufficient history" as a single
                             // catch-all: an open episode is ALWAYS shown
@@ -822,6 +830,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             else
                               _InsufficientCycleDataCard(
                                 onLog: () => _startBleeding(),
+                                hasLoggedCycles:
+                                    calculation.hasSufficientHistory,
                               ),
                             const SizedBox(height: 24),
                             _QuickActions(
@@ -869,12 +879,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 confirmAt: snapshot.confirmAt,
                                 daysIntoCurrentEpisode:
                                     snapshot.daysIntoCurrentEpisode,
-                                onTap: () => showCycleLogSheet(
-                                  context,
-                                  viewModel: _viewModel,
-                                  existingLog: _todayLog(),
-                                  initialFlow: FlowLevel.medium,
-                                ),
+                                // Bleeding goes through the canonical
+                                // sheets only; the legacy sheet is offered
+                                // for symptoms/notes (see
+                                // showLogDayChooser).
+                                onTap: () =>
+                                    unawaited(_logToday(hasOpenEpisode: false)),
                               ),
                             const SizedBox(height: 24),
                             _QuickActions(
@@ -934,11 +944,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         .selectedOrNull
                                         ?.name ??
                                     '',
-                                onLogBlood: () => showCycleLogSheet(
-                                  context,
-                                  viewModel: _viewModel,
-                                  existingLog: _todayLog(),
-                                  initialFlow: FlowLevel.medium,
+                                // "Log today's blood" — canonical only, so
+                                // the entry reaches the Fiqh state above.
+                                onLogBlood: () => unawaited(
+                                  hasOpenEpisode == true
+                                      ? _checkInToday()
+                                      : _startBleeding(),
                                 ),
                                 onAskAdvisor: () => _openFullScreen(
                                   const DrNiswahChatScreen(
@@ -1104,7 +1115,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
         builder: (_) => const CanonicalCalendarScreen(),
       ),
     );
-    if (mounted) unawaited(_refreshCanonicalStatus());
+    if (!mounted) return;
+    // A correction/backfill there is also projected into the legacy read
+    // model behind the ring, the Calendar tab and Insights, and can fill
+    // the gap the missed-check-in banner is showing.
+    await _viewModel.loadLogs();
+    if (mounted) setState(() => _missedCheckinRefreshToken++);
+    unawaited(_refreshCanonicalStatus());
+  }
+
+  /// The Today ring's tap: bleeding is recorded only through the canonical
+  /// start/check-in sheets (never the legacy `cycle_entries`-only sheet,
+  /// which Today's Fiqh state never reads); symptoms and notes stay on the
+  /// legacy sheet.
+  Future<void> _logToday({required bool hasOpenEpisode}) async {
+    final choice = await showLogDayChooser(context, day: AppClock.now());
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case LogDayChoice.bleeding:
+        await (hasOpenEpisode ? _checkInToday() : _startBleeding());
+      case LogDayChoice.symptomsAndNotes:
+        await showCycleLogSheet(
+          context,
+          viewModel: _viewModel,
+          existingLog: _todayLog(),
+          mode: CycleLogSheetMode.symptomsOnly,
+        );
+    }
   }
 
   /// Menstrual Data Integrity charter, Commit D — Section 6/7: the single
@@ -1895,9 +1932,17 @@ class _PregnancyChip extends StatelessWidget {
 }
 
 class _InsufficientCycleDataCard extends StatelessWidget {
-  const _InsufficientCycleDataCard({required this.onLog});
+  const _InsufficientCycleDataCard({
+    required this.onLog,
+    this.hasLoggedCycles = false,
+  });
 
   final VoidCallback onLog;
+
+  /// Two or more starts are logged, but no prediction can be drawn from
+  /// them yet (e.g. every interval is outside the predictable range) —
+  /// "two Haid starts are needed" would then be untrue.
+  final bool hasLoggedCycles;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -1954,10 +1999,15 @@ class _InsufficientCycleDataCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _l(
-                          'Two Haid starts are needed for your personal pattern.',
-                          'نحتاج إلى بدايتَي حيض لحساب نمطكِ الشخصي.',
-                        ),
+                        hasLoggedCycles
+                            ? _l(
+                                'Your logged cycles are too far apart to predict from yet. Keep logging each period.',
+                                'دوراتكِ المسجّلة متباعدة جداً للتوقع منها حتى الآن. واصلي تسجيل كل حيض.',
+                              )
+                            : _l(
+                                'Two Haid starts are needed for your personal pattern.',
+                                'نحتاج إلى بدايتَي حيض لحساب نمطكِ الشخصي.',
+                              ),
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodySmall
                             ?.copyWith(fontSize: 10, height: 1.4),
@@ -2693,7 +2743,12 @@ class _CycleOverview extends StatelessWidget {
                       builder: (context) {
                         final (headline, subtitle) = _ringCenterText(
                           state: state,
-                          dayInActiveSegment: dayInActiveSegment,
+                          // Past the active segment's end (pre-period,
+                          // expected day, or late) the clamped "day N of
+                          // N" would be untrue — show the phase alone.
+                          dayInActiveSegment: _isPastActiveSegment(segmentPlan)
+                              ? null
+                              : dayInActiveSegment,
                           confirmAt: confirmAt,
                           segmentPlan: segmentPlan,
                           averagePeriodLength: summary.averagePeriodLength,
@@ -2764,7 +2819,11 @@ class _CycleOverview extends StatelessWidget {
         const SizedBox(height: 24),
         _PhaseTimeline(
           segmentPlan: segmentPlan,
-          dayInActiveSegment: dayInActiveSegment,
+          // Same rule as the ring's headline: no frozen "N of N" once she
+          // is past the active segment.
+          dayInActiveSegment: _isPastActiveSegment(segmentPlan)
+              ? null
+              : dayInActiveSegment,
           averagePeriodLength: summary.averagePeriodLength,
         ),
       ],
@@ -2810,7 +2869,7 @@ class _CycleOverview extends StatelessWidget {
                 'This bleeding pattern falls outside your madhhab\'s usual range — please consult a trusted source.',
                 'نمط هذا النزيف يخرج عن الحدود المعتادة في مذهبك، يُنصح باستشارة مصدر موثوق.',
               ),
-      _FiqhState.tahara => _nextSegmentMessage(segmentPlan, dayInActiveSegment),
+      _FiqhState.tahara => _taharaMessage(segmentPlan, dayInActiveSegment),
       _FiqhState.madhhabUnresolved => _l(
         'Bleeding detected — select your Madhhab in Settings to see your Fiqh state.',
         'تم رصد نزيف — يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حالتكِ الفقهية.',
@@ -2876,6 +2935,47 @@ class _CycleOverview extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Whether today's real cycle day lies beyond the end of the active
+  /// (haid/tahara) segment — the planner only ever marks those as active,
+  /// so from the pre-period onward (and once late) the clamped day within
+  /// the active segment stops moving.
+  bool _isPastActiveSegment(CycleSegmentPlan segmentPlan) {
+    final activeIndex = segmentPlan.activeIndex;
+    if (activeIndex == null) return false;
+    var endDay = 0;
+    for (var i = 0; i <= activeIndex; i++) {
+      endDay += segmentPlan.segments[i].durationDays;
+    }
+    return cycleDay > endDay;
+  }
+
+  /// The tahara pill: late and next-period wording come from the same
+  /// summary Insights uses, so the two screens never disagree; only within
+  /// the active segment does it fall back to "{next segment} in N days".
+  String _taharaMessage(CycleSegmentPlan segmentPlan, int? dayInActiveSegment) {
+    final daysLate = summary.daysLate;
+    if (daysLate > 0) {
+      return summary.nextPeriodStart != null
+          ? _l(
+              'Your period is $daysLate days late — it may start any day',
+              'حيضكِ متأخر $daysLate أيام — قد يبدأ في أي يوم',
+            )
+          : _l(
+              'Your period is $daysLate days late',
+              'حيضكِ متأخر $daysLate أيام',
+            );
+    }
+    final nextPeriodStart = summary.nextPeriodStart;
+    if (nextPeriodStart != null && _isPastActiveSegment(segmentPlan)) {
+      final daysUntil = calendarDaysBetween(AppClock.now(), nextPeriodStart);
+      return daysUntil <= 0
+          ? _l('Your period is expected today', 'يُتوقع أن يبدأ حيضكِ اليوم')
+          : '${_segmentLabel(CycleSegmentId.expected)} ${_l('in', 'خلال')} '
+                '$daysUntil ${_l('days', 'أيام')}';
+    }
+    return _nextSegmentMessage(segmentPlan, dayInActiveSegment);
   }
 
   /// "{next segment} in N days" — N is days remaining in the currently
@@ -3175,6 +3275,23 @@ class _SyncStatusBannerState extends State<_SyncStatusBanner> {
   }
 }
 
+/// The day after the most recent day of the open episode that has at least
+/// one observation (never assumes today is covered merely because the
+/// episode started recently). Calendar-day arithmetic: adding 24 hours to a
+/// local midnight lands on 23:00 of the same day when clocks go back, which
+/// re-asked for a day she had already covered.
+@visibleForTesting
+DateTime missedCheckinFirstMissingDay({
+  required DateTime episodeStartDate,
+  required Iterable<DateTime> observedDates,
+}) {
+  var mostRecentCovered = episodeStartDate;
+  for (final date in observedDates) {
+    if (date.isAfter(mostRecentCovered)) mostRecentCovered = date;
+  }
+  return addCalendarDays(mostRecentCovered, 1);
+}
+
 class _MissedCheckinBanner extends StatefulWidget {
   const _MissedCheckinBanner({super.key, required this.onAdd});
 
@@ -3216,24 +3333,12 @@ class _MissedCheckinBannerState extends State<_MissedCheckinBanner> {
       return;
     }
     final observations = observationsResult.dataOrNull ?? const [];
-    final utcOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+    final utcOffsetMinutes = AppClock.now().timeZoneOffset.inMinutes;
     final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
-
-    // The most recent day that genuinely has at least one observation —
-    // never assumes today is covered merely because the episode started
-    // recently.
-    DateTime mostRecentCovered = episode.startDate;
-    for (final observation in observations) {
-      if (observation.observedDate.isAfter(mostRecentCovered)) {
-        mostRecentCovered = observation.observedDate;
-      }
-    }
-
-    final firstMissingDay = DateTime(
-      mostRecentCovered.year,
-      mostRecentCovered.month,
-      mostRecentCovered.day,
-    ).add(const Duration(days: 1));
+    final firstMissingDay = missedCheckinFirstMissingDay(
+      episodeStartDate: episode.startDate,
+      observedDates: [for (final o in observations) o.observedDate],
+    );
 
     // A gap exists only if that first missing day is strictly before
     // today — today itself not yet having a check-in is not "missed" (an
@@ -4264,6 +4369,16 @@ class _FiqhStateBanner extends StatelessWidget {
   final _FiqhState state;
   final int cycleDay;
   final String madhhab;
+
+  /// [madhhab] is the enum's English `name`; the Arabic sentence needs the
+  /// Arabic name ("المذهب الحنفي", never "المذهب الHANAFI").
+  static String _arabicMadhhabName(String name) => switch (name) {
+    'hanafi' => 'حنفي',
+    'maliki' => 'مالكي',
+    'shafii' => 'شافعي',
+    'hanbali' => 'حنبلي',
+    _ => name,
+  };
   final VoidCallback onLogBlood;
   final VoidCallback onAskAdvisor;
   final VoidCallback onRetry;
@@ -4343,7 +4458,7 @@ class _FiqhStateBanner extends StatelessWidget {
             Text(
               _l(
                 'Based on ${madhhab.toUpperCase()} madhhab',
-                'بناءً على المذهب ال${madhhab.toUpperCase()}',
+                'بناءً على المذهب ال${_arabicMadhhabName(madhhab)}',
               ),
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: state.color.withValues(alpha: 0.55),

@@ -388,9 +388,10 @@ class _CanonicalMonthGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final monthStart = DateTime(month.year, month.month);
-    final gridStart = monthStart.subtract(
-      Duration(days: monthStart.weekday % 7),
-    );
+    // Calendar-day arithmetic, never `Duration(days:)`: local midnights
+    // are 23/25 hours apart across a DST change, which shifted every cell
+    // after it by a day (a duplicated day, the month's last day missing).
+    final gridStart = addCalendarDays(monthStart, -(monthStart.weekday % 7));
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final dayCount = (((monthStart.weekday % 7) + daysInMonth) / 7).ceil() * 7;
     final arabic = AppLocaleController.instance.isArabic;
@@ -446,7 +447,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
               childAspectRatio: 0.95,
             ),
             itemBuilder: (context, index) {
-              final date = gridStart.add(Duration(days: index));
+              final date = addCalendarDays(gridStart, index);
               final dayKey = DateTime(date.year, date.month, date.day);
               final rawForDay = observations
                   .where((o) => DateUtils.isSameDay(o.observedDate, dayKey))

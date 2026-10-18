@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_days.dart';
 import '../entities/cycle_log.dart';
 
 enum CycleSegmentId { haid, tahara1, fertile, tahara2, prePeriod, expected }
@@ -74,7 +75,9 @@ class CycleSegmentPlanner {
     required int? cycleDayEstimate,
   }) {
     int dayOffset(DateTime? date) =>
-        date == null ? periodLength : date.difference(cycleStart).inDays + 1;
+        // Calendar days, not 24-hour spans: across a DST spring-forward a
+        // local-midnight difference is 23h short and `.inDays` loses a day.
+        date == null ? periodLength : calendarDaysBetween(cycleStart, date) + 1;
 
     var fertileStartOffset = dayOffset(fertileWindow.start);
     var fertileEndOffset = dayOffset(fertileWindow.end);

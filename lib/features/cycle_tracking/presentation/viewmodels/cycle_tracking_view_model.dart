@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../../auth/domain/entities/app_user.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
@@ -91,13 +92,40 @@ class CycleTrackingViewModel extends ChangeNotifier {
   /// Her stated usual cycle/period length (see [CycleBaseline]); null
   /// until [loadLogs] has read it, or when she never gave one.
   CycleBaseline? statedBaseline;
-  CycleTrackingSummary summary = const CycleTrackingSummary(
+  CycleTrackingSummary _summary = const CycleTrackingSummary(
     averageCycleLength: null,
     averagePeriodLength: null,
     lastCycleStart: null,
     currentPhase: CyclePhase.follicular,
     fertileWindow: FertileWindow(start: null, end: null, peakDay: null),
   );
+
+  /// The calendar day [_summary] was computed for; null before the first
+  /// [loadLogs].
+  DateTime? _summaryDay;
+
+  /// Next-period range, late status, fertile window and phase all depend on
+  /// "today". Recomputed from the already-loaded data whenever the calendar
+  /// day has changed since it was last computed — the app can stay in
+  /// memory across days, while [cycleCalculation] (and so the cycle day)
+  /// always follows the clock.
+  CycleTrackingSummary get summary {
+    final today = calendarDay(AppClock.now());
+    final computedFor = _summaryDay;
+    if (computedFor != null && computedFor != today) {
+      _summary = _summarize(today);
+      _summaryDay = today;
+    }
+    return _summary;
+  }
+
+  CycleTrackingSummary _summarize(DateTime today) =>
+      _controller.summarizeHistory(
+        logs,
+        now: today,
+        canonicalEpisodes: canonicalEpisodes,
+        statedBaseline: statedBaseline,
+      );
   bool isLoading = false;
   String? errorMessage;
 
@@ -154,11 +182,9 @@ class CycleTrackingViewModel extends ChangeNotifier {
           .toList();
       canonicalEpisodes = await _canonicalEpisodeLoader(_currentUserId);
       statedBaseline = await _statedBaselineLoader(_currentUserId);
-      summary = _controller.summarizeHistory(
-        logs,
-        canonicalEpisodes: canonicalEpisodes,
-        statedBaseline: statedBaseline,
-      );
+      final today = calendarDay(AppClock.now());
+      _summary = _summarize(today);
+      _summaryDay = today;
     } catch (error) {
       errorMessage = error.toString();
     } finally {

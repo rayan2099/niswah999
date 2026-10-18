@@ -40,6 +40,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [cycle_calendar.dart](../../lib/features/cycle_tracking/presentation/widgets/cycle_calendar.dart)
 - [cycle_log_form_sheet.dart](../../lib/features/cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart)
 - [daily_checkin_sheet.dart](../../lib/features/cycle_tracking/presentation/widgets/daily_checkin_sheet.dart)
+- [log_day_entry_router.dart](../../lib/features/cycle_tracking/presentation/widgets/log_day_entry_router.dart)
 - [observation_detail_sheet.dart](../../lib/features/cycle_tracking/presentation/widgets/observation_detail_sheet.dart)
 - [predicted_range_text.dart](../../lib/features/cycle_tracking/presentation/widgets/predicted_range_text.dart)
 - [provenance_badge.dart](../../lib/features/cycle_tracking/presentation/widgets/provenance_badge.dart)

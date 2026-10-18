@@ -1650,3 +1650,30 @@ the case. Regression tests: `test/fiqh_hardening/`.
 - The nifas 40-day window differs between
   `pregnancy_status_controller.dart` and `pregnancy_status_engine.dart`.
   It was reported to the owner and was not changed.
+
+## 17. Screens hardening — what the tracking screens show (2026-10-18, branch `fix/tracking-hardening`) — status: PROPOSED
+
+Status: **implemented and covered by widget/unit tests on this branch; not
+merged, not device-verified, not medically or scholarly reviewed.** Prediction
+math and the Fiqh rule evaluator were out of scope and are unchanged.
+
+| Finding | Change | Test |
+|---|---|---|
+| Bleeding logged from the Today ring / the istihadah banner's "Log today's blood" / a Calendar-tab day reached only `cycle_entries`, so Today kept showing "Tahara", "Fertile in N days" and "Salah is obligatory" right after she logged bleeding | New [log_day_entry_router.dart](../lib/features/cycle_tracking/presentation/widgets/log_day_entry_router.dart): a tap asks "Bleeding" vs "Symptoms & notes". Bleeding goes only through the canonical start / check-in / backfill sheets; the legacy sheet opens in `symptomsOnly` mode for symptoms and notes. The banner button calls the dashboard's canonical check-in/start directly. Bleeding is not offered for a future day. | `test/screens_hardening/bleeding_entry_routing_test.dart` |
+| Ring pill stuck at "Pre-Period in 1 days" from the pre-period onward, on the expected day and while late; ring headline/stepper froze at "N of N" | [dashboard_screen.dart](../lib/features/dashboard/presentation/screens/dashboard_screen.dart) `_taharaMessage`/`_isPastActiveSegment`: late and next-period wording now come from the same summary Insights uses ("Your period is N days late", "expected today", "Expected Period in N days") | `dashboard_late_period_ring_test.dart` |
+| Ring drawn (with phase countdowns) when the predictor declined to predict | Ring branch also requires `canPredictFromHistory`; the empty-state card explains that logged cycles are too far apart | `dashboard_late_period_ring_test.dart` |
+| Summary (next-period range, late status, fertile window) frozen at the day the app loaded | [cycle_tracking_view_model.dart](../lib/features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart) recomputes the summary when the calendar day changes | `dashboard_stale_summary_after_midnight_test.dart` |
+| Month grids duplicated a day / dropped the month's last day across a DST fall-back | Both grids use `addCalendarDays` | `calendar_dst_and_empty_test.dart` (meaningful under `TZ=Europe/London`) |
+| Calendar-tab "NEXT PERIOD — N days left" one short and from the raw average | Uses `summary.nextPeriodStart` / `daysLate` | `next_period_cross_screen_test.dart` |
+| Legacy calendar labelled days with no entry "Tahara" | Shown as "No entry" | `calendar_dst_and_empty_test.dart` |
+| Husband report printed the next period's start as "Expected End" / "متى تنتهي الدورة المتوقع" | Relabelled "Next expected period" / "الحيض المتوقع القادم" | `husband_report_expected_end_test.dart` |
+| Doctor and Fiqh report PDFs printed "null days" | Missing averages print "—" | `report_null_average_test.dart` |
+| Returning from the canonical calendar left the ring, Calendar tab, Insights and the missed-check-in banner stale | Dashboard reloads the view model and re-keys the banner | traced (needs a real canonical write) |
+| Segment planner, Insights countdown and missed-check-in banner used `Duration`/`.inDays` on local midnights | `calendarDaysBetween` / `addCalendarDays` | `dst_day_counts_test.dart` |
+| Arabic haid banner read "المذهب الHANAFI"; legacy log sheet dated new entries with `DateTime.now()` instead of `AppClock` | Arabic madhhab names; `AppClock.now()` | — |
+
+Deliberately left alone: `canonical_bleeding_status_resolver.dart`'s
+open-episode day count (same DST issue; owned by the Fiqh-layer branch);
+the `symptomsOnly` sheet still saves a `flow: none` legacy row for a day with
+no prior entry (pre-existing Insights behaviour); the ring still never marks
+pre-period/expected as the active segment (planner design).

@@ -24,6 +24,8 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [dashboard_ar_390x844.png](../../test/goldens/dashboard_ar_390x844.png)
 - [dashboard_en_390x844.png](../../test/goldens/dashboard_en_390x844.png)
 - [parity_dashboard_test.dart](../../test/parity_dashboard_test.dart)
+- [dashboard_late_period_ring_test.dart](../../test/screens_hardening/dashboard_late_period_ring_test.dart)
+- [dashboard_stale_summary_after_midnight_test.dart](../../test/screens_hardening/dashboard_stale_summary_after_midnight_test.dart)
 
 ## Requirements, decisions, and verification
 
