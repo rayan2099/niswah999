@@ -12,6 +12,8 @@ class PredictionHistoryReviewStore {
   final Future<void> Function(String userId, String value) write;
   static final Map<String, Future<void>> _pending = {};
   static final _changes = StreamController<String>.broadcast();
+  static final Map<String, int> _revisions = {};
+  static int revisionFor(String userId) => _revisions[userId] ?? 0;
   static Stream<String> get changes => _changes.stream;
 
   static Future<void> waitForPendingWrites(String userId) async {
@@ -57,6 +59,7 @@ class PredictionHistoryReviewStore {
       if (await read(userId) != raw) {
         throw StateError('Review save could not be verified');
       }
+      _revisions[userId] = revisionFor(userId) + 1;
       _changes.add(userId);
     });
     _pending[userId] = operation;

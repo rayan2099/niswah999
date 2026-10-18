@@ -31,11 +31,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
     _authRepository = authRepository;
     _reviewSubscription = PredictionHistoryReviewStore.changes.listen((owner) {
       if (owner != _currentUserId || _disposed) return;
-      if (_savingHistoryReview) {
-        _reviewChangedWhileSaving = true;
-      } else {
-        unawaited(loadLogs());
-      }
+      if (!_savingHistoryReview) unawaited(loadLogs());
     });
   }
 
@@ -70,7 +66,6 @@ class CycleTrackingViewModel extends ChangeNotifier {
   late final StreamSubscription<String> _reviewSubscription;
   bool _disposed = false;
   bool _savingHistoryReview = false;
-  bool _reviewChangedWhileSaving = false;
   int _loadGeneration = 0;
   int _userLoadGeneration = 0;
   String? _summaryOwner;
@@ -226,10 +221,12 @@ class CycleTrackingViewModel extends ChangeNotifier {
     _savingHistoryReview = true;
     try {
       await _predictionReviewStore.save(owner, review);
+      int loadedRevision;
       do {
-        _reviewChangedWhileSaving = false;
+        loadedRevision = PredictionHistoryReviewStore.revisionFor(owner);
         await loadLogs();
-      } while (_reviewChangedWhileSaving &&
+      } while (loadedRevision !=
+              PredictionHistoryReviewStore.revisionFor(owner) &&
           !_disposed &&
           owner == _currentUserId);
     } finally {

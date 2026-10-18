@@ -71,3 +71,23 @@ stated day tolerance and dataset; no 100% or 90% prediction claim follows from t
 Full Flutter analysis, tests, database rebuild and Android/iOS compilation results will be
 appended after execution. This review does not authorize merging, deploying or certifying
 launch readiness.
+
+## First fixed-tree CI feedback
+
+[Run 39116343016](https://github.com/rayan2099/niswah999/actions/runs/39116343016)
+verified all eight original regressions and all five sync-snapshot tests. The full result
+was 1,354 passing / four failing / two existing skips. Three failures concerned duplicate
+review refresh counts (the first failed test also left a listener alive in that test
+isolate); the fourth was an invalid synthetic open-episode fixture missing its required
+continuation certainty. The application change now compares committed per-owner review
+revisions before/after the refresh, which detects external updates without mistaking its
+own delayed broadcast for new evidence. The fixture now satisfies the entity invariant.
+The analyzer had zero errors and 25 informational notices; the new queue notice is also
+corrected without changing the existing CI ceiling. Follow-up fixed-tree execution remains
+required.
+
+The production historical fold exporter was rerun after the timing changes: all 9,263
+issued forecasts and withholding decisions are exactly identical to the preceding export
+(177 source histories, 11,870 eligible targets, 2,607 withheld). This is a parity check on
+the same research input, not an additional independent cohort or evidence of improved
+prediction accuracy. Raw participant inputs and fold files remain outside Git.

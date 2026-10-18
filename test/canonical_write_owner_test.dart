@@ -41,6 +41,7 @@ class _DelayedReplay extends BleedingEpisodeRepositoryImpl {
       episode: BleedingEpisode(
         userId: 'owner-a',
         lifecycleStatus: LifecycleStatus.open,
+        continuationCertainty: ContinuationCertainty.confirmed,
         startDate: startDate,
         startPrecision: startPrecision,
         startSource: ObservationSource.userObserved,

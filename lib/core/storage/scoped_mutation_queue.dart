@@ -15,7 +15,7 @@ class ScopedMutationQueue {
     final previous = _tails[key] ?? Future<void>.value();
     final work = previous.then((_) => action());
     // A failed transaction must fail its caller, but never poison the queue.
-    final tail = work.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    final tail = work.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     _tails[key] = tail;
     return work.whenComplete(() {
       if (identical(_tails[key], tail)) _tails.remove(key);
