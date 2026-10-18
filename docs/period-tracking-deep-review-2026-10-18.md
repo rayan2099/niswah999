@@ -91,3 +91,45 @@ issued forecasts and withholding decisions are exactly identical to the precedin
 (177 source histories, 11,870 eligible targets, 2,607 withheld). This is a parity check on
 the same research input, not an additional independent cohort or evidence of improved
 prediction accuracy. Raw participant inputs and fold files remain outside Git.
+
+## Device and server scenarios still to execute
+
+These checks remain **unverified**. A green automated suite does not close them.
+
+| Scenario | Required evidence |
+| --- | --- |
+| Offline save followed by force-close/restart and reconnect | One canonical operation/observation for the original idempotency key; retained retry payload until acknowledgement; accurate UI sync state. |
+| Corrections from two real devices | Conflicting canonical corrections surface the existing conflict state; effective history agrees on both devices after refresh. Also inspect the legacy compatibility view. |
+| Account switch during network/storage waits | Neither account displays the other's observations; success/failure acknowledgements touch only the original owner's queue. |
+| Account deletion with an already running retry | No completed or newly scheduled callback restores sensitive cache/queue data after cleanup; failures remain observable and cleanup is retried. |
+| Timezone/date boundary and actual reminders | Recorded civil dates remain consistent across dashboard/history/report; reminders are delivered/cancelled on supported phones under actual OS background restrictions. |
+| Storage read/write/migration failure and recovery | No false save confirmation or confident empty-history inference; preserved inputs can be recovered without changing ownership. |
+
+Legacy offline deletion and cross-device write ordering need a durable server-aware design
+and explicit tests before claiming them resolved. These remain engineering gaps, not
+items to hide behind a passing calculation percentage. This note records bounded fixes
+and the remaining work; it does not certify zero defects.
+
+## Verified fixed-tree app results
+
+[CI run 39117038035](https://github.com/rayan2099/niswah999/actions/runs/39117038035)
+on remote commit `a057552ad433d7da3d56f0453663a144d63f1c7c`
+(local source commit `1d253c43f3d2ee7910014786da0cd8a99b47d848`, identical Git tree
+`5592b18fff5e0408c28ee84897c18b777474690c`) reports:
+
+- **1,359 Flutter tests passed, zero failures, two existing skipped legacy-ring scenarios.**
+  The unchanged CI policy excludes platform-dependent golden-image comparison files;
+  this result covers the behavioral suite and is not a claim that every test file ran.
+- All eight negative-baseline regressions now pass; all six sync-snapshot checks pass.
+- Review saves refresh once normally and reload external evidence changed during refresh.
+- Replay acknowledgements remain owner-scoped after account changes. The real pinned
+  Supabase SDK with mocked HTTP verifies mismatch rejection, original authorization on
+  the RPC, and original response ownership after another synthetic account signs in.
+- Analyzer: **zero errors, 24 informational notices**, below the unchanged ceiling of 27.
+- Database migration rebuild, local bootstrap and secret-redaction checks passed.
+
+Intermediate run 39116812865 passed 1,358 tests, with its sole failure caused by the
+mock HTTP response omitting the request metadata required by the pinned PostgREST SDK.
+The fixture was corrected to model a real response; the subsequent full run above passed.
+Android debug and iOS no-codesign compile outcomes are available in the same linked CI run.
+These jobs establish compilation only; actual phone journeys remain unverified.
