@@ -211,6 +211,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
     final owner = _summaryOwner;
     await loadCurrentUser();
     if (_disposed ||
+        _savingHistoryReview ||
         owner == null ||
         owner != _currentUserId ||
         !summary.periodPrediction.reviewGaps.any(

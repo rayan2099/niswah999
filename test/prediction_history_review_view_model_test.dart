@@ -115,6 +115,30 @@ void main() {
     vm.dispose();
   });
   test(
+    'overlapping history saves do not start duplicate writes or refreshes',
+    () async {
+      final vm = model();
+      await vm.loadLogs();
+      final gap = vm.summary.periodPrediction.reviewGaps.single;
+      final review = PredictionHistoryReview(
+        start: gap.start,
+        end: gap.end,
+        resolution: PredictionGapResolution.unsure,
+        reportedAt: today.toUtc(),
+      );
+      final first = vm.savePredictionHistoryReview(review);
+      final duplicate = expectLater(
+        vm.savePredictionHistoryReview(review),
+        throwsStateError,
+      );
+      await Future.wait([first, duplicate]);
+      expect(vm.summary.periodPrediction.hasFutureEstimate, isTrue);
+      expect(canonicalLoads, 2);
+      vm.dispose();
+    },
+  );
+
+  test(
     'an edited history cannot accept an answer from the old interval',
     () async {
       final vm = model();
