@@ -141,6 +141,7 @@ void main() {
             }),
             200,
             headers: {'content-type': 'application/json'},
+            request: request,
           );
         }
         rpcCalls++;
@@ -154,6 +155,7 @@ void main() {
           '[{"episode_id":"episode","observation_id":"observation"}]',
           200,
           headers: {'content-type': 'application/json'},
+          request: request,
         );
       }),
     );
