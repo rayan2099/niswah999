@@ -642,8 +642,9 @@ class _CanonicalMonthGrid extends StatelessWidget {
     List<PredictionHistoryReview> historyReviews = const [],
     bool historyVerified = true,
   }) {
-    if (episodes.any((e) => e.lifecycleStatus == LifecycleStatus.open))
+    if (episodes.any((e) => e.lifecycleStatus == LifecycleStatus.open)) {
       return null;
+    }
     final ended = episodes
         .where((e) => e.lifecycleStatus == LifecycleStatus.ended)
         .toList();

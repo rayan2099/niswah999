@@ -37,8 +37,9 @@ class PredictionHistoryReview {
         throw const FormatException('Invalid review date');
       }
       final parsed = DateTime.parse('${raw}T00:00:00Z');
-      if (_date(parsed) != raw)
+      if (_date(parsed) != raw) {
         throw const FormatException('Invalid review date');
+      }
       return parsed;
     }
 
@@ -48,8 +49,9 @@ class PredictionHistoryReview {
       throw const FormatException('Invalid review interval');
     }
     final reportedAt = DateTime.parse(json['reportedAt'] as String);
-    if (!reportedAt.isUtc)
+    if (!reportedAt.isUtc) {
       throw const FormatException('Review timestamp must be UTC');
+    }
     return PredictionHistoryReview(
       start: start,
       end: end,

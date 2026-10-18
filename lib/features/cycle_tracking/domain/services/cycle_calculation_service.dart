@@ -228,9 +228,10 @@ class CycleCalculationService {
   }
 
   /// Merge timing facts without counting an episode twice. Preserve the
-  /// existing log-start preference within one day, and prefer its paired
-  /// duration when available. A partial log must not erase a duration
-  /// explicitly supplied by canonical timing. Keep each duration attached
+  /// existing within-one-day episode matching, but let canonical timing
+  /// supply the authoritative start and any known duration. A compatibility
+  /// projection can supplement an unknown duration, never shift a supplied
+  /// canonical start or replace its measured duration. Keep each duration attached
   /// to its episode so replacing a duplicate cannot remove another
   /// episode's equal-length measurement.
   ({List<DateTime> starts, Map<DateTime, int> lengthsByStart}) _mergeCanonical(
@@ -257,7 +258,7 @@ class CycleCalculationService {
         ]..sort((a, b) {
           final byDate = a.date.compareTo(b.date);
           if (byDate != 0) return byDate;
-          return (a.fromCanonical ? 1 : 0) - (b.fromCanonical ? 1 : 0);
+          return (a.fromCanonical ? 0 : 1) - (b.fromCanonical ? 0 : 1);
         });
 
     final starts = <DateTime>[];
@@ -268,14 +269,14 @@ class CycleCalculationService {
       final usableLength = length != null && length > 0 ? length : null;
       if (starts.isNotEmpty &&
           calendarDayDifference(candidate.date, starts.last) <= 1) {
-        if (lastKeptWasCanonical && !candidate.fromCanonical) {
+        if (!lastKeptWasCanonical && candidate.fromCanonical) {
           final previousLength = lengthsByStart.remove(starts.last);
           starts[starts.length - 1] = candidate.date;
           final retainedLength = usableLength ?? previousLength;
           if (retainedLength != null) {
             lengthsByStart[candidate.date] = retainedLength;
           }
-          lastKeptWasCanonical = false;
+          lastKeptWasCanonical = true;
         } else if (!lengthsByStart.containsKey(starts.last) &&
             usableLength != null) {
           lengthsByStart[starts.last] = usableLength;

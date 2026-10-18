@@ -27,8 +27,9 @@ class PredictionHistoryReviewStore {
     if (raw == null) return const [];
     // A failed/malformed read must not look like confirmed empty history.
     final payload = jsonDecode(raw) as Map<String, dynamic>;
-    if (payload['version'] != 1)
+    if (payload['version'] != 1) {
       throw const FormatException('Unknown review schema');
+    }
     return (payload['reviews'] as List)
         .map(
           (row) =>
@@ -53,8 +54,9 @@ class PredictionHistoryReviewStore {
         'reviews': next.map((r) => r.toJson()).toList(),
       });
       await write(userId, raw);
-      if (await read(userId) != raw)
+      if (await read(userId) != raw) {
         throw StateError('Review save could not be verified');
+      }
       _changes.add(userId);
     });
     _pending[userId] = operation;

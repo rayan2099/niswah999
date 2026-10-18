@@ -81,8 +81,9 @@ class NotificationScheduler {
       historyReviews: historyReviews,
       historyVerified: historyVerified,
     );
-    if (!prediction.hasFutureEstimate || prediction.expectedStart == null)
+    if (!prediction.hasFutureEstimate || prediction.expectedStart == null) {
       return null;
+    }
     final fireDay = addCalendarDays(prediction.expectedStart!, -cycleLeadDays);
     final fireAt = DateTime(fireDay.year, fireDay.month, fireDay.day, 9);
 

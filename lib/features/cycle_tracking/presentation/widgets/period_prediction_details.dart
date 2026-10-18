@@ -191,11 +191,12 @@ class _HistoryReviewSheetState extends State<_HistoryReviewSheet> {
       );
       if (mounted) Navigator.pop(context);
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _saving = false;
           _failed = true;
         });
+      }
     }
   }
 

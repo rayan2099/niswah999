@@ -155,8 +155,9 @@ class CycleTrackingViewModel extends ChangeNotifier {
       } catch (_) {
         reviewsVerified = false;
       }
-      if (_disposed || generation != _loadGeneration || owner != _currentUserId)
+      if (_disposed || generation != _loadGeneration || owner != _currentUserId) {
         return;
+      }
       logs = nextLogs;
       canonicalEpisodes = nextEpisodes;
       _summaryOwner = owner;

@@ -34,8 +34,9 @@ class CyclePredictionService {
           reviewGaps: List.unmodifiable(gaps),
           excludedIntervalCount: selectedStart,
         );
-    if (!historyVerified)
+    if (!historyVerified) {
       return withhold(PredictionReviewReason.unverifiedHistory);
+    }
     if ((lastStart != null && calendarDayDifference(lastStart, now) > 0) ||
         cycleLengths.any((length) => length < minimumUsableIntervalDays)) {
       return withhold(PredictionReviewReason.invalidHistory);
@@ -115,8 +116,9 @@ class CyclePredictionService {
     if (gaps.any((g) => g.resolution == null)) {
       return withhold(PredictionReviewReason.unexplainedGap);
     }
-    if (unsupported)
+    if (unsupported) {
       return withhold(PredictionReviewReason.unsupportedLongInterval);
+    }
     if (resetAfterBreak &&
         cycleLengths.length - selectedStart < minimumIntervalsAfterBreak) {
       return withhold(PredictionReviewReason.insufficientRecentHistory);

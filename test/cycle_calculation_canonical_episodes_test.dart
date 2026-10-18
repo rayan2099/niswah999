@@ -159,7 +159,7 @@ void main() {
       expect(result.averagePeriodLength, 5);
     });
 
-    test('adjacent projection retains the canonical measured duration', () {
+    test('adjacent projection retains the canonical start and duration', () {
       final result = service.calculate(
         [startLog(DateTime(2026, 7, 2))],
         asOf: today,
@@ -170,7 +170,7 @@ void main() {
           ),
         ],
       );
-      expect(result.haidStarts, [DateTime(2026, 7, 2)]);
+      expect(result.haidStarts, [DateTime(2026, 7, 1)]);
       expect(result.averagePeriodLength, 5);
     });
 
@@ -294,6 +294,47 @@ void main() {
         expect(result.averagePeriodLength, isNull);
       },
     );
+
+    test(
+      'a partial projection cannot move a reported start one day earlier',
+      () {
+        final result = service.calculate(
+          [startLog(DateTime(2026, 7, 1)), startLog(DateTime(2026, 7, 29))],
+          asOf: today,
+          canonicalEpisodes: [
+            CanonicalEpisodeTiming(startDate: DateTime(2026, 7, 2)),
+          ],
+        );
+        expect(result.haidStarts, [
+          DateTime(2026, 7, 2),
+          DateTime(2026, 7, 29),
+        ]);
+        expect(result.cycleLengths, [27]);
+      },
+    );
+
+    test('explicit canonical duration takes precedence over a conflicting projection pair', () {
+      final result = service.calculate(
+        [
+          startLog(DateTime(2026, 7, 1)),
+          CycleLog(
+            id: 'end',
+            userId: 'u',
+            date: DateTime(2026, 7, 8),
+            flow: FlowLevel.none,
+            cycleDay: 8,
+          ),
+        ],
+        asOf: today,
+        canonicalEpisodes: [
+          CanonicalEpisodeTiming(
+            startDate: DateTime(2026, 7, 1),
+            endDate: DateTime(2026, 7, 6),
+          ),
+        ],
+      );
+      expect(result.averagePeriodLength, 5);
+    });
 
     test('supplying no canonical episodes changes nothing (default)', () {
       final without = service.calculate([startLog(today)], asOf: today);

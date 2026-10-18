@@ -28,8 +28,9 @@ class ClientFiqhStateProvider {
       userId: userId,
       now: now,
     );
-    if (NiswahSupabase.clientOrNull?.auth.currentUser?.id != userId)
+    if (NiswahSupabase.clientOrNull?.auth.currentUser?.id != userId) {
       return null;
+    }
     return evidence;
   }
 
