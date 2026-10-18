@@ -854,7 +854,12 @@ class _PregnancyChanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cycleLength = summary.averageCycleLength;
+    // Same prediction as the fertile window and next-cycle date shown
+    // below; nothing is charted when ovulation is not predicted (too
+    // short/long a cycle, or a late period).
+    final cycleLength = summary.fertileWindow.peakDay == null
+        ? null
+        : summary.predictedCycleLength;
     final chanceLabel = (cycleLength == null || currentCycleDay == null)
         ? null
         : switch (_conceptionChanceAt(currentCycleDay!, cycleLength)) {

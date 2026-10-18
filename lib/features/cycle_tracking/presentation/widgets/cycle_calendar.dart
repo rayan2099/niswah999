@@ -215,13 +215,14 @@ class CycleCalendar extends StatelessWidget {
   }
 
   _DayMarker _markerFor(DateTime date, CycleLog? log) {
+    // A stored log is a fact and never depends on a prediction existing.
+    if (log != null) {
+      return log.flow == FlowLevel.none ? _DayMarker.tahara : _DayMarker.haid;
+    }
     final cycleLength = summary.predictedCycleLength;
     final periodLength = summary.averagePeriodLength;
     if (cycleLength == null || periodLength == null) {
       return _DayMarker.tahara;
-    }
-    if (log != null) {
-      return log.flow == FlowLevel.none ? _DayMarker.tahara : _DayMarker.haid;
     }
     final start = summary.lastCycleStart;
     if (start == null) return _DayMarker.tahara;

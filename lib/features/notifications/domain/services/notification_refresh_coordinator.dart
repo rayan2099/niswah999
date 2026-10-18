@@ -59,7 +59,7 @@ class NotificationRefreshCoordinator {
     PregnancyProfileRepository? pregnancyRepository,
     NotificationRepositoryImpl? preferenceRepository,
     BleedingEpisodeRepositoryImpl? bleedingRepository,
-    Future<List<CanonicalEpisodeTiming>> Function(String userId)?
+    Future<List<CanonicalEpisodeTiming>?> Function(String userId)?
     cycleHistoryLoader,
   }) async {
     // New critical finding (notification cancellation closure, Finding 3)
@@ -406,14 +406,17 @@ class NotificationRefreshCoordinator {
 
   /// Canonical episode timing for the cycle reminder. Its own repository
   /// instance, so the active-bleeding reconciliation's repository is never
-  /// asked for a `getEpisodesForUser` read on its behalf. A failed read
-  /// falls back to logs only, exactly as before this history was used.
-  static Future<List<CanonicalEpisodeTiming>> _loadCycleHistory(
+  /// asked for a `getEpisodesForUser` read on its behalf. An unavailable
+  /// read falls back to logs only, exactly as before this history was
+  /// used; a degraded one (rows quarantined) returns null so no reminder
+  /// is planned from history known to be incomplete.
+  static Future<List<CanonicalEpisodeTiming>?> _loadCycleHistory(
     String userId,
   ) async {
     final result = await BleedingEpisodeRepositoryImpl().getEpisodesForUser(
       userId,
     );
+    if (result is LoadDegraded<List<BleedingEpisode>>) return null;
     return [
       for (final episode in result.dataOrNull ?? const <BleedingEpisode>[])
         CanonicalEpisodeTiming(
@@ -427,7 +430,7 @@ class NotificationRefreshCoordinator {
     required Map<NotificationType, NotificationPreference> preferences,
     required String? userId,
     required CycleTrackingRepositoryImpl cycleRepository,
-    required Future<List<CanonicalEpisodeTiming>> Function(String userId)
+    required Future<List<CanonicalEpisodeTiming>?> Function(String userId)
     cycleHistoryLoader,
     required DateTime now,
   }) async {
@@ -446,6 +449,14 @@ class NotificationRefreshCoordinator {
     final canonicalEpisodes = userId == null || userId == 'local-user'
         ? const <CanonicalEpisodeTiming>[]
         : await cycleHistoryLoader(userId);
+    if (canonicalEpisodes == null) {
+      // Known-incomplete history (an episode was quarantined): the
+      // calendar refuses to predict from it, so no reminder may either.
+      await NotificationService.instance.cancel(
+        NotificationScheduler.cycleNotificationId,
+      );
+      return;
+    }
     final calculation = const CycleCalculationService().calculate(
       logs,
       asOf: now,
