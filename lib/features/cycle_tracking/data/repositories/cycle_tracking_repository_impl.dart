@@ -181,7 +181,15 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     // retry via syncPendingLogs(); see main.dart's app-start/app-resume
     // wiring, which is what makes retry actually automatic rather than a
     // dead-code promise.
-    final owner = SecureLocalStore.currentUserId();
+    final currentOwner = SecureLocalStore.currentUserId();
+    if (SecureLocalStore.hasSession && log.userId != currentOwner) {
+      throw const NetworkFailure(
+        'The original account must be signed in to save this record.',
+      );
+    }
+    final owner = !SecureLocalStore.hasSession && log.userId != 'local-user'
+        ? log.userId
+        : currentOwner;
     await _localDataSource.upsert(log, userId: owner);
     try {
       await upsertCycleLog(log);
@@ -267,24 +275,32 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   }
 
   @override
-  Future<void> deleteCycleLog(String id) async {
-    await _localDataSource.delete(id);
+  Future<void> deleteCycleLog(String id, {String? expectedUserId}) async {
+    final owner = SecureLocalStore.currentUserId();
+    if (expectedUserId != null &&
+        SecureLocalStore.hasSession &&
+        expectedUserId != owner) {
+      throw const NetworkFailure(
+        'The original account must be signed in to delete this record.',
+      );
+    }
     final client = _client;
-    if (client == null) {
-      return;
-    }
-
-    final sessionUser = client.auth.currentUser;
-    if (sessionUser == null) {
-      return;
-    }
-
+    final session = client?.auth.currentSession;
+    final storageOwner =
+        !SecureLocalStore.hasSession &&
+            expectedUserId != null &&
+            expectedUserId != 'local-user'
+        ? expectedUserId
+        : owner;
+    await _localDataSource.delete(id, userId: storageOwner);
+    if (client == null || session == null) return;
     try {
       await client
           .from('cycle_entries')
           .delete()
           .eq('id', id)
-          .eq('user_id', sessionUser.id);
+          .eq('user_id', session.user.id)
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
     } on PostgrestException catch (error) {
       throw NetworkFailure(error.message);
     }

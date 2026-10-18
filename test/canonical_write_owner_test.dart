@@ -110,63 +110,83 @@ void main() {
     },
   );
 
-  test(
-    'a canonical write rejects another account before issuing an RPC',
-    () async {
-      var rpcCalls = 0;
-      final client = SupabaseClient(
-        'https://example.test',
-        'synthetic-key',
-        authOptions: const AuthClientOptions(autoRefreshToken: false),
-        httpClient: MockClient((request) async {
-          if (request.url.path.contains('/token')) {
-            return http.Response(
-              jsonEncode({
-                'access_token': 'synthetic-token',
-                'refresh_token': 'synthetic-refresh',
-                'token_type': 'bearer',
-                'expires_in': 3600,
-                'user': {
-                  'id': 'owner-b',
-                  'aud': 'authenticated',
-                  'role': 'authenticated',
-                  'email': 'synthetic@example.test',
-                  'app_metadata': {},
-                  'user_metadata': {},
-                  'created_at': '2026-10-18T00:00:00Z',
-                },
-              }),
-              200,
-              headers: {'content-type': 'application/json'},
-            );
-          }
-          rpcCalls++;
+  test('canonical writes validate account ownership and retain it across a response', () async {
+    var rpcCalls = 0;
+    late final SupabaseClient client;
+    client = SupabaseClient(
+      'https://example.test',
+      'synthetic-key',
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
+      httpClient: MockClient((request) async {
+        if (request.url.path.contains('/token')) {
+          final other =
+              (jsonDecode(request.body) as Map)['email'] ==
+              'other@example.test';
           return http.Response(
-            '[]',
+            jsonEncode({
+              'access_token': other ? 'other-token' : 'synthetic-token',
+              'refresh_token': 'synthetic-refresh',
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'user': {
+                'id': other ? 'owner-a' : 'owner-b',
+                'aud': 'authenticated',
+                'role': 'authenticated',
+                'email': 'synthetic@example.test',
+                'app_metadata': {},
+                'user_metadata': {},
+                'created_at': '2026-10-18T00:00:00Z',
+              },
+            }),
             200,
             headers: {'content-type': 'application/json'},
           );
-        }),
-      );
-      addTearDown(client.dispose);
-      await client.auth.signInWithPassword(
-        email: 'synthetic@example.test',
-        password: 'synthetic-password',
-      );
-      final repository = BleedingEpisodeRepositoryImpl(client: client);
-      await expectLater(
-        repository.startEpisode(
-          clientOperationId: 'operation',
-          expectedUserId: 'owner-a',
-          startDate: DateTime(2026, 10, 18),
-          startPrecision: ObservationPrecision.dateOnly,
-          flow: ObservationFlow.light,
-          observationPrecision: ObservationPrecision.dateOnly,
-          utcOffsetMinutes: 0,
-        ),
-        throwsStateError,
-      );
-      expect(rpcCalls, 0);
-    },
-  );
+        }
+        rpcCalls++;
+        expect(request.headers['authorization'], 'Bearer synthetic-token');
+        // The original account's request completes after another account signs in.
+        await client.auth.signInWithPassword(
+          email: 'other@example.test',
+          password: 'synthetic-password',
+        );
+        return http.Response(
+          '[{"episode_id":"episode","observation_id":"observation"}]',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(client.dispose);
+    await client.auth.signInWithPassword(
+      email: 'synthetic@example.test',
+      password: 'synthetic-password',
+    );
+    final repository = BleedingEpisodeRepositoryImpl(client: client);
+    await expectLater(
+      repository.startEpisode(
+        clientOperationId: 'operation',
+        expectedUserId: 'owner-a',
+        startDate: DateTime(2026, 10, 18),
+        startPrecision: ObservationPrecision.dateOnly,
+        flow: ObservationFlow.light,
+        observationPrecision: ObservationPrecision.dateOnly,
+        utcOffsetMinutes: 0,
+      ),
+      throwsStateError,
+    );
+    expect(rpcCalls, 0);
+    final saved = await repository.startEpisode(
+      clientOperationId: 'operation',
+      expectedUserId: 'owner-b',
+      startDate: DateTime(2026, 10, 18),
+      startPrecision: ObservationPrecision.dateOnly,
+      flow: ObservationFlow.light,
+      observationPrecision: ObservationPrecision.dateOnly,
+      utcOffsetMinutes: 0,
+    );
+    expect(rpcCalls, 1);
+    expect(client.auth.currentUser!.id, 'owner-a');
+    expect(saved.episode.userId, 'owner-b');
+    expect(saved.observation.userId, 'owner-b');
+  });
 }

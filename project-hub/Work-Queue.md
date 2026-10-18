@@ -13,3 +13,5 @@ Existing tasks remain in [master findings](../production-readiness-results/maste
 [Project home](Home.md)
 
 - [Period-tracking integrity review — 2026-10-18](../docs/period-tracking-integrity-review-2026-10-18.md): timing merge and civil-date defects fixed; core checks passed; release-device journeys pending.
+
+- [Deeper period-tracking review — 2026-10-18](../docs/period-tracking-deep-review-2026-10-18.md): eight adversarial failures reproduced; local persistence, account ownership and sync acknowledgement safeguards implemented; full fixed-tree verification and remaining device/server scenarios tracked in the review.

@@ -84,7 +84,10 @@ class CycleEntriesProjection {
     required String supersededObservationId,
   }) async {
     final projected = await project(corrected);
-    await _repository.deleteCycleLog(supersededObservationId);
+    await _repository.deleteCycleLog(
+      supersededObservationId,
+      expectedUserId: corrected.userId,
+    );
     return projected;
   }
 

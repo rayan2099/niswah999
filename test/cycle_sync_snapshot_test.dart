@@ -90,6 +90,18 @@ void main() {
     );
   });
 
+  test('an observation owned by another signed-in account cannot enter the current cache', () async {
+    SecureLocalStore.debugUserIdOverride = 'owner-b';
+    await expectLater(
+      CycleTrackingRepositoryImpl().saveCycleLog(log(FlowLevel.light)),
+      throwsA(isA<NetworkFailure>()),
+    );
+    expect(
+      await LocalCycleTrackingDataSource().loadLogs(userId: 'owner-b'),
+      isEmpty,
+    );
+  });
+
   test(
     'no configured server cannot be reported as a successful sync',
     () async {
