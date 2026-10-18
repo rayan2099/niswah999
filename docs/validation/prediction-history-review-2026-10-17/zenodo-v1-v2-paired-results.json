@@ -1,0 +1,34 @@
+{
+  "histories": 177,
+  "eligibleTargets": 11870,
+  "reviewAnswersAvailable": false,
+  "baselineAllEvaluated": {
+    "evaluatedPredictions": 10438,
+    "meanAbsoluteErrorDays": 17.379957846330715,
+    "fractionWithin3Days": 0.6463881969726001
+  },
+  "updatedAllEvaluated": {
+    "evaluatedPredictions": 9263,
+    "meanAbsoluteErrorDays": 3.9039188167980137,
+    "fractionWithin3Days": 0.8027636834718773
+  },
+  "baselineOnCommonTargets": {
+    "evaluatedPredictions": 9263,
+    "meanAbsoluteErrorDays": 10.594839684767354,
+    "fractionWithin3Days": 0.6888696966425564
+  },
+  "updatedOnCommonTargets": {
+    "evaluatedPredictions": 9263,
+    "meanAbsoluteErrorDays": 3.9039188167980137,
+    "fractionWithin3Days": 0.8027636834718773
+  },
+  "baselineOnNewlyWithheldTargets": {
+    "evaluatedPredictions": 1175,
+    "meanAbsoluteErrorDays": 70.86978723404255,
+    "fractionWithin3Days": 0.31148936170212765
+  },
+  "bothWithheld": 1432,
+  "newOnlyEvaluated": 0,
+  "scope": "Development-cohort comparison; same-target results separate recency changes from abstention. Not independent or prospective validation.",
+  "baselineRevision": "192e0bcf6b13b8e9324ac5d3fd68bc5fd7454412"
+}

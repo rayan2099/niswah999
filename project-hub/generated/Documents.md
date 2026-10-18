@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**166 existing Markdown documents**, grouped by source folder.
+**172 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -26,12 +26,18 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
+- [engine-trust-remediation.md](../../docs/engine-trust-remediation.md)
+- [external-cycle-benchmark.md](../../docs/external-cycle-benchmark.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
 - [menstrual-data-integrity-contract.md](../../docs/menstrual-data-integrity-contract.md)
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
 - [parity-checklist.md](../../docs/parity-checklist.md)
+- [period-prediction-validation.md](../../docs/period-prediction-validation.md)
+- [prediction-accuracy-program.md](../../docs/prediction-accuracy-program.md)
+- [prediction-history-review.md](../../docs/prediction-history-review.md)
+- [prediction-validation-review-brief.md](../../docs/prediction-validation-review-brief.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 

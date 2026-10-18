@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Niswah prospective period forecast: planned research record",
+  "description": "Contract only. Not enabled in production; does not prove consent, trusted time, immutability or clinical approval. Keep completed records in an approved protected research store outside Git.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["recordId", "participantStudyId", "consentVersion", "dataUseApprovalRef", "issuedAtUTC", "asOfCivilDate", "timezone", "utcOffsetMinutes", "modelVersion", "modelMethod", "modelArtifactSHA256", "inputRevisionSHA256", "status", "expectedStart", "historicalRangeStart", "historicalRangeEnd", "withheldReason", "historyCompleteness"],
+  "properties": {
+    "recordId": {"type": "string", "minLength": 1},
+    "participantStudyId": {"type": "string", "minLength": 1},
+    "consentVersion": {"type": "string", "minLength": 1},
+    "dataUseApprovalRef": {"type": "string", "minLength": 1},
+    "issuedAtUTC": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "asOfCivilDate": {"type": "string", "format": "date"},
+    "timezone": {"type": "string", "minLength": 1},
+    "utcOffsetMinutes": {"type": "integer", "minimum": -840, "maximum": 840},
+    "modelVersion": {"type": "string", "minLength": 1},
+    "modelMethod": {"type": "string", "minLength": 1},
+    "modelArtifactSHA256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "inputRevisionSHA256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"enum": ["issued", "withheld"]},
+    "expectedStart": {"type": ["string", "null"], "format": "date"},
+    "historicalRangeStart": {"type": ["string", "null"], "format": "date"},
+    "historicalRangeEnd": {"type": ["string", "null"], "format": "date"},
+    "withheldReason": {"type": ["string", "null"], "minLength": 1},
+    "historyCompleteness": {"enum": ["reportedComplete", "reportedIncomplete", "unknown"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "issued"}}}, "then": {"properties": {"expectedStart": {"type": "string", "format": "date"}, "withheldReason": {"type": "null"}}}, "else": {"properties": {"expectedStart": {"type": "null"}, "historicalRangeStart": {"type": "null"}, "historicalRangeEnd": {"type": "null"}, "withheldReason": {"type": "string", "minLength": 1}}}},
+    {"if": {"properties": {"historicalRangeStart": {"type": "null"}}}, "then": {"properties": {"historicalRangeEnd": {"type": "null"}}}, "else": {"properties": {"historicalRangeEnd": {"type": "string", "format": "date"}}}}
+  ]
+}

@@ -1,0 +1,542 @@
+{
+  "protocolVersion": "niswah-accuracy-research-v1-2026-10-17",
+  "protocolFreezeCommit": "e3e147e",
+  "predictionVersion": "cycle-prediction-v2-history-review-2026-10-17",
+  "dataScope": "Previously examined development cohort; no independent validation claim",
+  "groupingAssurance": "Source history only; not proof of unique participants",
+  "sourceHistories": 177,
+  "groups": 177,
+  "eligibleTargets": 11870,
+  "evaluatedPredictionsPerCandidate": 9263,
+  "withheldPredictionsPerCandidate": 2607,
+  "predictionCoverage": 0.7803706823925863,
+  "withheldByReason": {
+    "unexplainedGap": 496,
+    "excessiveVariation": 679,
+    "invalidHistory": 1432
+  },
+  "candidateSpecificWithholding": false,
+  "runtimePointParityPerCandidate": {
+    "currentMean6": 9263,
+    "median6": 9263,
+    "trimmedMean6": 9263
+  },
+  "fixedCandidateScoresExploratory": {
+    "currentMean6": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 3.9039188167980137,
+      "fractionWithin1Day": 0.47306488178775774,
+      "fractionWithin3Days": 0.8027636834718773,
+      "fractionWithin7Days": 0.9465615891179964,
+      "equalGroupFractionWithin3Days": 0.7616297110595047,
+      "equalGroupMeanAbsoluteErrorDays": 4.4437562345180925
+    },
+    "median6": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 3.90219151462809,
+      "fractionWithin1Day": 0.4771672244413257,
+      "fractionWithin3Days": 0.805138723955522,
+      "fractionWithin7Days": 0.9462377199611357,
+      "equalGroupFractionWithin3Days": 0.7615160137812665,
+      "equalGroupMeanAbsoluteErrorDays": 4.45075752018098
+    },
+    "mean3": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 4.000323869156861,
+      "fractionWithin1Day": 0.4645363273237612,
+      "fractionWithin3Days": 0.7861384000863652,
+      "fractionWithin7Days": 0.9428910720069092,
+      "equalGroupFractionWithin3Days": 0.7461321510470628,
+      "equalGroupMeanAbsoluteErrorDays": 4.530158450942465
+    },
+    "median3": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 4.02580157616323,
+      "fractionWithin1Day": 0.457735075029688,
+      "fractionWithin3Days": 0.7818201446615567,
+      "fractionWithin7Days": 0.941271726222606,
+      "equalGroupFractionWithin3Days": 0.7423729967181968,
+      "equalGroupMeanAbsoluteErrorDays": 4.539633909682211
+    },
+    "trimmedMean6": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 3.875742200151139,
+      "fractionWithin1Day": 0.4844003022778797,
+      "fractionWithin3Days": 0.810320630465292,
+      "fractionWithin7Days": 0.9467775018892367,
+      "equalGroupFractionWithin3Days": 0.7663070676058992,
+      "equalGroupMeanAbsoluteErrorDays": 4.412467349181766
+    },
+    "exponentialMeanHalf": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 4.00496599373853,
+      "fractionWithin1Day": 0.46388858901003993,
+      "fractionWithin3Days": 0.7841951851452014,
+      "fractionWithin7Days": 0.9418115081507071,
+      "equalGroupFractionWithin3Days": 0.7437093810008065,
+      "equalGroupMeanAbsoluteErrorDays": 4.53863139254421
+    },
+    "lastInterval": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 4.498434632408507,
+      "fractionWithin1Day": 0.39101802871639857,
+      "fractionWithin3Days": 0.7152110547338875,
+      "fractionWithin7Days": 0.9163338011443377,
+      "equalGroupFractionWithin3Days": 0.6845999230444616,
+      "equalGroupMeanAbsoluteErrorDays": 5.017194396035686
+    },
+    "boundedLinearTrend6": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 4.27809564935766,
+      "fractionWithin1Day": 0.4096944834286948,
+      "fractionWithin3Days": 0.7336715966749433,
+      "fractionWithin7Days": 0.9327431717586095,
+      "equalGroupFractionWithin3Days": 0.6981596252997148,
+      "equalGroupMeanAbsoluteErrorDays": 4.793096813416878
+    },
+    "historicalWindowCenter3": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 3.9137428478894525,
+      "fractionWithin1Day": 0.4818093490229947,
+      "fractionWithin3Days": 0.8052466803411422,
+      "fractionWithin7Days": 0.9442945050199719,
+      "equalGroupFractionWithin3Days": 0.7634424054346735,
+      "equalGroupMeanAbsoluteErrorDays": 4.469017265741545
+    },
+    "personalExpert": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 3.988772535895498,
+      "fractionWithin1Day": 0.46615567310806433,
+      "fractionWithin3Days": 0.7929396523804383,
+      "fractionWithin7Days": 0.9413796826082262,
+      "equalGroupFractionWithin3Days": 0.7509998515248386,
+      "equalGroupMeanAbsoluteErrorDays": 4.523201387334255
+    }
+  },
+  "selectionUsingOtherGroupsOnly": {
+    "folds": [
+      {
+        "fold": 0,
+        "trainingGroups": 141,
+        "testGroups": 36,
+        "selectedOnTrainingGroupsOnly": "trimmedMean6",
+        "baselineTest": {
+          "evaluatedPredictions": 1852,
+          "groupsWithPredictions": 36,
+          "meanAbsoluteErrorDays": 4.039956803455723,
+          "fractionWithin1Day": 0.4973002159827214,
+          "fractionWithin3Days": 0.8191144708423326,
+          "fractionWithin7Days": 0.9519438444924406,
+          "equalGroupFractionWithin3Days": 0.6980216526084189,
+          "equalGroupMeanAbsoluteErrorDays": 6.323052026316674
+        },
+        "selectedTest": {
+          "evaluatedPredictions": 1852,
+          "groupsWithPredictions": 36,
+          "meanAbsoluteErrorDays": 3.997840172786177,
+          "fractionWithin1Day": 0.5145788336933045,
+          "fractionWithin3Days": 0.8304535637149028,
+          "fractionWithin7Days": 0.9524838012958964,
+          "equalGroupFractionWithin3Days": 0.7099101302876171,
+          "equalGroupMeanAbsoluteErrorDays": 6.277354897956423
+        }
+      },
+      {
+        "fold": 1,
+        "trainingGroups": 141,
+        "testGroups": 36,
+        "selectedOnTrainingGroupsOnly": "trimmedMean6",
+        "baselineTest": {
+          "evaluatedPredictions": 2346,
+          "groupsWithPredictions": 36,
+          "meanAbsoluteErrorDays": 5.011082693947144,
+          "fractionWithin1Day": 0.4816709292412617,
+          "fractionWithin3Days": 0.8026427962489343,
+          "fractionWithin7Days": 0.9450127877237852,
+          "equalGroupFractionWithin3Days": 0.7920225451115797,
+          "equalGroupMeanAbsoluteErrorDays": 3.9624830207442683
+        },
+        "selectedTest": {
+          "evaluatedPredictions": 2346,
+          "groupsWithPredictions": 36,
+          "meanAbsoluteErrorDays": 4.993606138107417,
+          "fractionWithin1Day": 0.4957374254049446,
+          "fractionWithin3Days": 0.8060528559249787,
+          "fractionWithin7Days": 0.9445865302642796,
+          "equalGroupFractionWithin3Days": 0.7863207437886829,
+          "equalGroupMeanAbsoluteErrorDays": 3.9614367182994745
+        }
+      },
+      {
+        "fold": 2,
+        "trainingGroups": 142,
+        "testGroups": 35,
+        "selectedOnTrainingGroupsOnly": "trimmedMean6",
+        "baselineTest": {
+          "evaluatedPredictions": 1854,
+          "groupsWithPredictions": 35,
+          "meanAbsoluteErrorDays": 3.2400215749730314,
+          "fractionWithin1Day": 0.44552319309600863,
+          "fractionWithin3Days": 0.7734627831715211,
+          "fractionWithin7Days": 0.9347357065803668,
+          "equalGroupFractionWithin3Days": 0.7432002141245261,
+          "equalGroupMeanAbsoluteErrorDays": 4.14500279301846
+        },
+        "selectedTest": {
+          "evaluatedPredictions": 1854,
+          "groupsWithPredictions": 35,
+          "meanAbsoluteErrorDays": 3.207119741100324,
+          "fractionWithin1Day": 0.45307443365695793,
+          "fractionWithin3Days": 0.7858683926645091,
+          "fractionWithin7Days": 0.9374325782092773,
+          "equalGroupFractionWithin3Days": 0.7548812425978797,
+          "equalGroupMeanAbsoluteErrorDays": 4.077035469319419
+        }
+      },
+      {
+        "fold": 3,
+        "trainingGroups": 142,
+        "testGroups": 35,
+        "selectedOnTrainingGroupsOnly": "trimmedMean6",
+        "baselineTest": {
+          "evaluatedPredictions": 1520,
+          "groupsWithPredictions": 34,
+          "meanAbsoluteErrorDays": 3.5842105263157893,
+          "fractionWithin1Day": 0.475,
+          "fractionWithin3Days": 0.8092105263157895,
+          "fractionWithin7Days": 0.9519736842105263,
+          "equalGroupFractionWithin3Days": 0.7762116867146621,
+          "equalGroupMeanAbsoluteErrorDays": 3.974644330745983
+        },
+        "selectedTest": {
+          "evaluatedPredictions": 1520,
+          "groupsWithPredictions": 34,
+          "meanAbsoluteErrorDays": 3.5592105263157894,
+          "fractionWithin1Day": 0.4855263157894737,
+          "fractionWithin3Days": 0.8164473684210526,
+          "fractionWithin7Days": 0.95,
+          "equalGroupFractionWithin3Days": 0.780454452847622,
+          "equalGroupMeanAbsoluteErrorDays": 3.956621397969742
+        }
+      },
+      {
+        "fold": 4,
+        "trainingGroups": 142,
+        "testGroups": 35,
+        "selectedOnTrainingGroupsOnly": "trimmedMean6",
+        "baselineTest": {
+          "evaluatedPredictions": 1691,
+          "groupsWithPredictions": 34,
+          "meanAbsoluteErrorDays": 3.23418095801301,
+          "fractionWithin1Day": 0.4630396215257244,
+          "fractionWithin3Days": 0.8113542282672974,
+          "fractionWithin7Days": 0.9509166173861621,
+          "equalGroupFractionWithin3Days": 0.8011883374951898,
+          "equalGroupMeanAbsoluteErrorDays": 3.740149245454788
+        },
+        "selectedTest": {
+          "evaluatedPredictions": 1691,
+          "groupsWithPredictions": 34,
+          "meanAbsoluteErrorDays": 3.2087522176227083,
+          "fractionWithin1Day": 0.4689532820816085,
+          "fractionWithin3Days": 0.8154937906564164,
+          "fractionWithin7Days": 0.9509166173861621,
+          "equalGroupFractionWithin3Days": 0.8024450140159007,
+          "equalGroupMeanAbsoluteErrorDays": 3.7165858518954615
+        }
+      }
+    ],
+    "baseline": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 3.9039188167980137,
+      "fractionWithin1Day": 0.47306488178775774,
+      "fractionWithin3Days": 0.8027636834718773,
+      "fractionWithin7Days": 0.9465615891179964,
+      "equalGroupFractionWithin3Days": 0.7616297110595047,
+      "equalGroupMeanAbsoluteErrorDays": 4.4437562345180925
+    },
+    "selectedOutOfFold": {
+      "evaluatedPredictions": 9263,
+      "groupsWithPredictions": 175,
+      "meanAbsoluteErrorDays": 3.875742200151139,
+      "fractionWithin1Day": 0.4844003022778797,
+      "fractionWithin3Days": 0.810320630465292,
+      "fractionWithin7Days": 0.9467775018892367,
+      "equalGroupFractionWithin3Days": 0.7663070676058992,
+      "equalGroupMeanAbsoluteErrorDays": 4.412467349181766
+    }
+  },
+  "uncertainty": {
+    "unit": "Whole declared source/participant group, never individual cycles",
+    "interpretation": "Conditional on fixed out-of-fold predictions; does not include refitting/selection uncertainty or establish generalizability",
+    "requestedResamples": 2000,
+    "usableResamples": 2000,
+    "percentile95": {
+      "baselineFractionWithin3Days": [
+        0.782723734329681,
+        0.8222171721244776
+      ],
+      "selectedFractionWithin3Days": [
+        0.7910309416985107,
+        0.8290763019926244
+      ],
+      "pairedAccuracyDifference": [
+        0.003731738953101088,
+        0.011201444486207704
+      ],
+      "baselineMAEDays": [
+        3.110357231889116,
+        4.938418155835798
+      ],
+      "selectedMAEDays": [
+        3.0868444487244444,
+        4.906899987291853
+      ],
+      "pairedMAEDifferenceDays": [
+        -0.04065496998036555,
+        -0.0157844305149015
+      ]
+    }
+  },
+  "byAvailableSelectedHistory": {
+    "oneInterval": {
+      "currentMean6": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "median6": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "mean3": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "median3": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "trimmedMean6": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "exponentialMeanHalf": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "lastInterval": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "boundedLinearTrend6": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "historicalWindowCenter3": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      },
+      "personalExpert": {
+        "n": 168,
+        "absoluteError": 752,
+        "within1": 64,
+        "within3": 113,
+        "within7": 141
+      }
+    },
+    "twoToFiveIntervals": {
+      "currentMean6": {
+        "n": 616,
+        "absoluteError": 3247,
+        "within1": 277,
+        "within3": 465,
+        "within7": 567
+      },
+      "median6": {
+        "n": 616,
+        "absoluteError": 3284,
+        "within1": 286,
+        "within3": 466,
+        "within7": 561
+      },
+      "mean3": {
+        "n": 616,
+        "absoluteError": 3265,
+        "within1": 290,
+        "within3": 456,
+        "within7": 563
+      },
+      "median3": {
+        "n": 616,
+        "absoluteError": 3324,
+        "within1": 280,
+        "within3": 456,
+        "within7": 560
+      },
+      "trimmedMean6": {
+        "n": 616,
+        "absoluteError": 3240,
+        "within1": 287,
+        "within3": 464,
+        "within7": 566
+      },
+      "exponentialMeanHalf": {
+        "n": 616,
+        "absoluteError": 3274,
+        "within1": 289,
+        "within3": 456,
+        "within7": 566
+      },
+      "lastInterval": {
+        "n": 616,
+        "absoluteError": 3529,
+        "within1": 237,
+        "within3": 435,
+        "within7": 547
+      },
+      "boundedLinearTrend6": {
+        "n": 616,
+        "absoluteError": 3438,
+        "within1": 248,
+        "within3": 439,
+        "within7": 557
+      },
+      "historicalWindowCenter3": {
+        "n": 616,
+        "absoluteError": 3296,
+        "within1": 284,
+        "within3": 462,
+        "within7": 566
+      },
+      "personalExpert": {
+        "n": 616,
+        "absoluteError": 3270,
+        "within1": 285,
+        "within3": 456,
+        "within7": 565
+      }
+    },
+    "sixIntervals": {
+      "currentMean6": {
+        "n": 8479,
+        "absoluteError": 32163,
+        "within1": 4041,
+        "within3": 6858,
+        "within7": 8060
+      },
+      "median6": {
+        "n": 8479,
+        "absoluteError": 32110,
+        "within1": 4070,
+        "within3": 6879,
+        "within7": 8063
+      },
+      "mean3": {
+        "n": 8479,
+        "absoluteError": 33038,
+        "within1": 3949,
+        "within3": 6713,
+        "within7": 8030
+      },
+      "median3": {
+        "n": 8479,
+        "absoluteError": 33215,
+        "within1": 3896,
+        "within3": 6673,
+        "within7": 8018
+      },
+      "trimmedMean6": {
+        "n": 8479,
+        "absoluteError": 31909,
+        "within1": 4136,
+        "within3": 6929,
+        "within7": 8063
+      },
+      "exponentialMeanHalf": {
+        "n": 8479,
+        "absoluteError": 33072,
+        "within1": 3944,
+        "within3": 6695,
+        "within7": 8017
+      },
+      "lastInterval": {
+        "n": 8479,
+        "absoluteError": 37388,
+        "within1": 3321,
+        "within3": 6077,
+        "within7": 7800
+      },
+      "boundedLinearTrend6": {
+        "n": 8479,
+        "absoluteError": 35438,
+        "within1": 3483,
+        "within3": 6244,
+        "within7": 7942
+      },
+      "historicalWindowCenter3": {
+        "n": 8479,
+        "absoluteError": 32205,
+        "within1": 4115,
+        "within3": 6884,
+        "within7": 8040
+      },
+      "personalExpert": {
+        "n": 8479,
+        "absoluteError": 32926,
+        "within1": 3969,
+        "within3": 6776,
+        "within7": 8014
+      }
+    }
+  },
+  "ninetyPercentPointGoalReachedExploratory": false,
+  "ninetyPercentAccuracyClaimSupported": false,
+  "automaticPromotion": false,
+  "appModelChanged": false,
+  "limitations": [
+    "Previously examined development cohort; group separation does not undo earlier policy development on this dataset",
+    "Next recorded start may differ from next experienced biological period",
+    "Source-group bootstrap does not prove unique participant identities or representative Saudi performance",
+    "No independent/prospective clinical or fiqh validation"
+  ],
+  "foldArtifactSHA256": "254e0266cd3453f2f9da1741fd3d446e2f270200cc8b9bc6c9bb6ffd4f09a400",
+  "protocolSHA256": "9e371a4fc3a478f442ed051b66eaf57a337f3bddf87e2c9f781a45237b6f0dfa"
+}

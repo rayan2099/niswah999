@@ -22,7 +22,7 @@ import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_eval
 void main() {
   test('MadhhabRuleEvaluator.rulesetVersion is a real, defined constant', () {
     expect(MadhhabRuleEvaluator.rulesetVersion, isNotEmpty);
-    expect(MadhhabRuleEvaluator.rulesetVersion, 'v1-2026-09-09');
+    expect(MadhhabRuleEvaluator.rulesetVersion, 'v2-2026-10-17');
   });
 
   test('MadhhabController writes MadhhabRuleEvaluator.rulesetVersion into '

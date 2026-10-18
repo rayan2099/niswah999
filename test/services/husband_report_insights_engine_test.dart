@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/cycle_log.dart';
+import 'package:niswah/features/cycle_tracking/domain/entities/prediction_history_review.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/cycle_segment_planner.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import 'package:niswah/features/fiqh_report/domain/services/fiqh_report_insights_engine.dart';
@@ -76,8 +77,7 @@ void main() {
   );
 
   test(
-    'overdue history: next period and fertile window are rolled forward, '
-    'never shown in the past — the exact bug reported in the Husband Report',
+    'overdue history: no invented next period or fertile window',
     () {
       // Same 28-day-apart history as above, but "now" is well past the
       // naive projection (Jan 29 + 28 = Feb 26) with no new Haid start
@@ -97,17 +97,10 @@ void main() {
         now: now,
       );
 
-      expect(insights.nextPeriodDate, isNotNull);
-      expect(
-        insights.nextPeriodDate!.isBefore(now),
-        isFalse,
-        reason: 'a "next period" prediction must never be in the past',
-      );
-      expect(
-        insights.fertileWindowStart!.isBefore(now),
-        isFalse,
-        reason: 'the fertile window must roll forward with the prediction',
-      );
+      expect(insights.nextPeriodDate, isNull);
+      expect(insights.fertileWindowStart, isNull);
+      expect(insights.fertileWindowEnd, isNull);
+      expect(insights.segmentPlan, isNull);
     },
   );
 
@@ -138,4 +131,45 @@ void main() {
       expect(insights.fertileWindowEnd, isNull);
     },
   );
+  test('report estimates use reviewed recent history and cannot bypass a failed review read', () {
+    final logs = [
+      for (final day in [1, 29, 229, 257, 285])
+        _log(day, flow: FlowLevel.medium),
+    ];
+    final now = DateTime(2026, 1, 286);
+    final unknown = HusbandReportInsightsEngine.analyze(
+      cycleLogs: logs,
+      madhhab: Madhhab.hanbali,
+      displayName: 'Test',
+      now: now,
+    );
+    expect(unknown.nextPeriodDate, isNull);
+    final reviews = [
+      PredictionHistoryReview(
+        start: DateTime(2026, 1, 29),
+        end: DateTime(2026, 1, 229),
+        resolution: PredictionGapResolution.missedRecords,
+        reportedAt: now.toUtc(),
+      ),
+    ];
+    final reviewed = HusbandReportInsightsEngine.analyze(
+      cycleLogs: logs,
+      madhhab: Madhhab.hanbali,
+      displayName: 'Test',
+      now: now,
+      historyReviews: reviews,
+    );
+    expect(reviewed.nextPeriodDate, DateTime(2026, 1, 313));
+    final unavailable = HusbandReportInsightsEngine.analyze(
+      cycleLogs: logs,
+      madhhab: Madhhab.hanbali,
+      displayName: 'Test',
+      now: now,
+      historyReviews: reviews,
+      historyVerified: false,
+    );
+    expect(unavailable.nextPeriodDate, isNull);
+    expect(unavailable.fertilePeakDay, isNull);
+    expect(unavailable.fiqh.cycleState, reviewed.fiqh.cycleState);
+  });
 }

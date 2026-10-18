@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_day.dart';
 import '../../domain/entities/cycle_log.dart';
 import '../../domain/entities/evidence_provenance.dart';
 
@@ -30,9 +31,7 @@ class CycleCalendar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final monthStart = DateTime(month.year, month.month);
-    final gridStart = monthStart.subtract(
-      Duration(days: monthStart.weekday % 7),
-    );
+    final gridStart = addCalendarDays(monthStart, -(monthStart.weekday % 7));
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final dayCount = (((monthStart.weekday % 7) + daysInMonth) / 7).ceil() * 7;
     return Container(
@@ -134,7 +133,7 @@ class CycleCalendar extends StatelessWidget {
               crossAxisSpacing: 3,
             ),
             itemBuilder: (context, index) {
-              final date = gridStart.add(Duration(days: index));
+              final date = addCalendarDays(gridStart, index);
               final log = logs
                   .where((entry) => DateUtils.isSameDay(entry.date, date))
                   .firstOrNull;
@@ -179,8 +178,8 @@ class CycleCalendar extends StatelessWidget {
                 foreground: Colors.white,
               ),
               _CalendarLegend(
-                labelEn: 'Expected Haid',
-                labelAr: 'حيض متوقع',
+                labelEn: 'Estimated period start',
+                labelAr: 'بداية دورة تقديرية',
                 color: Color(0xFFFFF1F2),
                 foreground: AppColors.haid,
                 outlined: true,
@@ -214,26 +213,18 @@ class CycleCalendar extends StatelessWidget {
   }
 
   _DayMarker _markerFor(DateTime date, CycleLog? log) {
-    final cycleLength = summary.averageCycleLength;
-    final periodLength = summary.averagePeriodLength;
-    if (cycleLength == null || periodLength == null) {
-      return _DayMarker.tahara;
-    }
     if (log != null) {
       return log.flow == FlowLevel.none ? _DayMarker.tahara : _DayMarker.haid;
     }
-    final start = summary.lastCycleStart;
-    if (start == null) return _DayMarker.tahara;
-    final difference = DateUtils.dateOnly(date)
-        .difference(DateUtils.dateOnly(start))
-        .inDays;
-    if (difference < 0) return _DayMarker.none;
-    final cycleDay = difference % cycleLength + 1;
-    // A degenerate average (e.g. 2 days, from two Haid starts logged close
-    // together) would otherwise repeat this "Expected Haid" block every
-    // couple of days instead of once per real cycle — never project it
-    // without the same plausibility gate the fertile window already uses.
-    if (summary.hasPlausibleAverage && cycleDay <= periodLength) {
+    final prediction = summary.periodPrediction;
+    if (!prediction.hasFutureEstimate) return _DayMarker.none;
+    final rangeStart =
+        prediction.historicalRangeStart ?? prediction.expectedStart;
+    final rangeEnd = prediction.historicalRangeEnd ?? prediction.expectedStart;
+    if (rangeStart != null &&
+        rangeEnd != null &&
+        calendarDayDifference(date, rangeStart) >= 0 &&
+        calendarDayDifference(rangeEnd, date) >= 0) {
       return _DayMarker.expectedHaid;
     }
     if (!showFertileWindow) return _DayMarker.none;
@@ -624,7 +615,12 @@ class _CalendarLegend extends StatelessWidget {
 enum _DayMarker {
   none('No entry', Color(0xFFE2F5EF), AppColors.tahara, false),
   haid('Haid', AppColors.haid, AppColors.haid, false),
-  expectedHaid('Expected Haid', Color(0xFFFFF0F4), AppColors.haid, true),
+  expectedHaid(
+    'Estimated period start',
+    Color(0xFFFFF0F4),
+    AppColors.haid,
+    true,
+  ),
   tahara('Tahara', Color(0xFFE2F5EF), AppColors.tahara, false),
   fertile('Fertile', Color(0x1AD97706), AppColors.nifas, false),
   ovulation('Ovulation', Color(0x1A4F46E5), AppColors.istihadah, true);
@@ -643,7 +639,7 @@ enum _DayMarker {
       AppLocaleController.instance.text(label, switch (this) {
         _DayMarker.none => 'لا يوجد إدخال',
         _DayMarker.haid => 'حيض',
-        _DayMarker.expectedHaid => 'حيض متوقع',
+        _DayMarker.expectedHaid => 'بداية دورة تقديرية',
         _DayMarker.tahara => 'طهارة',
         _DayMarker.fertile => 'خصوبة',
         _DayMarker.ovulation => 'التبويض',

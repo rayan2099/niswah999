@@ -4,6 +4,11 @@
 **Purpose:** This file is the authoritative launch gate for Niswah.
 **Rule:** Niswah must not be called launch-ready until every item marked **Launch Blocker = YES** is `PASS` or explicitly reclassified with written justification.
 
+**Trust remediation (2026-10-17, under verification):** see
+[`docs/engine-trust-remediation.md`](docs/engine-trust-remediation.md) for current
+engineering fixes, conservative deferrals, and the independent review scenarios.
+This work does not close the scholarly/clinical validation blockers or certify production.
+
 **Audit note (2026-10-15):** This update is a full evidence-based re-audit of every row below, performed against the repository at commit `01ef39ed99c8ff121ebcf2b23bd25f8d3906ddfa` on branch `feat/onboarding-redesign`. Every `PASS` below cites a concrete artifact (commit, file path, migration, test, CSV row count, CI/PR record, or production execution log). Rows not independently re-verified this round keep their prior status rather than being upgraded on assumption.
 
 **Reconciliation note (2026-10-16):** Since the audit above, PR #4 (`feat/menstrual-data-integrity`), PR #18 (`feat/madhhab-community-integrity`), and PR #22 (`fix/kb-human-review-provenance`, the independent `human_review_status` cherry-pick) have all merged into `main`. `feat/onboarding-redesign` has been merged with current `main` (commit `d6988a3`) and opened as draft PR #23 — the branch's first-ever PR and first-ever CI run. PR #23's own final review found and this same pass fixed one additional release-blocking defect: `FiqhReportInsightsEngine` retained the `cycleDay == 1` boundary bug `01ef39e` removed from `CycleStatusEngine`, a second un-deduplicated copy of the same scan that caused the Fiqh/Doctor/Husband reports to misclassify an open, in-bounds Haid episode as `needsAdvisory` (fixed in commit `6273f39`, with regression coverage built from the real production adapter path). Rows below that describe the pre-reconciliation state (no PR, never-run CI, three unreconciled branches) are corrected inline where marked **(2026-10-16)**; rows not marked are otherwise unchanged from the 2026-10-15 audit and have not been independently re-verified this pass.

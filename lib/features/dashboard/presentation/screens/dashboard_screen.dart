@@ -21,6 +21,9 @@ import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/preferences/user_scoped_preferences.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_day.dart';
+import '../../../cycle_tracking/domain/entities/period_prediction.dart';
+import '../../../cycle_tracking/presentation/widgets/period_prediction_details.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
@@ -385,7 +388,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _canonicalStatus = status;
         _canonicalFiqhLogs = fiqhLogs;
-        _canonicalFiqhEvidenceUnresolved = evidenceUnresolved;
+        _canonicalFiqhEvidenceUnresolved =
+            evidenceUnresolved ||
+            status.isDegraded ||
+            status.state == RingFactualState.unavailable;
       });
     }
   }
@@ -546,6 +552,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     _fiqhRefreshTimer?.cancel();
     unawaited(_tapSubscription?.cancel());
+    if (widget.viewModel == null) _viewModel.dispose();
     super.dispose();
   }
 
@@ -592,29 +599,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // state — including manual istihadah — shares the same real,
         // flow-aware day-count data; the toggle only overrides which
         // label is displayed below, never the underlying computation.
-        final snapshot = fiqhCalculation.hasSufficientHistory
-            ? const CycleStatusEngine().evaluate(
-                logs: fiqhLogs,
-                calculation: fiqhCalculation,
-                madhhab: MadhhabController.instance.selectedOrNull,
-                now: AppClock.now(),
-              )
-            : const CycleStatusSnapshot(
-                state: FiqhCycleState.tahara,
-                confirmAt: null,
-                daysIntoCurrentEpisode: null,
-                cycleDayEstimate: null,
-                averageCycleLength: null,
-                averagePeriodLength: null,
-              );
+        final snapshot = const CycleStatusEngine().evaluate(
+          logs: fiqhLogs,
+          calculation: fiqhCalculation,
+          madhhab: MadhhabController.instance.selectedOrNull,
+          now: AppClock.now(),
+        );
         final mappedState = switch (snapshot.state) {
           FiqhCycleState.haid => _FiqhState.haid,
           FiqhCycleState.needsAdvisory => _FiqhState.needsAdvisory,
-          FiqhCycleState.tahara ||
-          FiqhCycleState.insufficientHistory => _FiqhState.tahara,
-          // Fiqh Remediation Wave 1 (Section E): never mapped to tahara —
-          // that would silently claim purity for a currently-bleeding user
-          // with no Madhhab SELECTED.
+          FiqhCycleState.tahara => _FiqhState.tahara,
+          FiqhCycleState.insufficientHistory => _FiqhState.insufficientHistory,
           FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
         };
         // Closure Blocker 2 — the factual question "is there an open
@@ -655,12 +650,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // loading/existing yet. Folded into the same evidence-unresolved
         // signal as a genuine read failure: both mean "cannot honestly
         // conclude anything yet," never a confident ruling either way.
-        // Checked against `fiqhCalculation.hasSufficientHistory` directly —
-        // not `snapshot.state == FiqhCycleState.insufficientHistory` — because
-        // the fallback snapshot above (used precisely when history is
-        // insufficient) is itself hardcoded to report `FiqhCycleState.tahara`,
-        // never the `insufficientHistory` enum value. Matching on the enum
-        // value here would never fire.
         final insufficientEvidenceWhileFactuallyBleeding =
             hasOpenEpisode == true && !fiqhCalculation.hasSufficientHistory;
         // New critical finding — evidence-unresolved takes priority over
@@ -803,7 +792,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ] else if (hasOpenEpisode ||
                               !calculation.hasSufficientHistory ||
-                              !calculation.hasPlausibleAverage) ...[
+                              !calculation.hasPlausibleAverage ||
+                              summary.periodPrediction.status == PeriodPredictionStatus.historyNeedsReview) ...[
                             // Commit F3 — an explicit ring state, not
                             // "insufficient history" as a single
                             // catch-all: an open episode is ALWAYS shown
@@ -818,6 +808,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               _FactualOpenEpisodeCard(
                                 daysInto:
                                     _canonicalStatus!.daysIntoOpenEpisode!,
+                              )
+                            else if (summary.periodPrediction.status == PeriodPredictionStatus.historyNeedsReview)
+                              PeriodPredictionDetails(
+                                prediction: summary.periodPrediction,
+                                onSaveReview: _viewModel.savePredictionHistoryReview,
+                                onReloadHistory: _viewModel.loadLogs,
                               )
                             else if (_canonicalStatus?.state ==
                                 RingFactualState.factualCompletedHistory)
@@ -2577,7 +2573,11 @@ class _CycleOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cycleLength = summary.averageCycleLength!;
+    final projectedStart = summary.periodPrediction.expectedStart;
+    final recordedStart = summary.lastCycleStart;
+    final cycleLength = projectedStart != null && recordedStart != null
+        ? calendarDayDifference(projectedStart, recordedStart)
+        : summary.averageCycleLength!;
     // When the real average isn't known yet, fall back to the real elapsed
     // days of the current episode (not a guess at the eventual total) —
     // without this, the outer ring draws the Haid zone as a literal

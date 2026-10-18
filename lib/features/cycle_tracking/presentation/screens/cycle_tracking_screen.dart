@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 
+import '../widgets/period_prediction_details.dart';
+
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/ttc_mode_controller.dart';
@@ -42,6 +44,12 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
     super.initState();
     _viewModel = widget.viewModel ?? (CycleTrackingViewModel()..loadLogs());
     TtcModeController.instance.load();
+  }
+
+  @override
+  void dispose() {
+    if (widget.viewModel == null) _viewModel.dispose();
+    super.dispose();
   }
 
   @override
@@ -136,11 +144,14 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
                           TtcModeController.instance.enabled &&
                           calculation.hasSufficientHistory) ...[
                         const SizedBox(height: 24),
-                        _PregnancyChanceCard(
-                          summary: summary,
-                          currentCycleDay: calculation.currentCycleDay,
-                        ),
+                        _PregnancyChanceCard(summary: summary),
                       ],
+                      const SizedBox(height: 16),
+                      PeriodPredictionDetails(
+                        prediction: summary.periodPrediction,
+                        onSaveReview: _viewModel.savePredictionHistoryReview,
+                        onReloadHistory: _viewModel.loadLogs,
+                      ),
                       const SizedBox(height: 32),
                       _MonthSummary(
                         range: summaryRange,
@@ -365,8 +376,8 @@ class _TtcRequirementsNotice extends StatelessWidget {
     final messages = [
       if (!isMarried)
         _ct(
-          'Turn on "I am married" in Profile to see the pregnancy chance.',
-          'فعّلي "أنا متزوجة" من الملف الشخصي لرؤية فرصة الحمل.',
+          'Turn on "I am married" in Profile to see the estimated fertile window.',
+          'فعّلي "أنا متزوجة" من الملف الشخصي لرؤية نافذة الخصوبة التقديرية.',
         ),
       if (!hasSufficientHistory)
         _ct(
@@ -845,23 +856,11 @@ class _MonthButton extends StatelessWidget {
 }
 
 class _PregnancyChanceCard extends StatelessWidget {
-  const _PregnancyChanceCard({
-    required this.summary,
-    required this.currentCycleDay,
-  });
+  const _PregnancyChanceCard({required this.summary});
   final CycleTrackingSummary summary;
-  final int? currentCycleDay;
 
   @override
   Widget build(BuildContext context) {
-    final cycleLength = summary.averageCycleLength;
-    final chanceLabel = (cycleLength == null || currentCycleDay == null)
-        ? null
-        : switch (_conceptionChanceAt(currentCycleDay!, cycleLength)) {
-            >= 0.6 => _ct('HIGH', 'عالية'),
-            >= 0.2 => _ct('MEDIUM', 'متوسطة'),
-            _ => _ct('LOW', 'منخفضة'),
-          };
     return _WhiteCard(
       child: Column(
         children: [
@@ -869,13 +868,13 @@ class _PregnancyChanceCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  _ct('Chance of pregnancy', 'فرصة الحمل'),
+                  _ct('Estimated fertile window', 'نافذة الخصوبة التقديرية'),
                   style: Theme.of(context).textTheme.titleSmall
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
               Text(
-                chanceLabel ?? '—',
+                _ct('ESTIMATE', 'تقدير'),
                 style: TextStyle(
                   color: Color(0xFF42A5F5),
                   fontSize: 11,
@@ -886,19 +885,6 @@ class _PregnancyChanceCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          SizedBox(
-            height: 150,
-            width: double.infinity,
-            child: (cycleLength == null || currentCycleDay == null)
-                ? null
-                : CustomPaint(
-                    painter: _ChanceChartPainter(
-                      cycleLength: cycleLength,
-                      currentCycleDay: currentCycleDay!,
-                    ),
-                  ),
-          ),
-          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -933,8 +919,8 @@ class _PregnancyChanceCard extends StatelessWidget {
             ),
             child: Text(
               _ct(
-                'Predictions improve as you log more cycles',
-                'التنبؤ يتحسن مع المزيد من الدورات',
+                'Calendar estimate only. Does not confirm ovulation and is not a method of contraception.',
+                'تقدير تقويمي فقط، لا يؤكد التبويض ولا يُستخدم لمنع الحمل.',
               ),
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -1670,88 +1656,6 @@ class _WhiteCard extends StatelessWidget {
     ),
     child: child,
   );
-}
-
-/// Estimated conception-chance curve: a bell centered on the predicted
-/// ovulation day (14 days before the next predicted period), matching
-/// [CycleTrackingController.calculateFertileWindow]'s heuristic. [dayOfCycle]
-/// is 1-indexed, matching [CycleCalculationResult.currentCycleDay].
-double _conceptionChanceAt(int dayOfCycle, int cycleLength) =>
-    math.exp(-math.pow(dayOfCycle - (cycleLength - 14), 2) / 15);
-
-class _ChanceChartPainter extends CustomPainter {
-  const _ChanceChartPainter({
-    required this.cycleLength,
-    required this.currentCycleDay,
-  });
-  final int cycleLength;
-  final int currentCycleDay;
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Guards against dividing by zero below — a cycle length this short
-    // can't be usefully charted anyway.
-    if (cycleLength <= 1) return;
-
-    final line = Path();
-    final fill = Path()..moveTo(0, size.height);
-    for (var i = 0; i < cycleLength; i++) {
-      final x = i / (cycleLength - 1) * size.width;
-      final chance = _conceptionChanceAt(i + 1, cycleLength);
-      final y = size.height - chance * (size.height - 24);
-      if (i == 0) {
-        line.moveTo(x, y);
-      } else {
-        line.lineTo(x, y);
-      }
-      fill.lineTo(x, y);
-    }
-    fill
-      ..lineTo(size.width, size.height)
-      ..close();
-    canvas.drawPath(
-      fill,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0x554FC3F7), Color(0x004FC3F7)],
-        ).createShader(Offset.zero & size),
-    );
-    canvas.drawPath(
-      line,
-      Paint()
-        ..color = const Color(0xFF4FC3F7)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
-    );
-    final markerDay = currentCycleDay.clamp(1, cycleLength);
-    final markerX = (markerDay - 1) / (cycleLength - 1) * size.width;
-    canvas.drawLine(
-      Offset(markerX, 10),
-      Offset(markerX, size.height),
-      Paint()
-        ..color = AppColors.success
-        ..strokeWidth = 2,
-    );
-    final isArabic = AppLocaleController.instance.isArabic;
-    final label = TextPainter(
-      text: TextSpan(
-        text: _ct('YOU ARE HERE', 'أنتِ هنا'),
-        style: const TextStyle(
-          color: AppColors.success,
-          fontSize: 8,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
-    )..layout();
-    label.paint(canvas, Offset(markerX - label.width / 2, 0));
-  }
-
-  @override
-  bool shouldRepaint(covariant _ChanceChartPainter oldDelegate) =>
-      oldDelegate.cycleLength != cycleLength ||
-      oldDelegate.currentCycleDay != currentCycleDay;
 }
 
 String _shortDate(DateTime date) =>

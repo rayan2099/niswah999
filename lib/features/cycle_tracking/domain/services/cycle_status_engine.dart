@@ -1,4 +1,5 @@
 import '../entities/cycle_log.dart';
+import '../../../../core/utils/calendar_day.dart';
 import 'cycle_calculation_service.dart';
 import 'madhhab_rule_evaluator.dart';
 
@@ -76,7 +77,12 @@ class CycleStatusEngine {
       averagePeriodLength: calculation.averagePeriodLength,
     );
 
-    if (logs.isEmpty) return baseline();
+    if (logs.isEmpty) {
+      return baseline(state: FiqhCycleState.insufficientHistory);
+    }
+    if (logs.any((log) => log.date.isAfter(now))) {
+      return baseline(state: FiqhCycleState.insufficientHistory);
+    }
     final sorted = [...logs]..sort((a, b) => a.date.compareTo(b.date));
     final latest = sorted.last;
     if (latest.flow == FlowLevel.none) return baseline();
@@ -106,9 +112,8 @@ class CycleStatusEngine {
     // observation) — found and fixed via parity_today_lower_test.dart.
 
     final bleedingDuration = now.difference(activeStart);
-    final daysIntoCurrentEpisode = bleedingDuration.inDays + 1 > 0
-        ? bleedingDuration.inDays + 1
-        : 1;
+    final calendarDays = calendarDayDifference(now, activeStart) + 1;
+    final daysIntoCurrentEpisode = calendarDays > 0 ? calendarDays : 1;
 
     if (madhhab == null) {
       // Currently bleeding, but no madhhab is SELECTED — never guess one.
@@ -129,20 +134,10 @@ class CycleStatusEngine {
     );
 
     if (result.state != FiqhCycleState.needsAdvisory) {
-      final mappedState = result.state == FiqhCycleState.insufficientHistory
-          ? FiqhCycleState.tahara
-          : result.state;
-      // Only haid/needsAdvisory ever mean "currently bleeding" for display
-      // purposes — if the fiqh evaluator falls back to insufficientHistory
-      // (mapped to tahara) despite the latest log technically being
-      // bleeding, daysIntoCurrentEpisode must not leak through, or state
-      // and daysIntoCurrentEpisode would disagree the same way this whole
-      // fix exists to prevent.
       return baseline(
-        state: mappedState,
-        daysIntoCurrentEpisode: mappedState == FiqhCycleState.haid
-            ? daysIntoCurrentEpisode
-            : null,
+        state: result.state,
+        // A factual day count is safe even when a ruling is unavailable.
+        daysIntoCurrentEpisode: daysIntoCurrentEpisode,
       );
     }
 
@@ -152,14 +147,12 @@ class CycleStatusEngine {
     // confirmed Haid" date to show (she already would have been, from
     // the very start, were a minimum to apply at all).
     final minimumHaid = result.minimumHaid;
-    final confirmAt = minimumHaid == null
+    final confirmAt = minimumHaid == null || !result.minimumOnlyPending
         ? null
         : activeStart.add(minimumHaid);
     return baseline(
       state: FiqhCycleState.needsAdvisory,
-      confirmAt: confirmAt != null && confirmAt.isAfter(now)
-          ? confirmAt
-          : null,
+      confirmAt: confirmAt != null && confirmAt.isAfter(now) ? confirmAt : null,
       daysIntoCurrentEpisode: daysIntoCurrentEpisode,
     );
   }

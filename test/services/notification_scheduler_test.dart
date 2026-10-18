@@ -34,12 +34,65 @@ void main() {
 
       final plan = NotificationScheduler.planCycleReminder(
         calculation: calculation,
-        now: DateTime(2026, 1, 10),
+        now: DateTime(2026, 1, 30),
       );
 
       // predicted next start = Jan 29 + 28 = Feb 26; lead day = Feb 23.
       expect(plan, isNotNull);
       expect(plan!.fireAt, DateTime(2026, 2, 23, 9));
+    });
+
+    test(
+      'a future last start does not schedule from unavailable future history',
+      () {
+        final calculation = CycleCalculationResult(
+          haidStarts: [DateTime(2026, 1, 1), DateTime(2026, 1, 29)],
+          currentCycleDay: 1,
+          averageCycleLength: 28,
+          cycleLengths: const [28],
+        );
+        expect(
+          NotificationScheduler.planCycleReminder(
+            calculation: calculation,
+            now: DateTime(2026, 1, 10),
+          ),
+          isNull,
+        );
+      },
+    );
+    test('unknown gaps, excessive variation and unverified review reads cannot bypass forecast withholding', () {
+      for (final lengths in [
+        [28, 200, 29],
+        [20, 45],
+      ]) {
+        final calculation = CycleCalculationResult(
+          haidStarts: [DateTime(2025, 1, 1), DateTime(2026, 10, 1)],
+          currentCycleDay: 1,
+          averageCycleLength: 60,
+          cycleLengths: lengths,
+        );
+        expect(
+          NotificationScheduler.planCycleReminder(
+            calculation: calculation,
+            now: DateTime(2026, 10, 1),
+          ),
+          isNull,
+        );
+      }
+      final regular = CycleCalculationResult(
+        haidStarts: [DateTime(2026, 9, 3), DateTime(2026, 10, 1)],
+        currentCycleDay: 1,
+        averageCycleLength: 28,
+        cycleLengths: const [28],
+      );
+      expect(
+        NotificationScheduler.planCycleReminder(
+          calculation: regular,
+          now: DateTime(2026, 10, 1),
+          historyVerified: false,
+        ),
+        isNull,
+      );
     });
 
     test('a predicted date already in the past plans nothing', () {

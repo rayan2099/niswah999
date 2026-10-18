@@ -1,0 +1,17 @@
+{
+  "sourceDOI": "10.5281/zenodo.15598359",
+  "sourceSHA256": "7712b11290d2d34384eaa3bca02739067a0dd6ddc8bd90c6fe91c545efffe28f",
+  "sourceRows": 15686,
+  "sourceIDs": 199,
+  "sourceDuplicateDates": 4,
+  "excludedIDsWithBirthRelatedFlags": 22,
+  "primaryHistories": 177,
+  "primaryStarts": 12224,
+  "primaryIntervals": 12047,
+  "minimumIntervalDays": 1,
+  "maximumIntervalDays": 18966,
+  "intervalsBelow15Days": 29,
+  "intervalsAbove90Days": 72,
+  "medianStartsPerHistory": 51,
+  "cohortRule": "Exclude whole source IDs with any birth-related flag; deduplicate same-ID dates; no gap trimming or outcome-based exclusions. IDs are not verified unique participants."
+}

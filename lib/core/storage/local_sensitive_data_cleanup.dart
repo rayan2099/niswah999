@@ -1,6 +1,7 @@
 import '../../features/cycle_tracking/data/datasources/local_cycle_tracking_data_source.dart';
 import '../../features/prayer_tracking/data/datasources/local_prayer_tracking_data_source.dart';
 import 'secure_local_store.dart';
+import '../../features/cycle_tracking/data/local/secure_prediction_history_review_store.dart';
 
 /// The local, on-device sensitive data categories that must be removed for
 /// a deleted account (Phase F) — shared between the deletion call site
@@ -17,6 +18,7 @@ final Map<String, Future<void> Function(String userId)>
 localSensitiveDataCleanupTasks = {
   'cycle_tracking': LocalCycleTrackingDataSource.clearForUser,
   'prayer_tracking': LocalPrayerTrackingDataSource.clearForUser,
+  'prediction_history_reviews': clearPredictionHistoryReviewsForUser,
 };
 
 /// Deletes every registered sensitive local data category for [userId],

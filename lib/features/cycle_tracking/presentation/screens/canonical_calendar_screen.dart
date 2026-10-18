@@ -3,6 +3,14 @@ import 'dart:async';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/utils/calendar_day.dart';
+import '../../domain/controllers/cycle_tracking_controller.dart';
+import '../../domain/services/cycle_calculation_service.dart';
+import '../../domain/entities/period_prediction.dart';
+import '../widgets/period_prediction_details.dart';
+import '../../domain/entities/prediction_history_review.dart';
+import '../../data/local/prediction_history_review_store.dart';
+import '../../data/local/secure_prediction_history_review_store.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -33,11 +41,13 @@ class CanonicalCalendarScreen extends StatefulWidget {
     this.repositoryOverride,
     this.baselineRepositoryOverride,
     this.userIdOverride,
+    this.predictionReviewStore,
   });
 
   final BleedingEpisodeRepositoryImpl? repositoryOverride;
   final CycleBaselineRepositoryImpl? baselineRepositoryOverride;
   final String? userIdOverride;
+  final PredictionHistoryReviewStore? predictionReviewStore;
 
   @override
   State<CanonicalCalendarScreen> createState() =>
@@ -45,6 +55,12 @@ class CanonicalCalendarScreen extends StatefulWidget {
 }
 
 class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
+  late final _reviewStore =
+      widget.predictionReviewStore ?? createPredictionHistoryReviewStore();
+  StreamSubscription<String>? _reviewSubscription;
+  List<PredictionHistoryReview> _historyReviews = const [];
+  bool _reviewsVerified = false;
+  int _loadGeneration = 0;
   late final BleedingEpisodeRepositoryImpl _repository =
       widget.repositoryOverride ?? BleedingEpisodeRepositoryImpl();
   late final CycleBaselineRepositoryImpl _baselineRepository =
@@ -84,10 +100,14 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
   @override
   void initState() {
     super.initState();
+    _reviewSubscription = PredictionHistoryReviewStore.changes.listen((owner) {
+      if (owner == _userId && mounted) unawaited(_load());
+    });
     unawaited(_load());
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
     final userId = _userId;
     if (userId == null) {
       setState(() => _loading = false);
@@ -105,8 +125,17 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
     // consequence to a missing estimate the way there is for an episode/
     // observation read).
     final baseline = await _baselineRepository.getBaseline(userId);
-    if (!mounted) return;
+    var reviews = <PredictionHistoryReview>[];
+    var reviewsVerified = true;
+    try {
+      reviews = await _reviewStore.load(userId);
+    } catch (_) {
+      reviewsVerified = false;
+    }
+    if (!mounted || generation != _loadGeneration) return;
     setState(() {
+      _historyReviews = reviews;
+      _reviewsVerified = reviewsVerified;
       _loading = false;
       _baseline = baseline;
       _episodesUnavailable =
@@ -119,6 +148,30 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
       _episodes = episodesResult.dataOrNull ?? const [];
       _observations = observationsResult.dataOrNull ?? const [];
     });
+  }
+
+  Future<void> _saveHistoryReview(PredictionHistoryReview review) async {
+    final owner = _userId;
+    if (owner == null ||
+        (widget.userIdOverride == null &&
+            owner != NiswahSupabase.clientOrNull?.auth.currentUser?.id) ||
+        !(_CanonicalMonthGrid._predictNextEpisode(
+              _episodes,
+              historyReviews: _historyReviews,
+              historyVerified: _reviewsVerified,
+            )?.reviewGaps.any((gap) => gap.key == review.key) ??
+            false)) {
+      throw StateError('History changed; reload before reviewing');
+    }
+    await _reviewStore.save(owner, review);
+    if (mounted) await _load();
+  }
+
+  @override
+  void dispose() {
+    _loadGeneration++;
+    unawaited(_reviewSubscription?.cancel());
+    super.dispose();
   }
 
   void _changeMonth(int delta) =>
@@ -204,6 +257,10 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
                           child: _DegradedNotice(onRetry: _load),
                         ),
                       _CanonicalMonthGrid(
+                        historyReviews: _historyReviews,
+                        historyVerified: _reviewsVerified,
+                        onSaveReview: _saveHistoryReview,
+                        onReloadHistory: _load,
                         month: _month,
                         episodes: _episodes,
                         observations: _observations,
@@ -359,11 +416,19 @@ class _CanonicalMonthGrid extends StatelessWidget {
     required this.observations,
     required this.allowPrediction,
     required this.onDayTap,
+    required this.historyReviews,
+    required this.historyVerified,
+    required this.onSaveReview,
+    required this.onReloadHistory,
   });
 
   final DateTime month;
   final List<BleedingEpisode> episodes;
   final List<BleedingObservation> observations;
+  final List<PredictionHistoryReview> historyReviews;
+  final bool historyVerified;
+  final Future<void> Function(PredictionHistoryReview) onSaveReview;
+  final Future<void> Function() onReloadHistory;
 
   /// New critical finding (make degraded calendar data explicit) — false
   /// whenever the episodes or observations read that would feed the
@@ -375,16 +440,26 @@ class _CanonicalMonthGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final monthStart = DateTime(month.year, month.month);
-    final gridStart = monthStart.subtract(
-      Duration(days: monthStart.weekday % 7),
-    );
+    final gridStart = addCalendarDays(monthStart, -(monthStart.weekday % 7));
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final dayCount = (((monthStart.weekday % 7) + daysInMonth) / 7).ceil() * 7;
     final arabic = AppLocaleController.instance.isArabic;
     final today = DateUtils.dateOnly(AppClock.now());
 
     final effectiveByDay = _effectiveByDay(observations);
-    final prediction = allowPrediction ? _predictNextEpisode(episodes) : null;
+    final prediction = allowPrediction
+        ? _predictNextEpisode(
+            episodes,
+            historyReviews: historyReviews,
+            historyVerified: historyVerified,
+          )
+        : null;
+    final rangeStart = prediction != null && prediction.hasFutureEstimate
+        ? prediction.historicalRangeStart ?? prediction.expectedStart
+        : null;
+    final rangeEnd = prediction != null && prediction.hasFutureEstimate
+        ? prediction.historicalRangeEnd ?? prediction.expectedStart
+        : null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
@@ -395,6 +470,25 @@ class _CanonicalMonthGrid extends StatelessWidget {
       ),
       child: Column(
         children: [
+          if (prediction != null) ...[
+            PeriodPredictionDetails(
+              prediction: prediction,
+              onSaveReview: onSaveReview,
+              onReloadHistory: onReloadHistory,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _t(
+                'Dashed dates indicate estimated period starts, not recorded bleeding.',
+                'تشير التواريخ المتقطعة إلى تقديرات لبداية الدورة، وليست نزيفًا مسجلًا.',
+              ),
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           GridView.builder(
             itemCount: 7,
             shrinkWrap: true,
@@ -427,7 +521,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
               childAspectRatio: 0.95,
             ),
             itemBuilder: (context, index) {
-              final date = gridStart.add(Duration(days: index));
+              final date = addCalendarDays(gridStart, index);
               final dayKey = DateTime(date.year, date.month, date.day);
               final rawForDay = observations
                   .where((o) => DateUtils.isSameDay(o.observedDate, dayKey))
@@ -471,12 +565,13 @@ class _CanonicalMonthGrid extends StatelessWidget {
                   episode: episodeForDay,
                   rawObservations: rawForDay,
                 );
-              } else if (prediction != null &&
-                  !dayKey.isBefore(prediction.$1) &&
-                  !dayKey.isAfter(prediction.$2)) {
+              } else if (rangeStart != null &&
+                  rangeEnd != null &&
+                  !dayKey.isBefore(rangeStart) &&
+                  !dayKey.isAfter(rangeEnd)) {
                 evidence = _DayEvidence(
                   provenance: EvidenceProvenance.predicted,
-                  hasBleeding: true,
+                  hasBleeding: false,
                   isCorrected: false,
                   episode: episodeForDay,
                   rawObservations: rawForDay,
@@ -540,61 +635,34 @@ class _CanonicalMonthGrid extends StatelessWidget {
     return candidateTime.isAfter(currentTime);
   }
 
-  /// A bounded, disclosed projection only — never fabricates bleeding
-  /// between two reported observations (it only ever projects forward
-  /// from the last known episode, into days with no real data at all).
-  /// Requires at least two ended episodes with a plausible gap (15-90
-  /// days) before projecting anything, exactly like the legacy
-  /// calendar's own [CycleCalendar] plausibility gate — a degenerate
-  /// average must never repeat a fabricated "Expected Haid" block every
-  /// few days.
-  static (DateTime, DateTime)? _predictNextEpisode(
-    List<BleedingEpisode> episodes,
-  ) {
-    final ended =
-        episodes
-            .where((e) => e.lifecycleStatus == LifecycleStatus.ended)
-            .toList()
-          ..sort((a, b) => a.startDate.compareTo(b.startDate));
-    if (ended.length < 2) return null;
-
-    final gaps = <int>[];
-    for (var i = 1; i < ended.length; i++) {
-      gaps.add(
-        DateUtils.dateOnly(ended[i].startDate)
-            .difference(DateUtils.dateOnly(ended[i - 1].startDate))
-            .inDays,
-      );
-    }
-    final averageGap = gaps.reduce((a, b) => a + b) / gaps.length;
-    if (averageGap < 15 || averageGap > 90) return null;
-
-    final durations = ended
-        .map(
-          (e) =>
-              DateUtils.dateOnly(e.endDate!)
-                  .difference(DateUtils.dateOnly(e.startDate))
-                  .inDays +
-              1,
-        )
+  /// Uses the same predictor as Insights. Dashed dates are possible START
+  /// dates based on observed variation, never invented days of bleeding.
+  static PeriodPrediction? _predictNextEpisode(
+    List<BleedingEpisode> episodes, {
+    List<PredictionHistoryReview> historyReviews = const [],
+    bool historyVerified = true,
+  }) {
+    if (episodes.any((e) => e.lifecycleStatus == LifecycleStatus.open))
+      return null;
+    final ended = episodes
+        .where((e) => e.lifecycleStatus == LifecycleStatus.ended)
         .toList();
-    final averageDuration =
-        durations.reduce((a, b) => a + b) / durations.length;
-
-    final last = ended.last;
-    final predictedStart = DateUtils.dateOnly(last.startDate)
-        .add(Duration(days: averageGap.round()));
-    final predictedEnd = predictedStart.add(
-      Duration(days: averageDuration.round() - 1),
-    );
-    // Never project over an already-open episode's own real data — that
-    // would be exactly the "fabricate bleeding between two reported
-    // observations" failure mode the charter prohibits.
-    final hasOpen = episodes.any(
-      (e) => e.lifecycleStatus == LifecycleStatus.open,
-    );
-    if (hasOpen) return null;
-    return (predictedStart, predictedEnd);
+    if (ended.length < 2) return null;
+    return const CycleTrackingController()
+        .summarizeHistory(
+          const [],
+          now: AppClock.now(),
+          historyReviews: historyReviews,
+          historyVerified: historyVerified,
+          canonicalEpisodes: [
+            for (final e in ended)
+              CanonicalEpisodeTiming(
+                startDate: e.startDate,
+                endDate: e.endDate,
+              ),
+          ],
+        )
+        .periodPrediction;
   }
 }
 

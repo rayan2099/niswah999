@@ -1,5 +1,7 @@
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_day.dart';
 import '../entities/cycle_log.dart';
+import 'cycle_prediction_service.dart';
 
 enum CycleRegularity { insufficientData, irregular, regular, highlyRegular }
 
@@ -67,7 +69,8 @@ class CycleCalculationResult {
   /// real menstrual cycle — almost certainly too little history yet (e.g.
   /// two Haid starts logged only a couple of days apart), not a real
   /// number worth predicting from.
-  static const int minPlausibleCycleLengthDays = 15;
+  static const int minPlausibleCycleLengthDays =
+      CyclePredictionService.minimumUsableIntervalDays;
 
   bool get hasSufficientHistory =>
       haidStarts.length >= 2 &&
@@ -173,7 +176,7 @@ class CycleCalculationService {
       ..sort((a, b) => a.date.compareTo(b.date));
     final starts = _detectEpisodes(sorted).starts;
     if (starts.isEmpty) return 1;
-    return _dateOnly(date).difference(starts.last).inDays + 1;
+    return calendarDayDifference(date, starts.last) + 1;
   }
 
   ({List<DateTime> starts, List<int> periodLengths}) _detectEpisodes(
@@ -198,7 +201,7 @@ class CycleCalculationService {
       final explicitlyLoggedStart =
           isBleeding &&
           log.cycleDay == 1 &&
-          (starts.isEmpty || date.difference(starts.last).inDays > 1);
+          (starts.isEmpty || calendarDayDifference(date, starts.last) > 1);
       final transitionedToBleeding =
           isBleeding && previousFlow == FlowLevel.none;
       final firstRecordedBleeding = isBleeding && previousFlow == null;
@@ -207,12 +210,14 @@ class CycleCalculationService {
           transitionedToBleeding ||
           firstRecordedBleeding) {
         if (starts.isEmpty || starts.last != date) starts.add(date);
-        currentEpisodeStart ??= date;
+        // A newly reported start supersedes an unclosed earlier episode
+        // for pairing only; its missing end must never inflate this length.
+        currentEpisodeStart = date;
       } else if (!isBleeding &&
           previousFlow != null &&
           previousFlow != FlowLevel.none &&
           currentEpisodeStart != null) {
-        final length = date.difference(currentEpisodeStart).inDays;
+        final length = calendarDayDifference(date, currentEpisodeStart);
         if (length > 0) periodLengths.add(length);
         currentEpisodeStart = null;
       }
@@ -262,7 +267,7 @@ class CycleCalculationService {
     var lastKeptWasCanonical = false;
     for (final candidate in candidates) {
       if (starts.isNotEmpty &&
-          candidate.date.difference(starts.last).inDays <= 1) {
+          calendarDayDifference(candidate.date, starts.last) <= 1) {
         if (lastKeptWasCanonical && !candidate.fromCanonical) {
           // Same episode; the log-derived start is authoritative for it.
           starts[starts.length - 1] = candidate.date;
@@ -278,7 +283,7 @@ class CycleCalculationService {
       lastKeptWasCanonical = candidate.fromCanonical;
       lastCanonicalLength = null;
       if (candidate.fromCanonical && candidate.end != null) {
-        final length = candidate.end!.difference(candidate.date).inDays;
+        final length = calendarDayDifference(candidate.end!, candidate.date);
         if (length > 0) {
           periodLengths.add(length);
           lastCanonicalLength = length;
@@ -293,10 +298,24 @@ class CycleCalculationService {
     DateTime? asOf,
     List<CanonicalEpisodeTiming> canonicalEpisodes = const [],
   }) {
-    final sorted = [...logs]..sort((a, b) => a.date.compareTo(b.date));
+    final today = _dateOnly(asOf ?? AppClock.now());
+    final sorted =
+        logs.where((log) => !_dateOnly(log.date).isAfter(today)).toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
     final episodes = _mergeCanonical(
       _detectEpisodes(sorted),
-      canonicalEpisodes,
+      canonicalEpisodes
+          .where((episode) => !episode.startDate.isAfter(today))
+          .map(
+            (episode) => CanonicalEpisodeTiming(
+              startDate: episode.startDate,
+              endDate:
+                  episode.endDate != null && episode.endDate!.isAfter(today)
+                  ? null
+                  : episode.endDate,
+            ),
+          )
+          .toList(),
     );
     final starts = episodes.starts;
     final periodLengths = episodes.periodLengths;
@@ -318,7 +337,7 @@ class CycleCalculationService {
 
     final intervals = <int>[];
     for (var index = 1; index < starts.length; index++) {
-      final days = starts[index].difference(starts[index - 1]).inDays;
+      final days = calendarDayDifference(starts[index], starts[index - 1]);
       if (days > 0) intervals.add(days);
     }
 
@@ -332,8 +351,7 @@ class CycleCalculationService {
       );
     }
 
-    final today = _dateOnly(asOf ?? AppClock.now());
-    final currentDay = today.difference(starts.last).inDays + 1;
+    final currentDay = calendarDayDifference(today, starts.last) + 1;
     return CycleCalculationResult(
       haidStarts: List.unmodifiable(starts),
       currentCycleDay: currentDay > 0 ? currentDay : null,

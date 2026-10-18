@@ -1,5 +1,7 @@
 import 'package:collection/collection.dart';
 
+import '../../../../core/utils/calendar_day.dart';
+
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../entities/bleeding_episode.dart';
 import '../entities/load_result.dart';
@@ -135,7 +137,7 @@ class CanonicalBleedingStatusResolver {
         openEpisode.startDate.month,
         openEpisode.startDate.day,
       );
-      final daysInto = today.difference(start).inDays + 1;
+      final daysInto = calendarDayDifference(today, start) + 1;
       return CanonicalBleedingStatus(
         state: RingFactualState.factualOpenEpisode,
         openEpisode: openEpisode,

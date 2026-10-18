@@ -66,7 +66,7 @@ void main() {
   });
 
   group('FiqhReportInsightsEngine — sparse history', () {
-    test('no logs at all reports tahara with no averages', () {
+    test('no logs at all reports insufficient history with no averages', () {
       final insights = FiqhReportInsightsEngine.analyze(
         cycleLogs: const [],
         madhhab: Madhhab.hanbali,
@@ -74,7 +74,7 @@ void main() {
       );
 
       expect(insights.mode, FiqhReportMode.cycle);
-      expect(insights.cycleState, FiqhCycleState.tahara);
+      expect(insights.cycleState, FiqhCycleState.insufficientHistory);
       expect(insights.hasEnoughForAverages, isFalse);
       expect(insights.averageCycleLengthDays, isNull);
       expect(insights.notes, isEmpty);

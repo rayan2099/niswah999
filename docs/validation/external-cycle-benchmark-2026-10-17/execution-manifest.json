@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-17",
+  "appRevision": "192e0bc",
+  "runtime": "Dart 3.13.0; direct offline package configuration",
+  "protocol": "Rolling-origin; all earlier starts only; next recorded start target; no model promotion",
+  "sha256": {
+    "scripts/backtest_cycle_predictions.dart": "3a8f41cb7346ad1346787930df7ccb4abed1171c93e30018b37d45acb3887bb2",
+    "lib/features/cycle_tracking/domain/controllers/cycle_tracking_controller.dart": "4c16c64005fc455888203245756fabcf312d048a312d7d38c6e3f1e247553b3b",
+    "lib/features/cycle_tracking/domain/services/cycle_prediction_service.dart": "d5ace3d77a32258ea4bf46aa6853439a98997f483dd4fb2d71d4a9e557982e5f",
+    "lib/features/cycle_tracking/domain/services/cycle_calculation_service.dart": "043d69f16510ba2d3edebd7894599d391c7d28d896338e50b981ebb0769f14a1",
+    "lib/core/utils/calendar_day.dart": "3d6e3f479002c423415ea403336f53cf0c60cc77bacbdda94a7d2d0062a8a435",
+    "lib/features/cycle_tracking/domain/entities/period_prediction.dart": "cc3e204f171540ee7e9d857fba30bfc6c625d171f44afc189d05af6176f906d3"
+  }
+}
