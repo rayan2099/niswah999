@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import '../../../../core/utils/app_clock.dart';
 import '../../domain/entities/cycle_log.dart';
 
 String _generateLogId() {
@@ -46,7 +47,7 @@ class CycleLogFormData {
   }
 
   CycleLog toCycleLog({required String userId, String? id}) {
-    final resolvedDate = date ?? DateTime.now();
+    final resolvedDate = date ?? AppClock.now();
     final resolvedId = id ?? _generateLogId();
 
     return CycleLog(

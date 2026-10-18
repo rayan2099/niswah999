@@ -31,9 +31,10 @@ class CycleCalendar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final monthStart = DateTime(month.year, month.month);
-    final gridStart = monthStart.subtract(
-      Duration(days: monthStart.weekday % 7),
-    );
+    // Calendar-day arithmetic, never `Duration(days:)`: local midnights
+    // are 23/25 hours apart across a DST change, which shifted every cell
+    // after it by a day (a duplicated day, the month's last day missing).
+    final gridStart = addCalendarDays(monthStart, -(monthStart.weekday % 7));
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final dayCount = (((monthStart.weekday % 7) + daysInMonth) / 7).ceil() * 7;
     return Container(
@@ -135,7 +136,7 @@ class CycleCalendar extends StatelessWidget {
               crossAxisSpacing: 3,
             ),
             itemBuilder: (context, index) {
-              final date = gridStart.add(Duration(days: index));
+              final date = addCalendarDays(gridStart, index);
               final log = logs
                   .where((entry) => DateUtils.isSameDay(entry.date, date))
                   .firstOrNull;
@@ -219,13 +220,15 @@ class CycleCalendar extends StatelessWidget {
     if (log != null) {
       return log.flow == FlowLevel.none ? _DayMarker.tahara : _DayMarker.haid;
     }
+    // A day with no entry is "No entry", never "Tahara": purity is a
+    // ruling drawn from a logged no-bleeding day, not from absent data.
     final cycleLength = summary.predictedCycleLength;
     final periodLength = summary.averagePeriodLength;
     if (cycleLength == null || periodLength == null) {
-      return _DayMarker.tahara;
+      return _DayMarker.none;
     }
     final start = summary.lastCycleStart;
-    if (start == null) return _DayMarker.tahara;
+    if (start == null) return _DayMarker.none;
     if (calendarDaysBetween(start, date) < 0) return _DayMarker.none;
     // "Expected Haid" repeats forward from the next predicted start only —
     // never on days already past (that would draw a prediction over a late

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../madhhab_resolution/presentation/madhhab_resolution_screen.dart';
 import '../../domain/entities/cycle_log.dart';
@@ -63,7 +64,9 @@ Future<void> showCycleLogSheet(
       viewModel: viewModel,
       existingLog: existingLog,
       mode: mode,
-      date: date ?? DateTime.now(),
+      // The app's clock (the one every screen's "today" reads), so a
+      // new entry lands on the same day those screens show.
+      date: date ?? AppClock.now(),
       initialFlow: initialFlow,
     ),
   );

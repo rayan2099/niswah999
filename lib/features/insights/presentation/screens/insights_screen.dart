@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
@@ -264,9 +265,7 @@ class _PredictionCard extends StatelessWidget {
         : predictionBasisNote(summary.predictionBasis, isArabic: isArabic);
     final daysUntil = nextPeriod == null
         ? null
-        : DateUtils.dateOnly(nextPeriod)
-              .difference(DateUtils.dateOnly(AppClock.now()))
-              .inDays;
+        : calendarDaysBetween(AppClock.now(), nextPeriod);
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(

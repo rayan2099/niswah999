@@ -443,14 +443,20 @@ class FiqhReportPdfBuilder {
             children: [
               _statColumn(
                 isArabic ? 'متوسط طول الدورة' : 'Avg. cycle length',
-                isArabic
+                insights.averageCycleLengthDays == null
+                    ? '—'
+                    : isArabic
                     ? '${insights.averageCycleLengthDays} يوماً'
                     : '${insights.averageCycleLengthDays} days',
                 semiBold,
               ),
               _statColumn(
                 isArabic ? 'متوسط مدة الحيض' : 'Avg. haid duration',
-                isArabic
+                // A missing average (e.g. history known only from
+                // onboarding dates) prints as "—", never "null days".
+                insights.averageHaidDurationDays == null
+                    ? '—'
+                    : isArabic
                     ? '${insights.averageHaidDurationDays} أيام'
                     : '${insights.averageHaidDurationDays} days',
                 semiBold,

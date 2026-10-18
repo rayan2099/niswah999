@@ -253,6 +253,17 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [profile_en_390x844.png](../../test/goldens/profile_en_390x844.png)
 - [today_lower_ar_390x844.png](../../test/goldens/today_lower_ar_390x844.png)
 
+## test/screens_hardening
+
+- [bleeding_entry_routing_test.dart](../../test/screens_hardening/bleeding_entry_routing_test.dart)
+- [calendar_dst_and_empty_test.dart](../../test/screens_hardening/calendar_dst_and_empty_test.dart)
+- [dashboard_late_period_ring_test.dart](../../test/screens_hardening/dashboard_late_period_ring_test.dart)
+- [dashboard_stale_summary_after_midnight_test.dart](../../test/screens_hardening/dashboard_stale_summary_after_midnight_test.dart)
+- [dst_day_counts_test.dart](../../test/screens_hardening/dst_day_counts_test.dart)
+- [husband_report_expected_end_test.dart](../../test/screens_hardening/husband_report_expected_end_test.dart)
+- [next_period_cross_screen_test.dart](../../test/screens_hardening/next_period_cross_screen_test.dart)
+- [report_null_average_test.dart](../../test/screens_hardening/report_null_average_test.dart)
+
 ## test/services
 
 - [auth_controller_test.dart](../../test/services/auth_controller_test.dart)
