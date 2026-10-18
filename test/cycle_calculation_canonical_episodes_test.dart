@@ -336,6 +336,30 @@ void main() {
       expect(result.averagePeriodLength, 5);
     });
 
+    test('a first known flow several days into a canonical period is not a second start', () {
+      final result = service.calculate(
+        [
+          CycleLog(
+            id: 'first-known-flow',
+            userId: 'u',
+            date: DateTime(2026, 7, 4),
+            flow: FlowLevel.light,
+            cycleDay: 4,
+          ),
+        ],
+        asOf: today,
+        canonicalEpisodes: [
+          CanonicalEpisodeTiming(
+            startDate: DateTime(2026, 7, 1),
+            endDate: DateTime(2026, 7, 6),
+          ),
+        ],
+      );
+      expect(result.haidStarts, [DateTime(2026, 7, 1)]);
+      expect(result.cycleLengths, isEmpty);
+      expect(result.averagePeriodLength, 5);
+    });
+
     test('supplying no canonical episodes changes nothing (default)', () {
       final without = service.calculate([startLog(today)], asOf: today);
       final withEmpty = service.calculate(
