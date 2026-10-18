@@ -11,3 +11,5 @@ Existing tasks remain in [master findings](../production-readiness-results/maste
 [Prediction accuracy program — independent validation pending](work-items/Prediction-Accuracy-Program.md)
 
 [Project home](Home.md)
+
+- [Period-tracking integrity review — 2026-10-18](../docs/period-tracking-integrity-review-2026-10-18.md): timing merge and civil-date defects fixed; core checks passed; release-device journeys pending.

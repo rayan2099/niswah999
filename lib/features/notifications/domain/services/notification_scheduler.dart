@@ -371,7 +371,7 @@ class ActiveBleedingReminderScheduler {
     for (var offset = 0; offset < daysAhead; offset++) {
       // E6 — only today's own obligation can actually be known yet.
       if (offset == 0 && todaysObservationCount > 0) continue;
-      final localDay = today.add(Duration(days: offset));
+      final localDay = addCalendarDays(today, offset);
       final plan = _planForDay(
         userId: episode.userId,
         episodeId: episodeId,
@@ -405,7 +405,7 @@ class ActiveBleedingReminderScheduler {
     (offset) => reminderId(
       userId: userId,
       episodeId: episodeId,
-      localDay: today.add(Duration(days: offset)),
+      localDay: addCalendarDays(today, offset),
     ),
   );
 

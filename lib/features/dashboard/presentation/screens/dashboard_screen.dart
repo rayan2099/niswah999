@@ -3169,11 +3169,7 @@ class _MissedCheckinBannerState extends State<_MissedCheckinBanner> {
       }
     }
 
-    final firstMissingDay = DateTime(
-      mostRecentCovered.year,
-      mostRecentCovered.month,
-      mostRecentCovered.day,
-    ).add(const Duration(days: 1));
+    final firstMissingDay = addCalendarDays(mostRecentCovered, 1);
 
     // A gap exists only if that first missing day is strictly before
     // today — today itself not yet having a check-in is not "missed" (an

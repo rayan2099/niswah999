@@ -34,6 +34,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
 - [parity-checklist.md](../../docs/parity-checklist.md)
 - [period-prediction-validation.md](../../docs/period-prediction-validation.md)
+- [period-tracking-integrity-review-2026-10-18.md](../../docs/period-tracking-integrity-review-2026-10-18.md)
 - [prediction-accuracy-program.md](../../docs/prediction-accuracy-program.md)
 - [prediction-history-review.md](../../docs/prediction-history-review.md)
 - [prediction-validation-review-brief.md](../../docs/prediction-validation-review-brief.md)

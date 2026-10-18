@@ -6,6 +6,33 @@ void main() {
   const planner = CycleSegmentPlanner();
   final cycleStart = DateTime(2026, 1, 1);
 
+  for (final start in [DateTime(2026, 3, 1), DateTime(2026, 10, 25)]) {
+    test('ring segments use civil days across clock changes from $start', () {
+      CycleSegmentPlan build(bool utc) {
+        DateTime day(int offset) => utc
+            ? DateTime.utc(start.year, start.month, start.day + offset)
+            : DateTime(start.year, start.month, start.day + offset);
+        return planner.plan(
+          cycleLength: 28,
+          periodLength: 5,
+          fertileWindow: FertileWindow(
+            start: day(9),
+            end: day(15),
+            peakDay: day(12),
+          ),
+          cycleStart: day(0),
+          isBleedingNow: false,
+          cycleDayEstimate: 17,
+        );
+      }
+
+      final local = build(false);
+      final utc = build(true);
+      expect(local, utc);
+      expect(local.totalDays, 28);
+    });
+  }
+
   test(
     'reproduces the reference design\'s exact segment durations '
     '(5/4/7/8/3/1, summing to a 28-day cycle)',

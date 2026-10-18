@@ -10,6 +10,7 @@ import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/ttc_mode_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_day.dart';
 import '../../domain/entities/cycle_log.dart';
 import '../../domain/services/cycle_calculation_service.dart';
 import '../viewmodels/cycle_tracking_view_model.dart';
@@ -63,7 +64,7 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
       final summary = _viewModel.summary;
       final calculation = _viewModel.cycleCalculation;
       final summaryRange = _selectedSummaryRange;
-      final rangeEndExclusive = summaryRange.end.add(const Duration(days: 1));
+      final rangeEndExclusive = addCalendarDays(summaryRange.end, 1);
       final monthCalculation = const CycleCalculationService().calculate(
         _viewModel.logs
             .where((log) => log.date.isBefore(rangeEndExclusive))
@@ -223,11 +224,10 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
           final start = gregorianDateFromHijri(hijriYear, 1, 1);
           return DateTimeRange(
             start: start,
-            end: gregorianDateFromHijri(
-              hijriYear + 1,
-              1,
-              1,
-            ).subtract(const Duration(days: 1)),
+            end: addCalendarDays(
+              gregorianDateFromHijri(hijriYear + 1, 1, 1),
+              -1,
+            ),
           );
         }
         return DateTimeRange(
@@ -534,7 +534,7 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
   void _applyPreset(int days) {
     setState(() {
       _end = widget.lastDate;
-      final candidate = _end.subtract(Duration(days: days - 1));
+      final candidate = addCalendarDays(_end, 1 - days);
       _start = candidate.isBefore(widget.firstDate)
           ? widget.firstDate
           : candidate;
@@ -1249,7 +1249,7 @@ class _MonthSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rangeEndExclusive = range.end.add(const Duration(days: 1));
+    final rangeEndExclusive = addCalendarDays(range.end, 1);
     final monthLogs = logs.where(
       (log) =>
           !log.date.isBefore(range.start) &&

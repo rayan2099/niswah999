@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_day.dart';
 import '../entities/cycle_log.dart';
 
 enum CycleSegmentId { haid, tahara1, fertile, tahara2, prePeriod, expected }
@@ -73,8 +74,9 @@ class CycleSegmentPlanner {
     required bool isBleedingNow,
     required int? cycleDayEstimate,
   }) {
-    int dayOffset(DateTime? date) =>
-        date == null ? periodLength : date.difference(cycleStart).inDays + 1;
+    int dayOffset(DateTime? date) => date == null
+        ? periodLength
+        : calendarDayDifference(date, cycleStart) + 1;
 
     var fertileStartOffset = dayOffset(fertileWindow.start);
     var fertileEndOffset = dayOffset(fertileWindow.end);

@@ -179,11 +179,11 @@ class CycleCalculationService {
     return calendarDayDifference(date, starts.last) + 1;
   }
 
-  ({List<DateTime> starts, List<int> periodLengths}) _detectEpisodes(
+  ({List<DateTime> starts, Map<DateTime, int> lengthsByStart}) _detectEpisodes(
     List<CycleLog> sortedLogs,
   ) {
     final starts = <DateTime>[];
-    final periodLengths = <int>[];
+    final lengthsByStart = <DateTime, int>{};
     FlowLevel? previousFlow;
     DateTime? currentEpisodeStart;
 
@@ -218,79 +218,75 @@ class CycleCalculationService {
           previousFlow != FlowLevel.none &&
           currentEpisodeStart != null) {
         final length = calendarDayDifference(date, currentEpisodeStart);
-        if (length > 0) periodLengths.add(length);
+        if (length > 0) lengthsByStart[currentEpisodeStart] = length;
         currentEpisodeStart = null;
       }
       previousFlow = log.flow;
     }
 
-    return (starts: starts, periodLengths: periodLengths);
+    return (starts: starts, lengthsByStart: lengthsByStart);
   }
 
-  /// Merges canonical episode start dates into the starts detected from
-  /// flat logs. A canonical start within 1 day of an already-detected
-  /// start is the SAME episode (the flat-log rule above: no real cycle
-  /// starts 0-1 days after the last one) and is dropped — so an episode
-  /// that was also projected into `cycle_entries` is never counted twice.
-  /// A canonical ended episode contributes its length only when it
-  /// survived as a distinct start (log-derived pairing already covers the
-  /// rest), so no period is averaged twice.
-  ({List<DateTime> starts, List<int> periodLengths}) _mergeCanonical(
-    ({List<DateTime> starts, List<int> periodLengths}) fromLogs,
+  /// Merge timing facts without counting an episode twice. Preserve the
+  /// existing log-start preference within one day, and prefer its paired
+  /// duration when available. A partial log must not erase a duration
+  /// explicitly supplied by canonical timing. Keep each duration attached
+  /// to its episode so replacing a duplicate cannot remove another
+  /// episode's equal-length measurement.
+  ({List<DateTime> starts, Map<DateTime, int> lengthsByStart}) _mergeCanonical(
+    ({List<DateTime> starts, Map<DateTime, int> lengthsByStart}) fromLogs,
     List<CanonicalEpisodeTiming> canonical,
   ) {
     if (canonical.isEmpty) return fromLogs;
     final candidates =
-        <({DateTime date, bool fromCanonical, DateTime? end})>[
+        <({DateTime date, bool fromCanonical, int? length})>[
           for (final start in fromLogs.starts)
-            (date: start, fromCanonical: false, end: null),
+            (
+              date: start,
+              fromCanonical: false,
+              length: fromLogs.lengthsByStart[start],
+            ),
           for (final episode in canonical)
             (
               date: _dateOnly(episode.startDate),
               fromCanonical: true,
-              end: episode.endDate == null ? null : _dateOnly(episode.endDate!),
+              length: episode.endDate == null
+                  ? null
+                  : calendarDayDifference(episode.endDate!, episode.startDate),
             ),
         ]..sort((a, b) {
           final byDate = a.date.compareTo(b.date);
           if (byDate != 0) return byDate;
-          // Same day: prefer the log-derived start (it carries the
-          // richer, already-paired period length).
           return (a.fromCanonical ? 1 : 0) - (b.fromCanonical ? 1 : 0);
         });
 
     final starts = <DateTime>[];
-    final periodLengths = [...fromLogs.periodLengths];
-    // Length this loop added for the most recently kept CANONICAL start,
-    // so it can be withdrawn if a log-derived start for the same episode
-    // (within 1 day, and sorted just after it) replaces it.
-    int? lastCanonicalLength;
+    final lengthsByStart = <DateTime, int>{};
     var lastKeptWasCanonical = false;
     for (final candidate in candidates) {
+      final length = candidate.length;
+      final usableLength = length != null && length > 0 ? length : null;
       if (starts.isNotEmpty &&
           calendarDayDifference(candidate.date, starts.last) <= 1) {
         if (lastKeptWasCanonical && !candidate.fromCanonical) {
-          // Same episode; the log-derived start is authoritative for it.
+          final previousLength = lengthsByStart.remove(starts.last);
           starts[starts.length - 1] = candidate.date;
-          if (lastCanonicalLength != null) {
-            periodLengths.remove(lastCanonicalLength);
+          final retainedLength = usableLength ?? previousLength;
+          if (retainedLength != null) {
+            lengthsByStart[candidate.date] = retainedLength;
           }
           lastKeptWasCanonical = false;
-          lastCanonicalLength = null;
+        } else if (!lengthsByStart.containsKey(starts.last) &&
+            usableLength != null) {
+          lengthsByStart[starts.last] = usableLength;
         }
         continue;
       }
       starts.add(candidate.date);
       lastKeptWasCanonical = candidate.fromCanonical;
-      lastCanonicalLength = null;
-      if (candidate.fromCanonical && candidate.end != null) {
-        final length = calendarDayDifference(candidate.end!, candidate.date);
-        if (length > 0) {
-          periodLengths.add(length);
-          lastCanonicalLength = length;
-        }
-      }
+      if (usableLength != null) lengthsByStart[candidate.date] = usableLength;
     }
-    return (starts: starts, periodLengths: periodLengths);
+    return (starts: starts, lengthsByStart: lengthsByStart);
   }
 
   CycleCalculationResult calculate(
@@ -305,12 +301,13 @@ class CycleCalculationService {
     final episodes = _mergeCanonical(
       _detectEpisodes(sorted),
       canonicalEpisodes
-          .where((episode) => !episode.startDate.isAfter(today))
+          .where((episode) => !_dateOnly(episode.startDate).isAfter(today))
           .map(
             (episode) => CanonicalEpisodeTiming(
               startDate: episode.startDate,
               endDate:
-                  episode.endDate != null && episode.endDate!.isAfter(today)
+                  episode.endDate != null &&
+                      _dateOnly(episode.endDate!).isAfter(today)
                   ? null
                   : episode.endDate,
             ),
@@ -318,7 +315,7 @@ class CycleCalculationService {
           .toList(),
     );
     final starts = episodes.starts;
-    final periodLengths = episodes.periodLengths;
+    final periodLengths = episodes.lengthsByStart.values.toList();
 
     final averagePeriodLength = periodLengths.isEmpty
         ? null

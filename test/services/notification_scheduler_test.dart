@@ -232,6 +232,55 @@ void main() {
           : null,
     );
 
+    for (final today in [DateTime(2026, 10, 31), DateTime(2027, 3, 13)]) {
+      test(
+        'rolling check-ins schedule and cancel four distinct civil days from $today',
+        () {
+          final expectedDays = [
+            for (var offset = 0; offset < 4; offset++)
+              DateTime(today.year, today.month, today.day + offset),
+          ];
+          final plans =
+              ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+                episode: openEpisode(),
+                todaysObservationCount: 0,
+                now: DateTime(today.year, today.month, today.day, 8),
+                leadHour: 18,
+                leadMinute: 0,
+                daysAhead: 4,
+              );
+          expect(plans, hasLength(4));
+          expect(
+            plans.map(
+              (p) => DateTime(p.fireAt.year, p.fireAt.month, p.fireAt.day),
+            ),
+            expectedDays,
+          );
+          expect(plans.map((p) => p.id).toSet(), hasLength(4));
+          final ids = ActiveBleedingReminderScheduler.rollingWindowReminderIds(
+            userId: 'user-1',
+            episodeId: 'episode-1',
+            today: today,
+            daysAhead: 4,
+          );
+          final expectedIds = [
+            for (final day in expectedDays)
+              ActiveBleedingReminderScheduler.reminderId(
+                userId: 'user-1',
+                episodeId: 'episode-1',
+                localDay: day,
+              ),
+          ];
+          expect(ids, expectedIds);
+          expect(ids, plans.map((p) => p.id));
+          expect(
+            plans.every((p) => p.fireAt.hour == 18 && p.fireAt.minute == 0),
+            isTrue,
+          );
+        },
+      );
+    }
+
     group('isEligible (E1)', () {
       test('an open, confirmed episode is eligible', () {
         expect(
