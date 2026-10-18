@@ -91,6 +91,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## lib/core/utils
 
 - [app_clock.dart](../../lib/core/utils/app_clock.dart)
+- [calendar_days.dart](../../lib/core/utils/calendar_days.dart)
 - [db_timestamp.dart](../../lib/core/utils/db_timestamp.dart)
 - [device_timezone.dart](../../lib/core/utils/device_timezone.dart)
 

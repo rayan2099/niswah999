@@ -59,6 +59,8 @@ class NotificationRefreshCoordinator {
     PregnancyProfileRepository? pregnancyRepository,
     NotificationRepositoryImpl? preferenceRepository,
     BleedingEpisodeRepositoryImpl? bleedingRepository,
+    Future<List<CanonicalEpisodeTiming>> Function(String userId)?
+    cycleHistoryLoader,
   }) async {
     // New critical finding (notification cancellation closure, Finding 3)
     // — every call site that recomputes/reschedules must trust a *fresh*
@@ -85,7 +87,9 @@ class NotificationRefreshCoordinator {
 
     await _refreshCycle(
       preferences: preferences,
+      userId: userId,
       cycleRepository: cycleRepository ?? CycleTrackingRepositoryImpl(),
+      cycleHistoryLoader: cycleHistoryLoader ?? _loadCycleHistory,
       now: now,
     );
     await _refreshPregnancyAndNifas(
@@ -400,9 +404,31 @@ class NotificationRefreshCoordinator {
     );
   }
 
+  /// Canonical episode timing for the cycle reminder. Its own repository
+  /// instance, so the active-bleeding reconciliation's repository is never
+  /// asked for a `getEpisodesForUser` read on its behalf. A failed read
+  /// falls back to logs only, exactly as before this history was used.
+  static Future<List<CanonicalEpisodeTiming>> _loadCycleHistory(
+    String userId,
+  ) async {
+    final result = await BleedingEpisodeRepositoryImpl().getEpisodesForUser(
+      userId,
+    );
+    return [
+      for (final episode in result.dataOrNull ?? const <BleedingEpisode>[])
+        CanonicalEpisodeTiming(
+          startDate: episode.startDate,
+          endDate: episode.endDate,
+        ),
+    ];
+  }
+
   static Future<void> _refreshCycle({
     required Map<NotificationType, NotificationPreference> preferences,
+    required String? userId,
     required CycleTrackingRepositoryImpl cycleRepository,
+    required Future<List<CanonicalEpisodeTiming>> Function(String userId)
+    cycleHistoryLoader,
     required DateTime now,
   }) async {
     final enabled = preferences[NotificationType.cycle]?.enabled ?? false;
@@ -414,9 +440,16 @@ class NotificationRefreshCoordinator {
     }
 
     final logs = await cycleRepository.getCycleLogs(limit: 1000);
+    // The same canonical episode history (e.g. periods reported during
+    // onboarding) the dashboard predicts from — without it the reminder
+    // could be missing, or land on a different date than the app shows.
+    final canonicalEpisodes = userId == null || userId == 'local-user'
+        ? const <CanonicalEpisodeTiming>[]
+        : await cycleHistoryLoader(userId);
     final calculation = const CycleCalculationService().calculate(
       logs,
       asOf: now,
+      canonicalEpisodes: canonicalEpisodes,
     );
     final plan = NotificationScheduler.planCycleReminder(
       calculation: calculation,

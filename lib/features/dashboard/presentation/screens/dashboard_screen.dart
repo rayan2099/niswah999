@@ -2577,7 +2577,10 @@ class _CycleOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cycleLength = summary.averageCycleLength!;
+    // The ring is laid out on the same predicted cycle the fertile window
+    // and next-period date come from, so its segments agree with them.
+    final cycleLength =
+        summary.predictedCycleLength ?? summary.averageCycleLength!;
     // When the real average isn't known yet, fall back to the real elapsed
     // days of the current episode (not a guess at the eventual total) —
     // without this, the outer ring draws the Haid zone as a literal

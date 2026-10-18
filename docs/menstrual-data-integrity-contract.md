@@ -254,7 +254,7 @@ isn't.
 | `USER_REPORTED_HISTORICAL` | Reported after the fact (backfill, onboarding, correction) | `bleeding_episodes`/`bleeding_observations.source = 'user_reported_historical'` — onboarding writes this today |
 | `USER_REPORTED_ESTIMATE` | A stated usual duration/cycle length | `cycle_baselines` — never observed history, one row per user, always replaceable |
 | `CALCULATED` | Derived from confirmed episodes (cycle length, day-of-cycle) | `CycleCalculationService` |
-| `PREDICTED` | A forward projection (next period, fertile window) | `CycleTrackingController.predictNextPeriodStart`, gated by `hasSufficientHistory`/`hasPlausibleAverage` |
+| `PREDICTED` | A forward projection (next period, fertile window) | `CycleTrackingController.summarizeHistory`, built from `CycleCalculationResult.predictedCycleLength` and gated by `canPredict`; see [cycle prediction model](cycle-prediction-model.md) |
 | `FIQH_DERIVED` | A Madhhab-specific ruling on top of a raw duration | `MadhhabRuleEvaluator` output (`FiqhCycleState`) |
 | `UNKNOWN/UNOBSERVED` | No data, and that absence is itself meaningful | A `null`/`uncertain` value — never backfilled with a guess |
 
@@ -727,7 +727,10 @@ which:
   save.
 
 A bounded, disclosed forward projection (2+ real completed episodes,
-plausible 15-90 day gap) marks predicted days, and explicitly never
+the shared predicted cycle length from
+[cycle prediction model](cycle-prediction-model.md)) marks predicted
+days only from today onward, never on days a late period has already
+passed, and explicitly never
 projects across an already-open episode's own real data — the
 "fabricate bleeding between two reported observations" failure mode
 this charter prohibits.

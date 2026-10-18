@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_days.dart';
 import '../../../cycle_tracking/domain/controllers/cycle_tracking_controller.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
@@ -98,7 +99,7 @@ class HusbandReportInsightsEngine {
       fertilePeakDay = summary.fertileWindow.peakDay;
 
       final cycleStart = summary.lastCycleStart;
-      final cycleLength = summary.averageCycleLength;
+      final cycleLength = summary.predictedCycleLength;
       final periodLength = summary.averagePeriodLength;
       // Fiqh Remediation Wave 1 (Section E): `isBleedingNow` below is
       // fiqh-derived (`FiqhCycleState.haid`) — if the madhhab is
@@ -113,7 +114,7 @@ class HusbandReportInsightsEngine {
           periodLength != null &&
           summary.hasPlausibleAverage &&
           fiqh.cycleState != FiqhCycleState.madhhabUnresolved) {
-        final cycleDayEstimate = now.difference(cycleStart).inDays + 1;
+        final cycleDayEstimate = calendarDaysBetween(cycleStart, now) + 1;
         segmentPlan = const CycleSegmentPlanner().plan(
           cycleLength: cycleLength,
           periodLength: periodLength,

@@ -24,6 +24,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
+- [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
@@ -136,6 +137,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [bleeding_episode_entity_test.dart](../../test/bleeding_episode_entity_test.dart)
 - [bleeding_episode_repository_test.dart](../../test/bleeding_episode_repository_test.dart)
 - [bleeding_reconcile_signal_test.dart](../../test/bleeding_reconcile_signal_test.dart)
+- [calendar_days_test.dart](../../test/calendar_days_test.dart)
 - [calendar_legend_live_language_switch_test.dart](../../test/calendar_legend_live_language_switch_test.dart)
 - [canonical_bleeding_status_resolver_test.dart](../../test/canonical_bleeding_status_resolver_test.dart)
 - [canonical_calendar_screen_test.dart](../../test/canonical_calendar_screen_test.dart)

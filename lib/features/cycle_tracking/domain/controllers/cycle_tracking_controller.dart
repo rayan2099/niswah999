@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../entities/cycle_log.dart';
 import '../services/cycle_calculation_service.dart';
 
@@ -9,73 +12,82 @@ class CycleTrackingController {
 
   final CycleCalculationService _calculationService;
 
+  /// Standard luteal phase: ovulation is about 14 days before the next
+  /// period, whatever the cycle length.
+  static const lutealPhaseDays = 14;
+
+  /// Ovulation is not predicted for cycles shorter or longer than this —
+  /// a fixed luteal phase says little about cycles outside it.
+  static const minOvulationCycleDays = 21;
+  static const maxOvulationCycleDays = 60;
+
+  /// Upper bound on the late-period tolerance window, so a very irregular
+  /// history cannot hide a real delay for weeks.
+  static const maxLateToleranceDays = 10;
+
+  /// Phase of [date] in a cycle that began on [cycleStart], using the same
+  /// ovulation and fertile-window rule as [calculateFertileWindow]:
+  /// menstrual for the period's days, ovulation across the fertile window,
+  /// follicular before it and luteal after it.
   CyclePhase calculatePhase({
     required DateTime date,
     required DateTime cycleStart,
     required int averageCycleLength,
+    int periodLength = 5,
   }) {
-    final daysSinceStart = date.difference(cycleStart).inDays;
-    if (daysSinceStart < 0) {
+    final dayIndex = calendarDaysBetween(cycleStart, date);
+    if (dayIndex < 0) {
       return CyclePhase.follicular;
     }
-
-    final cycleLength = averageCycleLength;
-    final menstrualWindowEnd = (cycleLength * 0.2).round();
-    final ovulationWindowStart = (cycleLength * 0.5).round();
-    final ovulationWindowEnd = (cycleLength * 0.6).round();
-
-    if (daysSinceStart < menstrualWindowEnd) {
+    if (dayIndex < periodLength) {
       return CyclePhase.menstrual;
     }
 
-    if (daysSinceStart >= ovulationWindowStart &&
-        daysSinceStart <= ovulationWindowEnd) {
+    final ovulationIndex = averageCycleLength - lutealPhaseDays;
+    if (dayIndex >= ovulationIndex - 5 && dayIndex <= ovulationIndex + 1) {
       return CyclePhase.ovulation;
     }
-
-    if (daysSinceStart < cycleLength * 0.75) {
-      return CyclePhase.follicular;
-    }
-
-    return CyclePhase.luteal;
+    return dayIndex < ovulationIndex
+        ? CyclePhase.follicular
+        : CyclePhase.luteal;
   }
 
-  /// Projects [cycleStart] forward by whole cycle lengths until the result
-  /// is no longer in the past relative to [now] — a naive single addition
-  /// silently lands in the past the moment a period is even one day late,
-  /// which is exactly the bug this guards against. A projection landing
-  /// exactly on [now] is left alone: being due *today* is correct, not
-  /// overdue.
+  /// Expected start of the period that ends the cycle begun on
+  /// [cycleStart]. Pure calendar arithmetic: never rolled forward when the
+  /// date has passed — a late period is reported as late by
+  /// [summarizeHistory], not silently replaced by next month's date.
   DateTime predictNextPeriodStart({
     required DateTime cycleStart,
     required int averageCycleLength,
-    required DateTime now,
-  }) {
-    var next = cycleStart.add(Duration(days: averageCycleLength));
-    while (next.isBefore(now)) {
-      next = next.add(Duration(days: averageCycleLength));
-    }
-    return next;
-  }
+  }) => addCalendarDays(cycleStart, averageCycleLength);
 
-  /// Standard "luteal phase = 14 days" heuristic: ovulation is estimated
-  /// 14 days before the *next* predicted period, not the midpoint of the
-  /// current cycle — matches the reference web app's predictOvulation.
+  /// Days a period may run past its expected date before it is called
+  /// late — wider for cycles that vary more (Flo-style probability window).
+  static int lateToleranceDays(double spreadDays) =>
+      math.min(maxLateToleranceDays, (1.5 * spreadDays).ceil());
+
+  /// Fertile window for the cycle begun on [cycleStart]: ovulation 14
+  /// days before the expected next period, and the window from 5 days
+  /// before ovulation to 1 day after. When the cycles vary by more than 2
+  /// days ([spreadDays]), the window widens on both sides by up to 3 days
+  /// so the uncertainty is shown rather than hidden. Empty when the cycle
+  /// is too short or long for the luteal-phase rule.
   FertileWindow calculateFertileWindow({
     required DateTime cycleStart,
     required int averageCycleLength,
-    required DateTime now,
+    double spreadDays = 0,
   }) {
-    final predictedNextPeriodStart = predictNextPeriodStart(
-      cycleStart: cycleStart,
-      averageCycleLength: averageCycleLength,
-      now: now,
+    if (averageCycleLength < minOvulationCycleDays ||
+        averageCycleLength > maxOvulationCycleDays) {
+      return const FertileWindow(start: null, end: null, peakDay: null);
+    }
+    final ovulationDay = addCalendarDays(
+      cycleStart,
+      averageCycleLength - lutealPhaseDays,
     );
-    final ovulationDay = predictedNextPeriodStart.subtract(
-      const Duration(days: 14),
-    );
-    final start = ovulationDay.subtract(const Duration(days: 5));
-    final end = ovulationDay.add(const Duration(days: 1));
+    final widen = spreadDays <= 2 ? 0 : math.min(3, spreadDays.ceil());
+    final start = addCalendarDays(ovulationDay, -5 - widen);
+    final end = addCalendarDays(ovulationDay, 1 + widen);
 
     return FertileWindow(start: start, end: end, peakDay: ovulationDay);
   }
@@ -96,40 +108,56 @@ class CycleTrackingController {
     DateTime? now,
     List<CanonicalEpisodeTiming> canonicalEpisodes = const [],
   }) {
-    final effectiveNow = now ?? AppClock.now();
+    final today = calendarDay(now ?? AppClock.now());
     final calculation = _calculationService.calculate(
       logs,
-      asOf: effectiveNow,
+      asOf: today,
       canonicalEpisodes: canonicalEpisodes,
     );
     final lastCycleStart = calculation.lastHaidStart;
     final averageCycleLength = calculation.averageCycleLength;
     final averagePeriodLength = calculation.averagePeriodLength;
-    // Forward projections (next period, fertile window) additionally
-    // require a *plausible* average — never predict from a degenerate
-    // interval like a 2-day "cycle length" just because the arithmetic
-    // technically produced a number.
-    final canProject =
-        lastCycleStart != null && calculation.hasPlausibleAverage;
-    final currentPhase = canProject
-        ? calculatePhase(
-            date: effectiveNow,
-            cycleStart: lastCycleStart,
-            averageCycleLength: averageCycleLength!,
-          )
-        : CyclePhase.follicular;
-    final nextPeriodStart = canProject
-        ? predictNextPeriodStart(
-            cycleStart: lastCycleStart,
-            averageCycleLength: averageCycleLength!,
-            now: effectiveNow,
-          )
+    final predictedLength = calculation.predictedCycleLength;
+    // Forward projections (next period, fertile window) require a
+    // predictable cycle length — never predict from a degenerate interval
+    // like a 2-day "cycle length", or from a gap that is really a missed
+    // log, just because the arithmetic technically produced a number.
+    if (!calculation.canPredict) {
+      return CycleTrackingSummary(
+        averageCycleLength: averageCycleLength,
+        averagePeriodLength: averagePeriodLength,
+        lastCycleStart: lastCycleStart,
+        currentPhase: CyclePhase.follicular,
+        fertileWindow: const FertileWindow(
+          start: null,
+          end: null,
+          peakDay: null,
+        ),
+        hasPlausibleAverage: false,
+      );
+    }
+
+    final cycleStart = lastCycleStart!;
+    final expected = predictNextPeriodStart(
+      cycleStart: cycleStart,
+      averageCycleLength: predictedLength!,
+    );
+    final daysLate = math.max(0, calendarDaysBetween(expected, today));
+    final tolerance = lateToleranceDays(calculation.predictionSpreadDays!);
+    // On time: the expected date. Late but inside the tolerance window:
+    // "today" — it can start any day now, and a date in the past is never
+    // shown as "next". Past the window: no date at all; [daysLate] says
+    // how late it is and nothing further is predicted until she logs.
+    final DateTime? nextPeriodStart = daysLate == 0
+        ? expected
+        : daysLate <= tolerance
+        ? today
         : null;
-    final fertileWindow = canProject
+    final fertileWindow = daysLate == 0
         ? calculateFertileWindow(
-            cycleStart: lastCycleStart,
-            averageCycleLength: averageCycleLength!,
-            now: effectiveNow,
+            cycleStart: cycleStart,
+            averageCycleLength: predictedLength,
+            spreadDays: calculation.predictionSpreadDays!,
           )
         : const FertileWindow(start: null, end: null, peakDay: null);
 
@@ -137,10 +165,17 @@ class CycleTrackingController {
       averageCycleLength: averageCycleLength,
       averagePeriodLength: averagePeriodLength,
       lastCycleStart: lastCycleStart,
-      currentPhase: currentPhase,
+      currentPhase: calculatePhase(
+        date: today,
+        cycleStart: cycleStart,
+        averageCycleLength: predictedLength,
+        periodLength: averagePeriodLength ?? 5,
+      ),
       fertileWindow: fertileWindow,
       nextPeriodStart: nextPeriodStart,
-      hasPlausibleAverage: calculation.hasPlausibleAverage,
+      hasPlausibleAverage: true,
+      predictedCycleLength: predictedLength,
+      daysLate: daysLate,
     );
   }
 

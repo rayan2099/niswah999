@@ -255,6 +255,61 @@ void main() {
     },
   );
 
+  test(
+    'cycle lengths are whole calendar days across a daylight-saving change '
+    '(run with TZ=Europe/London or America/New_York to exercise it)',
+    () {
+      final result = service.calculate([
+        start('feb', DateTime(2026, 2, 15)),
+        start('mar', DateTime(2026, 3, 15)),
+        start('apr', DateTime(2026, 4, 12)),
+        start('may', DateTime(2026, 5, 10)),
+      ], asOf: DateTime(2026, 5, 20, 9));
+
+      expect(result.cycleLengths, [28, 28, 28]);
+      expect(result.currentCycleDay, 11);
+    },
+  );
+
+  group('predictedCycleLength', () {
+    test('drops a gap that is really an unlogged period', () {
+      final result = service.calculate([
+        start('a', DateTime(2026, 6, 11)),
+        start('b', DateTime(2026, 7, 9)),
+        start('c', DateTime(2026, 8, 6)),
+        start('d', DateTime(2026, 10, 1)),
+      ], asOf: DateTime(2026, 10, 10));
+
+      expect(result.cycleLengths, [28, 28, 56]);
+      expect(result.averageCycleLength, 37);
+      expect(result.predictedCycleLength, 28);
+    });
+
+    test('is null when no interval is a plausible single cycle', () {
+      final result = service.calculate([
+        start('a', DateTime(2026, 1, 1)),
+        start('b', DateTime(2026, 1, 3)),
+      ], asOf: DateTime(2026, 1, 4));
+
+      expect(result.predictedCycleLength, isNull);
+      expect(result.canPredict, isFalse);
+    });
+
+    test('uses only the last six cycles', () {
+      final starts = <DateTime>[DateTime(2025, 1, 1)];
+      for (final gap in [40, 40, 40, 40, 28, 28, 28, 28, 28, 28]) {
+        final last = starts.last;
+        starts.add(DateTime(last.year, last.month, last.day + gap));
+      }
+      final result = service.calculate([
+        for (final (i, date) in starts.indexed) start('s$i', date),
+      ], asOf: starts.last);
+
+      expect(result.predictedCycleLength, 28);
+      expect(result.predictionSpreadDays, 1.5);
+    });
+  });
+
   test('regularity math is not clamped or filtered for outliers', () {
     final result = service.calculate([
       start('first', DateTime(2026, 1, 1)),

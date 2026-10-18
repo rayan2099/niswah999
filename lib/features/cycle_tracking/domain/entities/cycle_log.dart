@@ -206,6 +206,8 @@ class CycleTrackingSummary extends Equatable {
     required this.fertileWindow,
     this.nextPeriodStart,
     this.hasPlausibleAverage = false,
+    this.predictedCycleLength,
+    this.daysLate = 0,
   });
 
   final int? averageCycleLength;
@@ -214,18 +216,31 @@ class CycleTrackingSummary extends Equatable {
   final CyclePhase currentPhase;
   final FertileWindow fertileWindow;
 
-  /// Predicted start of the next period, rolled forward past [DateTime]s
-  /// that have already elapsed — never a date in the past relative to the
-  /// `now` given to [CycleTrackingController.summarizeHistory].
+  /// Predicted start of the next period — never a date in the past
+  /// relative to the `now` given to
+  /// [CycleTrackingController.summarizeHistory]. When the period is late
+  /// this is "today" while still inside the expected window, then null
+  /// once she is clearly late (see [daysLate]); it is never silently
+  /// replaced by the following month's date.
   final DateTime? nextPeriodStart;
 
-  /// Mirrors [CycleCalculationResult.hasPlausibleAverage] — [averageCycleLength]
-  /// is deliberately left ungated above (Haid/Tahara day-tallies and fiqh
-  /// classification stay valid even on a degenerate average), but any
-  /// *forward projection* built from it (an "Expected Haid" pattern drawn
-  /// on a calendar, say) must check this first or a tiny average (e.g. 2
-  /// days, from two Haid starts logged close together) repeats every
-  /// couple of days instead of producing one real block per cycle.
+  /// Cycle length every forward prediction here was built from (see
+  /// `CycleCalculationResult.predictedCycleLength`). Null when nothing is
+  /// predicted.
+  final int? predictedCycleLength;
+
+  /// Days past the expected period start with no new start logged; 0 when
+  /// not late. While > 0 the fertile window is withheld.
+  final int daysLate;
+
+  /// Whether forward predictions exist, i.e. [predictedCycleLength] is
+  /// set. [averageCycleLength] is deliberately left ungated above
+  /// (Haid/Tahara day-tallies and fiqh classification stay valid even on a
+  /// degenerate average), but any *forward projection* (an "Expected Haid"
+  /// pattern drawn on a calendar, say) must check this first and build
+  /// from [predictedCycleLength], or a tiny average (e.g. 2 days, from two
+  /// Haid starts logged close together) repeats every couple of days
+  /// instead of producing one real block per cycle.
   final bool hasPlausibleAverage;
 
   @override
@@ -237,6 +252,8 @@ class CycleTrackingSummary extends Equatable {
     fertileWindow,
     nextPeriodStart,
     hasPlausibleAverage,
+    predictedCycleLength,
+    daysLate,
   ];
 }
 

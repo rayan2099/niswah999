@@ -916,9 +916,14 @@ class _PregnancyChanceCard extends StatelessWidget {
               ),
               _ChartLabel(
                 label: _ct('NEXT CYCLE', 'الدورة القادمة'),
-                value: summary.nextPeriodStart == null
-                    ? '—'
-                    : _shortDate(summary.nextPeriodStart!),
+                value: summary.nextPeriodStart != null
+                    ? _shortDate(summary.nextPeriodStart!)
+                    : summary.daysLate > 0
+                    ? _ct(
+                        'Late ${summary.daysLate}d',
+                        'متأخرة ${summary.daysLate} يوم',
+                      )
+                    : '—',
               ),
             ],
           ),

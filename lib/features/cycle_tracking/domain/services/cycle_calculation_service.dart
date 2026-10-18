@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../entities/cycle_log.dart';
 
 enum CycleRegularity { insufficientData, irregular, regular, highlyRegular }
@@ -45,6 +48,8 @@ class CycleCalculationResult {
     required this.averageCycleLength,
     required this.cycleLengths,
     this.averagePeriodLength,
+    this.predictedCycleLength,
+    this.predictionSpreadDays,
   });
 
   final List<DateTime> haidStarts;
@@ -61,6 +66,22 @@ class CycleCalculationResult {
   /// outlier-filtered, consistent with [averageCycleLength].
   final List<int> cycleLengths;
 
+  /// Length, in days, expected for the current cycle — what every forward
+  /// prediction (next period, fertile window, reminders) is built from.
+  /// Unlike [averageCycleLength], which stays the plain factual mean, this
+  /// leaves out intervals that cannot be a single real cycle (outside
+  /// [minPlausibleCycleLengthDays]–[maxPredictableCycleLengthDays], or at
+  /// least twice the median — almost always a period that was never
+  /// logged) and weights the most recent cycles more. Null when no
+  /// interval qualifies; nothing is predicted then.
+  final int? predictedCycleLength;
+
+  /// How much the qualifying cycles vary (weighted standard deviation, in
+  /// days), with a floor so a short history never looks more certain than
+  /// it is. Drives the late-period tolerance and the fertile-window width.
+  /// Null exactly when [predictedCycleLength] is.
+  final double? predictionSpreadDays;
+
   static const int _regularityMadCeilingDays = 10;
 
   /// Below this, an "average cycle length" is medically implausible for a
@@ -68,6 +89,10 @@ class CycleCalculationResult {
   /// two Haid starts logged only a couple of days apart), not a real
   /// number worth predicting from.
   static const int minPlausibleCycleLengthDays = 15;
+
+  /// Above this, an interval is treated as missed logging rather than one
+  /// real cycle, and is left out of [predictedCycleLength].
+  static const int maxPredictableCycleLengthDays = 90;
 
   bool get hasSufficientHistory =>
       haidStarts.length >= 2 &&
@@ -85,6 +110,10 @@ class CycleCalculationResult {
   bool get hasPlausibleAverage =>
       averageCycleLength != null &&
       averageCycleLength! >= minPlausibleCycleLengthDays;
+
+  /// Whether forward predictions can be made at all — see
+  /// [predictedCycleLength].
+  bool get canPredict => lastHaidStart != null && predictedCycleLength != null;
 
   /// Whether there are enough logged cycles to compute a meaningful spread.
   /// Stricter than [hasSufficientHistory]: a single interval has no
@@ -173,7 +202,7 @@ class CycleCalculationService {
       ..sort((a, b) => a.date.compareTo(b.date));
     final starts = _detectEpisodes(sorted).starts;
     if (starts.isEmpty) return 1;
-    return _dateOnly(date).difference(starts.last).inDays + 1;
+    return calendarDaysBetween(starts.last, date) + 1;
   }
 
   ({List<DateTime> starts, List<int> periodLengths}) _detectEpisodes(
@@ -186,7 +215,7 @@ class CycleCalculationService {
 
     for (final log in sortedLogs) {
       final isBleeding = log.flow != FlowLevel.none;
-      final date = _dateOnly(log.date);
+      final date = calendarDay(log.date);
       // A cycleDay == 1 log only counts as a genuine new episode if it's
       // more than a day after the previous one — no real menstrual cycle
       // starts 0-1 days after the last one started, so a log this close is
@@ -198,7 +227,7 @@ class CycleCalculationService {
       final explicitlyLoggedStart =
           isBleeding &&
           log.cycleDay == 1 &&
-          (starts.isEmpty || date.difference(starts.last).inDays > 1);
+          (starts.isEmpty || calendarDaysBetween(starts.last, date) > 1);
       final transitionedToBleeding =
           isBleeding && previousFlow == FlowLevel.none;
       final firstRecordedBleeding = isBleeding && previousFlow == null;
@@ -212,7 +241,7 @@ class CycleCalculationService {
           previousFlow != null &&
           previousFlow != FlowLevel.none &&
           currentEpisodeStart != null) {
-        final length = date.difference(currentEpisodeStart).inDays;
+        final length = calendarDaysBetween(currentEpisodeStart, date);
         if (length > 0) periodLengths.add(length);
         currentEpisodeStart = null;
       }
@@ -241,9 +270,11 @@ class CycleCalculationService {
             (date: start, fromCanonical: false, end: null),
           for (final episode in canonical)
             (
-              date: _dateOnly(episode.startDate),
+              date: calendarDay(episode.startDate),
               fromCanonical: true,
-              end: episode.endDate == null ? null : _dateOnly(episode.endDate!),
+              end: episode.endDate == null
+                  ? null
+                  : calendarDay(episode.endDate!),
             ),
         ]..sort((a, b) {
           final byDate = a.date.compareTo(b.date);
@@ -262,7 +293,7 @@ class CycleCalculationService {
     var lastKeptWasCanonical = false;
     for (final candidate in candidates) {
       if (starts.isNotEmpty &&
-          candidate.date.difference(starts.last).inDays <= 1) {
+          calendarDaysBetween(starts.last, candidate.date) <= 1) {
         if (lastKeptWasCanonical && !candidate.fromCanonical) {
           // Same episode; the log-derived start is authoritative for it.
           starts[starts.length - 1] = candidate.date;
@@ -278,7 +309,7 @@ class CycleCalculationService {
       lastKeptWasCanonical = candidate.fromCanonical;
       lastCanonicalLength = null;
       if (candidate.fromCanonical && candidate.end != null) {
-        final length = candidate.end!.difference(candidate.date).inDays;
+        final length = calendarDaysBetween(candidate.date, candidate.end!);
         if (length > 0) {
           periodLengths.add(length);
           lastCanonicalLength = length;
@@ -318,7 +349,7 @@ class CycleCalculationService {
 
     final intervals = <int>[];
     for (var index = 1; index < starts.length; index++) {
-      final days = starts[index].difference(starts[index - 1]).inDays;
+      final days = calendarDaysBetween(starts[index - 1], starts[index]);
       if (days > 0) intervals.add(days);
     }
 
@@ -332,8 +363,9 @@ class CycleCalculationService {
       );
     }
 
-    final today = _dateOnly(asOf ?? AppClock.now());
-    final currentDay = today.difference(starts.last).inDays + 1;
+    final currentDay =
+        calendarDaysBetween(starts.last, asOf ?? AppClock.now()) + 1;
+    final prediction = predictFromIntervals(intervals);
     return CycleCalculationResult(
       haidStarts: List.unmodifiable(starts),
       currentCycleDay: currentDay > 0 ? currentDay : null,
@@ -341,9 +373,68 @@ class CycleCalculationService {
           .round(),
       cycleLengths: List.unmodifiable(intervals),
       averagePeriodLength: averagePeriodLength,
+      predictedCycleLength: prediction?.length,
+      predictionSpreadDays: prediction?.spreadDays,
     );
   }
 
-  DateTime _dateOnly(DateTime value) =>
-      DateTime(value.year, value.month, value.day);
+  /// Only the most recent cycles inform a prediction; older ones describe
+  /// a body that may have changed.
+  static const int _recentCycleCount = 6;
+
+  /// Each step back in time counts this much less than the cycle after it.
+  static const double _recencyDecay = 0.8;
+
+  /// Floor on [CycleCalculationResult.predictionSpreadDays]: no history is
+  /// ever treated as more precise than this.
+  static const double _minSpreadDays = 1.5;
+
+  /// Spread assumed while fewer than three cycles qualify — two points say
+  /// almost nothing about how much a cycle varies.
+  static const double _sparseHistorySpreadDays = 3;
+
+  /// Predicted next-cycle length and its spread from raw, oldest-to-newest
+  /// cycle [intervals] (see [CycleCalculationResult.predictedCycleLength]).
+  /// Shared by every screen that predicts, so they never disagree.
+  static ({int length, double spreadDays})? predictFromIntervals(
+    List<int> intervals,
+  ) {
+    final plausible = intervals
+        .where(
+          (days) =>
+              days >= CycleCalculationResult.minPlausibleCycleLengthDays &&
+              days <= CycleCalculationResult.maxPredictableCycleLengthDays,
+        )
+        .toList();
+    if (plausible.isEmpty) return null;
+    final sorted = [...plausible]..sort();
+    final middle = sorted.length ~/ 2;
+    final median = sorted.length.isOdd
+        ? sorted[middle].toDouble()
+        : (sorted[middle - 1] + sorted[middle]) / 2;
+    final valid = plausible.where((days) => days < 2 * median).toList();
+    final recent = valid.reversed.take(_recentCycleCount).toList();
+
+    var weightSum = 0.0;
+    var weightedSum = 0.0;
+    for (var k = 0; k < recent.length; k++) {
+      final weight = math.pow(_recencyDecay, k).toDouble();
+      weightSum += weight;
+      weightedSum += weight * recent[k];
+    }
+    final mean = weightedSum / weightSum;
+
+    double spread;
+    if (recent.length < 3) {
+      spread = _sparseHistorySpreadDays;
+    } else {
+      var weightedSquares = 0.0;
+      for (var k = 0; k < recent.length; k++) {
+        final weight = math.pow(_recencyDecay, k).toDouble();
+        weightedSquares += weight * math.pow(recent[k] - mean, 2);
+      }
+      spread = math.sqrt(weightedSquares / weightSum);
+    }
+    return (length: mean.round(), spreadDays: math.max(spread, _minSpreadDays));
+  }
 }

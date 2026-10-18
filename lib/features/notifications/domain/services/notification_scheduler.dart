@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_days.dart';
+
 import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
@@ -62,22 +64,22 @@ class NotificationScheduler {
   static const nifasWarningDay = 35;
   static const nifasWindowDays = 40;
 
-  /// Predicted next period start = last haid start + average cycle length;
-  /// plans a reminder [cycleLeadDays] before that, at 9am.
+  /// Predicted next period start = last haid start + predicted cycle
+  /// length (the same prediction the dashboard shows); plans a reminder
+  /// [cycleLeadDays] before that, at 9am.
   static PlannedNotification? planCycleReminder({
     required CycleCalculationResult calculation,
     required DateTime now,
   }) {
-    if (!calculation.hasSufficientHistory) return null;
+    if (!calculation.hasSufficientHistory || !calculation.canPredict) {
+      return null;
+    }
 
-    final predictedStart = calculation.lastHaidStart!.add(
-      Duration(days: calculation.averageCycleLength!),
+    final predictedStart = addCalendarDays(
+      calculation.lastHaidStart!,
+      calculation.predictedCycleLength!,
     );
-    final fireDay = DateTime(
-      predictedStart.year,
-      predictedStart.month,
-      predictedStart.day,
-    ).subtract(const Duration(days: cycleLeadDays));
+    final fireDay = addCalendarDays(predictedStart, -cycleLeadDays);
     final fireAt = fireDay.add(const Duration(hours: 9));
 
     if (!fireAt.isAfter(now)) return null;

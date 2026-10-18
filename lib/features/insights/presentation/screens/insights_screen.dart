@@ -251,6 +251,7 @@ class _PredictionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final nextPeriod = canPredict ? summary.nextPeriodStart : null;
+    final daysLate = canPredict ? summary.daysLate : 0;
     final daysUntil = nextPeriod == null
         ? null
         : DateUtils.dateOnly(nextPeriod)
@@ -316,7 +317,17 @@ class _PredictionCard extends StatelessWidget {
                 child: _PredictionValue(
                   label: _in('EXPECTED PERIOD', 'الحيض المتوقع'),
                   value: _date(nextPeriod),
-                  note: daysUntil == null
+                  note: daysLate > 0
+                      ? nextPeriod != null
+                            ? _in(
+                                'Late by $daysLate days, may start any day',
+                                'متأخرة $daysLate أيام، قد تبدأ في أي يوم',
+                              )
+                            : _in(
+                                'Late by $daysLate days',
+                                'متأخرة $daysLate أيام',
+                              )
+                      : daysUntil == null
                       ? _in('Insufficient data', 'بيانات غير كافية')
                       : _in(
                           'In about ${daysUntil.clamp(0, 999)} days',
