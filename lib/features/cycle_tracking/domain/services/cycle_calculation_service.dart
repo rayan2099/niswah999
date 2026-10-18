@@ -239,9 +239,37 @@ class CycleCalculationService {
     List<CanonicalEpisodeTiming> canonical,
   ) {
     if (canonical.isEmpty) return fromLogs;
+    // A first known flow can be several days after an uncertain start.
+    // Such a projection is inside the recorded episode, not another start.
+    // Sweep the sorted closed intervals rather than scanning them per log.
+    final closed =
+        canonical
+            .where(
+              (episode) =>
+                  episode.endDate != null &&
+                  calendarDayDifference(episode.endDate!, episode.startDate) >
+                      0,
+            )
+            .toList()
+          ..sort((a, b) => a.startDate.compareTo(b.startDate));
+    var closedIndex = 0;
+    DateTime? coveredUntil;
+    final unmatchedLogStarts = <DateTime>[];
+    for (final start in fromLogs.starts) {
+      while (closedIndex < closed.length &&
+          calendarDayDifference(start, closed[closedIndex].startDate) >= 0) {
+        final end = _dateOnly(closed[closedIndex++].endDate!);
+        if (coveredUntil == null || end.isAfter(coveredUntil)) {
+          coveredUntil = end;
+        }
+      }
+      if (coveredUntil == null || !start.isBefore(coveredUntil)) {
+        unmatchedLogStarts.add(start);
+      }
+    }
     final candidates =
         <({DateTime date, bool fromCanonical, int? length})>[
-          for (final start in fromLogs.starts)
+          for (final start in unmatchedLogStarts)
             (
               date: start,
               fromCanonical: false,

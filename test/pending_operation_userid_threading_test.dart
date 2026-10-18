@@ -17,15 +17,8 @@ import 'dart:io';
 /// immediately, rather than silently reintroducing the exact race
 /// `pending_bleeding_operation_store_test.dart` already proves is real.
 ///
-/// Deliberately NOT covered here (by design, confirmed ambient-correct
-/// during the Commit H adversarial review): `loadPending()`/
-/// `getPendingByType(...)` calls that only ask "what's pending for
-/// whoever is signed in right now" (`start_bleeding_sheet.dart`'s/
-/// `onboarding_screen.dart`'s own `_resolveOnboardingOperationId`-style
-/// pending-id lookups, `_SyncStatusBanner._load` in dashboard_screen.dart),
-/// and `reconcilePendingOperations` itself (`bleeding_episode_repository_
-/// impl.dart`), which intentionally always acts on the currently
-/// signed-in user.
+/// Ambient reads used only to display current-account pending state are excluded.
+/// Background reconciliation must capture and thread its starting owner as well.
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -73,6 +66,13 @@ void main() {
           'test rather than leave it vacuously passing',
     );
   }
+
+  test(
+    'background reconciliation threads its captured owner',
+    () => expectEveryCallThreadsUserId(
+      'lib/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart',
+    ),
+  );
 
   test(
     'start_bleeding_sheet.dart: every savePending/clearPending call '

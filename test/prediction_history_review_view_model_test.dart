@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/utils/app_clock.dart';
 import 'package:niswah/core/utils/calendar_day.dart';
@@ -137,6 +139,60 @@ void main() {
       vm.dispose();
     },
   );
+
+  test('a review changed by another screen during a save refresh is not silently dropped', () async {
+    final readStarted = Completer<void>();
+    final releaseRead = Completer<void>();
+    var reads = 0;
+    final uiStore = PredictionHistoryReviewStore(
+      read: (owner) async {
+        final snapshot = disk[owner];
+        if (++reads == 4) {
+          readStarted.complete();
+          await releaseRead.future;
+        }
+        return snapshot;
+      },
+      write: (owner, raw) async {
+        disk[owner] = raw;
+      },
+    );
+    final vm = model(override: uiStore);
+    await vm.loadLogs();
+    final gap = vm.summary.periodPrediction.reviewGaps.single;
+    final saving = vm.savePredictionHistoryReview(
+      PredictionHistoryReview(
+        start: gap.start,
+        end: gap.end,
+        resolution: PredictionGapResolution.unsure,
+        reportedAt: today.toUtc(),
+      ),
+    );
+    await readStarted.future;
+    await store.save(
+      vm.currentUserId,
+      PredictionHistoryReview(
+        start: gap.start,
+        end: gap.end,
+        resolution: PredictionGapResolution.longerCycle,
+        reportedAt: today.toUtc(),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    releaseRead.complete();
+    await saving;
+    expect(
+      vm.summary.periodPrediction.reviewReason,
+      PredictionReviewReason.unsupportedLongInterval,
+    );
+    expect(vm.summary.periodPrediction.hasFutureEstimate, isFalse);
+    expect(
+      canonicalLoads,
+      3,
+      reason: 'reload only when another screen actually changes evidence during the first refresh',
+    );
+    vm.dispose();
+  });
 
   test(
     'an edited history cannot accept an answer from the old interval',

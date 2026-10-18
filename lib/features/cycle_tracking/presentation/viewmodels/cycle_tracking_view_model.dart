@@ -30,7 +30,10 @@ class CycleTrackingViewModel extends ChangeNotifier {
            canonicalEpisodeLoader ?? _defaultCanonicalEpisodeLoader {
     _authRepository = authRepository;
     _reviewSubscription = PredictionHistoryReviewStore.changes.listen((owner) {
-      if (owner == _currentUserId && !_disposed && !_savingHistoryReview) {
+      if (owner != _currentUserId || _disposed) return;
+      if (_savingHistoryReview) {
+        _reviewChangedWhileSaving = true;
+      } else {
         unawaited(loadLogs());
       }
     });
@@ -67,6 +70,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
   late final StreamSubscription<String> _reviewSubscription;
   bool _disposed = false;
   bool _savingHistoryReview = false;
+  bool _reviewChangedWhileSaving = false;
   int _loadGeneration = 0;
   int _userLoadGeneration = 0;
   String? _summaryOwner;
@@ -222,7 +226,12 @@ class CycleTrackingViewModel extends ChangeNotifier {
     _savingHistoryReview = true;
     try {
       await _predictionReviewStore.save(owner, review);
-      await loadLogs();
+      do {
+        _reviewChangedWhileSaving = false;
+        await loadLogs();
+      } while (_reviewChangedWhileSaving &&
+          !_disposed &&
+          owner == _currentUserId);
     } finally {
       _savingHistoryReview = false;
     }

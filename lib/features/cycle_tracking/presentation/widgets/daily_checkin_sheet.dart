@@ -132,6 +132,7 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
 
     final repository = BleedingEpisodeRepositoryImpl();
     final observationId = await repository.recordObservation(
+      expectedUserId: userId,
       clientOperationId: _clientOperationId,
       episodeId: widget.episodeId,
       observedDate: today,
@@ -221,6 +222,7 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
 
     final repository = BleedingEpisodeRepositoryImpl();
     final result = await repository.endEpisode(
+      expectedUserId: userId,
       clientOperationId: _clientOperationId,
       episodeId: widget.episodeId,
       endDate: endDate,
@@ -590,6 +592,7 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
 
     final repository = BleedingEpisodeRepositoryImpl();
     final observationId = await repository.recordObservation(
+      expectedUserId: userId,
       clientOperationId: _clientOperationId,
       episodeId: widget.episodeId,
       observedDate: observedDate,

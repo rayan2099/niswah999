@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/storage/secure_local_store.dart';
 import '../../../doctor_report/domain/entities/report_source_status.dart';
 import '../datasources/local_cycle_tracking_data_source.dart';
 import '../../domain/entities/cycle_log.dart';
@@ -24,13 +25,14 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     DateTime? to,
     int limit = 200,
   }) async {
-    final localLogs = await _localDataSource.loadLogs();
+    final owner = SecureLocalStore.currentUserId();
     final client = _client;
+    final sessionUser = client?.auth.currentUser;
+    final localLogs = await _localDataSource.loadLogs(userId: owner);
     if (client == null) {
       return localLogs;
     }
 
-    final sessionUser = client.auth.currentUser;
     if (sessionUser == null) {
       return localLogs;
     }
@@ -60,8 +62,19 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       final remote = _parseCycleEntries(response as List<dynamic>);
 
       final merged = <String, CycleLog>{};
-      for (final entry in [...localLogs, ...remote]) {
+      for (final entry in remote) {
         merged[entry.id] = entry;
+      }
+      final latestLocal = await _localDataSource.loadLogs(userId: owner);
+      for (final entry in latestLocal) {
+        final server = merged[entry.id];
+        if (server == null ||
+            entry.syncStatus != SyncStatus.synced ||
+            (entry.updatedAt != null &&
+                (server.updatedAt == null ||
+                    entry.updatedAt!.isAfter(server.updatedAt!)))) {
+          merged[entry.id] = entry;
+        }
       }
       final ordered = merged.values.toList()
         ..sort((a, b) => b.date.compareTo(a.date));
@@ -157,18 +170,22 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
 
   @override
   Future<SyncStatus> saveCycleLog(CycleLog log) async {
+    final now = DateTime.now();
+    log = log.copyWith(
+      createdAt: log.createdAt ?? now,
+      updatedAt: log.updatedAt ?? now,
+    );
     // Saved locally as `pending` first (formData.toCycleLog defaults to
     // SyncStatus.pending) — if the remote attempt below fails retryably,
     // this pending marker is exactly what makes it eligible for automatic
     // retry via syncPendingLogs(); see main.dart's app-start/app-resume
     // wiring, which is what makes retry actually automatic rather than a
     // dead-code promise.
-    await _localDataSource.upsert(log);
+    final owner = SecureLocalStore.currentUserId();
+    await _localDataSource.upsert(log, userId: owner);
     try {
       await upsertCycleLog(log);
-      await _localDataSource.upsert(
-        log.copyWith(syncStatus: SyncStatus.synced),
-      );
+      await _localDataSource.acknowledge(log, SyncStatus.synced, userId: owner);
       return SyncStatus.synced;
     } on NetworkFailure catch (error, stack) {
       // Local save is authoritative for the UI; remote sync is eventually-
@@ -192,8 +209,10 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       // `pending` — automatic retry must not hammer a request that can
       // never succeed ("do not retry non-retryable errors blindly").
       if (!error.retryable) {
-        await _localDataSource.upsert(
-          log.copyWith(syncStatus: SyncStatus.failed),
+        await _localDataSource.acknowledge(
+          log,
+          SyncStatus.failed,
+          userId: owner,
         );
         return SyncStatus.failed;
       }
@@ -205,12 +224,19 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   Future<void> upsertCycleLog(CycleLog log) async {
     final client = _client;
     if (client == null) {
-      return;
+      throw const NetworkFailure(
+        'Saved on this device; account sync is unavailable.',
+      );
     }
 
     final sessionUser = client.auth.currentUser;
-    if (sessionUser == null) {
-      return;
+    final session = client.auth.currentSession;
+    if (sessionUser == null ||
+        session == null ||
+        sessionUser.id != log.userId) {
+      throw const NetworkFailure(
+        'Saved on this device; sign in to the original account to sync.',
+      );
     }
 
     try {
@@ -222,11 +248,14 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       // synced row permanently marked 'pending' in the database).
       final payload = {
         ...log.toJson(),
-        'user_id': sessionUser.id,
+        'user_id': log.userId,
         'sync_status': 'synced',
       };
 
-      await client.from('cycle_entries').upsert(payload, onConflict: 'id');
+      await client
+          .from('cycle_entries')
+          .upsert(payload, onConflict: 'id')
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
     } on PostgrestException catch (error, stack) {
       throw mapRepositoryError(
         error,
@@ -281,7 +310,8 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       );
     }
 
-    final localLogs = await _localDataSource.loadLogs();
+    final owner = SecureLocalStore.currentUserId();
+    final localLogs = await _localDataSource.loadLogs(userId: owner);
     final toRetry = localLogs
         .where((log) => log.syncStatus == SyncStatus.pending)
         .toList();
@@ -297,8 +327,10 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     for (final log in toRetry) {
       try {
         await upsertCycleLog(log);
-        await _localDataSource.upsert(
-          log.copyWith(syncStatus: SyncStatus.synced),
+        await _localDataSource.acknowledge(
+          log,
+          SyncStatus.synced,
+          userId: owner,
         );
         synced++;
       } on NetworkFailure catch (error, stack) {
@@ -312,8 +344,10 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         if (error.retryable) {
           stillPending++; // left as `pending` — eligible for the next trigger
         } else {
-          await _localDataSource.upsert(
-            log.copyWith(syncStatus: SyncStatus.failed),
+          await _localDataSource.acknowledge(
+            log,
+            SyncStatus.failed,
+            userId: owner,
           );
           permanentlyFailed++;
         }
@@ -341,8 +375,10 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   Future<ReportSourceResult<List<CycleLog>>> getCycleLogsForReport({
     int limit = 1000,
   }) async {
-    final localLogs = await _localDataSource.loadLogs();
+    final owner = SecureLocalStore.currentUserId();
     final client = _client;
+    final sessionUser = client?.auth.currentUser;
+    final localLogs = await _localDataSource.loadLogs(userId: owner);
     if (client == null) {
       return ReportSourceResult(
         status: localLogs.isEmpty
@@ -352,7 +388,6 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       );
     }
 
-    final sessionUser = client.auth.currentUser;
     if (sessionUser == null) {
       return ReportSourceResult(
         status: localLogs.isEmpty
@@ -372,8 +407,19 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       final remote = _parseCycleEntries(response as List<dynamic>);
 
       final merged = <String, CycleLog>{};
-      for (final entry in [...localLogs, ...remote]) {
+      for (final entry in remote) {
         merged[entry.id] = entry;
+      }
+      final latestLocal = await _localDataSource.loadLogs(userId: owner);
+      for (final entry in latestLocal) {
+        final server = merged[entry.id];
+        if (server == null ||
+            entry.syncStatus != SyncStatus.synced ||
+            (entry.updatedAt != null &&
+                (server.updatedAt == null ||
+                    entry.updatedAt!.isAfter(server.updatedAt!)))) {
+          merged[entry.id] = entry;
+        }
       }
       final ordered = merged.values.toList()
         ..sort((a, b) => b.date.compareTo(a.date));

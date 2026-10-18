@@ -1002,6 +1002,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         try {
           final result = await BleedingEpisodeRepositoryImpl()
               .recordOnboardingHistory(
+                expectedUserId: userId,
                 clientOperationId: _onboardingOperationId,
                 utcOffsetMinutes: utcOffsetMinutes,
                 episode: episode,

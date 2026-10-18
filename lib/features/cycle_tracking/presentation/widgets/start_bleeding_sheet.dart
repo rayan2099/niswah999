@@ -162,6 +162,7 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
       );
 
       final result = await BleedingEpisodeRepositoryImpl().startEpisode(
+        expectedUserId: userId,
         clientOperationId: _clientOperationId,
         startDate: startDate,
         startPrecision: ObservationPrecision.dateOnly,
@@ -472,6 +473,7 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
     // factual record of its own closure.
     final repository = BleedingEpisodeRepositoryImpl();
     final result = await repository.endEpisode(
+      expectedUserId: userId,
       clientOperationId: _clientOperationId,
       episodeId: widget.episodeId,
       endDate: endDate,
