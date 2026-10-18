@@ -13,6 +13,7 @@ import '../../domain/services/cycle_calculation_service.dart';
 import '../viewmodels/cycle_tracking_view_model.dart';
 import '../widgets/cycle_calendar.dart';
 import '../widgets/cycle_log_form_sheet.dart';
+import '../widgets/predicted_range_text.dart';
 
 String _ct(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -921,7 +922,14 @@ class _PregnancyChanceCard extends StatelessWidget {
               ),
               _ChartLabel(
                 label: _ct('NEXT CYCLE', 'الدورة القادمة'),
-                value: summary.nextPeriodStart != null
+                value:
+                    summary.nextPeriodStart != null &&
+                        summary.nextPeriodRange != null
+                    ? formatPredictedRange(
+                        summary.nextPeriodRange!,
+                        isArabic: AppLocaleController.instance.isArabic,
+                      )
+                    : summary.nextPeriodStart != null
                     ? _shortDate(summary.nextPeriodStart!)
                     : summary.daysLate > 0
                     ? _ct(
@@ -942,10 +950,16 @@ class _PregnancyChanceCard extends StatelessWidget {
               border: Border.all(color: const Color(0xFFFEF3C7)),
             ),
             child: Text(
-              _ct(
-                'Predictions improve as you log more cycles',
-                'التنبؤ يتحسن مع المزيد من الدورات',
-              ),
+              (summary.hasPlausibleAverage
+                      ? predictionBasisNote(
+                          summary.predictionBasis,
+                          isArabic: AppLocaleController.instance.isArabic,
+                        )
+                      : null) ??
+                  _ct(
+                    'Predictions improve as you log more cycles',
+                    'التنبؤ يتحسن مع المزيد من الدورات',
+                  ),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Color(0xFFD97706),

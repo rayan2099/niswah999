@@ -6,6 +6,7 @@ import '../../../auth/domain/entities/app_user.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_tracking_repository_impl.dart';
 import '../../domain/controllers/cycle_tracking_controller.dart';
+import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/cycle_log.dart';
 import '../../domain/repositories/cycle_tracking_repository.dart';
 import '../../domain/services/cycle_calculation_service.dart';
@@ -17,9 +18,12 @@ class CycleTrackingViewModel extends ChangeNotifier {
     AuthRepositoryImpl? authRepository,
     Future<List<CanonicalEpisodeTiming>> Function(String userId)?
     canonicalEpisodeLoader,
+    Future<CycleBaseline?> Function(String userId)? statedBaselineLoader,
   }) : _repository = repository ?? CycleTrackingRepositoryImpl(),
        _canonicalEpisodeLoader =
-           canonicalEpisodeLoader ?? _defaultCanonicalEpisodeLoader {
+           canonicalEpisodeLoader ?? _defaultCanonicalEpisodeLoader,
+       _statedBaselineLoader =
+           statedBaselineLoader ?? _defaultStatedBaselineLoader {
     _authRepository = authRepository;
   }
 
@@ -51,6 +55,22 @@ class CycleTrackingViewModel extends ChangeNotifier {
   final Future<List<CanonicalEpisodeTiming>> Function(String userId)
   _canonicalEpisodeLoader;
 
+  /// Her onboarding estimate of her usual cycle and period length. A read
+  /// failure is simply "no estimate": predictions then come from logged
+  /// history alone, exactly as before the estimate was used.
+  static Future<CycleBaseline?> _defaultStatedBaselineLoader(
+    String userId,
+  ) async {
+    if (userId == 'local-user') return null;
+    try {
+      return await CycleBaselineRepositoryImpl().getBaseline(userId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  final Future<CycleBaseline?> Function(String userId) _statedBaselineLoader;
+
   final CycleTrackingRepository _repository;
   AuthRepositoryImpl? _authRepository;
   final CycleTrackingController _controller = CycleTrackingController();
@@ -67,6 +87,10 @@ class CycleTrackingViewModel extends ChangeNotifier {
   /// [CanonicalEpisodeTiming]. Empty until [loadLogs] has read it.
   List<CanonicalEpisodeTiming> canonicalEpisodes =
       const <CanonicalEpisodeTiming>[];
+
+  /// Her stated usual cycle/period length (see [CycleBaseline]); null
+  /// until [loadLogs] has read it, or when she never gave one.
+  CycleBaseline? statedBaseline;
   CycleTrackingSummary summary = const CycleTrackingSummary(
     averageCycleLength: null,
     averagePeriodLength: null,
@@ -90,6 +114,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
     logs,
     asOf: AppClock.now(),
     canonicalEpisodes: canonicalEpisodes,
+    statedBaseline: statedBaseline,
   );
 
   List<CycleLog> get filteredLogs =>
@@ -128,9 +153,11 @@ class CycleTrackingViewModel extends ChangeNotifier {
           )
           .toList();
       canonicalEpisodes = await _canonicalEpisodeLoader(_currentUserId);
+      statedBaseline = await _statedBaselineLoader(_currentUserId);
       summary = _controller.summarizeHistory(
         logs,
         canonicalEpisodes: canonicalEpisodes,
+        statedBaseline: statedBaseline,
       );
     } catch (error) {
       errorMessage = error.toString();

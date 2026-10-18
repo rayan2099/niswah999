@@ -208,6 +208,8 @@ class CycleTrackingSummary extends Equatable {
     this.hasPlausibleAverage = false,
     this.predictedCycleLength,
     this.daysLate = 0,
+    this.nextPeriodRange,
+    this.predictionBasis,
   });
 
   final int? averageCycleLength;
@@ -233,6 +235,16 @@ class CycleTrackingSummary extends Equatable {
   /// not late. While > 0 the fertile window is withheld.
   final int daysLate;
 
+  /// Days the next period is most likely to start on. Set whenever a next
+  /// period is predicted, including from her stated estimate alone (then
+  /// [predictionBasis] is [PredictionBasis.statedEstimate] and
+  /// [nextPeriodStart] stays null, so nothing presents an estimate as her
+  /// logged pattern without saying so). Null when she is clearly late.
+  final PredictedDateRange? nextPeriodRange;
+
+  /// What the prediction was built from; null when nothing is predicted.
+  final PredictionBasis? predictionBasis;
+
   /// Whether forward predictions exist, i.e. [predictedCycleLength] is
   /// set. [averageCycleLength] is deliberately left ungated above
   /// (Haid/Tahara day-tallies and fiqh classification stay valid even on a
@@ -254,7 +266,39 @@ class CycleTrackingSummary extends Equatable {
     hasPlausibleAverage,
     predictedCycleLength,
     daysLate,
+    nextPeriodRange,
+    predictionBasis,
   ];
+}
+
+/// What a forward prediction was built from. The charter's evidence
+/// taxonomy keeps a woman's own stated estimate (`USER_REPORTED_ESTIMATE`,
+/// the onboarding `cycle_baselines` row) distinct from cycles she actually
+/// logged, so every screen can say which one it is showing.
+enum PredictionBasis {
+  /// Logged cycles only.
+  history,
+
+  /// Logged cycles, pulled toward her stated usual cycle length while
+  /// there are still few of them.
+  historyAndEstimate,
+
+  /// No usable logged cycle yet: her stated usual cycle length alone,
+  /// counted from her one logged start.
+  statedEstimate,
+}
+
+/// The days the next period is most likely to start on, both inclusive —
+/// shown instead of a single date, which promises more precision than any
+/// cycle prediction has.
+class PredictedDateRange extends Equatable {
+  const PredictedDateRange({required this.earliest, required this.latest});
+
+  final DateTime earliest;
+  final DateTime latest;
+
+  @override
+  List<Object?> get props => [earliest, latest];
 }
 
 class FertileWindow extends Equatable {

@@ -61,6 +61,7 @@ class NotificationRefreshCoordinator {
     BleedingEpisodeRepositoryImpl? bleedingRepository,
     Future<List<CanonicalEpisodeTiming>?> Function(String userId)?
     cycleHistoryLoader,
+    Future<CycleBaseline?> Function(String userId)? statedBaselineLoader,
   }) async {
     // New critical finding (notification cancellation closure, Finding 3)
     // — every call site that recomputes/reschedules must trust a *fresh*
@@ -90,6 +91,7 @@ class NotificationRefreshCoordinator {
       userId: userId,
       cycleRepository: cycleRepository ?? CycleTrackingRepositoryImpl(),
       cycleHistoryLoader: cycleHistoryLoader ?? _loadCycleHistory,
+      statedBaselineLoader: statedBaselineLoader ?? _loadStatedBaseline,
       now: now,
     );
     await _refreshPregnancyAndNifas(
@@ -426,12 +428,25 @@ class NotificationRefreshCoordinator {
     ];
   }
 
+  /// Her onboarding estimate, so the reminder lands on the same date the
+  /// app shows (which blends it in while history is short). A failed read
+  /// is just "no estimate".
+  static Future<CycleBaseline?> _loadStatedBaseline(String userId) async {
+    try {
+      return await CycleBaselineRepositoryImpl().getBaseline(userId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> _refreshCycle({
     required Map<NotificationType, NotificationPreference> preferences,
     required String? userId,
     required CycleTrackingRepositoryImpl cycleRepository,
     required Future<List<CanonicalEpisodeTiming>?> Function(String userId)
     cycleHistoryLoader,
+    required Future<CycleBaseline?> Function(String userId)
+    statedBaselineLoader,
     required DateTime now,
   }) async {
     final enabled = preferences[NotificationType.cycle]?.enabled ?? false;
@@ -457,10 +472,14 @@ class NotificationRefreshCoordinator {
       );
       return;
     }
+    final statedBaseline = userId == null || userId == 'local-user'
+        ? null
+        : await statedBaselineLoader(userId);
     final calculation = const CycleCalculationService().calculate(
       logs,
       asOf: now,
       canonicalEpisodes: canonicalEpisodes,
+      statedBaseline: statedBaseline,
     );
     final plan = NotificationScheduler.planCycleReminder(
       calculation: calculation,

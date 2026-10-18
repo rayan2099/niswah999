@@ -61,12 +61,34 @@ Proposed, pending owner review:
   If the product intends "When did it stop?" to mean the last day with
   bleeding, both places should change together.
 
+- **Her stated estimate as a starting point.** The onboarding
+  `cycle_baselines` row (`USER_REPORTED_ESTIMATE`) informs predictions
+  but never becomes a statistic: `averageCycleLength`, `cycleLengths` and
+  `averagePeriodLength` stay logged facts. With n qualifying logged
+  cycles the predicted length is `n/(n+2) × logged + 2/(n+2) × stated`
+  (Flo's outline); from six logged cycles on the estimate is dropped, so
+  a wrong guess cannot bias a long history. Stated cycle lengths outside
+  15–90 days and period lengths outside 1–15 days are ignored.
+- **Estimate alone (one logged start).** Only a next-period *range* is
+  produced, labeled "Based on the estimate you gave us" (charter F6), on
+  Today's one-record card and in Insights. No single date, fertile
+  window, ring, calendar block or reminder is built from an estimate
+  alone, keeping F5's rule that one episode does not make a pattern.
+  Its spread is 4 days. When history and estimate are blended, screens
+  say "Based on your logged cycles and the estimate you gave us".
+- **Next period as a range.** From `ceil(spread)` days before the
+  expected date to `ceil(1.5 × spread)` days after (cycles run late more
+  often than early), never starting before today, and gone once she is
+  clearly late. Shown on Today, Insights, the cycle screen and the
+  husband report. For regular cycles this is 2 days early to 3 late.
+
 ## Impact and verification
 
 Tests: `test/cycle_tracking_controller_test.dart`,
 `test/cycle_calculation_service_test.dart`, `test/calendar_days_test.dart`,
 `test/canonical_calendar_screen_test.dart`,
-`test/services/notification_scheduler_test.dart`. These pass with
+`test/services/notification_scheduler_test.dart`,
+`test/cycle_prediction_estimate_test.dart`. These pass with
 `TZ=UTC`, `TZ=Europe/London` and `TZ=America/New_York`; CI runs in UTC,
 where the daylight-saving cases cannot fail. Not medically reviewed;
 predictions remain planning aids, not contraception or a diagnosis.

@@ -40,6 +40,7 @@ import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_mode
 import '../../../cycle_tracking/presentation/screens/canonical_calendar_screen.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
 import '../../../cycle_tracking/presentation/widgets/daily_checkin_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/predicted_range_text.dart';
 import '../../../cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
 import '../../../dream_interpreter/presentation/screens/dream_interpreter_screen.dart';
 import '../../../notifications/presentation/screens/notification_feed_screen.dart';
@@ -824,6 +825,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               _FactualCompletedHistoryCard(
                                 completedCount:
                                     _canonicalStatus!.completedEpisodeCount,
+                                estimateRange:
+                                    summary.predictionBasis ==
+                                        PredictionBasis.statedEstimate
+                                    ? summary.nextPeriodRange
+                                    : null,
                               )
                             else
                               _InsufficientCycleDataCard(
@@ -2292,10 +2298,18 @@ class _FactualOpenEpisodeCard extends StatelessWidget {
 /// fabricating an average/next-period/fertile-window — a single episode
 /// cannot support a cycle-to-cycle prediction (F5, F6's own explicit
 /// eligibility boundary).
+///
+/// [estimateRange] is the one forward-looking thing it may show: the range
+/// her next period is likely to start in, from her own onboarding estimate
+/// and labeled as that (charter F6), never as her pattern.
 class _FactualCompletedHistoryCard extends StatelessWidget {
-  const _FactualCompletedHistoryCard({required this.completedCount});
+  const _FactualCompletedHistoryCard({
+    required this.completedCount,
+    this.estimateRange,
+  });
 
   final int completedCount;
+  final PredictedDateRange? estimateRange;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -2362,8 +2376,55 @@ class _FactualCompletedHistoryCard extends StatelessWidget {
           ),
         ),
       ),
+      if (estimateRange != null) ...[
+        const SizedBox(height: 18),
+        _NextPeriodRangeLine(
+          range: estimateRange!,
+          basis: PredictionBasis.statedEstimate,
+        ),
+      ],
     ],
   );
+}
+
+/// "Next period likely 27 Oct – 1 Nov", with a note when the prediction
+/// rests on her stated estimate.
+class _NextPeriodRangeLine extends StatelessWidget {
+  const _NextPeriodRangeLine({required this.range, required this.basis});
+
+  final PredictedDateRange range;
+  final PredictionBasis? basis;
+
+  @override
+  Widget build(BuildContext context) {
+    final isArabic = AppLocaleController.instance.isArabic;
+    final note = predictionBasisNote(basis, isArabic: isArabic);
+    return Column(
+      key: const Key('today-next-period-range'),
+      children: [
+        Text(
+          '${_l('Next period likely', 'الحيض القادم متوقع')} ${formatPredictedRange(range, isArabic: isArabic)}',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: AppColors.emeraldInk,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (note != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            note,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textTertiary,
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _DashboardHeader extends StatelessWidget {
@@ -2704,6 +2765,14 @@ class _CycleOverview extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         _buildStateMessage(context, overdue, segmentPlan, dayInActiveSegment),
+        if (summary.nextPeriodStart != null &&
+            summary.nextPeriodRange != null) ...[
+          const SizedBox(height: 10),
+          _NextPeriodRangeLine(
+            range: summary.nextPeriodRange!,
+            basis: summary.predictionBasis,
+          ),
+        ],
         const SizedBox(height: 24),
         _PhaseTimeline(
           segmentPlan: segmentPlan,

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/utils/calendar_days.dart';
+import '../entities/bleeding_episode.dart';
 import '../entities/cycle_log.dart';
 
 enum CycleRegularity { insufficientData, irregular, regular, highlyRegular }
@@ -50,6 +51,8 @@ class CycleCalculationResult {
     this.averagePeriodLength,
     this.predictedCycleLength,
     this.predictionSpreadDays,
+    this.predictionBasis,
+    this.predictedPeriodLength,
   });
 
   final List<DateTime> haidStarts;
@@ -82,6 +85,14 @@ class CycleCalculationResult {
   /// Null exactly when [predictedCycleLength] is.
   final double? predictionSpreadDays;
 
+  /// What [predictedCycleLength] was built from. Null exactly when it is.
+  final PredictionBasis? predictionBasis;
+
+  /// Period length to draw a predicted period with: [averagePeriodLength]
+  /// when she has a completed period on record, otherwise her stated
+  /// usual bleeding duration, otherwise null.
+  final int? predictedPeriodLength;
+
   static const int _regularityMadCeilingDays = 10;
 
   /// Below this, an "average cycle length" is medically implausible for a
@@ -112,8 +123,15 @@ class CycleCalculationResult {
       averageCycleLength! >= minPlausibleCycleLengthDays;
 
   /// Whether forward predictions can be made at all — see
-  /// [predictedCycleLength].
+  /// [predictedCycleLength]. Includes a prediction from her stated
+  /// estimate alone; see [canPredictFromHistory].
   bool get canPredict => lastHaidStart != null && predictedCycleLength != null;
+
+  /// Whether the prediction rests on at least one cycle she logged, not
+  /// only on her stated estimate. Anything presented as "your cycle"
+  /// (fertile window, ring, reminders, calendar blocks) needs this.
+  bool get canPredictFromHistory =>
+      canPredict && predictionBasis != PredictionBasis.statedEstimate;
 
   /// Whether there are enough logged cycles to compute a meaningful spread.
   /// Stricter than [hasSufficientHistory]: a single interval has no
@@ -319,10 +337,15 @@ class CycleCalculationService {
     return (starts: starts, periodLengths: periodLengths);
   }
 
+  /// [statedBaseline] is her own onboarding estimate of her usual cycle
+  /// and period length. It never becomes a statistic of its own
+  /// ([averageCycleLength], [cycleLengths] and [averagePeriodLength] stay
+  /// purely logged facts); it only informs the forward prediction fields.
   CycleCalculationResult calculate(
     List<CycleLog> logs, {
     DateTime? asOf,
     List<CanonicalEpisodeTiming> canonicalEpisodes = const [],
+    CycleBaseline? statedBaseline,
   }) {
     final sorted = [...logs]..sort((a, b) => a.date.compareTo(b.date));
     final episodes = _mergeCanonical(
@@ -336,14 +359,24 @@ class CycleCalculationService {
         ? null
         : (periodLengths.reduce((a, b) => a + b) / periodLengths.length)
               .round();
+    final predictedPeriodLength =
+        averagePeriodLength ?? statedPeriodLength(statedBaseline);
+    final statedCycle = statedCycleLength(statedBaseline);
 
     if (starts.length < 2) {
+      final prediction = starts.isEmpty
+          ? null
+          : predictFromIntervals(const [], statedCycleLength: statedCycle);
       return CycleCalculationResult(
         haidStarts: List.unmodifiable(starts),
         currentCycleDay: null,
         averageCycleLength: null,
         cycleLengths: const [],
         averagePeriodLength: averagePeriodLength,
+        predictedCycleLength: prediction?.length,
+        predictionSpreadDays: prediction?.spreadDays,
+        predictionBasis: prediction?.basis,
+        predictedPeriodLength: predictedPeriodLength,
       );
     }
 
@@ -354,18 +387,29 @@ class CycleCalculationService {
     }
 
     if (intervals.isEmpty) {
+      final prediction = predictFromIntervals(
+        const [],
+        statedCycleLength: statedCycle,
+      );
       return CycleCalculationResult(
         haidStarts: List.unmodifiable(starts),
         currentCycleDay: null,
         averageCycleLength: null,
         cycleLengths: List.unmodifiable(intervals),
         averagePeriodLength: averagePeriodLength,
+        predictedCycleLength: prediction?.length,
+        predictionSpreadDays: prediction?.spreadDays,
+        predictionBasis: prediction?.basis,
+        predictedPeriodLength: predictedPeriodLength,
       );
     }
 
     final currentDay =
         calendarDaysBetween(starts.last, asOf ?? AppClock.now()) + 1;
-    final prediction = predictFromIntervals(intervals);
+    final prediction = predictFromIntervals(
+      intervals,
+      statedCycleLength: statedCycle,
+    );
     return CycleCalculationResult(
       haidStarts: List.unmodifiable(starts),
       currentCycleDay: currentDay > 0 ? currentDay : null,
@@ -375,8 +419,30 @@ class CycleCalculationService {
       averagePeriodLength: averagePeriodLength,
       predictedCycleLength: prediction?.length,
       predictionSpreadDays: prediction?.spreadDays,
+      predictionBasis: prediction?.basis,
+      predictedPeriodLength: predictedPeriodLength,
     );
   }
+
+  /// Her stated usual cycle length, when it is one a prediction can use.
+  static int? statedCycleLength(CycleBaseline? baseline) {
+    final days = baseline?.usualCycleLengthDays;
+    if (days == null ||
+        days < CycleCalculationResult.minPlausibleCycleLengthDays ||
+        days > CycleCalculationResult.maxPredictableCycleLengthDays) {
+      return null;
+    }
+    return days;
+  }
+
+  /// Her stated usual bleeding duration, when it is a believable one.
+  static int? statedPeriodLength(CycleBaseline? baseline) {
+    final days = baseline?.usualBleedingDurationDays;
+    if (days == null || days < 1 || days > _maxStatedPeriodDays) return null;
+    return days;
+  }
+
+  static const int _maxStatedPeriodDays = 15;
 
   /// Only the most recent cycles inform a prediction; older ones describe
   /// a body that may have changed.
@@ -393,12 +459,25 @@ class CycleCalculationService {
   /// almost nothing about how much a cycle varies.
   static const double _sparseHistorySpreadDays = 3;
 
+  /// Spread assumed for a prediction from her stated estimate alone. Wider
+  /// than [_sparseHistorySpreadDays]: a remembered "usually about 28 days"
+  /// is less exact than even one logged cycle.
+  static const double _statedEstimateSpreadDays = 4;
+
+  /// Prior weight of her stated cycle length, in cycles: with n logged
+  /// cycles the logged mean counts n/(n+2) and the estimate 2/(n+2)
+  /// (Flo's outline). Once [_recentCycleCount] cycles are logged the
+  /// estimate is dropped entirely, so a wrong guess cannot bias a
+  /// well-established history forever.
+  static const double _statedEstimateWeightCycles = 2;
+
   /// Predicted next-cycle length and its spread from raw, oldest-to-newest
-  /// cycle [intervals] (see [CycleCalculationResult.predictedCycleLength]).
-  /// Shared by every screen that predicts, so they never disagree.
-  static ({int length, double spreadDays})? predictFromIntervals(
-    List<int> intervals,
-  ) {
+  /// cycle [intervals] (see [CycleCalculationResult.predictedCycleLength]),
+  /// optionally informed by her [statedCycleLength] (see
+  /// [_statedEstimateWeightCycles]). Shared by every screen that predicts,
+  /// so they never disagree.
+  static ({int length, double spreadDays, PredictionBasis basis})?
+  predictFromIntervals(List<int> intervals, {int? statedCycleLength}) {
     final plausible = intervals
         .where(
           (days) =>
@@ -406,7 +485,14 @@ class CycleCalculationService {
               days <= CycleCalculationResult.maxPredictableCycleLengthDays,
         )
         .toList();
-    if (plausible.isEmpty) return null;
+    if (plausible.isEmpty) {
+      if (statedCycleLength == null) return null;
+      return (
+        length: statedCycleLength,
+        spreadDays: _statedEstimateSpreadDays,
+        basis: PredictionBasis.statedEstimate,
+      );
+    }
     final sorted = [...plausible]..sort();
     final middle = sorted.length ~/ 2;
     final median = sorted.length.isOdd
@@ -422,7 +508,14 @@ class CycleCalculationService {
       weightSum += weight;
       weightedSum += weight * recent[k];
     }
-    final mean = weightedSum / weightSum;
+    final historyMean = weightedSum / weightSum;
+    final useEstimate =
+        statedCycleLength != null && valid.length < _recentCycleCount;
+    final historyWeight =
+        valid.length / (valid.length + _statedEstimateWeightCycles);
+    final mean = useEstimate
+        ? historyWeight * historyMean + (1 - historyWeight) * statedCycleLength
+        : historyMean;
 
     double spread;
     if (recent.length < 3) {
@@ -431,10 +524,16 @@ class CycleCalculationService {
       var weightedSquares = 0.0;
       for (var k = 0; k < recent.length; k++) {
         final weight = math.pow(_recencyDecay, k).toDouble();
-        weightedSquares += weight * math.pow(recent[k] - mean, 2);
+        weightedSquares += weight * math.pow(recent[k] - historyMean, 2);
       }
       spread = math.sqrt(weightedSquares / weightSum);
     }
-    return (length: mean.round(), spreadDays: math.max(spread, _minSpreadDays));
+    return (
+      length: mean.round(),
+      spreadDays: math.max(spread, _minSpreadDays),
+      basis: useEstimate
+          ? PredictionBasis.historyAndEstimate
+          : PredictionBasis.history,
+    );
   }
 }

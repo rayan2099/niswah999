@@ -71,7 +71,8 @@ class NotificationScheduler {
     required CycleCalculationResult calculation,
     required DateTime now,
   }) {
-    if (!calculation.hasSufficientHistory || !calculation.canPredict) {
+    if (!calculation.hasSufficientHistory ||
+        !calculation.canPredictFromHistory) {
       return null;
     }
 
