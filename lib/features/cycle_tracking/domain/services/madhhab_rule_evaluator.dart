@@ -116,13 +116,10 @@ class MadhhabRuleEvaluator {
   /// Kashshaf al-Qina') states **thirteen days**, not fifteen, for
   /// Hanbali specifically — corroborated by independent external
   /// sources per FD-7. Hanafi/Maliki/Shafi'i remain at 15 days; this is
-  /// a Madhhab-specific correction, not a generalized rule change. Only
-  /// Hanafi's branch of [evaluate] currently gates on this value as a
-  /// branch condition (the pre-existing, separately-tracked `FR-003`
-  /// enforcement asymmetry) — this function still returns each
-  /// madhhab's own correct value so that gap, when closed, inherits the
-  /// right number per madhhab instead of a single wrong-for-Hanbali
-  /// constant.
+  /// a Madhhab-specific correction, not a generalized rule change.
+  /// [evaluate] gates on this value for all four madhahib (the former
+  /// Hanafi-only `FR-003` enforcement asymmetry was closed in the Fiqh
+  /// hardening wave, 2026-10-18), each with its own value.
   static Duration minimumPurityFor(Madhhab madhhab) =>
       madhhab == Madhhab.hanbali
           ? const Duration(days: 13)
@@ -145,9 +142,12 @@ class MadhhabRuleEvaluator {
       state = FiqhCycleState.insufficientHistory;
     } else if (!isBleeding) {
       state = FiqhCycleState.tahara;
-    } else if (madhhab == Madhhab.hanafi &&
-        purityBefore != null &&
-        purityBefore < minimumPurity) {
+    } else if (purityBefore != null && purityBefore < minimumPurity) {
+      // Fiqh hardening (2026-10-18, closes the FR-003 asymmetry): every
+      // madhhab documents a minimum complete purity between two haids
+      // (haidfigh.md §1-§4; crosswalk *-HAID-06; FD-7 sets Hanbali to 13
+      // days). Bleeding that resumes before it is never a confident fresh
+      // haid — previously only Hanafi was gated here.
       state = FiqhCycleState.needsAdvisory;
     } else if ((minimum != null && bleedingDuration < minimum) ||
         bleedingDuration > maximum) {

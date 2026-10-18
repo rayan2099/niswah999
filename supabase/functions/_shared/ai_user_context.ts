@@ -42,6 +42,7 @@
 //     as AICTX-10 (see findings doc) rather than silently accepted.
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { isResolvedFiqhState, normalizeClientFiqhState } from './fiqh_state_guard.ts';
 import {
   getPregnancyStatus,
   type PregnancyProfileRow as SharedPregnancyProfileRow,
@@ -221,6 +222,21 @@ export function mergeNotesSources(
  * `formatContextBlock`. Every field carries its own source/provenance —
  * nothing here is presented as more certain than it actually is.
  */
+/**
+ * Fiqh hardening (2026-10-18): `uncertainty: 'none'` is reserved for a
+ * client classification the engine itself treats as settled (tahara/haid,
+ * see fiqh_state_guard.ts). Previously ANY supplied value -- including
+ * `needsAdvisory`, `madhhabUnresolved` and `insufficientHistory`, which are
+ * explicitly not rulings -- was labeled as carrying no uncertainty.
+ */
+export function fiqhUncertaintyFor(clientFiqhState: string | null | undefined): string {
+  if (!clientFiqhState) {
+    return 'Deterministic fiqh classification was not supplied by the client this call — do not assume a classification.';
+  }
+  if (isResolvedFiqhState(normalizeClientFiqhState(clientFiqhState))) return 'none';
+  return 'The client engine reported this as NOT a settled ruling (needs a case-specific review, Madhhab not selected, or not enough recorded history) — do not present any Haid/Tahara/Istihadah ruling for her current state as certain.';
+}
+
 export async function buildUserAiContext(
   userClient: SupabaseClient,
   options: {
@@ -290,9 +306,7 @@ export async function buildUserAiContext(
     }
   }
 
-  const fiqhUncertainty = options.clientFiqhState
-    ? 'none'
-    : 'Deterministic fiqh classification was not supplied by the client this call — do not assume a classification.';
+  const fiqhUncertainty = fiqhUncertaintyFor(options.clientFiqhState);
 
   const symptomsRecent = sortedAscending
     .slice(-10)

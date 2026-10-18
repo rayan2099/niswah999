@@ -1,45 +1,68 @@
-import '../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
-import '../cycle_tracking/domain/repositories/cycle_tracking_repository.dart';
-import '../cycle_tracking/domain/services/cycle_calculation_service.dart';
-import '../cycle_tracking/domain/services/cycle_status_engine.dart';
+import '../../core/network/supabase_client.dart';
+import '../../core/utils/app_clock.dart';
+import '../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
+import '../cycle_tracking/domain/services/canonical_fiqh_assessment.dart';
 import '../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
+import '../cycle_tracking/domain/services/report_canonical_evidence.dart';
 
 /// AICTX remediation: supplies the Fiqh Advisor Edge Function with the same
-/// deterministic classification the dashboard already shows, computed by
-/// the single canonical engine (CycleStatusEngine/MadhhabRuleEvaluator) —
-/// never a second implementation. The server treats this as
+/// deterministic classification the dashboard already shows. Fiqh
+/// hardening (2026-10-18): computed from the same canonical evidence
+/// ([ReportCanonicalEvidence.load]) through the same combination with the
+/// canonical episode status ([CanonicalFiqhAssessment]) as the Today
+/// dashboard and the reports — never from the legacy `cycle_entries`
+/// table, which previously let a woman bleeding for the first time be
+/// described to the model as "tahara". The server treats this as
 /// `client_computed` (see supabase/functions/_shared/ai_user_context.ts's
 /// header comment for why it is not independently re-verified server-side)
-/// and falls back to `not_provided` if this returns null, which it does on
-/// any failure — this must never block sending a fiqh question.
+/// and falls back to `not_provided` if this returns null — this must never
+/// block sending a fiqh question.
 class ClientFiqhStateProvider {
-  ClientFiqhStateProvider({CycleTrackingRepository? repository})
-    : _repository = repository ?? CycleTrackingRepositoryImpl();
+  ClientFiqhStateProvider({
+    BleedingEpisodeRepositoryImpl? repository,
+    String? Function()? currentUserId,
+    DateTime Function()? clock,
+  }) : _repository = repository ?? BleedingEpisodeRepositoryImpl(),
+       _currentUserId =
+           currentUserId ??
+           (() => NiswahSupabase.clientOrNull?.auth.currentUser?.id),
+       _clock = clock ?? (() => AppClock.now());
 
-  final CycleTrackingRepository _repository;
+  final BleedingEpisodeRepositoryImpl _repository;
+  final String? Function() _currentUserId;
+  final DateTime Function() _clock;
 
   /// Returns the current [FiqhCycleState]'s name (e.g. "haid", "tahara",
-  /// "madhhabUnresolved"), or null if it could not be determined (no
-  /// history, a repository error, etc.) — callers must treat null as "omit
-  /// the field", never invent a fallback value. [madhhab] is null whenever
-  /// `MadhhabController.state` is not `selected` (Fiqh Remediation Wave 1)
-  /// — [CycleStatusEngine] itself never guesses one on this class's behalf.
+  /// "needsAdvisory", "madhhabUnresolved"), "insufficientHistory" while an
+  /// episode is open with too little recorded history, or null when the
+  /// state cannot be determined (no session, unreadable or unverifiable
+  /// canonical evidence, any error) — callers must treat null as "omit the
+  /// field", never invent a fallback value. [madhhab] is null whenever
+  /// `MadhhabController.state` is not `selected` (Fiqh Remediation Wave 1).
   Future<String?> currentClassification(Madhhab? madhhab) async {
     try {
-      final logs = await _repository.getCycleLogs();
-      if (logs.isEmpty) return null;
+      final now = _clock();
+      final evidence = await ReportCanonicalEvidence.load(
+        userId: _currentUserId(),
+        now: now,
+        repository: _repository,
+      );
+      if (evidence == null || evidence.unavailable) return null;
 
-      final calculation = const CycleCalculationService().calculate(
-        logs,
-        asOf: DateTime.now(),
-      );
-      final snapshot = const CycleStatusEngine().evaluate(
-        logs: logs,
-        calculation: calculation,
+      final assessment = CanonicalFiqhAssessment.assess(
+        effectiveLogs: evidence.effectiveLogs,
+        hasOpenEpisode: evidence.hasOpenEpisode,
+        evidenceUnresolved: evidence.evidenceUnresolved,
         madhhab: madhhab,
-        now: DateTime.now(),
+        now: now,
       );
-      return snapshot.state.name;
+      return switch (assessment.verdict) {
+        CanonicalFiqhVerdict.evaluated => assessment.state!.name,
+        CanonicalFiqhVerdict.insufficientHistory =>
+          FiqhCycleState.insufficientHistory.name,
+        // "Unable to verify" on Today: there is no classification to send.
+        CanonicalFiqhVerdict.evidenceUnresolved => null,
+      };
     } catch (_) {
       // Never let a context-enrichment failure block sending the question.
       return null;

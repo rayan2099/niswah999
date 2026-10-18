@@ -1,5 +1,6 @@
 import 'package:collection/collection.dart';
 
+import '../../../../core/utils/calendar_days.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../entities/bleeding_episode.dart';
 import '../entities/load_result.dart';
@@ -129,13 +130,10 @@ class CanonicalBleedingStatusResolver {
         .length;
 
     if (openEpisode != null) {
-      final today = DateTime(now.year, now.month, now.day);
-      final start = DateTime(
-        openEpisode.startDate.year,
-        openEpisode.startDate.month,
-        openEpisode.startDate.day,
-      );
-      final daysInto = today.difference(start).inDays + 1;
+      // Calendar days, never `Duration.inDays` between local midnights:
+      // across a spring-forward DST change those are 23h apart and the
+      // count came out one day short.
+      final daysInto = calendarDaysBetween(openEpisode.startDate, now) + 1;
       return CanonicalBleedingStatus(
         state: RingFactualState.factualOpenEpisode,
         openEpisode: openEpisode,

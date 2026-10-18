@@ -366,6 +366,8 @@ class FiqhReportPdfBuilder {
         insights.evidenceNote != ReportEvidenceNote.none) {
       final unavailable =
           insights.evidenceNote == ReportEvidenceNote.recordsUnavailable;
+      final unverified =
+          insights.evidenceNote == ReportEvidenceNote.evidenceUnverified;
       widgets.add(
         _card(
           bg: '#FFF8E7',
@@ -374,6 +376,10 @@ class FiqhReportPdfBuilder {
                 ? (isArabic
                       ? 'تعذّر التحقق من سجلاتكِ الآن، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. أعيدي إنشاء التقرير لاحقًا.'
                       : "Your records couldn't be verified right now, so your current Fiqh state cannot be determined. Generate the report again later.")
+                : unverified
+                ? (isArabic
+                      ? 'تعذّر التحقق من بعض سجلاتكِ، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. راجعي سجلاتكِ، واسألي مختصة شرعية موثوقة إن احتجتِ إلى إرشاد اليوم.'
+                      : "Some of your records couldn't be verified, so your current Fiqh state cannot be determined. Review your records, and ask a trusted scholar if you need guidance today.")
                 : (isArabic
                       ? 'هناك نزيف مسجَّل حاليًا، لكن الأدلة المسجلة لا تكفي لتحديد حالتكِ الفقهية. تابعي التسجيل، واسألي مختصة شرعية موثوقة إن احتجتِ إلى إرشاد اليوم.'
                       : "A bleeding episode is recorded, but the recorded evidence isn't enough to work out your Fiqh state. Keep logging, and ask a trusted scholar if you need guidance today."),

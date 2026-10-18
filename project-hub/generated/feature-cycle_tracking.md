@@ -24,6 +24,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [load_result.dart](../../lib/features/cycle_tracking/domain/entities/load_result.dart)
 - [cycle_tracking_repository.dart](../../lib/features/cycle_tracking/domain/repositories/cycle_tracking_repository.dart)
 - [canonical_bleeding_status_resolver.dart](../../lib/features/cycle_tracking/domain/services/canonical_bleeding_status_resolver.dart)
+- [canonical_fiqh_assessment.dart](../../lib/features/cycle_tracking/domain/services/canonical_fiqh_assessment.dart)
 - [canonical_fiqh_evidence_adapter.dart](../../lib/features/cycle_tracking/domain/services/canonical_fiqh_evidence_adapter.dart)
 - [cycle_calculation_service.dart](../../lib/features/cycle_tracking/domain/services/cycle_calculation_service.dart)
 - [cycle_segment_planner.dart](../../lib/features/cycle_tracking/domain/services/cycle_segment_planner.dart)

@@ -32,7 +32,7 @@ import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/canonical_bleeding_status_resolver.dart';
 import '../../../cycle_tracking/domain/services/canonical_fiqh_evidence_adapter.dart';
 import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
-import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
+import '../../../cycle_tracking/domain/services/canonical_fiqh_assessment.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
 import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
@@ -584,40 +584,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // themselves — never here, since the underlying calculation must
         // still run honestly either way.
         final canonicalFiqhLogs = _canonicalFiqhLogs ?? const <CycleLog>[];
-        final fiqhLogs = canonicalFiqhLogs;
-        final fiqhCalculation = const CycleCalculationService().calculate(
-          canonicalFiqhLogs,
-          asOf: AppClock.now(),
-        );
-        // The engine always runs (regardless of _istihadahMode) so every
-        // state — including manual istihadah — shares the same real,
-        // flow-aware day-count data; the toggle only overrides which
-        // label is displayed below, never the underlying computation.
-        final snapshot = fiqhCalculation.hasSufficientHistory
-            ? const CycleStatusEngine().evaluate(
-                logs: fiqhLogs,
-                calculation: fiqhCalculation,
-                madhhab: MadhhabController.instance.selectedOrNull,
-                now: AppClock.now(),
-              )
-            : const CycleStatusSnapshot(
-                state: FiqhCycleState.tahara,
-                confirmAt: null,
-                daysIntoCurrentEpisode: null,
-                cycleDayEstimate: null,
-                averageCycleLength: null,
-                averagePeriodLength: null,
-              );
-        final mappedState = switch (snapshot.state) {
-          FiqhCycleState.haid => _FiqhState.haid,
-          FiqhCycleState.needsAdvisory => _FiqhState.needsAdvisory,
-          FiqhCycleState.tahara ||
-          FiqhCycleState.insufficientHistory => _FiqhState.tahara,
-          // Fiqh Remediation Wave 1 (Section E): never mapped to tahara —
-          // that would silently claim purity for a currently-bleeding user
-          // with no Madhhab SELECTED.
-          FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
-        };
         // Closure Blocker 2 — the factual question "is there an open
         // bleeding episode?" is now answered ONLY by canonical
         // bleeding_episodes (via _canonicalStatus), never unioned with
@@ -642,43 +608,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
           RingFactualState.factualOpenEpisode => true,
           _ => false,
         };
-        // New critical finding — a factually open episode (she is
-        // genuinely, currently being tracked as bleeding) combined with
-        // *insufficient* Fiqh evidence (never enough real observations to
-        // reach any evaluated conclusion at all — distinct from a
-        // genuine, evidence-backed Tahara/Istihadah ruling, which this
-        // does not touch) must never fall through to the same "Tahara"
-        // label a brand-new, not-currently-bleeding account gets. Without
-        // this guard, `_PrayerStatusCard` — unconditional, rendered
-        // regardless of which ring branch above shows — would have said
-        // "Salah is obligatory" for a woman who is, right now, factually
-        // bleeding, purely because her observations hadn't finished
-        // loading/existing yet. Folded into the same evidence-unresolved
-        // signal as a genuine read failure: both mean "cannot honestly
-        // conclude anything yet," never a confident ruling either way.
-        // Checked against `fiqhCalculation.hasSufficientHistory` directly —
-        // not `snapshot.state == FiqhCycleState.insufficientHistory` — because
-        // the fallback snapshot above (used precisely when history is
-        // insufficient) is itself hardcoded to report `FiqhCycleState.tahara`,
-        // never the `insufficientHistory` enum value. Matching on the enum
-        // value here would never fire.
-        final insufficientEvidenceWhileFactuallyBleeding =
-            hasOpenEpisode == true && !fiqhCalculation.hasSufficientHistory;
-        // New critical finding — evidence-unresolved takes priority over
-        // every other signal, including her own manual Istihadah toggle:
-        // if the canonical observations backing this conclusion could not
-        // be verified, nothing computed from them (nor a toggle that
-        // itself assumes a specific, knowable state) may be confidently
-        // asserted. Every consumer of `state` below (the ring, the Salah
-        // banner, the prayer-status card) must treat this case as "we
-        // don't know," never silently substitute the last-good value.
-        final state = _canonicalFiqhEvidenceUnresolved
-            ? _FiqhState.evidenceUnresolved
-            : insufficientEvidenceWhileFactuallyBleeding
-            ? _FiqhState.insufficientHistory
-            : _istihadahMode
-            ? _FiqhState.istihadah
-            : mappedState;
+        // Fiqh hardening (2026-10-18) — canonical status and the engine
+        // are combined in ONE shared place (CanonicalFiqhAssessment), the
+        // same one the Fiqh/Doctor/Husband reports and the AI advisor's
+        // clientFiqhState use, so they can never disagree with Today. It
+        // covers, in order: evidence-unresolved (a failed read, a
+        // quarantined row, a material "I'm not sure" day, or a bleeding
+        // day logged after the latest episode's stop date while nothing
+        // is open — the engine must not say "currently bleeding" then);
+        // a factually open episode with insufficient history (never the
+        // "Tahara" a brand-new, not-bleeding account gets — `_PrayerStatusCard`
+        // would otherwise say "Salah is obligatory"); otherwise the
+        // engine's own state. The engine always runs (regardless of
+        // _istihadahMode) so every state — including manual istihadah —
+        // shares the same real, flow-aware day-count data.
+        final fiqhAssessment = CanonicalFiqhAssessment.assess(
+          effectiveLogs: canonicalFiqhLogs,
+          hasOpenEpisode: hasOpenEpisode,
+          evidenceUnresolved: _canonicalFiqhEvidenceUnresolved,
+          madhhab: MadhhabController.instance.selectedOrNull,
+          now: AppClock.now(),
+        );
+        final snapshot = fiqhAssessment.snapshot;
+        final mappedState = switch (snapshot.state) {
+          FiqhCycleState.haid => _FiqhState.haid,
+          FiqhCycleState.needsAdvisory => _FiqhState.needsAdvisory,
+          FiqhCycleState.tahara ||
+          FiqhCycleState.insufficientHistory => _FiqhState.tahara,
+          // Fiqh Remediation Wave 1 (Section E): never mapped to tahara —
+          // that would silently claim purity for a currently-bleeding user
+          // with no Madhhab SELECTED.
+          FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
+        };
+        // Evidence-unresolved takes priority over every other signal,
+        // including her own manual Istihadah toggle: nothing computed from
+        // unverifiable evidence (nor a toggle that itself assumes a
+        // specific, knowable state) may be confidently asserted. Nor may
+        // the toggle stand in for a missing Madhhab (owner-e4 §14: no
+        // Haid/Tahara/Istihadah ruling ever appears with no Madhhab
+        // selected).
+        final state = switch (fiqhAssessment.verdict) {
+          CanonicalFiqhVerdict.evidenceUnresolved =>
+            _FiqhState.evidenceUnresolved,
+          CanonicalFiqhVerdict.insufficientHistory =>
+            _FiqhState.insufficientHistory,
+          CanonicalFiqhVerdict.evaluated =>
+            _istihadahMode && mappedState != _FiqhState.madhhabUnresolved
+                ? _FiqhState.istihadah
+                : mappedState,
+        };
+        // The prayer card states an obligation, so it must not let the
+        // manual Istihadah toggle mask an engine result that is itself
+        // "needs a case-specific review": Istihadah means she prays
+        // (haidfigh.md §1), but whether this bleeding IS istihadah is
+        // exactly what the engine could not settle.
+        final prayerCardState =
+            state == _FiqhState.istihadah &&
+                mappedState == _FiqhState.needsAdvisory
+            ? _FiqhState.needsAdvisory
+            : state;
         // The Fiqh/ring DISPLAY label remains legacy-derived — a
         // deliberately separate, non-factual concern (Commit G4: Fiqh
         // sits above evidence, never overrides it). Only ever used for
@@ -867,7 +855,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             // (Quick Actions, just below) still works
                             // regardless — only the Fiqh *conclusion* is
                             // withheld.
-                            if (_canonicalFiqhEvidenceUnresolved)
+                            if (state == _FiqhState.evidenceUnresolved)
                               _FiqhEvidenceUnresolvedCard(
                                 onRetry: () =>
                                     unawaited(_refreshCanonicalStatus()),
@@ -965,7 +953,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(height: 16),
                           _PrayerStatusCard(
                             viewModel: _prayerViewModel,
-                            fiqhState: state,
+                            fiqhState: prayerCardState,
                           ),
                           const SizedBox(height: 16),
                           _DreamCard(
@@ -3845,10 +3833,58 @@ class _PrayerStatusCard extends StatelessWidget {
     // New critical finding — when canonical evidence is unresolved,
     // neither "lifted" nor "obligatory" may be confidently asserted:
     // both are themselves rulings, and the whole point of this state is
-    // that no ruling can be drawn right now.
+    // that no ruling can be drawn right now. Fiqh hardening (2026-10-18):
+    // the same holds with no Madhhab selected (owner-e4 §14) and for a
+    // case that needs a case-specific review — both previously fell
+    // through to "Salah is obligatory".
     final insufficientHistory = fiqhState == _FiqhState.insufficientHistory;
+    final madhhabUnresolved = fiqhState == _FiqhState.madhhabUnresolved;
+    final needsAdvisory = fiqhState == _FiqhState.needsAdvisory;
     final unresolved =
-        fiqhState == _FiqhState.evidenceUnresolved || insufficientHistory;
+        fiqhState == _FiqhState.evidenceUnresolved ||
+        insufficientHistory ||
+        madhhabUnresolved ||
+        needsAdvisory;
+    final title = insufficientHistory
+        ? _l('Not enough history yet', 'لا يوجد سجل كافٍ بعد')
+        : madhhabUnresolved
+        ? _stateLabel(_FiqhState.madhhabUnresolved)
+        : needsAdvisory
+        ? _l('Please consult a trusted source', 'يُنصح باستشارة مصدر موثوق')
+        : unresolved
+        ? _l('Unable to verify', 'تعذر التحقق')
+        : lifted
+        ? _l('Salah is lifted', 'الصلاة مرفوعة عنكِ')
+        : _l('Salah is obligatory', 'الصلاة واجبة عليكِ');
+    final subtitle = insufficientHistory
+        ? _l(
+            "Your entry is saved. Niswah doesn't have enough recorded history yet to work out your prayer status — if you need guidance today, please ask a trusted scholar.",
+            'تم حفظ ما سجّلتِه. لا تتوفر لدى نسواه بيانات كافية لتحديد حالة صلاتكِ بعد — إن احتجتِ إلى إرشاد اليوم فاسألي أهل العلم الموثوقين.',
+          )
+        : madhhabUnresolved
+        ? _l(
+            'Select your Madhhab in Settings to see your prayer status.',
+            'يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حكم صلاتكِ.',
+          )
+        : needsAdvisory
+        ? _l(
+            "This bleeding pattern needs a case-specific review, so Niswah can't confirm your prayer status — please ask a trusted scholar.",
+            'نمط هذا النزيف يحتاج إلى مراجعة خاصة بالحالة، لذلك لا يمكن لنسواه تأكيد حكم صلاتكِ — يُرجى سؤال أهل العلم الموثوقين.',
+          )
+        : unresolved
+        ? _l(
+            "We couldn't verify your tracking data — your prayer obligation can't be confirmed right now.",
+            'تعذر التحقق من بيانات تتبعكِ — لا يمكن تأكيد حكم الصلاة الآن.',
+          )
+        : lifted
+        ? _l(
+            'Your obligations change based on your Fiqh state',
+            'تتغير عباداتكِ حسب حالتكِ الفقهية',
+          )
+        : _l(
+            'Prayer times help identify prayers affected by Haid and when Ghusl is due.',
+            'نظهر أوقات الصلاة لمعرفة الصلوات المتأثرة بالحيض وموعد الاغتسال.',
+          );
     final names = {
       prayer.PrayerName.fajr: _l('Fajr', 'الفجر'),
       prayer.PrayerName.dhuhr: _l('Dhuhr', 'الظهر'),
@@ -3881,13 +3917,7 @@ class _PrayerStatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      insufficientHistory
-                          ? _l('Not enough history yet', 'لا يوجد سجل كافٍ بعد')
-                          : unresolved
-                          ? _l('Unable to verify', 'تعذر التحقق')
-                          : lifted
-                          ? _l('Salah is lifted', 'الصلاة مرفوعة عنكِ')
-                          : _l('Salah is obligatory', 'الصلاة واجبة عليكِ'),
+                      title,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: unresolved
                             ? const Color(0xFF6B7280)
@@ -3900,25 +3930,7 @@ class _PrayerStatusCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      insufficientHistory
-                          ? _l(
-                              "Your entry is saved. Niswah doesn't have enough recorded history yet to work out your prayer status — if you need guidance today, please ask a trusted scholar.",
-                              'تم حفظ ما سجّلتِه. لا تتوفر لدى نسواه بيانات كافية لتحديد حالة صلاتكِ بعد — إن احتجتِ إلى إرشاد اليوم فاسألي أهل العلم الموثوقين.',
-                            )
-                          : unresolved
-                          ? _l(
-                              "We couldn't verify your tracking data — your prayer obligation can't be confirmed right now.",
-                              'تعذر التحقق من بيانات تتبعكِ — لا يمكن تأكيد حكم الصلاة الآن.',
-                            )
-                          : lifted
-                          ? _l(
-                              'Your obligations change based on your Fiqh state',
-                              'تتغير عباداتكِ حسب حالتكِ الفقهية',
-                            )
-                          : _l(
-                              'Prayer times help identify prayers affected by Haid and when Ghusl is due.',
-                              'نظهر أوقات الصلاة لمعرفة الصلوات المتأثرة بالحيض وموعد الاغتسال.',
-                            ),
+                      subtitle,
                       style: const TextStyle(
                         color: AppColors.textTertiary,
                         fontSize: 9,

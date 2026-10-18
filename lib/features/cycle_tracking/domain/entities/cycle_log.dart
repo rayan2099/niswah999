@@ -71,6 +71,7 @@ class CycleLog extends Equatable {
     this.createdAt,
     this.updatedAt,
     this.dataProvenance = CycleEntryProvenance.userObserved,
+    this.observedTime,
   });
 
   final String id;
@@ -85,6 +86,14 @@ class CycleLog extends Equatable {
   final DateTime? updatedAt;
   final CycleEntryProvenance dataProvenance;
 
+  /// The exact moment bleeding was observed on this day, when the
+  /// canonical evidence states one (every bleeding observation for the
+  /// day was recorded with an exact time; the earliest is kept). Null for
+  /// a date-only (or approximate-time) day — the Fiqh engine then must
+  /// not assume bleeding began at local midnight. Set only by
+  /// `CanonicalFiqhEvidenceAdapter`; never persisted to `cycle_entries`.
+  final DateTime? observedTime;
+
   CycleLog copyWith({
     String? id,
     String? userId,
@@ -97,6 +106,7 @@ class CycleLog extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     CycleEntryProvenance? dataProvenance,
+    DateTime? observedTime,
   }) {
     return CycleLog(
       id: id ?? this.id,
@@ -110,6 +120,7 @@ class CycleLog extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       dataProvenance: dataProvenance ?? this.dataProvenance,
+      observedTime: observedTime ?? this.observedTime,
     );
   }
 
@@ -192,6 +203,7 @@ class CycleLog extends Equatable {
     createdAt,
     updatedAt,
     dataProvenance,
+    observedTime,
   ];
 }
 

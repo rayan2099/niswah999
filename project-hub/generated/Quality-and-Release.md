@@ -233,6 +233,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
 - [widget_test.dart](../../test/widget_test.dart)
 
+## test/fiqh_hardening
+
+- [ai_client_fiqh_state_test.dart](../../test/fiqh_hardening/ai_client_fiqh_state_test.dart)
+- [dashboard_prayer_card_test.dart](../../test/fiqh_hardening/dashboard_prayer_card_test.dart)
+- [fiqh_engine_hardening_test.dart](../../test/fiqh_hardening/fiqh_engine_hardening_test.dart)
+
 ## test/fixtures
 
 - [backend_gate_vectors.json](../../test/fixtures/backend_gate_vectors.json)

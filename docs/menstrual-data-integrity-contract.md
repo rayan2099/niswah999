@@ -1574,3 +1574,79 @@ changes that, and nothing in this entry should be read as claiming `E4`
 for either.
 
 All changes on this same branch, PR #4, still **draft and unmerged**.
+
+## 16. Fiqh hardening wave (2026-10-18, branch `fix/tracking-hardening`) — status: PROPOSED
+
+Status: **proposed**. These changes are implemented on the branch and
+covered by tests. They have not been merged, run on a device, or
+reviewed by a scholar. Scholar review of the engine thresholds
+(`FIQH-1`/`FIQH-2`, `FOUNDER_DECISIONS.md` FD-7) is still open. No rule
+value changed. Every change either applies a rule that
+`haidfigh.md`/the crosswalk/FD-7 already document, or makes the app
+show "consult"/"unable to verify" where those documents do not settle
+the case. Regression tests: `test/fiqh_hardening/`.
+
+1. **Prayer card never claims an obligation without a ruling.**
+   `_PrayerStatusCard` (`dashboard_screen.dart`) previously showed
+   "Salah is obligatory" for `madhhabUnresolved` and `needsAdvisory`.
+   It now shows "Select your Madhhab" or "Please consult a trusted
+   source", in English and Arabic, with "Unknown" for each prayer. The
+   manual Istihadah toggle no longer stands in for a missing Madhhab
+   (owner-e4 §14). The prayer card keeps "obligatory" for a true
+   Istihadah state, because `haidfigh.md` §1 says she prays. It does
+   not keep it when the engine itself returned `needsAdvisory`.
+2. **Minimum purity applies to all four madhahib** (`madhhab_rule_evaluator.dart`).
+   This closes the `FR-003`/`FIQH-7` Hanafi-only gating asymmetry. The
+   values are unchanged: 15 days, and 13 days for Hanbali (FD-7). A
+   shortfall gives `needsAdvisory`, never a confident fresh haid.
+3. **Date-only starts are not assumed to begin at midnight**
+   (`cycle_status_engine.dart`). The adapter now carries an exact
+   observed time through as `CycleLog.observedTime`. A day recorded as
+   date-only counts as haid only when the madhhab's minimum is met even
+   if bleeding began at the end of the start day. Otherwise the result
+   is `needsAdvisory`, and `confirmAt` is the moment the minimum is
+   certainly met.
+4. **The adapter sets `cycleDay`** (`canonical_fiqh_evidence_adapter.dart`).
+   Day 1 marks the first bleeding day of a run, and later days count up.
+   Before this, every day defaulted to 1, so
+   `CycleCalculationService` counted each later day as a new period
+   start. One episode then looked like enough history.
+5. **Purity is measured from the last earlier run that could have been
+   haid.** A run that was certainly below the madhhab's minimum (for
+   example Hanafi spotting under 72h) no longer resets the purity
+   count. A run that might have been haid still counts, so a purity
+   shortfall falls to `needsAdvisory`. The report's duplicate copy of
+   the engine scan was removed. Today, the reports and the AI advisor
+   now share `CanonicalFiqhAssessment`
+   (`lib/features/cycle_tracking/domain/services/canonical_fiqh_assessment.dart`).
+6. **AI advisor `clientFiqhState`** (`client_fiqh_state_provider.dart`).
+   It is now built from `ReportCanonicalEvidence.load` and passed
+   through the same assessment, instead of legacy `cycle_entries`. An
+   open episode with too little history returns `insufficientHistory`
+   (never `tahara`). Unverifiable evidence or no session returns null.
+   On the server, `ai_user_context.ts` now reports `uncertainty: 'none'`
+   only for `tahara`/`haid` (`fiqhUncertaintyFor`). The Deno test was
+   added but not run in this environment because Deno was unavailable.
+7. **A closed episode with bleeding logged after its stop date** is
+   shown as "Unable to verify". It is no longer shown as continuing
+   haid, and it is not shown as Tahara either.
+8. **The report honours unresolved evidence without an open episode**,
+   for example a quarantined row. It then reports `insufficientHistory`
+   with the new `ReportEvidenceNote.evidenceUnverified`.
+9. **DST:** the ring's "day N" and the engine's day count use
+   `calendarDaysBetween`.
+
+**Known and not changed (needs scholar input):**
+
+- Cumulative talfiq is not modelled. This covers Shafi'i 24
+  cumulative hours within 15 days and Hanafi bridging within 10 days
+  (`haidfigh.md` §1, §3). Separate bleeding runs are judged
+  individually. A run that resumes after a short clean gap usually
+  becomes `needsAdvisory` because of the purity check, and Today shows
+  that as "consult".
+- In item 5, a sub-minimum spotting run is not counted as an anchor.
+  Under talfiq it could combine with the next run. That reading is not
+  modelled.
+- The nifas 40-day window differs between
+  `pregnancy_status_controller.dart` and `pregnancy_status_engine.dart`.
+  It was reported to the owner and was not changed.
