@@ -840,6 +840,11 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
       if (mounted) {
         final message = e is FormatException
             ? e.message
+            : e is CanonicalMirrorEditBlockedException
+            ? _cl(
+                'This day was recorded through bleeding tracking. To change it, open the day in the Calendar and choose "Correct this entry".',
+                'سُجّل هذا اليوم عبر متابعة النزيف. لتغييره، افتحي اليوم في التقويم واختاري "تصحيح هذا الإدخال".',
+              )
             : _cl('Unable to save your cycle log.', 'تعذر حفظ سجل الدورة.');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

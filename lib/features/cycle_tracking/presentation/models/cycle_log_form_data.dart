@@ -46,9 +46,33 @@ class CycleLogFormData {
     return null;
   }
 
-  CycleLog toCycleLog({required String userId, String? id}) {
+  /// [dataProvenance] — Logging/sync hardening (proposed): an edit of an
+  /// existing row carries that row's own provenance forward unchanged
+  /// (docs/menstrual-data-integrity-contract.md §5: a `legacy_unverified`
+  /// row must never be silently re-declared `user_observed`). A brand-new
+  /// manual log is classified by its own date per the §1 taxonomy: a day
+  /// before [today] is reported after the fact — `user_reported_historical`
+  /// — and only a same-day report is `user_observed`.
+  CycleLog toCycleLog({
+    required String userId,
+    String? id,
+    CycleEntryProvenance? dataProvenance,
+    DateTime? today,
+  }) {
     final resolvedDate = date ?? AppClock.now();
     final resolvedId = id ?? _generateLogId();
+    final now = today ?? AppClock.now();
+    final localToday = DateTime(now.year, now.month, now.day);
+    final day = DateTime(
+      resolvedDate.year,
+      resolvedDate.month,
+      resolvedDate.day,
+    );
+    final provenance =
+        dataProvenance ??
+        (day.isBefore(localToday)
+            ? CycleEntryProvenance.userReportedHistorical
+            : CycleEntryProvenance.userObserved);
 
     return CycleLog(
       id: resolvedId,
@@ -59,6 +83,7 @@ class CycleLogFormData {
       cycleDay: cycleDay,
       symptoms: symptoms,
       syncStatus: SyncStatus.pending,
+      dataProvenance: provenance,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );

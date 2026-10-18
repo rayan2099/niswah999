@@ -1,4 +1,5 @@
 import '../../features/cycle_tracking/data/datasources/local_cycle_tracking_data_source.dart';
+import '../../features/cycle_tracking/data/local/pending_bleeding_operation_store.dart';
 import '../../features/prayer_tracking/data/datasources/local_prayer_tracking_data_source.dart';
 import 'secure_local_store.dart';
 
@@ -16,6 +17,10 @@ import 'secure_local_store.dart';
 final Map<String, Future<void> Function(String userId)>
 localSensitiveDataCleanupTasks = {
   'cycle_tracking': LocalCycleTrackingDataSource.clearForUser,
+  // Logging/sync hardening (proposed): the not-yet-synced bleeding
+  // operations queue (dates, flows, episode ids, baseline answers).
+  'cycle_tracking_pending_bleeding_operations':
+      PendingBleedingOperationStore.clearForUser,
   'prayer_tracking': LocalPrayerTrackingDataSource.clearForUser,
 };
 

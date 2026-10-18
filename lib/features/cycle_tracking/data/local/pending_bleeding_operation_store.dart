@@ -304,6 +304,12 @@ class PendingBleedingOperationStore {
     return null;
   }
 
+  /// Logging/sync hardening (proposed): account-deletion local cleanup —
+  /// removes [userId]'s whole queue regardless of who is signed in now.
+  /// Registered in `localSensitiveDataCleanupTasks`.
+  static Future<void> clearForUser(String userId) =>
+      SecureLocalStore.clearForUser(_category, userId);
+
   /// See [savePending]'s [userId] doc — the same race applies here: this
   /// must target the bucket the operation was actually saved into, not
   /// whoever happens to be signed in when the matching RPC call finally

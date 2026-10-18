@@ -14,6 +14,7 @@ import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_entries_projection.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/load_result.dart';
+import 'start_bleeding_sheet.dart' show rejectedWriteMessage;
 
 String _t(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
@@ -26,6 +27,37 @@ String _flowLabel(ObservationFlow flow) => switch (flow) {
   ObservationFlow.medium => _t('Medium', 'متوسط'),
   ObservationFlow.heavy => _t('Heavy', 'غزير'),
 };
+
+/// Logging/sync hardening (proposed) — the flows a correction of [target]
+/// may choose without contradicting its [episode]'s own boundaries, which
+/// `correct_observation` enforces server-side (migration
+/// 20261018090000_bleeding_write_boundary_validation.sql):
+/// - the closing `none` observation of an ended episode can never become
+///   bleeding (the episode would stay "ended" on a bleeding day) — only
+///   `none` or `uncertain`;
+/// - an observation on the episode's start day can never become `none`
+///   (the episode would "start" on a day without bleeding).
+/// Every flow otherwise, or when [episode] is unknown.
+List<ObservationFlow> correctionFlowOptions(
+  BleedingObservation target,
+  BleedingEpisode? episode,
+) {
+  if (episode == null) return ObservationFlow.values;
+  final endDate = episode.endDate;
+  if (episode.lifecycleStatus == LifecycleStatus.ended &&
+      endDate != null &&
+      DateUtils.isSameDay(target.observedDate, endDate) &&
+      target.flow == ObservationFlow.none) {
+    return const [ObservationFlow.none, ObservationFlow.uncertain];
+  }
+  if (DateUtils.isSameDay(target.observedDate, episode.startDate) &&
+      target.flow != ObservationFlow.none) {
+    return ObservationFlow.values
+        .where((flow) => flow != ObservationFlow.none)
+        .toList();
+  }
+  return ObservationFlow.values;
+}
 
 /// Menstrual Data Integrity charter, Commits D5/D6/D7 — corrects one
 /// existing observation. [target] must be the CURRENT tip of its
@@ -46,18 +78,20 @@ String _flowLabel(ObservationFlow flow) => switch (flow) {
 Future<bool> showCorrectObservationSheet(
   BuildContext context, {
   required BleedingObservation target,
+  BleedingEpisode? episode,
 }) async {
   final result = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => _CorrectObservationSheet(target: target),
+    builder: (_) => _CorrectObservationSheet(target: target, episode: episode),
   );
   return result ?? false;
 }
 
 class _CorrectObservationSheet extends StatefulWidget {
-  const _CorrectObservationSheet({required this.target});
+  const _CorrectObservationSheet({required this.target, this.episode});
   final BleedingObservation target;
+  final BleedingEpisode? episode;
 
   @override
   State<_CorrectObservationSheet> createState() =>
@@ -100,34 +134,38 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
     // call below so a session change during the awaited RPC can never
     // redirect savePending/clearPending to a different account's bucket.
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
-
-    final now = AppClock.now();
-    final timezone = await DeviceTimezone.currentId();
-    final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
+    var queued = false;
     final repository = BleedingEpisodeRepositoryImpl();
 
-    // Commit D9: persisted before the RPC is sent — the same durable
-    // pattern every other write in this model uses. A conflict (D7)
-    // deliberately leaves this pending rather than clearing it, so her
-    // offline-intended change is never silently dropped.
-    await PendingBleedingOperationStore.savePending(
-      PendingBleedingOperation(
-        operationId: _clientOperationId,
-        type: PendingBleedingOperationType.correction,
-        params: {
-          'supersedesId': _supersedesId,
-          'observedDate': widget.target.observedDate.toIso8601String(),
-          'precision': widget.target.precision.value,
-          'flow': flow.value,
-          'utcOffsetMinutes': utcOffsetMinutes,
-          'timezone': timezone,
-        },
-        createdAt: now,
-      ),
-      userId: userId,
-    );
-
+    // Logging/sync hardening (proposed): try/finally — no failure, of any
+    // kind, may leave this sheet spinning with `_saving` stuck true.
     try {
+      final now = AppClock.now();
+      final timezone = await DeviceTimezone.currentId();
+      final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
+
+      // Commit D9: persisted before the RPC is sent — the same durable
+      // pattern every other write in this model uses. A conflict (D7)
+      // deliberately leaves this pending rather than clearing it, so her
+      // offline-intended change is never silently dropped.
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: _clientOperationId,
+          type: PendingBleedingOperationType.correction,
+          params: {
+            'supersedesId': _supersedesId,
+            'observedDate': widget.target.observedDate.toIso8601String(),
+            'precision': widget.target.precision.value,
+            'flow': flow.value,
+            'utcOffsetMinutes': utcOffsetMinutes,
+            'timezone': timezone,
+          },
+          createdAt: now,
+        ),
+        userId: userId,
+      );
+      queued = true;
+
       final observationId = await repository.correctObservation(
         clientOperationId: _clientOperationId,
         supersedesId: _supersedesId,
@@ -220,6 +258,36 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
         _saving = false;
         _conflictWith = currentValue;
       });
+    } on BleedingWriteRejectedException {
+      // Logging/sync hardening: a deterministic rejection (e.g. turning a
+      // closing observation into bleeding) — a real error, and the queued
+      // copy is dropped since re-sending can never succeed.
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _errorMessage = rejectedWriteMessage();
+      });
+    } catch (_) {
+      // Already queued (savePending ran before the RPC was attempted).
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _errorMessage = queued
+            ? _t(
+                'Saved on device — syncing.',
+                'تم الحفظ على الجهاز — جارٍ المزامنة.',
+              )
+            : _t(
+                'Could not save. Please try again.',
+                'تعذر الحفظ. يرجى المحاولة مجدداً.',
+              );
+      });
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
     }
   }
 
@@ -310,7 +378,10 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
       spacing: 8,
       runSpacing: 8,
       children: [
-        for (final option in ObservationFlow.values)
+        for (final option in correctionFlowOptions(
+          widget.target,
+          widget.episode,
+        ))
           ChoiceChip(
             label: Text(_flowLabel(option)),
             selected: _flow == option,
