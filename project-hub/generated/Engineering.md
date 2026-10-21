@@ -167,3 +167,4 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261012090000_record_onboarding_menstrual_history_episode_reconciliation.sql](../../supabase/migrations/20261012090000_record_onboarding_menstrual_history_episode_reconciliation.sql)
 - [20261014220000_madhhab_history_ruleset_version_future_safety.sql](../../supabase/migrations/20261014220000_madhhab_history_ruleset_version_future_safety.sql)
 - [20261015120000_kb_human_review_status_provenance.sql](../../supabase/migrations/20261015120000_kb_human_review_status_provenance.sql)
+- [20261021090000_users_privileged_columns_guard.sql](../../supabase/migrations/20261021090000_users_privileged_columns_guard.sql)
