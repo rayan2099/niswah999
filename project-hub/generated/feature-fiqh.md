@@ -26,6 +26,9 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [fiqh_properties_test.dart](../../test/round2_hardening/properties/fiqh_properties_test.dart)
 - [fiqh_regressions_test.dart](../../test/round2_hardening/properties/fiqh_regressions_test.dart)
 - [fiqh_surfaces.dart](../../test/round2_hardening/properties/support/fiqh_surfaces.dart)
+- [fiqh_properties_test.dart](../../test/round2_properties/fiqh_properties_test.dart)
+- [fiqh_regressions_test.dart](../../test/round2_properties/fiqh_regressions_test.dart)
+- [fiqh_surfaces.dart](../../test/round2_properties/support/fiqh_surfaces.dart)
 - [fiqh_report_insights_engine_test.dart](../../test/services/fiqh_report_insights_engine_test.dart)
 - [golden_fiqh_dataset_test.dart](../../test/services/golden_fiqh_dataset_test.dart)
 

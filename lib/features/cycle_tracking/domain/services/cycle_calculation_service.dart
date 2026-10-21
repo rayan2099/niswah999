@@ -74,8 +74,8 @@ class CycleCalculationResult {
   /// Unlike [averageCycleLength], which stays the plain factual mean, this
   /// leaves out intervals that cannot be a single real cycle (outside
   /// [minPlausibleCycleLengthDays]–[maxPredictableCycleLengthDays], or at
-  /// least twice the median — almost always a period that was never
-  /// logged) and weights the most recent cycles more. Null when no
+  /// least twice the median of the other qualifying intervals — almost
+  /// always a period that was never logged) and weights the most recent cycles more. Null when no
   /// interval qualifies; nothing is predicted then.
   final int? predictedCycleLength;
 
@@ -223,11 +223,13 @@ class CycleCalculationService {
     return calendarDaysBetween(starts.last, date) + 1;
   }
 
-  ({List<DateTime> starts, List<int> periodLengths}) _detectEpisodes(
-    List<CycleLog> sortedLogs,
-  ) {
+  /// Starts detected from flat logs, and each completed period's length
+  /// keyed by the start it belongs to (so a merge with canonical episodes
+  /// can withdraw exactly the periods it replaces).
+  ({List<DateTime> starts, List<({DateTime start, int length})> periods})
+  _detectEpisodes(List<CycleLog> sortedLogs) {
     final starts = <DateTime>[];
-    final periodLengths = <int>[];
+    final periods = <({DateTime start, int length})>[];
     FlowLevel? previousFlow;
     DateTime? currentEpisodeStart;
 
@@ -264,81 +266,107 @@ class CycleCalculationService {
           previousFlow != FlowLevel.none &&
           currentEpisodeStart != null) {
         final length = calendarDaysBetween(currentEpisodeStart, date);
-        if (length > 0) periodLengths.add(length);
+        if (length > 0) {
+          periods.add((start: currentEpisodeStart, length: length));
+        }
         currentEpisodeStart = null;
       }
       previousFlow = log.flow;
     }
 
-    return (starts: starts, periodLengths: periodLengths);
+    return (starts: starts, periods: periods);
   }
 
   /// Merges canonical episode start dates into the starts detected from
-  /// flat logs. A canonical start within 1 day of an already-detected
-  /// start is the SAME episode (the flat-log rule above: no real cycle
-  /// starts 0-1 days after the last one) and is dropped — so an episode
-  /// that was also projected into `cycle_entries` is never counted twice.
-  /// A canonical ended episode contributes its length only when it
-  /// survived as a distinct start (log-derived pairing already covers the
-  /// rest), so no period is averaged twice.
+  /// flat logs, so an episode that was also projected into `cycle_entries`
+  /// is never counted twice:
+  ///
+  /// * A log-derived start that falls inside a canonical episode's span
+  ///   (from its start to its end date, or anywhere after the start while
+  ///   it is still open) is that same episode. The canonical start is kept
+  ///   (it is what she reported; its first day may be "I'm not sure", which
+  ///   is never projected) and the log-derived start and its paired period
+  ///   length are dropped. Proposed, round-2 property tests (2026-10-21):
+  ///   before this, a projection that began two or more days after the
+  ///   canonical start counted one period as two cycles, and one a day later
+  ///   moved the start by a day.
+  /// * A log-derived start one day before a canonical start is also the
+  ///   same episode (no real cycle starts 0-1 days after the last one); the
+  ///   log-derived start is kept with its paired length, as before.
+  /// * A canonical ended episode contributes its own length whenever its
+  ///   start is kept.
   ({List<DateTime> starts, List<int> periodLengths}) _mergeCanonical(
-    ({List<DateTime> starts, List<int> periodLengths}) fromLogs,
+    ({List<DateTime> starts, List<({DateTime start, int length})> periods})
+    fromLogs,
     List<CanonicalEpisodeTiming> canonical,
   ) {
-    if (canonical.isEmpty) return fromLogs;
+    if (canonical.isEmpty) {
+      return (
+        starts: fromLogs.starts,
+        periodLengths: [for (final p in fromLogs.periods) p.length],
+      );
+    }
+    final spans = [
+      for (final episode in canonical)
+        (
+          start: calendarDay(episode.startDate),
+          end: episode.endDate == null ? null : calendarDay(episode.endDate!),
+        ),
+    ];
+    bool insideCanonicalSpan(DateTime day) => spans.any(
+      (span) =>
+          calendarDaysBetween(span.start, day) >= 0 &&
+          (span.end == null || calendarDaysBetween(day, span.end!) >= 0),
+    );
+    final logLengths = <DateTime, List<int>>{};
+    for (final period in fromLogs.periods) {
+      logLengths.putIfAbsent(period.start, () => []).add(period.length);
+    }
+
     final candidates =
-        <({DateTime date, bool fromCanonical, DateTime? end})>[
+        <({DateTime date, bool fromCanonical, List<int> lengths})>[
           for (final start in fromLogs.starts)
-            (date: start, fromCanonical: false, end: null),
-          for (final episode in canonical)
+            if (!insideCanonicalSpan(start))
+              (
+                date: start,
+                fromCanonical: false,
+                lengths: logLengths[start] ?? const [],
+              ),
+          for (final span in spans)
             (
-              date: calendarDay(episode.startDate),
+              date: span.start,
               fromCanonical: true,
-              end: episode.endDate == null
-                  ? null
-                  : calendarDay(episode.endDate!),
+              lengths: [
+                if (span.end != null &&
+                    calendarDaysBetween(span.start, span.end!) > 0)
+                  calendarDaysBetween(span.start, span.end!),
+              ],
             ),
         ]..sort((a, b) {
           final byDate = a.date.compareTo(b.date);
           if (byDate != 0) return byDate;
           // Same day: prefer the log-derived start (it carries the
-          // richer, already-paired period length).
+          // already-paired period length).
           return (a.fromCanonical ? 1 : 0) - (b.fromCanonical ? 1 : 0);
         });
 
-    final starts = <DateTime>[];
-    final periodLengths = [...fromLogs.periodLengths];
-    // Length this loop added for the most recently kept CANONICAL start,
-    // so it can be withdrawn if a log-derived start for the same episode
-    // (within 1 day, and sorted just after it) replaces it.
-    int? lastCanonicalLength;
-    var lastKeptWasCanonical = false;
+    final kept = <({DateTime date, bool fromCanonical, List<int> lengths})>[];
     for (final candidate in candidates) {
-      if (starts.isNotEmpty &&
-          calendarDaysBetween(starts.last, candidate.date) <= 1) {
-        if (lastKeptWasCanonical && !candidate.fromCanonical) {
-          // Same episode; the log-derived start is authoritative for it.
-          starts[starts.length - 1] = candidate.date;
-          if (lastCanonicalLength != null) {
-            periodLengths.remove(lastCanonicalLength);
-          }
-          lastKeptWasCanonical = false;
-          lastCanonicalLength = null;
+      if (kept.isNotEmpty &&
+          calendarDaysBetween(kept.last.date, candidate.date) <= 1) {
+        if (kept.last.fromCanonical && !candidate.fromCanonical) {
+          // Only reachable for a zero-length canonical span: the log-derived
+          // start of the same episode, the next day, replaces it.
+          kept[kept.length - 1] = candidate;
         }
         continue;
       }
-      starts.add(candidate.date);
-      lastKeptWasCanonical = candidate.fromCanonical;
-      lastCanonicalLength = null;
-      if (candidate.fromCanonical && candidate.end != null) {
-        final length = calendarDaysBetween(candidate.date, candidate.end!);
-        if (length > 0) {
-          periodLengths.add(length);
-          lastCanonicalLength = length;
-        }
-      }
+      kept.add(candidate);
     }
-    return (starts: starts, periodLengths: periodLengths);
+    return (
+      starts: [for (final k in kept) k.date],
+      periodLengths: [for (final k in kept) ...k.lengths],
+    );
   }
 
   /// [statedBaseline] is her own onboarding estimate of her usual cycle
@@ -480,6 +508,14 @@ class CycleCalculationService {
   /// optionally informed by her [statedCycleLength] (see
   /// [_statedEstimateWeightCycles]). Shared by every screen that predicts,
   /// so they never disagree.
+  static double _median(List<int> values) {
+    final sorted = [...values]..sort();
+    final middle = sorted.length ~/ 2;
+    return sorted.length.isOdd
+        ? sorted[middle].toDouble()
+        : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+
   static ({int length, double spreadDays, PredictionBasis basis})?
   predictFromIntervals(List<int> intervals, {int? statedCycleLength}) {
     final plausible = intervals
@@ -497,12 +533,17 @@ class CycleCalculationService {
         basis: PredictionBasis.statedEstimate,
       );
     }
-    final sorted = [...plausible]..sort();
-    final middle = sorted.length ~/ 2;
-    final median = sorted.length.isOdd
-        ? sorted[middle].toDouble()
-        : (sorted[middle - 1] + sorted[middle]) / 2;
-    final valid = plausible.where((days) => days < 2 * median).toList();
+    // Leave-one-out (proposed, round-2 property tests 2026-10-21): an
+    // interval is a missed log when it is at least twice the median of the
+    // OTHER qualifying intervals. A median that included the gap itself
+    // let [35, 70] (one period never logged) through and moved the
+    // prediction from 35 to 51 days. A lone interval is always kept.
+    final valid = [
+      for (var i = 0; i < plausible.length; i++)
+        if (plausible.length == 1 ||
+            plausible[i] < 2 * _median([...plausible]..removeAt(i)))
+          plausible[i],
+    ];
     final recent = valid.reversed.take(_recentCycleCount).toList();
 
     var weightSum = 0.0;

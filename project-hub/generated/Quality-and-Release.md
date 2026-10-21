@@ -326,6 +326,21 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [property_runner.dart](../../test/round2_hardening/properties/support/property_runner.dart)
 - [synthetic_history.dart](../../test/round2_hardening/properties/support/synthetic_history.dart)
 
+## test/round2_properties
+
+- [calendar_segment_properties_test.dart](../../test/round2_properties/calendar_segment_properties_test.dart)
+- [fiqh_properties_test.dart](../../test/round2_properties/fiqh_properties_test.dart)
+- [fiqh_regressions_test.dart](../../test/round2_properties/fiqh_regressions_test.dart)
+- [prediction_properties_test.dart](../../test/round2_properties/prediction_properties_test.dart)
+- [round2_regressions_test.dart](../../test/round2_properties/round2_regressions_test.dart)
+- [run_all_timezones.sh](../../test/round2_properties/run_all_timezones.sh)
+
+## test/round2_properties/support
+
+- [fiqh_surfaces.dart](../../test/round2_properties/support/fiqh_surfaces.dart)
+- [property_runner.dart](../../test/round2_properties/support/property_runner.dart)
+- [synthetic_history.dart](../../test/round2_properties/support/synthetic_history.dart)
+
 ## test/screens_hardening
 
 - [bleeding_entry_routing_test.dart](../../test/screens_hardening/bleeding_entry_routing_test.dart)
