@@ -112,16 +112,24 @@ the rule stated above where they differ.
   a spread above 2 days (always the case with fewer than three cycles)
   started the day before the period. (`calculateFertileWindow`; tests R2-5,
   P3.)
-- **Missed-log rule is leave-one-out (proposed).** An interval is left out
-  when it is at least twice the median of the *other* qualifying intervals;
-  a lone interval is always kept. A median that included the gap itself let
+- **Missed-log rule is leave-one-out at 1.8× the median (decided
+  2026-10-21).** An interval is left out when it is at least
+  `CycleCalculationResult.missedPeriodMedianFactor` (1.8) times the median
+  of the *other* qualifying intervals; a lone interval is always kept, and
+  the rule never drops every interval (if it would, all qualifying
+  intervals are used). A median that included the gap itself let
   `[35, 70]` through and moved the prediction from 35 to 51 days.
-  (`predictFromIntervals`; tests R2-7, P7, P10.)
-  **Open question for the owner:** a missed period's gap is the sum of two
-  real cycles, so it lands just under twice the median about half the time
-  (e.g. 69 among 35-day cycles) and is then still counted; the property
-  suite's P10 checks only gaps the rule covers. A tolerance (for example ≥ 1.8 × the median of the others)
-  would cover it; not changed here because it is a model decision.
+  **Decision (2026-10-21, made by the team at the owner's request):** the
+  factor was lowered from 2.0 to 1.8. A missed period's gap is the sum of
+  two real cycles, so with ordinary variation it lands just under twice the
+  median about half the time (e.g. 69 among 35-day cycles); under 2.0 it was
+  still counted and skewed predictions by weeks. At 1.8, `[35, 35, 69]` and
+  `[35, 69]` both predict 35. A single genuine cycle at 1.8× her usual
+  length or more is now left out of the forward prediction too (it stays in
+  `cycleLengths` and `averageCycleLength`, which are never filtered); the
+  generated irregular histories of P7/P10 were run to confirm ordinary
+  irregular variation does not reach it.
+  (`predictFromIntervals`; tests R2-7, R2-7b, R2-7c, P7, P10.)
 - **Ring segments never overlap (proposed).** In `CycleSegmentPlanner` the
   second purity segment starts after both the fertile window and the period
   have ended. Before, a period that outlasted the fertile window overlapped

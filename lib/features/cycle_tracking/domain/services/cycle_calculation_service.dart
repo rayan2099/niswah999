@@ -74,8 +74,8 @@ class CycleCalculationResult {
   /// Unlike [averageCycleLength], which stays the plain factual mean, this
   /// leaves out intervals that cannot be a single real cycle (outside
   /// [minPlausibleCycleLengthDays]–[maxPredictableCycleLengthDays], or at
-  /// least twice the median of the other qualifying intervals — almost
-  /// always a period that was never logged) and weights the most recent cycles more. Null when no
+  /// least [missedPeriodMedianFactor] times the median of the other
+  /// qualifying intervals — almost always a period that was never logged) and weights the most recent cycles more. Null when no
   /// interval qualifies; nothing is predicted then.
   final int? predictedCycleLength;
 
@@ -104,6 +104,15 @@ class CycleCalculationResult {
   /// Above this, an interval is treated as missed logging rather than one
   /// real cycle, and is left out of [predictedCycleLength].
   static const int maxPredictableCycleLengthDays = 90;
+
+  /// An interval at least this many times the median of the OTHER
+  /// qualifying intervals is treated as a period that was never logged
+  /// (two cycles summed) and left out of [predictedCycleLength]. Decided
+  /// 2026-10-21 (docs/cycle-prediction-model.md): a missed period is two
+  /// real cycles summed and, with ordinary variation, often lands just
+  /// under 2x (e.g. 69 among 35-day cycles), which skewed predictions by
+  /// weeks under the former 2.0 factor.
+  static const double missedPeriodMedianFactor = 1.8;
 
   bool get hasSufficientHistory =>
       haidStarts.length >= 2 &&
@@ -533,17 +542,20 @@ class CycleCalculationService {
         basis: PredictionBasis.statedEstimate,
       );
     }
-    // Leave-one-out (proposed, round-2 property tests 2026-10-21): an
-    // interval is a missed log when it is at least twice the median of the
-    // OTHER qualifying intervals. A median that included the gap itself
-    // let [35, 70] (one period never logged) through and moved the
-    // prediction from 35 to 51 days. A lone interval is always kept.
-    final valid = [
+    // Leave-one-out (decided 2026-10-21): an interval is a missed log when
+    // it is at least [CycleCalculationResult.missedPeriodMedianFactor]
+    // times the median of the OTHER qualifying intervals. A median that
+    // included the gap itself let [35, 70] (one period never logged)
+    // through and moved the prediction from 35 to 51 days. A lone interval
+    // is always kept, and the rule never drops every interval.
+    const factor = CycleCalculationResult.missedPeriodMedianFactor;
+    final filtered = [
       for (var i = 0; i < plausible.length; i++)
         if (plausible.length == 1 ||
-            plausible[i] < 2 * _median([...plausible]..removeAt(i)))
+            plausible[i] < factor * _median([...plausible]..removeAt(i)))
           plausible[i],
     ];
+    final valid = filtered.isEmpty ? plausible : filtered;
     final recent = valid.reversed.take(_recentCycleCount).toList();
 
     var weightSum = 0.0;

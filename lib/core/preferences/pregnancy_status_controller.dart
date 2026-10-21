@@ -82,6 +82,16 @@ class PregnancyStatusController extends ChangeNotifier {
         _startWeek;
   }
 
+  /// Current gestational age in days (from the LMP convention): the week
+  /// chosen at setup (its first day) plus whole calendar days since
+  /// activation. Feeds the classical stage label
+  /// ([PregnancyStatusEngine.classicalStageForGestationalDays]).
+  int get currentGestationalDays {
+    final activated = _activatedAt;
+    if (!_isPregnant || activated == null) return _startWeek * 7;
+    return _startWeek * 7 + calendarDaysBetween(activated, AppClock.now());
+  }
+
   static const _allKeys = [
     _storageKey,
     _startWeekKey,

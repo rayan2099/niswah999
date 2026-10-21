@@ -163,6 +163,33 @@ void main() {
     );
   });
 
+  test('R2-7b a missed period just under 2x the median is left out '
+      '(1.8x rule, decided 2026-10-21)', () {
+    // 35 + 34: two real cycles summed lands just under 2 x 35.
+    final p = CycleCalculationService.predictFromIntervals([35, 35, 69]);
+    expect(p!.length, 35);
+    expect(p.basis, PredictionBasis.history);
+  });
+
+  test('R2-7c two intervals: a 69-day gap after a 35-day cycle is left '
+      'out, the lone 35 kept', () {
+    final p = CycleCalculationService.predictFromIntervals([35, 69]);
+    expect(p!.length, 35);
+    // Order does not matter.
+    expect(CycleCalculationService.predictFromIntervals([69, 35])!.length, 35);
+  });
+
+  test('R2-7d the missed-period rule keeps a lone interval and never '
+      'drops every interval', () {
+    expect(CycleCalculationService.predictFromIntervals([69])!.length, 69);
+    // Just under the factor is kept: 62 < 1.8 x 35 = 63.
+    expect(
+      CycleCalculationService.predictFromIntervals([35, 35, 62])!.length,
+      greaterThan(35),
+    );
+    expect(CycleCalculationResult.missedPeriodMedianFactor, 1.8);
+  });
+
   test('R2-8 segment plan never overlaps when the period outlasts the '
       'fertile window', () {
     final start = DateTime(2026, 5, 31);

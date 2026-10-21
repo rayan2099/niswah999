@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
+import '../../../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 import '../../domain/services/fiqh_report_insights_engine.dart';
 
 /// Renders "التقرير الفقهي" as a real PDF from real [FiqhReportInsights] —
@@ -383,6 +384,23 @@ class FiqhReportPdfBuilder {
                 : (isArabic
                       ? 'هناك نزيف مسجَّل حاليًا، لكن الأدلة المسجلة لا تكفي لتحديد حالتكِ الفقهية. تابعي التسجيل، واسألي مختصة شرعية موثوقة إن احتجتِ إلى إرشاد اليوم.'
                       : "A bleeding episode is recorded, but the recorded evidence isn't enough to work out your Fiqh state. Keep logging, and ask a trusted scholar if you need guidance today."),
+            style: pw.TextStyle(
+              color: PdfColor.fromHex(_advisory),
+              fontSize: 10,
+              lineSpacing: 2,
+            ),
+          ),
+        ),
+      );
+    } else if (state == FiqhCycleState.needsAdvisory &&
+        insights.evidenceNote == ReportEvidenceNote.postNifasScholarAdvisory) {
+      widgets.add(
+        _card(
+          bg: '#FFF8E7',
+          child: pw.Text(
+            isArabic
+                ? PregnancyStatusEngine.postNifasAdvisoryAr
+                : PregnancyStatusEngine.postNifasAdvisoryEn,
             style: pw.TextStyle(
               color: PdfColor.fromHex(_advisory),
               fontSize: 10,

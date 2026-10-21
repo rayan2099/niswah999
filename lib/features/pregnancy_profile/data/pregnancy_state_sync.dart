@@ -63,6 +63,11 @@ class PregnancyStateSync {
 
   /// Turns pregnancy AND nifas tracking off (both profile toggles).
   /// Returns false only when the server row could not be cleared.
+  ///
+  /// Ending a pregnancy this way (no logged birth — e.g. after a loss)
+  /// never starts nifas and records no ruling about later bleeding
+  /// (decided 2026-10-21, pending scholar confirmation); the profile
+  /// screen shows `PregnancyStatusEngine.trackingEndedWithoutBirthNoteEn`.
   Future<bool> deactivate() async {
     await _controller.deactivate();
     final synced = await _mirror(

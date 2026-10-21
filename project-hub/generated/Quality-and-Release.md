@@ -299,13 +299,16 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## test/pregnancy_notifications_hardening
 
+- [classical_stage_mapping_test.dart](../../test/pregnancy_notifications_hardening/classical_stage_mapping_test.dart)
 - [dashboard_nifas_day_label_test.dart](../../test/pregnancy_notifications_hardening/dashboard_nifas_day_label_test.dart)
 - [dashboard_nifas_prayer_card_test.dart](../../test/pregnancy_notifications_hardening/dashboard_nifas_prayer_card_test.dart)
 - [dashboard_trimester_label_test.dart](../../test/pregnancy_notifications_hardening/dashboard_trimester_label_test.dart)
 - [dst_fire_time_test.dart](../../test/pregnancy_notifications_hardening/dst_fire_time_test.dart)
+- [nifas_window_decision_test.dart](../../test/pregnancy_notifications_hardening/nifas_window_decision_test.dart)
 - [notification_copy_and_feed_test.dart](../../test/pregnancy_notifications_hardening/notification_copy_and_feed_test.dart)
 - [notification_review_findings_test.dart](../../test/pregnancy_notifications_hardening/notification_review_findings_test.dart)
 - [pregnancy_state_sync_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_state_sync_test.dart)
+- [pregnancy_tracking_ended_no_nifas_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_tracking_ended_no_nifas_test.dart)
 - [pregnancy_week_and_milestone_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_week_and_milestone_test.dart)
 - [reports_postpartum_never_exits_test.dart](../../test/pregnancy_notifications_hardening/reports_postpartum_never_exits_test.dart)
 

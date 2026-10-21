@@ -286,12 +286,16 @@ void main() {
         return null;
       }
       // Leave-one-out missed-log rule (docs/cycle-prediction-model.md).
-      final valid = [
+      final kept = [
         for (var i = 0; i < plausible.length; i++)
           if (plausible.length == 1 ||
-              plausible[i] < 2 * _median([...plausible]..removeAt(i)))
+              plausible[i] <
+                  CycleCalculationResult.missedPeriodMedianFactor *
+                      _median([...plausible]..removeAt(i)))
             plausible[i],
       ];
+      // The rule never drops every interval.
+      final valid = kept.isEmpty ? plausible : kept;
       final pool = [
         ...valid.reversed.take(6),
         if (calc.predictionBasis == PredictionBasis.historyAndEstimate) stated!,
@@ -356,10 +360,11 @@ void main() {
   // "adding an obviously-missed-log interval moves the prediction by at
   // most a small amount" — one whole period is dropped from every source.
   // "Obviously missed" is the documented rule: the merged gap is at least
-  // twice the median of the other qualifying intervals. A gap just under
-  // that (e.g. 69 days among 35-day cycles, since two real cycles sum to
-  // 2x the median +/- noise) is NOT covered by the rule and is not checked
-  // here; see docs/cycle-prediction-model.md (open question).
+  // CycleCalculationResult.missedPeriodMedianFactor (1.8, decided
+  // 2026-10-21) times the median of the other qualifying intervals. That
+  // covers the gaps just under 2x (e.g. 69 days among 35-day cycles, since
+  // two real cycles sum to 2x the median +/- noise) that the former 2.0
+  // factor let through; see docs/cycle-prediction-model.md.
   property(
     'P10 one obviously-missed period moves the predicted length by <= 3 days',
     seedBase: 210000,
@@ -404,7 +409,12 @@ void main() {
               h.day(h.episodes[drop + 1].start),
             ),
           );
-        if (others.isEmpty || gap < 2 * _median(others)) continue;
+        if (others.isEmpty ||
+            gap <
+                CycleCalculationResult.missedPeriodMedianFactor *
+                    _median(others)) {
+          continue;
+        }
         evaluationCounter++;
         final a = complete.predictedCycleLength;
         final b = withGap.predictedCycleLength;

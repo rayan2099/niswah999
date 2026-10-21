@@ -2,8 +2,8 @@
 // Nifas card counts elapsed days since the logged birth date (the same
 // count as the reports and the reminder copy). Elapsed day 0 reads "Birth
 // day", then "Day 1/40" … "Day 40/40"; it can never read "Day 41/40", and
-// on elapsed day 41 the card is gone. Proposed default pending the owner's
-// numbering decision.
+// on elapsed day 41 the card is gone. Decided convention (2026-10-21, team
+// at the owner's request): 0-based days since birth, birth day = day 0.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

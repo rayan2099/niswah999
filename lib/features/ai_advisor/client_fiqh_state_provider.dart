@@ -1,9 +1,11 @@
 import '../../core/network/supabase_client.dart';
+import '../../core/preferences/pregnancy_status_controller.dart';
 import '../../core/utils/app_clock.dart';
 import '../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import '../cycle_tracking/domain/services/canonical_fiqh_assessment.dart';
 import '../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
 import '../cycle_tracking/domain/services/report_canonical_evidence.dart';
+import '../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 
 /// AICTX remediation: supplies the Fiqh Advisor Edge Function with the same
 /// deterministic classification the dashboard already shows. Fiqh
@@ -22,15 +24,23 @@ class ClientFiqhStateProvider {
     BleedingEpisodeRepositoryImpl? repository,
     String? Function()? currentUserId,
     DateTime Function()? clock,
+    DateTime? Function()? birthDate,
   }) : _repository = repository ?? BleedingEpisodeRepositoryImpl(),
        _currentUserId =
            currentUserId ??
            (() => NiswahSupabase.clientOrNull?.auth.currentUser?.id),
-       _clock = clock ?? (() => AppClock.now());
+       _clock = clock ?? (() => AppClock.now()),
+       _birthDate =
+           birthDate ??
+           (() => PregnancyStatusController.instance.nifasStartedAt);
 
   final BleedingEpisodeRepositoryImpl _repository;
   final String? Function() _currentUserId;
   final DateTime Function() _clock;
+
+  /// The birth date logged on this device, if any — for the post-nifas
+  /// advisory below.
+  final DateTime? Function() _birthDate;
 
   /// Returns the current [FiqhCycleState]'s name (e.g. "haid", "tahara",
   /// "needsAdvisory", "madhhabUnresolved"), "insufficientHistory" while an
@@ -57,6 +67,18 @@ class ClientFiqhStateProvider {
         now: now,
         canonicalEpisodes: evidence.episodes,
       );
+      // Nifas window decision (2026-10-21, pending scholar confirmation):
+      // the same "no ruling, consult a scholar" state Today shows for a
+      // Shafi'i/Maliki user bleeding on day 41..60 after the birth.
+      if (assessment.verdict != CanonicalFiqhVerdict.evidenceUnresolved &&
+          PregnancyStatusEngine.needsPostNifasScholarAdvisoryOn(
+            birthDate: _birthDate(),
+            today: now,
+            madhhab: madhhab,
+            isBleeding: evidence.hasOpenEpisode,
+          )) {
+        return FiqhCycleState.needsAdvisory.name;
+      }
       return switch (assessment.verdict) {
         CanonicalFiqhVerdict.evaluated => assessment.state!.name,
         CanonicalFiqhVerdict.insufficientHistory =>

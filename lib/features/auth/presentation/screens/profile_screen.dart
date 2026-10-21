@@ -213,7 +213,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 PregnancyStatusController.instance.isPregnant,
                             onChanged: (value) => value
                                 ? _showPregnancySetupSheet()
-                                : _deactivatePregnancyTracking(),
+                                : _deactivatePregnancyTracking(
+                                    endingPregnancy: true,
+                                  ),
                           ),
                           _ToggleRow(
                             icon: Icons.child_friendly_outlined,
@@ -657,16 +659,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// Turning "I am currently pregnant" or "Postpartum Mode" off — on this
   /// device AND her `pregnancy_profile` row, so reminders, reports and the
   /// AI context stop treating her as pregnant/postpartum.
-  Future<void> _deactivatePregnancyTracking() async {
+  ///
+  /// [endingPregnancy]: the pregnancy toggle was turned off (tracking ended
+  /// without a logged birth). This never starts nifas; the confirmation
+  /// carries a neutral note that whether bleeding after a pregnancy loss is
+  /// nifas depends on how far the pregnancy had developed, so she should
+  /// consult a scholar (decided 2026-10-21, pending scholar confirmation —
+  /// not a pregnancy-loss flow).
+  Future<void> _deactivatePregnancyTracking({
+    bool endingPregnancy = false,
+  }) async {
     final synced = await PregnancyStateSync().deactivate();
-    if (synced || !mounted) return;
+    if (!mounted) return;
+    if (synced && !endingPregnancy) return;
+    final syncFailure = _pr(
+      "Tracking is off on this device, but couldn't sync to your account — reminders and the chat may still use the old status. Check your connection and try again.",
+      'تم إيقاف التتبع على هذا الجهاز، لكن تعذّرت المزامنة مع حسابك — قد تستمر التذكيرات والمحادثة بالحالة السابقة. تحققي من الاتصال وحاولي مرة أخرى.',
+    );
+    final lossNote = _pr(
+      PregnancyStatusEngine.trackingEndedWithoutBirthNoteEn,
+      PregnancyStatusEngine.trackingEndedWithoutBirthNoteAr,
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        key: endingPregnancy
+            ? const Key('pregnancy-tracking-ended-note')
+            : null,
+        duration: endingPregnancy
+            ? const Duration(seconds: 10)
+            : const Duration(milliseconds: 4000),
         content: Text(
-          _pr(
-            "Tracking is off on this device, but couldn't sync to your account — reminders and the chat may still use the old status. Check your connection and try again.",
-            'تم إيقاف التتبع على هذا الجهاز، لكن تعذّرت المزامنة مع حسابك — قد تستمر التذكيرات والمحادثة بالحالة السابقة. تحققي من الاتصال وحاولي مرة أخرى.',
-          ),
+          [
+            if (endingPregnancy) lossNote,
+            if (!synced) syncFailure,
+          ].join('\n\n'),
         ),
       ),
     );
