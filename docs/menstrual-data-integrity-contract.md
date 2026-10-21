@@ -1691,8 +1691,8 @@ Regression tests: `test/round2_hardening/`.
   day corrected to "no bleeding") is now `evidenceUnresolved`, the reverse
   of item 7. Previously the engine said "Tahara" from the logs while the
   factual record still had bleeding being tracked (property R2-3).
-- R2-1..R2-3 and the Fiqh property suite (F1–F9) were copied from the
-  round-2 property suite into `test/round2_hardening/properties/` and pass
+- R2-1..R2-3 (`test/round2_properties/fiqh_regressions_test.dart`) and the
+  Fiqh property suite (F1–F9, `fiqh_properties_test.dart`) pass
   under UTC, `Europe/London` and `America/New_York`. R2-1's copied
   expectation that Today says "insufficient history" encoded the pre-fix
   behaviour and was dropped; it still asserts report == Today == AI.

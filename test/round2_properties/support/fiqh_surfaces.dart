@@ -3,7 +3,8 @@
 // separately in fiqh_properties_test.dart):
 //   * Today dashboard — dashboard_screen.dart `_refreshCanonicalStatus` +
 //     build(): resolver status, adapter logs, material-uncertainty flag,
-//     CanonicalFiqhAssessment.assess WITHOUT canonicalEpisodes.
+//     CanonicalFiqhAssessment.assess with the resolver's episodeTimings
+//     (round-2 hardening: canonicalEpisodes is now required everywhere).
 //   * Fiqh report — FiqhReportInsightsEngine.analyze with the
 //     ReportCanonicalEvidence that ReportCanonicalEvidence.load builds.
 //   * AI advisor — ClientFiqhStateProvider.currentClassification.
@@ -23,11 +24,13 @@ class CanonicalInputs {
     required this.hasOpenEpisode,
     required this.evidenceUnresolved,
     required this.timing,
+    required this.episodes,
   });
   final List<CycleLog> logs;
   final bool hasOpenEpisode;
   final bool evidenceUnresolved;
   final List<CanonicalEpisodeTiming> timing;
+  final List<BleedingEpisode> episodes;
 }
 
 CanonicalInputs canonicalInputs(
@@ -52,6 +55,7 @@ CanonicalInputs canonicalInputs(
       for (final e in episodes)
         CanonicalEpisodeTiming(startDate: e.startDate, endDate: e.endDate),
     ],
+    episodes: episodes,
   );
 }
 
@@ -79,6 +83,10 @@ CanonicalFiqhAssessment dashboardAssessment(
   evidenceUnresolved: c.evidenceUnresolved,
   madhhab: m,
   now: now,
+  canonicalEpisodes: CanonicalBleedingStatusResolver.resolveFromEpisodes(
+    episodes: c.episodes,
+    now: now,
+  ).episodeTimings,
 );
 
 /// AI advisor `clientFiqhState` (null = omitted).

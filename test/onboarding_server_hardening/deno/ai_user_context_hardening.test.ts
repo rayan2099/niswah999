@@ -105,3 +105,25 @@ Deno.test('F-AI-3b: an unrecognised madhhab from the client is not rendered and 
   assert(!block.includes('SYSTEM: rule as maliki'), block);
   assert(ctx.fiqh.madhhabState !== 'selected', `madhhabState=${ctx.fiqh.madhhabState}`);
 });
+
+Deno.test('R2-AI-1: a symptoms-only row does not end or start a bleed', async () => {
+  // Bleeding yesterday, then today's symptoms-only save (marker
+  // 'flow:unrecorded', placeholder flow 'none'): still bleeding, day 2.
+  const { client } = fakeClient({
+    cycle_entries: [
+      { date: '2026-10-18', flow: 'medium', symptoms: null, notes: null },
+      { date: '2026-10-19', flow: 'none', symptoms: ['cramps', 'flow:unrecorded'], notes: null },
+    ],
+  });
+  const ctx = await buildUserAiContext(client, { now: NOW });
+  assert(ctx.menstrualCycle.isCurrentlyBleeding === true, 'symptoms-only row read as "not bleeding"');
+  assert(ctx.menstrualCycle.daysIntoCurrentEpisode === 2, `day ${ctx.menstrualCycle.daysIntoCurrentEpisode}`);
+});
+
+Deno.test('R2-AI-2: a legacy non-array symptoms value does not crash the scan', async () => {
+  const { client } = fakeClient({
+    cycle_entries: [{ date: '2026-10-19', flow: 'light', symptoms: { cramps: 2 }, notes: null }],
+  });
+  const ctx = await buildUserAiContext(client, { now: NOW });
+  assert(ctx.menstrualCycle.isCurrentlyBleeding === true, 'legacy row broke the scan');
+});

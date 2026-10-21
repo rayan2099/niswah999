@@ -315,17 +315,6 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [symptoms_on_bleeding_days_test.dart](../../test/round2_hardening/symptoms_on_bleeding_days_test.dart)
 - [symptoms_only_sheet_marker_test.dart](../../test/round2_hardening/symptoms_only_sheet_marker_test.dart)
 
-## test/round2_hardening/properties
-
-- [fiqh_properties_test.dart](../../test/round2_hardening/properties/fiqh_properties_test.dart)
-- [fiqh_regressions_test.dart](../../test/round2_hardening/properties/fiqh_regressions_test.dart)
-
-## test/round2_hardening/properties/support
-
-- [fiqh_surfaces.dart](../../test/round2_hardening/properties/support/fiqh_surfaces.dart)
-- [property_runner.dart](../../test/round2_hardening/properties/support/property_runner.dart)
-- [synthetic_history.dart](../../test/round2_hardening/properties/support/synthetic_history.dart)
-
 ## test/round2_properties
 
 - [calendar_segment_properties_test.dart](../../test/round2_properties/calendar_segment_properties_test.dart)

@@ -200,7 +200,8 @@ function derivePregnancyContext(
 export function decodeSymptomSeverities(raw: string[] | null): Record<string, number> {
   const reserved = new Set(['energy', 'sleep', 'color', 'mood', 'notes']);
   const severities: Record<string, number> = {};
-  for (const entry of raw ?? []) {
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    if (typeof entry !== 'string') continue;
     const separatorIndex = entry.indexOf(':');
     if (separatorIndex < 0) continue;
     const key = entry.slice(0, separatorIndex);
@@ -213,8 +214,8 @@ export function decodeSymptomSeverities(raw: string[] | null): Record<string, nu
 }
 
 export function decodeLegacyNote(raw: string[] | null): string | null {
-  for (const entry of raw ?? []) {
-    if (entry.startsWith('notes:')) return entry.slice('notes:'.length);
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    if (typeof entry === 'string' && entry.startsWith('notes:')) return entry.slice('notes:'.length);
   }
   return null;
 }
@@ -313,7 +314,7 @@ export async function buildUserAiContext(
   // no flow fact, so the bleeding scan below skips it; its symptoms and
   // notes are still read further down.
   const flowAscending = sortedAscending.filter(
-    (entry) => !(entry.symptoms ?? []).includes(SYMPTOMS_ONLY_MARKER),
+    (entry) => !(Array.isArray(entry.symptoms) && entry.symptoms.includes(SYMPTOMS_ONLY_MARKER)),
   );
   const latest = flowAscending[flowAscending.length - 1] ?? null;
   const hasHistory = cycleEntries.length > 0;

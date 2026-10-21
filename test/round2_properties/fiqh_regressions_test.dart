@@ -1,10 +1,8 @@
-// Fixed on fix/round2-regressions
-//
-// Round-2 fiqh regressions (R2-1..R2-3): minimal histories, shrunk by the
-// property suites in this folder, for the Fiqh invariant violations. They
-// assert the expected behaviour and fail until the fiqh fixes land on
-// fix/round2-regressions. R2-2 is meaningful only under a DST zone
-// (e.g. TZ=Europe/London); it passes trivially under UTC.
+// Round-2 hardening (2026-10-21, proposed) — the Fiqh regressions R2-1..R2-3
+// found by the round-2 property suite (the prediction ones, R2-4..,
+// are in round2_regressions_test.dart). One minimal (shrunk) history per violation; each
+// failed on fix/tracking-hardening (d77cd14). R2-2 only fails under a DST
+// zone (TZ=Europe/London, America/New_York); it passes trivially under UTC.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/utils/calendar_days.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
@@ -40,7 +38,10 @@ void main() {
       final today = dashboardLabel(c, m, now);
       final ai = aiInDashboardVocabulary(aiLabel(c, m, now));
       final report = reportLabel(c, m, now);
-      expect(today, 'insufficientHistory');
+      // Round-2 hardening: the property is report == Today == AI. The
+      // copied test also pinned Today to 'insufficientHistory' — the
+      // pre-fix behaviour (onboarding episode ignored). Today now counts
+      // that episode too, exactly like the report.
       expect(ai, today);
       expect(
         report,
