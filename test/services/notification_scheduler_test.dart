@@ -129,7 +129,10 @@ void main() {
 
       expect(plan, isNotNull);
       expect(plan!.fireAt, DateTime(2026, 1, 15, 9));
-      expect(plan.bodyAr, contains('2'));
+      // The specific text now lives in the in-app feed only; the OS
+      // (lock-screen) copy is discreet (2026-10-21).
+      expect(plan.feedBodyAr, contains('2'));
+      expect(plan.bodyAr, isNot(contains('2')));
     });
 
     test(

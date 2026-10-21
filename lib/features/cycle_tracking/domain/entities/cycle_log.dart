@@ -71,6 +71,7 @@ class CycleLog extends Equatable {
     this.createdAt,
     this.updatedAt,
     this.dataProvenance = CycleEntryProvenance.userObserved,
+    this.observedTime,
   });
 
   final String id;
@@ -85,6 +86,29 @@ class CycleLog extends Equatable {
   final DateTime? updatedAt;
   final CycleEntryProvenance dataProvenance;
 
+  /// The exact moment bleeding was observed on this day, when the
+  /// canonical evidence states one (every bleeding observation for the
+  /// day was recorded with an exact time; the earliest is kept). Null for
+  /// a date-only (or approximate-time) day — the Fiqh engine then must
+  /// not assume bleeding began at local midnight. Set only by
+  /// `CanonicalFiqhEvidenceAdapter`; never persisted to `cycle_entries`.
+  final DateTime? observedTime;
+
+  /// Round-2 hardening (proposed) — marks a `cycle_entries` row saved from
+  /// the "Symptoms & notes" sheet for a day that had no row yet. Such a
+  /// row records symptoms/notes ONLY: its `flow` column holds the
+  /// table's required placeholder (`none`), which is NOT an observation
+  /// that she was not bleeding (contract: unknown is valid data, never an
+  /// invented fact). Stored in the existing `symptoms` array as a
+  /// `key:value` pair whose value is not a number, so every symptom
+  /// decoder already ignores it. See [recordsFlow].
+  static const String symptomsOnlyMarker = 'flow:unrecorded';
+
+  /// False for a symptoms/notes-only row ([symptomsOnlyMarker]). Episode
+  /// detection, the Fiqh engine, the reports and the calendar's
+  /// Haid/Tahara markers read only rows where this is true.
+  bool get recordsFlow => !symptoms.contains(symptomsOnlyMarker);
+
   CycleLog copyWith({
     String? id,
     String? userId,
@@ -97,6 +121,7 @@ class CycleLog extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     CycleEntryProvenance? dataProvenance,
+    DateTime? observedTime,
   }) {
     return CycleLog(
       id: id ?? this.id,
@@ -110,6 +135,7 @@ class CycleLog extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       dataProvenance: dataProvenance ?? this.dataProvenance,
+      observedTime: observedTime ?? this.observedTime,
     );
   }
 
@@ -192,6 +218,7 @@ class CycleLog extends Equatable {
     createdAt,
     updatedAt,
     dataProvenance,
+    observedTime,
   ];
 }
 

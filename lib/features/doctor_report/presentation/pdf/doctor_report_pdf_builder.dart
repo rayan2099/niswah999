@@ -478,14 +478,20 @@ class DoctorReportPdfBuilder {
             children: [
               _statColumn(
                 isArabic ? 'متوسط طول الدورة' : 'Avg. cycle length',
-                isArabic
+                cycleAndPregnancy.averageCycleLengthDays == null
+                    ? '—'
+                    : isArabic
                     ? '${cycleAndPregnancy.averageCycleLengthDays} يوماً'
                     : '${cycleAndPregnancy.averageCycleLengthDays} days',
                 semiBold,
               ),
               _statColumn(
                 isArabic ? 'متوسط مدة النزيف' : 'Avg. bleeding duration',
-                isArabic
+                // A missing average (e.g. history known only from
+                // onboarding dates) prints as "—", never "null days".
+                cycleAndPregnancy.averageHaidDurationDays == null
+                    ? '—'
+                    : isArabic
                     ? '${cycleAndPregnancy.averageHaidDurationDays} أيام'
                     : '${cycleAndPregnancy.averageHaidDurationDays} days',
                 semiBold,

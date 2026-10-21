@@ -1574,3 +1574,488 @@ changes that, and nothing in this entry should be read as claiming `E4`
 for either.
 
 All changes on this same branch, PR #4, still **draft and unmerged**.
+
+## 16. Fiqh hardening wave (2026-10-18, branch `fix/tracking-hardening`) — status: PROPOSED
+
+Status: **proposed**. These changes are implemented on the branch and
+covered by tests. They have not been merged, run on a device, or
+reviewed by a scholar. Scholar review of the engine thresholds
+(`FIQH-1`/`FIQH-2`, `FOUNDER_DECISIONS.md` FD-7) is still open. No rule
+value changed. Every change either applies a rule that
+`haidfigh.md`/the crosswalk/FD-7 already document, or makes the app
+show "consult"/"unable to verify" where those documents do not settle
+the case. Regression tests: `test/fiqh_hardening/`.
+
+1. **Prayer card never claims an obligation without a ruling.**
+   `_PrayerStatusCard` (`dashboard_screen.dart`) previously showed
+   "Salah is obligatory" for `madhhabUnresolved` and `needsAdvisory`.
+   It now shows "Select your Madhhab" or "Please consult a trusted
+   source", in English and Arabic, with "Unknown" for each prayer. The
+   manual Istihadah toggle no longer stands in for a missing Madhhab
+   (owner-e4 §14). The prayer card keeps "obligatory" for a true
+   Istihadah state, because `haidfigh.md` §1 says she prays. It does
+   not keep it when the engine itself returned `needsAdvisory`.
+2. **Minimum purity applies to all four madhahib** (`madhhab_rule_evaluator.dart`).
+   This closes the `FR-003`/`FIQH-7` Hanafi-only gating asymmetry. The
+   values are unchanged: 15 days, and 13 days for Hanbali (FD-7). A
+   shortfall gives `needsAdvisory`, never a confident fresh haid.
+3. **Date-only starts are not assumed to begin at midnight**
+   (`cycle_status_engine.dart`). The adapter now carries an exact
+   observed time through as `CycleLog.observedTime`. A day recorded as
+   date-only counts as haid only when the madhhab's minimum is met even
+   if bleeding began at the end of the start day. Otherwise the result
+   is `needsAdvisory`, and `confirmAt` is the moment the minimum is
+   certainly met.
+4. **The adapter sets `cycleDay`** (`canonical_fiqh_evidence_adapter.dart`).
+   Day 1 marks the first bleeding day of a run, and later days count up.
+   Before this, every day defaulted to 1, so
+   `CycleCalculationService` counted each later day as a new period
+   start. One episode then looked like enough history.
+5. **Purity is measured from the last earlier run that could have been
+   haid.** A run that was certainly below the madhhab's minimum (for
+   example Hanafi spotting under 72h) no longer resets the purity
+   count. A run that might have been haid still counts, so a purity
+   shortfall falls to `needsAdvisory`. The report's duplicate copy of
+   the engine scan was removed. Today, the reports and the AI advisor
+   now share `CanonicalFiqhAssessment`
+   (`lib/features/cycle_tracking/domain/services/canonical_fiqh_assessment.dart`).
+6. **AI advisor `clientFiqhState`** (`client_fiqh_state_provider.dart`).
+   It is now built from `ReportCanonicalEvidence.load` and passed
+   through the same assessment, instead of legacy `cycle_entries`. An
+   open episode with too little history returns `insufficientHistory`
+   (never `tahara`). Unverifiable evidence or no session returns null.
+   On the server, `ai_user_context.ts` now reports `uncertainty: 'none'`
+   only for `tahara`/`haid` (`fiqhUncertaintyFor`). The Deno test was
+   added but not run in this environment because Deno was unavailable.
+7. **A closed episode with bleeding logged after its stop date** is
+   shown as "Unable to verify". It is no longer shown as continuing
+   haid, and it is not shown as Tahara either.
+8. **The report honours unresolved evidence without an open episode**,
+   for example a quarantined row. It then reports `insufficientHistory`
+   with the new `ReportEvidenceNote.evidenceUnverified`.
+9. **DST:** the ring's "day N" and the engine's day count use
+   `calendarDaysBetween`.
+
+**FIQH-7 default decided (2026-10-21) — pending scholar confirmation.**
+The purity gate (items 2 and 5) applying to all four madhahib, with purity
+measured from the last earlier run that could have been haid, was decided
+on 2026-10-21 by the team at the owner's request as the conservative
+default. It is not a settled ruling: it stays pending scholar confirmation.
+No code or value changed with this decision. Record:
+[2026-10-21 decisions](../project-hub/decisions/2026-10-21-pregnancy-nifas-open-decisions.md).
+
+**Known and not changed (needs scholar input):**
+
+- Cumulative talfiq is not modelled. This covers Shafi'i 24
+  cumulative hours within 15 days and Hanafi bridging within 10 days
+  (`haidfigh.md` §1, §3). Separate bleeding runs are judged
+  individually. A run that resumes after a short clean gap usually
+  becomes `needsAdvisory` because of the purity check, and Today shows
+  that as "consult".
+- In item 5, a sub-minimum spotting run is not counted as an anchor.
+  Under talfiq it could combine with the next run. That reading is not
+  modelled.
+- The nifas 40-day window differs between
+  `pregnancy_status_controller.dart` and `pregnancy_status_engine.dart`.
+  It was reported to the owner and was not changed. (Update 2026-10-21,
+  proposed: both now read the engine's phase. The 40-day window was then
+  decided on 2026-10-21, pending scholar confirmation. See §19.)
+
+**Round-2 amendments (2026-10-21, branch `fix/round2-regressions`) —
+status: PROPOSED.** Found by an adversarial review of this wave; not merged,
+not device-verified, not scholar-reviewed. No FD-7 value changed.
+Regression tests: `test/round2_hardening/`.
+
+- **Purity is read at its shortest, like the minimum haid already is**
+  (`cycle_status_engine.dart`). "It stopped on D" (the closing `none`
+  observation, which never has an exact time) means bleeding may have
+  lasted to the end of D, and a date-only new start may have begun at the
+  start of its day. The minimum purity (15 days; Hanbali 13) counts as met
+  only over that shortest interval; otherwise the result is
+  `needsAdvisory`. Previously it was counted in calendar days from the stop
+  day to the start day, which could be up to a day longer than the time
+  actually known to be clean. For the same reason, item 5's "certainly
+  below the minimum" test for skipping an earlier run now measures that
+  run up to the end of its stop day.
+  Test: `fiqh_assessment_round2_test.dart`. The F4 fixture in
+  `test/fiqh_hardening/fiqh_engine_hardening_test.dart` was shortened to a
+  one-day spotting run, because the old two-day run could reach exactly 72h
+  under this reading.
+- **One assessment, one history** (`canonical_fiqh_assessment.dart`).
+  `canonicalEpisodes` is now a required argument of `assess`. Today passes
+  `CanonicalBleedingStatus.episodeTimings` (the episodes its resolver
+  already read), and the AI advisor passes `ReportCanonicalEvidence.episodes`,
+  as the Fiqh report already did. Before this, an episode whose start
+  observation was "I'm not sure" (for example one reported during
+  onboarding) counted only in the report, so Today and the AI advisor said
+  "insufficient history" while the report ruled "haid" (property R2-1).
+- **Purity and the earlier run's length are counted in calendar days**
+  (DST-safe); an exact start time is subtracted only when one is known.
+  Measured in wall-clock hours between local midnights, a 3-calendar-day
+  Hanafi run across a spring-forward change was 71h, was skipped as "not a
+  possible haid", and Today showed a confident haid after 5 clean days
+  (property R2-2; UK/US/NZ clock changes).
+- **An open episode whose latest effective day is `none`** (for example a
+  day corrected to "no bleeding") is now `evidenceUnresolved`, the reverse
+  of item 7. Previously the engine said "Tahara" from the logs while the
+  factual record still had bleeding being tracked (property R2-3).
+- R2-1..R2-3 (`test/round2_properties/fiqh_regressions_test.dart`) and the
+  Fiqh property suite (F1–F9, `fiqh_properties_test.dart`) pass
+  under UTC, `Europe/London` and `America/New_York`. R2-1's copied
+  expectation that Today says "insufficient history" encoded the pre-fix
+  behaviour and was dropped; it still asserts report == Today == AI.
+
+## 17. Screens hardening — what the tracking screens show (2026-10-18, branch `fix/tracking-hardening`) — status: PROPOSED
+
+Status: **implemented and covered by widget/unit tests on this branch; not
+merged, not device-verified, not medically or scholarly reviewed.** Prediction
+math and the Fiqh rule evaluator were out of scope and are unchanged.
+
+| Finding | Change | Test |
+|---|---|---|
+| Bleeding logged from the Today ring / the istihadah banner's "Log today's blood" / a Calendar-tab day reached only `cycle_entries`, so Today kept showing "Tahara", "Fertile in N days" and "Salah is obligatory" right after she logged bleeding | New [log_day_entry_router.dart](../lib/features/cycle_tracking/presentation/widgets/log_day_entry_router.dart): a tap asks "Bleeding" vs "Symptoms & notes". Bleeding goes only through the canonical start / check-in / backfill sheets; the legacy sheet opens in `symptomsOnly` mode for symptoms and notes. The banner button calls the dashboard's canonical check-in/start directly. Bleeding is not offered for a future day. | `test/screens_hardening/bleeding_entry_routing_test.dart` |
+| Ring pill stuck at "Pre-Period in 1 days" from the pre-period onward, on the expected day and while late; ring headline/stepper froze at "N of N" | [dashboard_screen.dart](../lib/features/dashboard/presentation/screens/dashboard_screen.dart) `_taharaMessage`/`_isPastActiveSegment`: late and next-period wording now come from the same summary Insights uses ("Your period is N days late", "expected today", "Expected Period in N days") | `dashboard_late_period_ring_test.dart` |
+| Ring drawn (with phase countdowns) when the predictor declined to predict | Ring branch also requires `canPredictFromHistory`; the empty-state card explains that logged cycles are too far apart | `dashboard_late_period_ring_test.dart` |
+| Summary (next-period range, late status, fertile window) frozen at the day the app loaded | [cycle_tracking_view_model.dart](../lib/features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart) recomputes the summary when the calendar day changes | `dashboard_stale_summary_after_midnight_test.dart` |
+| Month grids duplicated a day / dropped the month's last day across a DST fall-back | Both grids use `addCalendarDays` | `calendar_dst_and_empty_test.dart` (meaningful under `TZ=Europe/London`) |
+| Calendar-tab "NEXT PERIOD — N days left" one short and from the raw average | Uses `summary.nextPeriodStart` / `daysLate` | `next_period_cross_screen_test.dart` |
+| Legacy calendar labelled days with no entry "Tahara" | Shown as "No entry" | `calendar_dst_and_empty_test.dart` |
+| Husband report printed the next period's start as "Expected End" / "متى تنتهي الدورة المتوقع" | Relabelled "Next expected period" / "الحيض المتوقع القادم" | `husband_report_expected_end_test.dart` |
+| Doctor and Fiqh report PDFs printed "null days" | Missing averages print "—" | `report_null_average_test.dart` |
+| Returning from the canonical calendar left the ring, Calendar tab, Insights and the missed-check-in banner stale | Dashboard reloads the view model and re-keys the banner | traced (needs a real canonical write) |
+| Segment planner, Insights countdown and missed-check-in banner used `Duration`/`.inDays` on local midnights | `calendarDaysBetween` / `addCalendarDays` | `dst_day_counts_test.dart` |
+| Arabic haid banner read "المذهب الHANAFI"; legacy log sheet dated new entries with `DateTime.now()` instead of `AppClock` | Arabic madhhab names; `AppClock.now()` | — |
+
+Deliberately left alone: `canonical_bleeding_status_resolver.dart`'s
+open-episode day count (same DST issue; owned by the Fiqh-layer branch);
+the ring still never marks pre-period/expected as the active segment
+(planner design).
+
+**Round-2 amendments (2026-10-21, branch `fix/round2-regressions`) —
+status: PROPOSED.** Not merged, not device-verified. Tests:
+`test/round2_hardening/`.
+
+- **Symptoms-only entries record no flow.** The `symptomsOnly` sheet used
+  to save a placeholder `flow: none` row for a day with no row. Because the
+  router made that sheet the only way to log symptoms, logging cramps on a
+  period day before that day's check-in ended the period in the legacy
+  statistics, and the next bleeding day counted as a new cycle start. Such
+  a row now carries `CycleLog.symptomsOnlyMarker` (`flow:unrecorded`) in
+  its existing `symptoms` array, and `CycleLog.recordsFlow` is false for
+  it. `CycleCalculationService`, `CycleStatusEngine`, the Fiqh report, the
+  Calendar tab's day markers and Haid/Tahara tallies, and the server's
+  informational AI bleeding scan (`ai_user_context.ts`) skip it; its
+  symptoms and notes are still read. This is the smallest design that
+  keeps the row's provenance (§1/§5 unchanged: it is still the
+  same-day/historical report of symptoms she made) without letting a
+  placeholder be read as a "not bleeding" fact (no invented facts). No
+  schema or model change: `CycleLog.flow` stays non-nullable (and
+  `cycle_entries.flow_intensity` is `NOT NULL`), and every symptom decoder
+  already ignores a non-numeric value. Rows saved before this
+  change keep their old meaning.
+  Tests: `symptoms_on_bleeding_days_test.dart`,
+  `symptoms_only_sheet_marker_test.dart`.
+- **The router keeps the tapped day.** `showStartBleedingSheet` takes
+  `initialDate`, and `logCanonicalBleedingForDay` passes the day she
+  tapped. Before, she got a blank sheet whose first choice was "Today".
+  For a day on or before the end of an episode she already ended (which
+  `start_bleeding_episode` rejects since §18 #8), the router shows the
+  correction guidance instead of a start sheet that could only fail. The
+  chooser's subtitle no longer promises "add a missing day":
+  "Start a period, or log a day of the one you're tracking now" /
+  "بدء حيض، أو تسجيل يوم من الحيض الذي تتابعينه الآن".
+  Test: `log_day_router_past_day_test.dart`.
+- `dashboard_stale_summary_after_midnight_test.dart` now first asserts the
+  next-period range is shown on the expected day. Before, its only
+  assertion (the line is absent later) would also pass if the line never
+  rendered.
+
+## 18. Logging/sync hardening wave (2026-10-18, branch `fix/tracking-hardening`) — **proposed**
+
+Status: **proposed**. This section records changes made in the working tree
+for review. It is not merged, the migration below has **not** been applied to
+any hosted Supabase project, and nothing here certifies live behavior. The
+evidence is local only: the Flutter tests listed below and the SQL regression
+script run against a temporary local Postgres 16 with the new migration
+applied. Medical and scholarly review are out of scope.
+
+The wave fixes 15 findings from an independent review of how bleeding and
+cycle data is written, stored and synced. Regression tests live in
+`test/logging_sync_hardening/`, and the SQL regression is
+`test/logging_sync_hardening/sql/canonical_rpc_regression.sql`.
+
+### Client changes (proposed)
+
+1. **Offline is the queued outcome, never an escaped exception.**
+   - `BleedingEpisodeRepositoryImpl._classifyWriteFailure` treats transport
+     errors (`http.ClientException`, `SocketException`, `TimeoutException`,
+     which postgrest does not wrap) like a retryable server error: the write
+     returns null and the operation stays queued.
+   - Every write sheet (Start, End, daily check-in YES/NO/unsure, backfill,
+     correction) now uses try/finally, so `_saving` can never stay stuck.
+   - The End sheet and the daily "No" path cancel the episode's
+     active-bleeding reminders after a queued end as well as a synced one.
+     Shared helper: `cancelActiveBleedingReminders` in `start_bleeding_sheet.dart`.
+2. **Permanent rejections are typed.**
+   - A `PostgrestException` whose SQLSTATE is `P0001`, `22xxx` or `23xxx`
+     becomes `BleedingWriteRejectedException(code, message)`.
+   - The sheets show "This couldn't be saved — it conflicts with what's
+     already recorded. Nothing was changed." in English and Arabic, and they
+     drop the queued copy.
+   - The reconciler files these failures as `validation`, so they are not
+     auto-retried.
+   - The canonical calendar's day sheet offers "Add missing entry" only
+     inside an **open** episode, because `record_bleeding_observation`
+     rejects new facts on an ended one.
+3. **Sync is pinned to one account.**
+   - `reconcilePendingOperations` captures the user id once and passes it to
+     `loadPending`, `savePending` and `clearPending`.
+   - The sync stops before and after each operation if the session user has
+     changed. One user's queued health data can no longer land in another
+     user's queue.
+4. **Legacy log provenance is preserved (§1, §5).**
+   - `CycleTrackingViewModel.saveLog` carries `existingLog.dataProvenance`
+     forward. A `legacy_unverified` row stays `legacy_unverified` after an
+     edit, as §5 requires.
+   - New manual logs from the legacy sheet are `user_reported_historical`
+     when the day is before the local today, and `user_observed` only for
+     today. Reason: §1 reserves `user_observed` for a same-day report, and
+     §5 forbids silently declaring a fact `user_observed`.
+   - The legacy sheet refuses to overwrite the `cycle_entries` mirror of a
+     canonical observation (`CanonicalMirrorEditBlockedException`) and
+     points her to the Calendar's "Correct this entry". This was the smaller
+     safe option; routing the edit through `correct_observation` was the
+     alternative. The mirror check is `isCanonicalObservationId`. If that
+     lookup is unavailable offline, the save proceeds, because it is
+     best-effort.
+     *Round-2 amendment (2026-10-21, proposed):* only a change to the
+     mirrored facts (the flow or the day) is refused. A symptoms/notes-only
+     edit of a mirror row saves. Those fields are not part of the canonical
+     observation, and §17's "Symptoms & notes" sheet is the only place she
+     can add them to a day she logged bleeding on. Blocking them too meant
+     she could not log cramps on any period day.
+     Test: `test/round2_hardening/symptoms_on_bleeding_days_test.dart`.
+5. **Onboarding conflict during background sync.** The queued onboarding
+   operation stays pending as `validation` (needs attention). Onboarding is
+   **not** marked complete.
+6. **Onboarding retry after a conflict** clears the old pending operation and
+   uses a fresh operation id. Changed baseline answers are no longer replaced
+   by the idempotent replay of the first attempt.
+7. See the migration below.
+8. See the migration below.
+9. See the migration below.
+10. See the migration below. In addition, the correction sheet offers only
+    flows that do not contradict the episode boundaries
+    (`correctionFlowOptions`):
+    - the closing observation of an ended episode: `none` or `uncertain`;
+    - the start observation: never `none`.
+11. A replayed start that hits the one-open-episode constraint (`23505`,
+    `ActiveEpisodeAlreadyExistsException`) is filed as `validation`, not
+    `unknown`, so it is no longer re-sent on every launch.
+12. When the merged `cycle_entries` list is built, a local row that is not
+    yet synced (pending or failed) takes precedence over the server copy.
+13. Account-data cleanup registers
+    `cycle_tracking_pending_bleeding_operations`, which is
+    `PendingBleedingOperationStore.clearForUser`.
+
+### Migration (proposed, not applied to any hosted project)
+
+`supabase/migrations/20261018090000_bleeding_write_boundary_validation.sql`
+uses `CREATE OR REPLACE` with unchanged signatures. Existing migrations are
+not edited.
+
+- **#8** `start_bleeding_episode` rejects a `start_date` on or before the end
+  date of an already-ended episode, which would overlap it.
+- **#9** `end_bleeding_episode` rejects an `end_date` earlier than bleeding
+  (spotting, light, medium or heavy) already recorded in the episode.
+- **Gap from the review** `record_bleeding_observation` rejects an
+  `observed_date` before the episode start.
+- **#10** `correct_observation` keeps the start and closing observations
+  consistent with the episode:
+  - their date cannot change;
+  - the start observation cannot become `none`;
+  - the closing observation cannot become bleeding;
+  - any correction must stay within the episode's start and end.
+  The existing `FOR UPDATE` / `NW409` behavior is kept.
+- **#7** `record_onboarding_menstrual_history` closes a reused open episode
+  with the same start date through `end_bleeding_episode` when she reports it
+  ended. Previously the end was silently dropped. The idempotent lookup also
+  matches the end operation id.
+
+Local verification: the regression script prints `ALL PASSED` on a database
+with this migration applied. Against the previous schema it fails at
+scenario 1 (the overlap is accepted).
+
+### Known gaps (documented, not fixed)
+
+- **#14:** source and `reported_at` for queued "today" reports are still
+  derived when the sync replays them, not when she reported. Accepting a
+  client-supplied report time would bring back caller-trusted provenance,
+  which Closure Blocker 4 removed. A bounded-skew design needs its own
+  decision.
+- **#15:** if the remote delete of a superseded `cycle_entries` row fails
+  after `projectCorrection`, nothing retries it, because the pending queue
+  has no delete operation. Fix #12 does not bring the row back while the
+  local copy is unsynced, but a synced remote leftover can still reappear.
+- **Onboarding overlap:** the overlap check (#8) applies only to
+  `start_bleeding_episode`. Episodes inserted by
+  `record_onboarding_menstrual_history` are not checked against ended
+  episodes. *Update 2026-10-21 (proposed):* addressed by
+  `20261021100000_onboarding_server_hardening.sql`; see "Onboarding/server
+  hardening" below.
+- **Reminders after a queued end:** a later notification refresh may
+  reschedule active-bleeding reminders until the queued end syncs and the
+  episode reads as ended.
+
+## 19. Pregnancy, nifas and reminders hardening (2026-10-21, branch `fix/pregnancy-notifications-hardening`) — status: PROPOSED
+
+Proposed and implemented on the branch. These changes are not reviewed,
+deployed or verified live. Each is proven by a test in
+[`test/pregnancy_notifications_hardening/`](../test/pregnancy_notifications_hardening/),
+which passes under UTC and `TZ=America/New_York`. Decisions (2026-10-21; fiqh items pending scholar confirmation):
+[pregnancy/nifas decisions](../project-hub/decisions/2026-10-21-pregnancy-nifas-open-decisions.md).
+Feature maps: [pregnancy_profile](../project-hub/generated/feature-pregnancy_profile.md),
+[notifications](../project-hub/generated/feature-notifications.md),
+[dashboard](../project-hub/generated/feature-dashboard.md).
+
+| # | Finding (what was wrong) | Proposed change | Test |
+|---|---|---|---|
+| 1 | During active nifas, Today showed the Nifas card and also a prayer card saying "Salah is obligatory". It also showed the Haid/Tahara banner ("Prayer and fasting are obligatory"). | [dashboard_screen.dart](../lib/features/dashboard/presentation/screens/dashboard_screen.dart): while nifas is active, `_PrayerStatusCard(nifasActive:)` defers to the Nifas card. It is unresolved and shows "Unknown" for each prayer, the same as needsAdvisory. The Fiqh banner and Istihadah toggle are hidden. | `dashboard_nifas_prayer_card_test.dart` |
+| 2 | Once `is_postpartum` was set, the Fiqh, Doctor and Husband reports said "Nifas" forever. They never computed haid/tahara again. | [fiqh_report_insights_engine.dart](../lib/features/fiqh_report/domain/services/fiqh_report_insights_engine.dart) uses the nifas branch only while the engine phase is `نفاس`. After that it falls through to the cycle branch. | `reports_postpartum_never_exits_test.dart` |
+| 3 | Turning pregnancy or nifas off changed the device only. The `pregnancy_profile` row kept driving the weekly pregnancy reminders, the reports and the AI context. No state change re-planned the reminders. | New [`PregnancyStateSync`](../lib/features/pregnancy_profile/data/pregnancy_state_sync.dart) updates the device store and the row (`markPostpartumStarted` / new `markTrackingEnded`), then calls `NotificationRefreshCoordinator.refresh`. Activation also refreshes. This is **not** a pregnancy-loss flow (see the open decisions). | `pregnancy_state_sync_test.dart` |
+| 4 | The in-app feed logged a reminder when it was *scheduled*. It showed "Just now", sometimes days or weeks early. | [notification_log_controller.dart](../lib/core/preferences/notification_log_controller.dart): entries carry `fireAt` and stay hidden, and out of the unread count, until then. `upsertScheduled` replaces a slot's unfired entry. `removePending` drops it when the reminder is cancelled. | `notification_copy_and_feed_test.dart` |
+| 5 | "Your period may be approaching" could fire while she was pregnant or in nifas. | `NotificationScheduler.suppressesCycleReminder`. The coordinator reads the synced profile once and checks it plus the on-device flags. A failed profile read is treated as unknown and leaves pregnancy and nifas reminders as they are. | `notification_copy_and_feed_test.dart` |
+| 6 | Dashboard trimester labels: weeks 14–16 showed "First" and week 27 showed "Third". | `pregnancyStageFor` uses `PregnancyStatusEngine.trimesterForWeek` (ACOG ≤13 / ≤27). The size buckets are **unchanged**. (The Nutfah/Alaqah/Mudghah mapping was changed on 2026-10-21 — see the decisions below.) | `dashboard_trimester_label_test.dart` |
+| 7 | The nifas reminder said "Nifas is nearing its end / about 5 days remain". That is a flat 40-day rule the repo does not document. | Neutral feed copy: "Nifas tracking: It's been 35 days since the birth date you logged" / "متابعة النفاس: مرّ 35 يوماً على تاريخ الولادة المسجّل". There is no claim about the end of nifas and no day-number convention. Only planned inside the engine's nifas phase. | `notification_copy_and_feed_test.dart` |
+| 8 | The birth date was always "now", so she could not log the real delivery day. | `pickBirthDate` defaults to today, lets her go back up to a year and blocks future dates. The date is passed to both stores. The controller rejects a future date. | `pregnancy_state_sync_test.dart` |
+| 9 | The dashboard capped the week at 40; the engine and server cap at 42. | One shared `PregnancyStatusEngine.maxWeek` (42). The dashboard now computes its week with the engine. | `pregnancy_week_and_milestone_test.dart`, `pregnancy_status_parity_test.dart` (updated) |
+| 10 | The milestone planner probed at midnight. A refresh after the week flipped returned null and cancelled the valid reminder. | Probes at the 09:00 fire time over 8 days, comparing each 09:00 with the previous day's 09:00. Every refresh plans the same reminder. | `pregnancy_week_and_milestone_test.dart` |
+| 11 | Fire times and the rolling window used `Duration(days:)`, which drifts by an hour or a day across DST. | `addCalendarDays`/`calendarDay` in the planners and the rolling window. The daily wellbeing first fire is built as a wall-clock `TZDateTime`. Engine postpartum days use `calendarDaysBetween`. | `dst_fire_time_test.dart` |
+| 12 | Cycle, pregnancy and nifas text appeared on the lock screen. | Discreet OS copy ("Niswah — You have a new reminder in Niswah." / "نِسواه — لديكِ تذكير جديد في نِسواه."), matching active-bleeding Commit E3. The specific text goes to the in-app feed only (`PlannedNotification.feed*`). | `notification_copy_and_feed_test.dart` |
+
+**One shared nifas definition.** The dashboard (`PregnancyStatusController.isNifasActive` / `nifasDay`) now reads the engine's own phase and elapsed calendar days. The window is unchanged: day 0 to day 40 after the logged birth date. This settles the §16 note that the controller and the engine differed by one day.
+
+**Nifas card numbering: decided convention (2026-10-21).** The dashboard Nifas card uses the 0-based count of elapsed days since the birth date, the same count the reports and the reminder copy use:
+- elapsed day 0 shows "Birth day" / "يوم الولادة";
+- elapsed days 1 to 40 show "Day 1/40" through "Day 40/40";
+- the remaining-days line is 40 minus the same count;
+- on elapsed day 41 the card is gone.
+
+The card can therefore never read "Day 41/40". Previously it was 1-based ("Day 1/40" on the birth date). Test: `dashboard_nifas_day_label_test.dart`.
+
+**Existing tests updated because they encoded the old behavior:**
+- `test/pregnancy_status_parity_test.dart`: dashboard cap 40 → 42; nifas inactive from elapsed day 41, not 40; `nifasDay` is now the 0-based elapsed count.
+- `test/services/notification_scheduler_test.dart`: the week number is now in `feedBodyAr`, not the lock-screen `bodyAr`.
+
+**Decisions of 2026-10-21 (made by the team at the owner's request; every fiqh item is PROPOSED, PENDING SCHOLAR CONFIRMATION — none is a settled ruling).** Record: [2026-10-21 decisions](../project-hub/decisions/2026-10-21-pregnancy-nifas-open-decisions.md).
+
+| Decision | What the app does | Code | Test |
+|---|---|---|---|
+| Nifas window | 40 days (day 0–40) shown for every madhhab — the majority position and the shorter maximum, so prayer is never treated as lifted beyond day 40 on the app's authority. **Pending scholar confirmation.** | `PregnancyStatusEngine.nifasWindowDays` | `nifas_window_decision_test.dart` |
+| Shafi'i/Maliki, bleeding on day 41–60 | No ruling (neither "nifas continues" nor "tahara, pray"): Today shows the `post-nifas-advisory` card ("Please consult a scholar", EN/AR), the ring and prayer card read "needs review", the Fiqh banner and Istihadah toggle are hidden; the Fiqh report (and so the Husband/Doctor reports) gives `needsAdvisory` with `ReportEvidenceNote.postNifasScholarAdvisory`; the AI advisor's `clientFiqhState` is `needsAdvisory`. Continuous bleeding is not distinguished from bleeding that resumed after a clean gap: any open episode in that range gets the advisory. **Pending scholar confirmation.** | `PregnancyStatusEngine.needsPostNifasScholarAdvisory`, `dashboard_screen.dart`, `fiqh_report_insights_engine.dart`, `fiqh_report_pdf_builder.dart`, `client_fiqh_state_provider.dart` | `nifas_window_decision_test.dart` |
+| Nifas day numbering | 0-based days since birth everywhere (see above). | `nifasDayLabel` | `dashboard_nifas_day_label_test.dart` |
+| Nutfah/Alaqah/Mudghah | Three 40-day stages from conception (hadith of Ibn Mas'ud, Bukhari 3208 / Muslim 2643): days since conception = gestational days − 14; Nutfah 0–40, Alaqah 41–80, Mudghah 81–120; no classical label otherwise (trimester only). Replaces gestational weeks ≤4 / ≤8 / ≤12. **Pending scholar confirmation.** | `PregnancyStatusEngine.classicalStageForGestationalDays`, `pregnancyStageFor` | `classical_stage_mapping_test.dart`, `dashboard_trimester_label_test.dart` (updated) |
+| Pregnancy loss | No new flow. Turning "I am currently pregnant" off (`PregnancyStateSync.deactivate` / `markTrackingEnded`) never starts nifas and states no ruling about later bleeding; its confirmation shows a neutral EN/AR note: whether bleeding after a pregnancy loss counts as nifas depends on how far the pregnancy had developed, so please consult a scholar. **Pending scholar confirmation;** a real loss flow still needs scholar and medical review. | `profile_screen.dart` `_deactivatePregnancyTracking`, `PregnancyStatusEngine.trackingEndedWithoutBirthNote*` | `pregnancy_tracking_ended_no_nifas_test.dart` |
+| FIQH-7 purity gate | Kept as the conservative default for all madhahib (§16). **Pending scholar confirmation.** | unchanged | `test/fiqh_hardening/` |
+
+The reminders needed no change: the only nifas reminder fires on elapsed day 35, inside the window, and states only elapsed days since the logged birth date — never that nifas has ended.
+
+**Residual, not changed:** the Today ring still shows the Haid engine's phase label (for example "Day N of Tahara") during nifas. It makes no obligatory/lifted claim. Nifas still has no Fiqh engine (see `FOUNDER_DECISIONS.md` FD-1).
+
+## 20. Onboarding/server hardening (proposed, 2026-10-21)
+
+Status: **proposed** on `fix/onboarding-server-hardening`; not merged, not
+applied to any hosted project, no device (E4) evidence. Findings come from
+the onboarding/server review of 2026-10-19. Regression tests:
+`test/onboarding_server_hardening/` (Dart widget/unit tests, SQL scripts run
+by `sql/run_sql_checks.sh`, and offline Deno tests in `deno/`). Finding #1
+(self-promotion to admin on `public.users`) is fixed separately by
+`20261021090000_users_privileged_columns_guard.sql` (SEC-012 in
+`production-readiness-results/security/SEC_findings.md`).
+
+### Onboarding screen (`onboarding_screen.dart`)
+
+- **#2 Withdrawn answer replayed.** After a failed save, she could change
+  "started X" to "I'm not sure". The RPC was then skipped but the queued
+  submission was not, so background sync later created the withdrawn
+  episode. Completion now drops any queued onboarding submission when there
+  is nothing to save.
+- **#3 Changed answer under the old operation id.** The queued submission is
+  compared with the new answers (`sameOnboardingAnswers`, ignoring derived
+  provenance and UTC offset). If they differ, the queued copy is dropped and
+  a fresh operation id is used. If they match, the id is reused so a genuine
+  retry stays idempotent. Server backstop below.
+- **#4 "No, it has stopped" + "I'm not sure exactly when".** This was saved as
+  an OPEN episode with uncertain continuation ("may still be bleeding"), the
+  opposite of her answer. §3 has no "ended, end date unknown" state: `ended`
+  requires `end_date`. This answer now creates **no episode**; only her
+  baseline estimates, if any, are saved. Recording the start date with an
+  unknown end would need a schema and contract decision. That decision is
+  open and not taken here.
+- **#11 Stale end date.** Changing the start date clears the end date and the
+  "still happening?" answer.
+- **#12 Skipped predictions.** "Skip for now" discards estimates she had
+  scrolled to earlier.
+- **#13 Marital status.** `MaritalStatusController` keeps `null` until she
+  answers (`answer`). Onboarding no longer pre-selects "No", and her "No" is
+  actually stored.
+- **#14 Duration not shorter than cycle.** The predictions wheels disable
+  Continue and explain why (`baselinePairError`).
+
+### Madhhab (`madhhab_controller.dart`)
+
+- **#6** Every selection sets a per-user "pending server write" flag before
+  the server write. The flag is cleared only when the server returns the
+  updated row. While the flag is set, `load()` keeps the local choice instead
+  of the server row and retries the write. Re-selecting the same madhhab also
+  retries. A reinstall before any successful retry still loses the choice,
+  because the flag is device-local.
+
+### Database (`20261021100000_onboarding_server_hardening.sql`)
+
+- **#3 backstop:** `record_onboarding_menstrual_history` rejects (P0001) a
+  replay of an operation id whose dates or baseline values differ from what
+  that id already recorded. An identical replay still returns the original
+  rows.
+- **#5:** the fresh-insert path reuses an identical ended episode (same
+  start and end) instead of duplicating it. It rejects any other overlap
+  with an ended episode, the same rule as `start_bleeding_episode`.
+- **#14:** `cycle_baselines_duration_below_cycle_check` (`NOT VALID`, so
+  existing rows are not re-checked; every new row is).
+- **Deletion (low):** `knowledge_citations.user_id` gains an
+  `ON DELETE CASCADE` FK (`NOT VALID`). Nothing writes the table today.
+
+SQL result on a local Postgres 16 rebuild (stub roles, canonical baseline,
+every migration): `02`, `03` and `04` pass with the migration. Without it,
+`02` fails on each of (a) duplicate, (b) overlap and (c) changed replay;
+`03` and `04` fail too. The existing
+`test/logging_sync_hardening/sql/canonical_rpc_regression.sql` still prints
+`ALL PASSED`.
+
+### Data export (`data_export_builder.dart`)
+
+- **#10** The export now includes `cycle_logs`, `madhhab_history`,
+  `wellbeing_logs`, `dream_entries`, `community_comments`,
+  `community_likes`, `private_conversations` (either participant) and
+  `private_messages` (all rows her participant-only RLS exposes). Before,
+  these were missing while the export still reported `export_complete: true`.
+
+### AI context (`supabase/functions/_shared/ai_user_context.ts`)
+
+These edits are kept deliberately small because a separate change owns
+canonical fiqh inputs in the same file.
+
+- **#7** A legacy flow log counts as "now" only when it is dated today or
+  yesterday. Otherwise "currently bleeding" is unknown, rendered as `null`.
+  The current run also stops at the first gap between logged days.
+- **#9** `clientFiqhState` is validated with `normalizeClientFiqhState`, and
+  the madhhab is checked against the four schools inside
+  `buildUserAiContext`, so this covers every caller.
+  `ai-assistant-chat` previously rendered both raw. "selected" without a
+  valid madhhab becomes `not_provided`.
+- **Notes (low):** note text is reduced to one line, stripped of
+  `[CONTEXT]`/`[KNOWLEDGE]` markers, bounded in length, and JSON-quoted.
+- **Not done here (#8):** reading the canonical `bleeding_episodes` table
+  into this context, including truthful "uncertain" continuation. That is
+  left to the canonical-fiqh-inputs change to the same file.
+

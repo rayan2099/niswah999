@@ -238,13 +238,12 @@ void main() {
   });
 
   testWidgets(
-    'an empty day within an episode offers to add the missing entry, and '
-    'opens the real backfill sheet',
+    'an empty day within an open episode offers to add the missing entry, '
+    'and opens the real backfill sheet',
     (tester) async {
-      final episode = _episode(
-        start: DateTime(2026, 8, 1),
-        end: DateTime(2026, 8, 5),
-      );
+      // record_bleeding_observation only accepts new facts on an OPEN
+      // episode, so the offer is made only there (logging/sync hardening).
+      final episode = _episode(start: DateTime(2026, 8, 1));
       await pumpCalendar(tester, episodes: [episode], observations: const []);
 
       await tester.tap(
@@ -259,6 +258,23 @@ void main() {
       expect(find.text('Add a missing day'), findsOneWidget);
     },
   );
+
+  testWidgets('an empty day within an ENDED episode does not offer to add a '
+      'missing entry the server would reject', (tester) async {
+    final episode = _episode(
+      start: DateTime(2026, 8, 1),
+      end: DateTime(2026, 8, 5),
+    );
+    await pumpCalendar(tester, episodes: [episode], observations: const []);
+
+    await tester.tap(
+      find.byKey(const ValueKey('canonical-day-2026-08-02T00:00:00.000')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Add missing entry'), findsNothing);
+  });
 
   testWidgets('a day with no episode at all offers no fabricated action, only '
       'honest guidance', (tester) async {

@@ -51,7 +51,7 @@ void main() {
       tearDown(() => AppClock.now = DateTime.now);
 
       test(
-        'week 12 today -> 13 after 7 days -> 19 after 49 days -> capped at 40',
+        'week 12 today -> 13 after 7 days -> 19 after 49 days -> capped at 42',
         () async {
           final start = DateTime(2026, 9, 26, 10);
           AppClock.now = () => start;
@@ -64,22 +64,32 @@ void main() {
           expect(c.currentWeek, 13);
           AppClock.now = () => start.add(const Duration(days: 49));
           expect(c.currentWeek, 19);
+          // Shared cap (2026-10-21): the dashboard now clamps to the
+          // engine's/server's 42, not its own 40.
           AppClock.now = () => start.add(const Duration(days: 400));
-          expect(c.currentWeek, 40);
+          expect(c.currentWeek, 42);
           await c.deactivate();
         },
       );
 
-      test('Nifas day counter follows the clock (day 1 on the day, ends after 40 days)', () async {
+      test('Nifas day counter follows the clock (elapsed day 0 on the birth date, active through day 40)', () async {
         final birth = DateTime(2026, 9, 1, 8);
         AppClock.now = () => birth;
         final c = PregnancyStatusController.instance;
         await c.startNifas();
-        expect(c.nifasDay, 1);
+        expect(c.nifasDay, 0); // elapsed days; card shows "Birth day"
         expect(c.isNifasActive, isTrue);
         AppClock.now = () => birth.add(const Duration(days: 39));
         expect(c.isNifasActive, isTrue);
+        // Pregnancy/nifas hardening (2026-10-21): the dashboard now reads the
+        // engine's own nifas phase (elapsed calendar days 0..40), the same
+        // definition the reports and reminders use — previously its own
+        // `elapsed < 40` rule ended one day earlier than the reports. The
+        // window itself is unchanged in the engine (open owner decision).
         AppClock.now = () => birth.add(const Duration(days: 40));
+        expect(c.isNifasActive, isTrue);
+        expect(c.nifasDay, 40);
+        AppClock.now = () => birth.add(const Duration(days: 41));
         expect(c.isNifasActive, isFalse);
         await c.deactivate();
       });

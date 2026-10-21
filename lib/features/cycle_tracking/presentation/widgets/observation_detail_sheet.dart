@@ -143,6 +143,7 @@ class _ObservationDetailSheet extends StatelessWidget {
                       final saved = await showCorrectObservationSheet(
                         context,
                         target: effective,
+                        episode: episodeForDay,
                       );
                       if (context.mounted && saved) {
                         Navigator.of(context).pop(true);
@@ -155,7 +156,11 @@ class _ObservationDetailSheet extends StatelessWidget {
                       backgroundColor: AppColors.tahara,
                     ),
                   )
-                else if (episodeForDay != null)
+                // Logging/sync hardening (proposed): a NEW fact can only be
+                // added to an OPEN episode — record_bleeding_observation
+                // deterministically rejects an ended one, so offering
+                // "Add missing entry" there could only ever fail.
+                else if (episodeForDay?.lifecycleStatus == LifecycleStatus.open)
                   FilledButton.icon(
                     onPressed: () async {
                       final saved = await showBackfillObservationSheet(

@@ -41,6 +41,13 @@ class MadhhabController extends ChangeNotifier {
   static const _stateKey = 'niswah_madhhab_selection_state';
   static const _valueKey = 'niswah_selected_madhhab';
 
+  /// Onboarding/server hardening (proposed, finding #6): set while this
+  /// device holds a selection the server has not confirmed yet (written
+  /// before every server write, cleared only when the write is confirmed).
+  /// While set, [load] keeps the local selection instead of letting a stale
+  /// server row overwrite it, and retries the write.
+  static const _pendingServerWriteKey = 'niswah_madhhab_pending_server_write';
+
   MadhhabSelectionState _state = MadhhabSelectionState.unset;
   Madhhab? _selected;
 
@@ -67,6 +74,20 @@ class MadhhabController extends ChangeNotifier {
       _stateKey,
       _valueKey,
     ]);
+    // Finding #6: an unsynced local change (e.g. chosen offline during
+    // onboarding) is newer than whatever the server row says — the server
+    // row must not silently revert it to unset or to an older madhhab.
+    final pendingWrite =
+        preferences.getBool(
+          UserScopedPreferences.key(_pendingServerWriteKey),
+        ) ??
+        false;
+    if (pendingWrite && _applyLocalCache(preferences)) {
+      notifyListeners();
+      await _writeServerRow();
+      return;
+    }
+
     final serverRow = await _tryReadServerRow();
     if (serverRow != null) {
       _applyServerRow(serverRow);
@@ -81,6 +102,19 @@ class MadhhabController extends ChangeNotifier {
     // synced with the server (e.g. it was made offline), it is preserved
     // here rather than discarded — but is still never invented from
     // nothing.
+    if (_applyLocalCache(preferences)) {
+      notifyListeners();
+      return;
+    }
+
+    _state = MadhhabSelectionState.unset;
+    _selected = null;
+    notifyListeners();
+  }
+
+  /// Applies this device's cached selection (selected or unknown). Returns
+  /// false when the cache holds nothing usable — never invents a value.
+  bool _applyLocalCache(SharedPreferences preferences) {
     final cachedState = preferences.getString(
       UserScopedPreferences.key(_stateKey),
     );
@@ -94,20 +128,25 @@ class MadhhabController extends ChangeNotifier {
       if (madhhab != null) {
         _state = MadhhabSelectionState.selected;
         _selected = madhhab;
-        notifyListeners();
-        return;
+        return true;
       }
     }
     if (cachedState == MadhhabSelectionState.unknown.name) {
       _state = MadhhabSelectionState.unknown;
       _selected = null;
-      notifyListeners();
-      return;
+      return true;
     }
+    return false;
+  }
 
-    _state = MadhhabSelectionState.unset;
-    _selected = null;
-    notifyListeners();
+  /// Finding #6: true while a selection on this device has not been
+  /// confirmed by the server.
+  Future<bool> hasPendingServerWrite() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getBool(
+          UserScopedPreferences.key(_pendingServerWriteKey),
+        ) ??
+        false;
   }
 
   /// Explicit selection of exactly one real madhhab — from onboarding, an
@@ -128,6 +167,9 @@ class MadhhabController extends ChangeNotifier {
     String source = 'unspecified',
   }) async {
     if (_state == MadhhabSelectionState.selected && _selected == value) {
+      // Finding #6: re-confirming the same choice is still not a change,
+      // but if the earlier write never reached the server, retry it.
+      if (await hasPendingServerWrite()) await _writeServerRow();
       return;
     }
     final previousState = _state;
@@ -150,6 +192,7 @@ class MadhhabController extends ChangeNotifier {
   /// Same no-op guard as [selectMadhhab] — see its doc comment.
   Future<void> selectUnknown({String source = 'unspecified'}) async {
     if (_state == MadhhabSelectionState.unknown) {
+      if (await hasPendingServerWrite()) await _writeServerRow();
       return;
     }
     final previousState = _state;
@@ -221,6 +264,12 @@ class MadhhabController extends ChangeNotifier {
   Future<void> _persist() async {
     final preferences = await SharedPreferences.getInstance();
     await _cacheLocally(preferences);
+    // Finding #6: marked pending BEFORE the attempt, so a crash or an
+    // offline failure leaves the flag set for the next load() to retry.
+    await preferences.setBool(
+      UserScopedPreferences.key(_pendingServerWriteKey),
+      true,
+    );
     await _writeServerRow();
   }
 
@@ -243,16 +292,17 @@ class MadhhabController extends ChangeNotifier {
   /// for non-blocking preference writes (e.g. onboarding's Anonymous Mode
   /// toggle) — the local cache above already reflects the user's choice
   /// for this session's UI. A failed server write is not surfaced here as
-  /// a blocking error; it does mean this specific write could be lost on
-  /// a future reinstall if it never later succeeds, which is why callers
-  /// (e.g. onboarding) re-select on every real user action rather than
-  /// relying on a single fire-and-forget write.
+  /// a blocking error. Onboarding/server hardening (proposed, finding #6):
+  /// a failed or unconfirmed write is no longer lost — the pending flag set
+  /// in [_persist] stays until the server confirms, and [load] keeps the
+  /// local choice and retries. (A reinstall before any successful retry
+  /// still loses it: the flag lives in this device's preferences.)
   Future<void> _writeServerRow() async {
     final client = NiswahSupabase.clientOrNull;
     final userId = client?.auth.currentUser?.id;
     if (client == null || userId == null) return;
     try {
-      await client
+      final updated = await client
           .from('users')
           .update({
             'madhhab_selection_state': _state.name,
@@ -260,9 +310,19 @@ class MadhhabController extends ChangeNotifier {
                 ? _selected!.name
                 : null,
           })
-          .eq('id', userId);
+          .eq('id', userId)
+          .select('id');
+      // Finding #6: only a write the server confirmed (a row came back)
+      // clears the pending flag; zero rows (e.g. the row is not visible
+      // yet) stays pending and is retried on the next load().
+      if ((updated as List).isNotEmpty) {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.remove(
+          UserScopedPreferences.key(_pendingServerWriteKey),
+        );
+      }
     } catch (_) {
-      // See doc comment above.
+      // See doc comment above — left pending for the next load().
     }
   }
 

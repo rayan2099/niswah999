@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
+import '../../../cycle_tracking/domain/services/canonical_fiqh_assessment.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
@@ -22,6 +23,18 @@ enum ReportEvidenceNote {
 
   /// The canonical records could not be read at all.
   recordsUnavailable,
+
+  /// No episode is open, but the evidence still could not be verified (a
+  /// quarantined row, or a logged bleeding day after the latest episode's
+  /// stop date) — the same "Unable to verify" Today shows.
+  evidenceUnverified,
+
+  /// A Shafi'i or Maliki user is bleeding on day 41..60 after the logged
+  /// birth: her school may still count it as nifas (up to 60 days), so the
+  /// report states no ruling and asks her to consult a scholar
+  /// ([PregnancyStatusEngine.needsPostNifasScholarAdvisory]; decided
+  /// 2026-10-21, pending scholar confirmation).
+  postNifasScholarAdvisory,
 }
 
 /// Everything the fiqh report PDF needs — pre-computed and gated so the
@@ -131,11 +144,9 @@ class _HaidEpisode {
 
 /// Composes three existing, already-tested pieces of domain logic —
 /// [PregnancyStatusEngine] (nifas), [CycleCalculationService] (cycle
-/// stats), and [MadhhabRuleEvaluator] (state classification) — into the
-/// fiqh report's insights. No new fiqh-classification rules are introduced
-/// here; nifas priority and the current-state derivation mirror exactly
-/// what the dashboard already computes (`_currentFiqhState` in
-/// dashboard_screen.dart), just made public, pure, and testable.
+/// stats), and [CanonicalFiqhAssessment] (state classification, the same
+/// one the dashboard uses) — into the fiqh report's insights. No new
+/// fiqh-classification rules are introduced here.
 class FiqhReportInsightsEngine {
   const FiqhReportInsightsEngine._();
 
@@ -145,8 +156,8 @@ class FiqhReportInsightsEngine {
   /// not `selected` — see Fiqh Remediation Wave 1, Section E. The nifas
   /// branch below still runs (postpartum status doesn't depend on
   /// madhhab); the cycle branch returns
-  /// [FiqhCycleState.madhhabUnresolved] via [_currentCycleState] instead
-  /// of guessing.
+  /// [FiqhCycleState.madhhabUnresolved] (via [CanonicalFiqhAssessment])
+  /// instead of guessing.
   static FiqhReportInsights analyze({
     required List<CycleLog> cycleLogs,
     required Madhhab? madhhab,
@@ -163,7 +174,15 @@ class FiqhReportInsightsEngine {
       pregnancyProfile,
       now,
     );
-    if (pregnancyStatus.mode == PregnancyMode.postpartum) {
+    // Pregnancy/nifas hardening (2026-10-21, proposed): the nifas branch
+    // applies only INSIDE the engine's nifas phase. Before, any postpartum
+    // profile — 200 days after birth, cycles long back — kept every report
+    // on "Current state: Nifas" forever and never computed her real
+    // Haid/Tahara state again. After the phase, fall through to the cycle
+    // branch. (The window itself is the engine's, unchanged; it is an open
+    // owner decision.)
+    if (pregnancyStatus.mode == PregnancyMode.postpartum &&
+        pregnancyStatus.phase == PregnancyStatusEngine.nifasPhase) {
       return FiqhReportInsights.nifas(
         madhhab: madhhab,
         daysPostpartum: pregnancyStatus.daysPostpartum!,
@@ -192,12 +211,29 @@ class FiqhReportInsightsEngine {
 
     // Evidence for the STATE and the statistics: canonical when available.
     final evidenceLogs = canonical?.effectiveLogs ?? cycleLogs;
-    final sorted = [...evidenceLogs]..sort((a, b) => a.date.compareTo(b.date));
-    final calculation = const CycleCalculationService().calculate(
-      sorted,
-      asOf: now,
+    // Symptoms/notes-only legacy rows carry no flow fact
+    // (CycleLog.recordsFlow); canonical logs always record one.
+    final sorted = [...evidenceLogs.where((log) => log.recordsFlow)]
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    // Fiqh hardening (2026-10-18): the current state comes from the SAME
+    // combination of canonical status and CycleStatusEngine the Today
+    // dashboard uses (CanonicalFiqhAssessment) — no second copy of the
+    // engine's scan lives here any more. Without canonical evidence
+    // (legacy callers) "an episode is open" is read from the logs
+    // themselves, as before.
+    final hasOpenEpisode =
+        canonical?.hasOpenEpisode ??
+        (sorted.isNotEmpty && sorted.last.flow != FlowLevel.none);
+    final assessment = CanonicalFiqhAssessment.assess(
+      effectiveLogs: sorted,
+      hasOpenEpisode: hasOpenEpisode,
+      evidenceUnresolved: canonical?.evidenceUnresolved ?? false,
+      madhhab: madhhab,
+      now: now,
       canonicalEpisodes: canonical?.episodes ?? const [],
     );
+    final calculation = assessment.calculation;
 
     final episodes = _haidEpisodes(sorted);
     final averageHaidDuration = episodes.isEmpty
@@ -206,20 +242,36 @@ class FiqhReportInsightsEngine {
                   episodes.length)
               .round();
 
-    // An open episode whose evidence has a material gap must never be
-    // reported as Tahara (the same rule Today applies): "insufficient".
-    final openButUnresolved =
-        canonical != null &&
-        canonical.hasOpenEpisode &&
-        (canonical.evidenceUnresolved || sorted.isEmpty);
-    final cycleState = openButUnresolved
-        ? FiqhCycleState.insufficientHistory
-        : _currentCycleState(
-            sortedLogs: sorted,
-            madhhab: madhhab,
-            hasSufficientHistory: calculation.hasSufficientHistory,
-            now: now,
-          );
+    // Neither unverifiable evidence nor too little history while bleeding
+    // is ever reported as Tahara (the same rule Today applies): the report
+    // says "insufficient" and explains why.
+    // Nifas window decision (2026-10-21, pending scholar confirmation): a
+    // Shafi'i/Maliki user bleeding on day 41..60 gets no ruling at all —
+    // neither the Haid engine's verdict nor "nifas" — only an advisory.
+    final postNifasAdvisory =
+        pregnancyStatus.mode == PregnancyMode.postpartum &&
+        assessment.verdict != CanonicalFiqhVerdict.evidenceUnresolved &&
+        PregnancyStatusEngine.needsPostNifasScholarAdvisory(
+          daysPostpartum: pregnancyStatus.daysPostpartum!,
+          madhhab: madhhab,
+          isBleeding: hasOpenEpisode,
+        );
+    final cycleState = postNifasAdvisory
+        ? FiqhCycleState.needsAdvisory
+        : assessment.state ?? FiqhCycleState.insufficientHistory;
+    final evidenceNote = postNifasAdvisory
+        ? ReportEvidenceNote.postNifasScholarAdvisory
+        : canonical == null
+        ? ReportEvidenceNote.none
+        : switch (assessment.verdict) {
+            CanonicalFiqhVerdict.evaluated => ReportEvidenceNote.none,
+            CanonicalFiqhVerdict.insufficientHistory =>
+              ReportEvidenceNote.openEpisodeUnresolved,
+            CanonicalFiqhVerdict.evidenceUnresolved =>
+              canonical.hasOpenEpisode
+                  ? ReportEvidenceNote.openEpisodeUnresolved
+                  : ReportEvidenceNote.evidenceUnverified,
+          };
 
     return FiqhReportInsights.cycle(
       madhhab: madhhab,
@@ -236,13 +288,7 @@ class FiqhReportInsightsEngine {
       // A bleeding episode that cannot be ruled on (unresolved evidence, or
       // simply too little history) is explained in the report, never left as
       // an unexplained label.
-      evidenceNote:
-          (openButUnresolved ||
-              (canonical != null &&
-                  canonical.hasOpenEpisode &&
-                  cycleState == FiqhCycleState.insufficientHistory))
-          ? ReportEvidenceNote.openEpisodeUnresolved
-          : ReportEvidenceNote.none,
+      evidenceNote: evidenceNote,
       pregnancy: pregnancyStatus.mode == PregnancyMode.pregnant
           ? pregnancyStatus
           : null,
@@ -268,61 +314,5 @@ class FiqhReportInsightsEngine {
       episodes.add(_HaidEpisode(start: episodeStart, end: episodeEnd));
     }
     return episodes;
-  }
-
-  static FiqhCycleState _currentCycleState({
-    required List<CycleLog> sortedLogs,
-    required Madhhab? madhhab,
-    required bool hasSufficientHistory,
-    required DateTime now,
-  }) {
-    if (sortedLogs.isEmpty) return FiqhCycleState.tahara;
-
-    final latest = sortedLogs.last;
-    if (latest.flow == FlowLevel.none) return FiqhCycleState.tahara;
-
-    var activeStart = latest.date;
-    DateTime? previousPurityStart;
-    for (var index = sortedLogs.length - 1; index >= 0; index--) {
-      final log = sortedLogs[index];
-      if (log.flow == FlowLevel.none) {
-        previousPurityStart = log.date;
-        break;
-      }
-      activeStart = log.date;
-    }
-    // Deliberately no longer also breaking on `log.cycleDay == 1` — the
-    // same incorrect boundary removed from CycleStatusEngine.evaluate() in
-    // commit 01ef39e, for the identical reason: that field defaults to 1
-    // (CycleLog's own constructor default) and is never set by
-    // CanonicalFiqhEvidenceAdapter.buildEffectiveLogs, which builds every
-    // canonical-evidence-derived log this method receives via
-    // `canonical?.effectiveLogs` above. With the check still present here,
-    // the scan broke on the very first (latest) entry for any canonical-
-    // backed episode, pinning activeStart to "today" regardless of the
-    // episode's true start date — bleedingDuration then collapsed to the
-    // current day's own elapsed hours, always below every madhhab's
-    // minimum, so a genuinely-open, well-within-bounds Haid episode always
-    // misclassified as needsAdvisory in the Fiqh/Doctor/Husband reports.
-    // `flow == FlowLevel.none` is the correct, sole authoritative boundary
-    // signal (an explicit "not bleeding" observation) — 01ef39e fixed
-    // CycleStatusEngine's copy of this scan; this was the second,
-    // un-deduplicated copy it missed.
-
-    if (madhhab == null) {
-      // Currently bleeding, but no madhhab is SELECTED — never guess one.
-      return FiqhCycleState.madhhabUnresolved;
-    }
-
-    final result = const MadhhabRuleEvaluator().evaluate(
-      madhhab: madhhab,
-      hasSufficientHistory: hasSufficientHistory,
-      isBleeding: true,
-      bleedingDuration: now.difference(activeStart),
-      purityBefore: previousPurityStart == null
-          ? null
-          : activeStart.difference(previousPurityStart),
-    );
-    return result.state;
   }
 }

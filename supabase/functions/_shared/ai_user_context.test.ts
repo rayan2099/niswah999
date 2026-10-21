@@ -15,6 +15,7 @@ import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts';
 import {
   decodeLegacyNote,
   decodeSymptomSeverities,
+  fiqhUncertaintyFor,
   formatContextBlock,
   mergeNotesSources,
   type UserAiContext,
@@ -302,4 +303,14 @@ Deno.test('formatContextBlock — madhhab_state line always precedes selected_ma
   const stateIndex = block.indexOf('madhhab_state:');
   const madhhabIndex = block.indexOf('selected_madhhab:');
   assertEquals(stateIndex >= 0 && madhhabIndex > stateIndex, true);
+});
+
+Deno.test('fiqhUncertaintyFor — only a settled client classification carries no uncertainty', () => {
+  assertEquals(fiqhUncertaintyFor('haid'), 'none');
+  assertEquals(fiqhUncertaintyFor('tahara'), 'none');
+  for (const unresolved of ['needsAdvisory', 'madhhabUnresolved', 'insufficientHistory', 'garbage']) {
+    assertEquals(fiqhUncertaintyFor(unresolved) === 'none', false);
+  }
+  assertEquals(fiqhUncertaintyFor(null).includes('not supplied'), true);
+  assertEquals(fiqhUncertaintyFor(undefined).includes('not supplied'), true);
 });
