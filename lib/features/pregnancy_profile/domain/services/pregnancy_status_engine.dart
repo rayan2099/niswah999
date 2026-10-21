@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_days.dart';
 import '../entities/pregnancy_profile.dart';
 
 enum PregnancyMode { pregnant, postpartum, unknown }
@@ -65,9 +66,33 @@ class PregnancyStatusEngine {
 
   static const int _postpartumWindowDays = 40;
   static const int _fullTermWeeks = 40;
-  static const int _minWeek = 1;
-  static const int _maxWeek = 42;
+
+  /// The ONE shared pregnancy-week range (2026-10-21, proposed): the engine,
+  /// the server mirror (`pregnancy_status.ts`, MAX_WEEK = 42) and the
+  /// on-device dashboard ([PregnancyStatusController.currentWeek]) all clamp
+  /// to this — previously the dashboard capped at 40 while the chat,
+  /// reports and notifications went to 42.
+  static const int minWeek = 1;
+  static const int maxWeek = 42;
   static const double _weeksPerMonth = 4.345; // ~average weeks per month
+
+  /// [PregnancyStatus.phase] while inside the engine's existing postpartum
+  /// window, and after it. The window itself (day 0..40 inclusive) and how
+  /// a day is *numbered* on screen are open owner decisions — this only
+  /// makes every surface read the same definition.
+  static const String nifasPhase = 'نفاس';
+  static const String postNifasPhase = 'ما بعد النفاس';
+
+  /// Elapsed calendar days since the logged birth date (0 on that day).
+  /// Calendar-day arithmetic (DST-safe) on purpose: `postpartum_start_date`
+  /// is a calendar date, not an instant.
+  static int daysPostpartumOn(DateTime birthDate, DateTime today) =>
+      calendarDaysBetween(birthDate, today);
+
+  /// The single shared "is this day still inside the nifas window"
+  /// definition, used by the reports, the notifications and the dashboard.
+  static bool isWithinNifasWindow(int daysPostpartum) =>
+      daysPostpartum <= _postpartumWindowDays;
 
   static PregnancyStatus getStatus(PregnancyProfile? profile, DateTime today) {
     if (profile == null) return const PregnancyStatus.unknown();
@@ -76,20 +101,20 @@ class PregnancyStatusEngine {
       final start = profile.postpartumStartDate;
       if (start == null) return const PregnancyStatus.unknown();
 
-      final days = today.difference(start).inDays;
+      final days = daysPostpartumOn(start, today);
       return PregnancyStatus.postpartum(
         daysPostpartum: days,
-        phase: days <= _postpartumWindowDays ? 'نفاس' : 'ما بعد النفاس',
+        phase: isWithinNifasWindow(days) ? nifasPhase : postNifasPhase,
       );
     }
 
     final week = _resolveWeek(profile, today);
     if (week == null) return const PregnancyStatus.unknown();
 
-    final clampedWeek = week.clamp(_minWeek, _maxWeek);
+    final clampedWeek = week.clamp(minWeek, maxWeek);
     return PregnancyStatus.pregnant(
       week: clampedWeek,
-      trimester: _trimesterForWeek(clampedWeek),
+      trimester: trimesterForWeek(clampedWeek),
       month: _monthForWeek(clampedWeek),
       weeksToDue: (_fullTermWeeks - clampedWeek) < 0
           ? 0
@@ -131,7 +156,10 @@ class PregnancyStatusEngine {
     };
   }
 
-  static int _trimesterForWeek(int week) {
+  /// ACOG-aligned trimester for a completed-weeks value: 1 through week
+  /// 13, 2 through week 27, 3 from week 28. Shared with the dashboard's
+  /// trimester label so the two can never disagree.
+  static int trimesterForWeek(int week) {
     if (week <= 13) return 1;
     if (week <= 27) return 2;
     return 3;

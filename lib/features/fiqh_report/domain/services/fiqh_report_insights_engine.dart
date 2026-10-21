@@ -167,7 +167,15 @@ class FiqhReportInsightsEngine {
       pregnancyProfile,
       now,
     );
-    if (pregnancyStatus.mode == PregnancyMode.postpartum) {
+    // Pregnancy/nifas hardening (2026-10-21, proposed): the nifas branch
+    // applies only INSIDE the engine's nifas phase. Before, any postpartum
+    // profile — 200 days after birth, cycles long back — kept every report
+    // on "Current state: Nifas" forever and never computed her real
+    // Haid/Tahara state again. After the phase, fall through to the cycle
+    // branch. (The window itself is the engine's, unchanged; it is an open
+    // owner decision.)
+    if (pregnancyStatus.mode == PregnancyMode.postpartum &&
+        pregnancyStatus.phase == PregnancyStatusEngine.nifasPhase) {
       return FiqhReportInsights.nifas(
         madhhab: madhhab,
         daysPostpartum: pregnancyStatus.daysPostpartum!,

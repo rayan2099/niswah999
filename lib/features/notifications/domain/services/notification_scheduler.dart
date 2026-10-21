@@ -10,6 +10,11 @@ import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
 import '../../../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 
 /// What to schedule — pure data, no plugin dependency, easy to test.
+///
+/// [titleAr]/[bodyAr]/[titleEn]/[bodyEn] are the OS notification text —
+/// what can appear on a LOCK SCREEN. The optional `feed*` fields are the
+/// fuller text for the in-app notification feed (behind the app's own
+/// lock); each defaults to the OS text.
 class PlannedNotification extends Equatable {
   const PlannedNotification({
     required this.id,
@@ -19,7 +24,14 @@ class PlannedNotification extends Equatable {
     required this.titleEn,
     required this.bodyEn,
     this.payload,
-  });
+    String? feedTitleAr,
+    String? feedBodyAr,
+    String? feedTitleEn,
+    String? feedBodyEn,
+  }) : feedTitleAr = feedTitleAr ?? titleAr,
+       feedBodyAr = feedBodyAr ?? bodyAr,
+       feedTitleEn = feedTitleEn ?? titleEn,
+       feedBodyEn = feedBodyEn ?? bodyEn;
 
   final int id;
   final DateTime fireAt;
@@ -27,6 +39,10 @@ class PlannedNotification extends Equatable {
   final String bodyAr;
   final String titleEn;
   final String bodyEn;
+  final String feedTitleAr;
+  final String feedBodyAr;
+  final String feedTitleEn;
+  final String feedBodyEn;
 
   /// Commit E7 — opaque data carried through to a tap, letting the app
   /// route to the correct account/episode/day rather than merely
@@ -43,6 +59,10 @@ class PlannedNotification extends Equatable {
     bodyAr,
     titleEn,
     bodyEn,
+    feedTitleAr,
+    feedBodyAr,
+    feedTitleEn,
+    feedBodyEn,
     payload,
   ];
 }
@@ -62,15 +82,61 @@ class NotificationScheduler {
 
   static const cycleLeadDays = 3;
   static const nifasWarningDay = 35;
-  static const nifasWindowDays = 40;
+
+  /// Local hour the cycle/pregnancy/nifas reminders fire at.
+  static const reminderHour = 9;
+
+  /// How many local days ahead the milestone planner probes. Weekly
+  /// boundaries are 7 days apart, so 8 consecutive future 09:00 probes
+  /// always contain one — whatever the time of day the week flips at.
+  static const milestoneProbeDays = 8;
+
+  /// Pregnancy/nifas hardening (2026-10-21, proposed) — discreet
+  /// lock-screen copy for the cycle/pregnancy/nifas reminders, matching the
+  /// active-bleeding reminder's Commit E3 pattern: no period, pregnancy,
+  /// nifas or Fiqh word on the lock screen. The specific text goes to the
+  /// in-app feed only (PlannedNotification.feed*).
+  static const discreetTitleAr = 'نِسواه';
+  static const discreetTitleEn = 'Niswah';
+  static const discreetBodyAr = 'لديكِ تذكير جديد في نِسواه.';
+  static const discreetBodyEn = 'You have a new reminder in Niswah.';
+
+  static DateTime _atReminderHour(DateTime day) =>
+      DateTime(day.year, day.month, day.day, reminderHour);
+
+  /// Whether the cycle reminder must be withheld: while pregnant, or inside
+  /// the engine's nifas phase — per the synced [pregnancy] status or the
+  /// on-device flags (either source is enough; they can lag each other).
+  static bool suppressesCycleReminder({
+    PregnancyStatus? pregnancy,
+    bool locallyPregnant = false,
+    bool locallyInNifas = false,
+  }) {
+    if (locallyPregnant || locallyInNifas) return true;
+    if (pregnancy == null) return false;
+    return pregnancy.mode == PregnancyMode.pregnant ||
+        (pregnancy.mode == PregnancyMode.postpartum &&
+            pregnancy.phase == PregnancyStatusEngine.nifasPhase);
+  }
 
   /// Predicted next period start = last haid start + predicted cycle
   /// length (the same prediction the dashboard shows); plans a reminder
-  /// [cycleLeadDays] before that, at 9am.
+  /// [cycleLeadDays] before that, at 9am. Nothing while pregnant or in
+  /// nifas (see [suppressesCycleReminder]).
   static PlannedNotification? planCycleReminder({
     required CycleCalculationResult calculation,
     required DateTime now,
+    PregnancyStatus? pregnancy,
+    bool locallyPregnant = false,
+    bool locallyInNifas = false,
   }) {
+    if (suppressesCycleReminder(
+      pregnancy: pregnancy,
+      locallyPregnant: locallyPregnant,
+      locallyInNifas: locallyInNifas,
+    )) {
+      return null;
+    }
     if (!calculation.hasSufficientHistory ||
         !calculation.canPredictFromHistory) {
       return null;
@@ -80,25 +146,34 @@ class NotificationScheduler {
       calculation.lastHaidStart!,
       calculation.predictedCycleLength!,
     );
-    final fireDay = addCalendarDays(predictedStart, -cycleLeadDays);
-    final fireAt = fireDay.add(const Duration(hours: 9));
+    final fireAt = _atReminderHour(
+      addCalendarDays(predictedStart, -cycleLeadDays),
+    );
 
     if (!fireAt.isAfter(now)) return null;
 
     return PlannedNotification(
       id: cycleNotificationId,
       fireAt: fireAt,
-      titleAr: 'اقترب موعد دورتكِ',
-      bodyAr: 'دورتكِ الشهرية متوقعة خلال $cycleLeadDays أيام تقريباً.',
-      titleEn: 'Your period may be approaching',
-      bodyEn: 'Your next period is predicted in about $cycleLeadDays days.',
+      titleAr: discreetTitleAr,
+      bodyAr: discreetBodyAr,
+      titleEn: discreetTitleEn,
+      bodyEn: discreetBodyEn,
+      feedTitleAr: 'اقترب موعد دورتكِ',
+      feedBodyAr: 'دورتكِ الشهرية متوقعة خلال $cycleLeadDays أيام تقريباً.',
+      feedTitleEn: 'Your period may be approaching',
+      feedBodyEn: 'Your next period is predicted in about $cycleLeadDays days.',
     );
   }
 
-  /// Finds the next day (within a week) the pregnancy engine reports a
-  /// higher week number than today, by probing the same engine forward
-  /// day-by-day — reuses [PregnancyStatusEngine] as a black box rather
-  /// than re-deriving which tracking basis maps to which date math.
+  /// The next local 09:00 (today's included, if still ahead) at which the
+  /// pregnancy engine reports a higher week than it did at 09:00 the day
+  /// before — i.e. the first reminder time on/after a weekly boundary.
+  /// Probes the engine AT the fire time, over [milestoneProbeDays] days,
+  /// so the same boundary yields the same plan from every refresh: a
+  /// refresh after the week already flipped (but before the reminder
+  /// fired) re-plans that same reminder rather than cancelling it.
+  /// Reuses [PregnancyStatusEngine] as a black box.
   static PlannedNotification? planPregnancyMilestone({
     required PregnancyProfile? profile,
     required DateTime now,
@@ -108,61 +183,73 @@ class NotificationScheduler {
       return null;
     }
 
-    final today = DateTime(now.year, now.month, now.day);
-    for (var offset = 1; offset <= 7; offset++) {
-      final candidateDay = today.add(Duration(days: offset));
-      final candidateStatus = PregnancyStatusEngine.getStatus(
+    final today = calendarDay(now);
+    for (var offset = 0; offset <= milestoneProbeDays; offset++) {
+      final fireAt = _atReminderHour(addCalendarDays(today, offset));
+      if (!fireAt.isAfter(now)) continue;
+      final candidate = PregnancyStatusEngine.getStatus(profile, fireAt);
+      final previous = PregnancyStatusEngine.getStatus(
         profile,
-        candidateDay,
+        _atReminderHour(addCalendarDays(today, offset - 1)),
       );
-      if (candidateStatus.mode == PregnancyMode.pregnant &&
-          candidateStatus.week != null &&
-          candidateStatus.week! > current.week!) {
-        final fireAt = candidateDay.add(const Duration(hours: 9));
+      if (candidate.mode == PregnancyMode.pregnant &&
+          candidate.week != null &&
+          previous.week != null &&
+          candidate.week! > previous.week!) {
         return PlannedNotification(
           id: pregnancyNotificationId,
           fireAt: fireAt,
-          titleAr: 'مرحلة جديدة من الحمل',
-          bodyAr: 'دخلتِ الأسبوع ${candidateStatus.week} من الحمل.',
-          titleEn: 'A new pregnancy week',
-          bodyEn: "You've entered week ${candidateStatus.week} of pregnancy.",
+          titleAr: discreetTitleAr,
+          bodyAr: discreetBodyAr,
+          titleEn: discreetTitleEn,
+          bodyEn: discreetBodyEn,
+          feedTitleAr: 'مرحلة جديدة من الحمل',
+          feedBodyAr: 'دخلتِ الأسبوع ${candidate.week} من الحمل.',
+          feedTitleEn: 'A new pregnancy week',
+          feedBodyEn: "You've entered week ${candidate.week} of pregnancy.",
         );
       }
     }
     return null;
   }
 
-  /// Plans a single warning near the end of the typical nifas window
-  /// ([nifasWarningDay] of [nifasWindowDays]) — not a reminder for every
-  /// day, just the one heads-up.
+  /// Plans one neutral nifas-tracking note at 09:00 on the calendar day
+  /// [nifasWarningDay] days after the logged birth date — only while the
+  /// engine's phase is nifas. The copy deliberately states only elapsed
+  /// days since the logged birth date: it never claims nifas is ending
+  /// (the window is not Madhhab-aware, and the repo documents no nifas
+  /// rule — open owner/scholar decision) and avoids a "day N" number
+  /// (0- vs 1-based numbering is also open).
   static PlannedNotification? planNifasCountdown({
     required PregnancyProfile? profile,
     required DateTime now,
   }) {
     final current = PregnancyStatusEngine.getStatus(profile, now);
+    final birthDate = profile?.postpartumStartDate;
     if (current.mode != PregnancyMode.postpartum ||
-        current.daysPostpartum == null) {
+        current.phase != PregnancyStatusEngine.nifasPhase ||
+        birthDate == null) {
       return null;
     }
 
-    final days = current.daysPostpartum!;
-    if (days >= nifasWarningDay) return null;
-
-    final today = DateTime(now.year, now.month, now.day);
-    final fireAt = today
-        .add(Duration(days: nifasWarningDay - days))
-        .add(const Duration(hours: 9));
+    final fireAt = _atReminderHour(
+      addCalendarDays(calendarDay(birthDate), nifasWarningDay),
+    );
     if (!fireAt.isAfter(now)) return null;
 
     return PlannedNotification(
       id: nifasNotificationId,
       fireAt: fireAt,
-      titleAr: 'اقترب انتهاء فترة النفاس',
-      bodyAr:
-          'تبقّى تقريباً ${nifasWindowDays - nifasWarningDay} أيام على انتهاء فترة النفاس المعتادة.',
-      titleEn: 'Nifas is nearing its end',
-      bodyEn:
-          'About ${nifasWindowDays - nifasWarningDay} days remain in the typical nifas window.',
+      titleAr: discreetTitleAr,
+      bodyAr: discreetBodyAr,
+      titleEn: discreetTitleEn,
+      bodyEn: discreetBodyEn,
+      feedTitleAr: 'متابعة النفاس',
+      feedBodyAr:
+          'مرّ $nifasWarningDay يوماً على تاريخ الولادة المسجّل. راجعي بطاقة النفاس في الصفحة الرئيسية.',
+      feedTitleEn: 'Nifas tracking',
+      feedBodyEn:
+          "It's been $nifasWarningDay days since the birth date you logged. See the Nifas card on Today.",
     );
   }
 }
@@ -368,7 +455,7 @@ class ActiveBleedingReminderScheduler {
     for (var offset = 0; offset < daysAhead; offset++) {
       // E6 — only today's own obligation can actually be known yet.
       if (offset == 0 && todaysObservationCount > 0) continue;
-      final localDay = today.add(Duration(days: offset));
+      final localDay = addCalendarDays(today, offset);
       final plan = _planForDay(
         userId: episode.userId,
         episodeId: episodeId,
@@ -402,7 +489,7 @@ class ActiveBleedingReminderScheduler {
     (offset) => reminderId(
       userId: userId,
       episodeId: episodeId,
-      localDay: today.add(Duration(days: offset)),
+      localDay: addCalendarDays(today, offset),
     ),
   );
 
