@@ -1834,15 +1834,23 @@ Feature maps: [pregnancy_profile](../project-hub/generated/feature-pregnancy_pro
 | 11 | Fire times and the rolling window used `Duration(days:)`, which drifts by an hour or a day across DST. | `addCalendarDays`/`calendarDay` in the planners and the rolling window. The daily wellbeing first fire is built as a wall-clock `TZDateTime`. Engine postpartum days use `calendarDaysBetween`. | `dst_fire_time_test.dart` |
 | 12 | Cycle, pregnancy and nifas text appeared on the lock screen. | Discreet OS copy ("Niswah — You have a new reminder in Niswah." / "نِسواه — لديكِ تذكير جديد في نِسواه."), matching active-bleeding Commit E3. The specific text goes to the in-app feed only (`PlannedNotification.feed*`). | `notification_copy_and_feed_test.dart` |
 
-**One shared nifas definition.** The dashboard (`PregnancyStatusController.isNifasActive` / `nifasDay`) now reads the engine's own phase and elapsed calendar days. The window is unchanged: day 0 to day 40 after the logged birth date. This settles the §16 note that the controller and the engine differed by one day. The dashboard's nifas card now stays on through elapsed day 40, which it shows as "Day 41/40". Fixing that display depends on the open decisions below.
+**One shared nifas definition.** The dashboard (`PregnancyStatusController.isNifasActive` / `nifasDay`) now reads the engine's own phase and elapsed calendar days. The window is unchanged: day 0 to day 40 after the logged birth date. This settles the §16 note that the controller and the engine differed by one day.
+
+**Nifas card numbering: proposed default.** Until the owner decides how nifas days are numbered, the dashboard Nifas card uses the 0-based count of elapsed days since the birth date, the same count the reports and the reminder copy use:
+- elapsed day 0 shows "Birth day" / "يوم الولادة";
+- elapsed days 1 to 40 show "Day 1/40" through "Day 40/40";
+- the remaining-days line is 40 minus the same count;
+- on elapsed day 41 the card is gone.
+
+The card can therefore never read "Day 41/40". Previously it was 1-based ("Day 1/40" on the birth date). Test: `dashboard_nifas_day_label_test.dart`.
 
 **Existing tests updated because they encoded the old behavior:**
-- `test/pregnancy_status_parity_test.dart`: dashboard cap 40 → 42; nifas inactive from elapsed day 41, not 40.
+- `test/pregnancy_status_parity_test.dart`: dashboard cap 40 → 42; nifas inactive from elapsed day 41, not 40; `nifasDay` is now the 0-based elapsed count.
 - `test/services/notification_scheduler_test.dart`: the week number is now in `feedBodyAr`, not the lock-screen `bodyAr`.
 
 **Open decisions (owner, scholar and/or medical; nothing here decides them):**
 - The nifas window: a flat 40 days that is not Madhhab-aware. The schema allows `madhhab_max_days` 40/60.
-- Nifas day numbering: 0-based in the reports, 1-based on the dashboard. The dashboard card's hard-coded "/40" denominator and remaining-day count belong to the same decision.
+- Nifas day numbering: the proposed default is the 0-based elapsed count everywhere, with "Birth day" on day 0 on the dashboard. The "/40" denominator belongs to the same decision as the window.
 - A pregnancy-loss/miscarriage flow: none exists. Needs scholar and medical review.
 - The Nutfah/Alaqah/Mudghah stage-to-week mapping on the dashboard: weeks ≤4 / ≤8 / ≤12 of gestation. It is undocumented in the repo and needs scholar review.
 

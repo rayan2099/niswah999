@@ -72,12 +72,12 @@ void main() {
         },
       );
 
-      test('Nifas day counter follows the clock (day 1 on the day, ends after 40 days)', () async {
+      test('Nifas day counter follows the clock (elapsed day 0 on the birth date, active through day 40)', () async {
         final birth = DateTime(2026, 9, 1, 8);
         AppClock.now = () => birth;
         final c = PregnancyStatusController.instance;
         await c.startNifas();
-        expect(c.nifasDay, 1);
+        expect(c.nifasDay, 0); // elapsed days; card shows "Birth day"
         expect(c.isNifasActive, isTrue);
         AppClock.now = () => birth.add(const Duration(days: 39));
         expect(c.isNifasActive, isTrue);
@@ -88,7 +88,7 @@ void main() {
         // window itself is unchanged in the engine (open owner decision).
         AppClock.now = () => birth.add(const Duration(days: 40));
         expect(c.isNifasActive, isTrue);
-        expect(c.nifasDay, 41);
+        expect(c.nifasDay, 40);
         AppClock.now = () => birth.add(const Duration(days: 41));
         expect(c.isNifasActive, isFalse);
         await c.deactivate();

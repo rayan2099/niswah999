@@ -129,8 +129,8 @@ void main() {
       expect(repo.postpartumStart, birth);
       final c = PregnancyStatusController.instance;
       expect(c.nifasStartedAt, birth);
-      // Dashboard day = engine elapsed calendar days (4) shown 1-based.
-      expect(c.nifasDay, 5);
+      // Dashboard day = engine elapsed calendar days since the birth date.
+      expect(c.nifasDay, 4);
       expect(c.isNifasActive, isTrue);
       expect(refreshes, ['user-1']);
     },
@@ -176,7 +176,7 @@ void main() {
         );
         expect(
           PregnancyStatusController.instance.nifasDay,
-          engine.daysPostpartum! + 1,
+          engine.daysPostpartum,
           reason: 'day $d',
         );
       }

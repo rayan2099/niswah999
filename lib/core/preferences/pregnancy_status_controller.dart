@@ -55,15 +55,13 @@ class PregnancyStatusController extends ChangeNotifier {
   bool get isNifasActive =>
       _postpartumStatus?.phase == PregnancyStatusEngine.nifasPhase;
 
-  /// The dashboard's displayed nifas day: the engine's elapsed calendar
-  /// days since the birth date, shown 1-based ("Day 1" on the birth date).
-  /// The reports print the engine's 0-based value — whether nifas days are
-  /// numbered from 0 or 1 is an open owner decision; both now come from
-  /// the same elapsed-day count.
-  int get nifasDay {
-    final days = _postpartumStatus?.daysPostpartum;
-    return days == null ? 0 : days + 1;
-  }
+  /// Elapsed calendar days since the logged birth date (0 on the birth
+  /// date) — the engine's `daysPostpartum`, the same count the reports and
+  /// the nifas reminder copy use. Proposed default (2026-10-21) until the
+  /// owner decides how nifas days are numbered: the dashboard shows 0 as
+  /// "Birth day" and N as "Day N/40", so it can never read "Day 41/40"
+  /// inside the engine window. 0 when no birth is logged.
+  int get nifasDay => _postpartumStatus?.daysPostpartum ?? 0;
 
   /// Current pregnancy week, computed by [PregnancyStatusEngine] from the
   /// week chosen at setup and the activation time — the same math, and the

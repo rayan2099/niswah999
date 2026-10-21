@@ -1805,14 +1805,23 @@ class _PregnancyCountdownCard extends StatelessWidget {
 
 /// Nifas status card shown after تسجيل الولادة — explains what changes for
 /// the user during the ~40-day Nifas window.
+/// The Nifas card's day label: elapsed calendar days since the logged birth
+/// date ([day], 0-based — the same count the reports and the reminder copy
+/// use). Day 0 is "Birth day"; then "Day 1/40" … "Day 40/40". Proposed
+/// default (2026-10-21) pending the owner's numbering decision.
+@visibleForTesting
+String nifasDayLabel(int day) =>
+    day <= 0 ? _l('Birth day', 'يوم الولادة') : '${_l('Day', 'اليوم')} $day/40';
+
 class _NifasStatusCard extends StatelessWidget {
   const _NifasStatusCard({required this.day});
 
+  /// Elapsed calendar days since the logged birth date (0-based).
   final int day;
 
   @override
   Widget build(BuildContext context) {
-    final remaining = math.max(0, 40 - day + 1);
+    final remaining = math.max(0, 40 - day);
     return Container(
       key: const Key('nifas-status'),
       padding: const EdgeInsets.all(24),
@@ -1857,7 +1866,7 @@ class _NifasStatusCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${_l('Day', 'اليوم')} $day/40',
+                  nifasDayLabel(day),
                   style: const TextStyle(
                     color: Color(0xFFB45309),
                     fontSize: 13,
