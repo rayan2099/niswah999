@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../madhhab_resolution/presentation/madhhab_resolution_screen.dart';
 import '../../domain/entities/cycle_log.dart';
@@ -63,7 +64,9 @@ Future<void> showCycleLogSheet(
       viewModel: viewModel,
       existingLog: existingLog,
       mode: mode,
-      date: date ?? DateTime.now(),
+      // The app's clock (the one every screen's "today" reads), so a
+      // new entry lands on the same day those screens show.
+      date: date ?? AppClock.now(),
       initialFlow: initialFlow,
     ),
   );
@@ -783,6 +786,11 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
             if (_isPeriodMode) 'color:$_resolvedBloodColor',
             'mood:$_mood',
             ..._symptoms.entries.map((entry) => '${entry.key}:${entry.value}'),
+            // Round-2 hardening (proposed): symptoms/notes for a day with
+            // no flow row yet record no flow fact — the placeholder `none`
+            // is never read as "not bleeding" (CycleLog.recordsFlow).
+            if (!_isPeriodMode && (existing == null || !existing.recordsFlow))
+              CycleLog.symptomsOnlyMarker,
           ],
         ),
         existingLog: existing,
@@ -837,6 +845,11 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
       if (mounted) {
         final message = e is FormatException
             ? e.message
+            : e is CanonicalMirrorEditBlockedException
+            ? _cl(
+                'This day was recorded through bleeding tracking. To change it, open the day in the Calendar and choose "Correct this entry".',
+                'سُجّل هذا اليوم عبر متابعة النزيف. لتغييره، افتحي اليوم في التقويم واختاري "تصحيح هذا الإدخال".',
+              )
             : _cl('Unable to save your cycle log.', 'تعذر حفظ سجل الدورة.');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

@@ -4,6 +4,7 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/app_clock.dart';
 import '../../domain/entities/notification_preference.dart';
 
 String _nf(String en, String ar) => AppLocaleController.instance.text(en, ar);
@@ -44,7 +45,7 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
       };
 
   String _relativeTime(DateTime createdAt, bool isArabic) {
-    final diff = DateTime.now().difference(createdAt);
+    final diff = AppClock.now().difference(createdAt);
     if (diff.inMinutes < 1) return _nf('Just now', 'الآن');
     if (diff.inHours < 1) {
       return isArabic ? 'منذ ${diff.inMinutes} د' : '${diff.inMinutes}m ago';
@@ -148,7 +149,7 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    _relativeTime(entry.createdAt, isArabic),
+                                    _relativeTime(entry.shownAt, isArabic),
                                     style: const TextStyle(
                                       fontSize: 10,
                                       color: AppColors.textTertiary,

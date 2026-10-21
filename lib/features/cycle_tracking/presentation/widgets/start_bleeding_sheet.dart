@@ -6,6 +6,7 @@ import '../../../../core/network/supabase_client.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../notifications/domain/services/notification_scheduler.dart';
@@ -16,6 +17,36 @@ import '../../domain/entities/bleeding_episode.dart';
 
 String _t(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
+
+/// Logging/sync hardening (proposed) — shown when the server
+/// deterministically rejected the write ([BleedingWriteRejectedException]).
+/// Never "Saved on device": the queued copy is dropped because re-sending
+/// it can never succeed.
+String rejectedWriteMessage() => _t(
+  "This couldn't be saved — it conflicts with what's already recorded. "
+      'Nothing was changed.',
+  'تعذر الحفظ — يتعارض هذا مع ما هو مسجل بالفعل. لم يتم تغيير أي شيء.',
+);
+
+/// Cancels every active-bleeding reminder the rolling window could have
+/// scheduled for [episodeId]. Shared by every "bleeding stopped" path —
+/// including a queued (offline) end: she has told us it ended, so asking
+/// again is wrong even before the server has the answer.
+Future<void> cancelActiveBleedingReminders({
+  required String episodeId,
+  required int utcOffsetMinutes,
+}) async {
+  final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+  if (signedInUserId == null) return;
+  final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
+  for (final id in ActiveBleedingReminderScheduler.rollingWindowReminderIds(
+    userId: signedInUserId,
+    episodeId: episodeId,
+    today: today,
+  )) {
+    await NotificationService.instance.cancel(id);
+  }
+}
 
 /// PR #4 hardening, Blocker 6: no medically-motivated bound on how long
 /// ago a real bleeding start/end can be reported — a technical bound is
@@ -32,23 +63,39 @@ DateTime _earliestReportableDate(DateTime now) =>
 /// classification is a separate, later layer that may not even be
 /// resolvable yet if the Madhhab is unset). Returns true if a new episode
 /// was actually started, so the caller (the dashboard) knows to refresh.
-Future<bool> showStartBleedingSheet(BuildContext context) async {
+///
+/// [initialDate] (round-2 hardening, proposed) pre-selects the day she
+/// tapped on a calendar, so "Bleeding" on a past day starts from THAT day
+/// rather than a blank sheet whose first choice is "Today". A future day
+/// is ignored (bleeding cannot start in the future).
+Future<bool> showStartBleedingSheet(
+  BuildContext context, {
+  DateTime? initialDate,
+}) async {
   final result = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => const _StartBleedingSheet(),
+    builder: (_) => _StartBleedingSheet(initialDate: initialDate),
   );
   return result ?? false;
 }
 
 class _StartBleedingSheet extends StatefulWidget {
-  const _StartBleedingSheet();
+  const _StartBleedingSheet({this.initialDate});
+  final DateTime? initialDate;
   @override
   State<_StartBleedingSheet> createState() => _StartBleedingSheetState();
 }
 
 class _StartBleedingSheetState extends State<_StartBleedingSheet> {
-  DateTime? _startDate;
+  late DateTime? _startDate = _initialStartDate(widget.initialDate);
+
+  static DateTime? _initialStartDate(DateTime? day) {
+    if (day == null) return null;
+    final picked = calendarDay(day);
+    return calendarDaysBetween(AppClock.now(), picked) > 0 ? null : picked;
+  }
+
   ObservationFlow? _flow;
   bool _saving = false;
   String? _errorMessage;
@@ -189,6 +236,19 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
+    } on BleedingWriteRejectedException {
+      // Logging/sync hardening: a deterministic server rejection (e.g. a
+      // start date inside an already-ended episode) — re-sending can never
+      // succeed, so the queued copy is dropped and she sees a real error.
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _errorMessage = rejectedWriteMessage();
+      });
     } on ActiveEpisodeAlreadyExistsException {
       // This specific operation can never succeed under these params —
       // a *different* operation genuinely holds the one-open-episode
@@ -221,6 +281,8 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
           'تم الحفظ على الجهاز — جارٍ المزامنة.',
         );
       });
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
     }
   }
 
@@ -440,113 +502,135 @@ class _EndBleedingSheetState extends State<_EndBleedingSheet> {
     // call below so a session change during the awaited RPC can never
     // redirect savePending/clearPending to a different account's bucket.
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    var queued = false;
 
-    final now = AppClock.now();
-    final timezone = await DeviceTimezone.currentId();
-    final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
+    // Logging/sync hardening (proposed): try/finally — no failure, of any
+    // kind, may leave this sheet spinning with `_saving` stuck true.
+    try {
+      final now = AppClock.now();
+      final timezone = await DeviceTimezone.currentId();
+      final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
-    // PR #4 completion wave, Fix D: persisted before the RPC is sent —
-    // see the Start sheet's own note on why (app-kill recovery via the
-    // next start-up's reconciliation).
-    await PendingBleedingOperationStore.savePending(
-      PendingBleedingOperation(
-        operationId: _clientOperationId,
-        type: PendingBleedingOperationType.endEpisode,
-        params: {
-          'episodeId': widget.episodeId,
-          'endDate': endDate.toIso8601String(),
-          'endPrecision': ObservationPrecision.dateOnly.value,
-          'observationPrecision': ObservationPrecision.dateOnly.value,
-          'timezone': timezone,
-          'utcOffsetMinutes': utcOffsetMinutes,
-        },
-        createdAt: now,
-      ),
-      userId: userId,
-    );
-
-    // Atomic: the episode's state transition and its closing (flow: none)
-    // observation are created together by the RPC — never a separate
-    // client-issued INSERT that could leave the episode ended with no
-    // factual record of its own closure.
-    final repository = BleedingEpisodeRepositoryImpl();
-    final result = await repository.endEpisode(
-      clientOperationId: _clientOperationId,
-      episodeId: widget.episodeId,
-      endDate: endDate,
-      endPrecision: ObservationPrecision.dateOnly,
-      observationPrecision: ObservationPrecision.dateOnly,
-      timezone: timezone,
-      utcOffsetMinutes: utcOffsetMinutes,
-    );
-
-    if (result != null) {
-      await PendingBleedingOperationStore.clearPending(
-        _clientOperationId,
+      // PR #4 completion wave, Fix D: persisted before the RPC is sent —
+      // see the Start sheet's own note on why (app-kill recovery via the
+      // next start-up's reconciliation).
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: _clientOperationId,
+          type: PendingBleedingOperationType.endEpisode,
+          params: {
+            'episodeId': widget.episodeId,
+            'endDate': endDate.toIso8601String(),
+            'endPrecision': ObservationPrecision.dateOnly.value,
+            'observationPrecision': ObservationPrecision.dateOnly.value,
+            'timezone': timezone,
+            'utcOffsetMinutes': utcOffsetMinutes,
+          },
+          createdAt: now,
+        ),
         userId: userId,
       );
-      // Gives the still-in-use legacy CycleCalculationService/dashboard
-      // engine (which reads cycle_entries, not this table) the "ended"
-      // signal it needs via the same projection every other observation
-      // goes through — never a second, separately-authored write. The
-      // closing observation already exists (created atomically above);
-      // this only mirrors it, and a failure here does not mean the real
-      // save failed.
-      final observations =
-          (await repository.getObservationsForEpisode(widget.episodeId))
-              .dataOrNull ??
-          const [];
-      final closingObservation = observations
-          .where((o) => o.id == result.closingObservationId)
-          .firstOrNull;
-      if (closingObservation != null) {
+      queued = true;
+
+      // Atomic: the episode's state transition and its closing (flow:
+      // none) observation are created together by the RPC — never a
+      // separate client-issued INSERT that could leave the episode ended
+      // with no factual record of its own closure. Returns null for a
+      // transient failure (offline/timeout): the end stays queued.
+      final repository = BleedingEpisodeRepositoryImpl();
+      final result = await repository.endEpisode(
+        clientOperationId: _clientOperationId,
+        episodeId: widget.episodeId,
+        endDate: endDate,
+        endPrecision: ObservationPrecision.dateOnly,
+        observationPrecision: ObservationPrecision.dateOnly,
+        timezone: timezone,
+        utcOffsetMinutes: utcOffsetMinutes,
+      );
+
+      if (result != null) {
+        await PendingBleedingOperationStore.clearPending(
+          _clientOperationId,
+          userId: userId,
+        );
+        // Gives the still-in-use legacy CycleCalculationService/dashboard
+        // engine (which reads cycle_entries, not this table) the "ended"
+        // signal it needs via the same projection every other observation
+        // goes through — never a second, separately-authored write. A
+        // failure here does not mean the real save failed.
         try {
-          await CycleEntriesProjection().project(closingObservation);
+          final observations =
+              (await repository.getObservationsForEpisode(widget.episodeId))
+                  .dataOrNull ??
+              const [];
+          final closingObservation = observations
+              .where((o) => o.id == result.closingObservationId)
+              .firstOrNull;
+          if (closingObservation != null) {
+            await CycleEntriesProjection().project(closingObservation);
+          }
         } catch (_) {
           // Reported internally by the projection's own repository calls.
         }
       }
 
-      // Commit E9 — see daily_checkin_sheet.dart's identical note: ending
-      // an episode from this sheet must cancel its reminders exactly the
-      // same way ending it from the daily check-in flow does. New
-      // critical finding (notification continuity beyond 7 days): every
-      // id the ROLLING WINDOW could have left scheduled (not only
-      // today's — later days may already be scheduled from an earlier
-      // refresh), or an ended episode would still get reminded on days
-      // that were never going to arrive.
-      final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
-      if (signedInUserId != null) {
-        final today = BleedingEpisodeRepositoryImpl.localToday(
-          utcOffsetMinutes,
+      // Commit E9 — ending an episode cancels its active-bleeding
+      // reminders (every id the rolling window could have scheduled).
+      // Logging/sync hardening: also for a queued (offline) end — she
+      // already told us it stopped.
+      try {
+        await cancelActiveBleedingReminders(
+          episodeId: widget.episodeId,
+          utcOffsetMinutes: utcOffsetMinutes,
         );
-        for (final id
-            in ActiveBleedingReminderScheduler.rollingWindowReminderIds(
-              userId: signedInUserId,
-              episodeId: widget.episodeId,
-              today: today,
-            )) {
-          await NotificationService.instance.cancel(id);
-        }
+      } catch (_) {
+        // Best effort — never turns a saved end into a failure.
       }
-    }
 
-    if (!mounted) return;
-    if (result == null) {
-      // Closure Blocker 12 — already safely queued (savePending ran
-      // before this RPC), so this is never "Could not save."
+      if (!mounted) return;
+      if (result == null) {
+        // Closure Blocker 12 — already safely queued (savePending ran
+        // before this RPC), so this is never "Could not save."
+        setState(() {
+          _saving = false;
+          _queuedOffline = true;
+          _errorMessage = _t(
+            'Saved on device — syncing.',
+            'تم الحفظ على الجهاز — جارٍ المزامنة.',
+          );
+        });
+        return;
+      }
+
+      Navigator.of(context).pop(true);
+    } on BleedingWriteRejectedException {
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
+      if (!mounted) return;
       setState(() {
         _saving = false;
-        _queuedOffline = true;
-        _errorMessage = _t(
-          'Saved on device — syncing.',
-          'تم الحفظ على الجهاز — جارٍ المزامنة.',
-        );
+        _errorMessage = rejectedWriteMessage();
       });
-      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _queuedOffline = queued;
+        _errorMessage = queued
+            ? _t(
+                'Saved on device — syncing.',
+                'تم الحفظ على الجهاز — جارٍ المزامنة.',
+              )
+            : _t(
+                'Could not save. Please try again.',
+                'تعذر الحفظ. يرجى المحاولة مجدداً.',
+              );
+      });
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
     }
-
-    Navigator.of(context).pop(true);
   }
 
   @override

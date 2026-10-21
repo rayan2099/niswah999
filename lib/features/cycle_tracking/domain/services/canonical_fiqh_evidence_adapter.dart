@@ -1,3 +1,4 @@
+import '../../../../core/utils/calendar_days.dart';
 import '../entities/bleeding_episode.dart';
 import '../entities/cycle_log.dart';
 
@@ -37,28 +38,59 @@ class CanonicalFiqhEvidenceAdapter {
   static List<CycleLog> buildEffectiveLogs({
     required List<BleedingObservation> observations,
   }) {
-    final byDay = _effectiveByDay(observations);
+    final effective = _effectiveObservations(observations);
+    final byDay = _collapseByDay(effective);
+    final exactTimes = _exactBleedingStartByDay(effective);
 
+    final days = byDay.keys.toList()..sort();
     final logs = <CycleLog>[];
-    for (final entry in byDay.entries) {
-      final flow = _flowOrNull(entry.value.flow);
+    // `cycleDay` (Fiqh hardening, 2026-10-18): CycleLog defaults it to 1,
+    // and `cycleDay == 1` is read by CycleCalculationService as "a new
+    // Haid episode starts here". Left at the default, every adapted day
+    // 2+ days after the previous start counted as a fresh start. Day 1 is
+    // now only the first bleeding day of a run (after a `none` day, at
+    // the very beginning, or when the episode changes); later days of the
+    // same run count up from it in calendar days.
+    DateTime? runStart;
+    String? runEpisodeId;
+    var previousWasBleeding = false;
+    for (final day in days) {
+      final observation = byDay[day]!;
+      final flow = _flowOrNull(observation.flow);
       // See class doc comment: an uncertain-flow day has no honest
       // FlowLevel to map to, so it is left out entirely rather than
       // fabricated as any specific level.
       if (flow == null) continue;
+      final int cycleDay;
+      if (flow == FlowLevel.none) {
+        previousWasBleeding = false;
+        cycleDay = runStart == null
+            ? 1
+            : calendarDaysBetween(runStart, day) + 1;
+      } else {
+        if (!previousWasBleeding ||
+            runStart == null ||
+            runEpisodeId != observation.episodeId) {
+          runStart = day;
+          runEpisodeId = observation.episodeId;
+        }
+        previousWasBleeding = true;
+        cycleDay = calendarDaysBetween(runStart, day) + 1;
+      }
       logs.add(
         CycleLog(
-          id: entry.value.id ?? '',
-          userId: entry.value.userId,
-          date: entry.key,
+          id: observation.id ?? '',
+          userId: observation.userId,
+          date: day,
           flow: flow,
-          notes: entry.value.notes,
-          symptoms: entry.value.symptoms ?? const <String>[],
-          dataProvenance: _mapProvenance(entry.value.source),
+          notes: observation.notes,
+          cycleDay: cycleDay,
+          symptoms: observation.symptoms ?? const <String>[],
+          dataProvenance: _mapProvenance(observation.source),
+          observedTime: flow == FlowLevel.none ? null : exactTimes[day],
         ),
       );
     }
-    logs.sort((a, b) => a.date.compareTo(b.date));
     return logs;
   }
 
@@ -86,6 +118,10 @@ class CanonicalFiqhEvidenceAdapter {
 
   static Map<DateTime, BleedingObservation> _effectiveByDay(
     List<BleedingObservation> observations,
+  ) => _collapseByDay(_effectiveObservations(observations));
+
+  static Iterable<BleedingObservation> _effectiveObservations(
+    List<BleedingObservation> observations,
   ) {
     // A chain's tip is, by definition, the one row nothing else
     // supersedes — collecting every supersedes_id target and excluding
@@ -96,8 +132,12 @@ class CanonicalFiqhEvidenceAdapter {
         .map((o) => o.supersedesId)
         .whereType<String>()
         .toSet();
-    final effective = observations.where((o) => !supersededIds.contains(o.id));
+    return observations.where((o) => !supersededIds.contains(o.id));
+  }
 
+  static Map<DateTime, BleedingObservation> _collapseByDay(
+    Iterable<BleedingObservation> effective,
+  ) {
     // CycleLog is one row per calendar day; bleeding_observations is not
     // (Commit D2 — same-day multiple observations are a deliberate,
     // preserved feature). Deterministic, documented policy for
@@ -108,17 +148,40 @@ class CanonicalFiqhEvidenceAdapter {
     // never an arbitrary/severity-based pick.
     final byDay = <DateTime, BleedingObservation>{};
     for (final observation in effective) {
-      final day = DateTime(
-        observation.observedDate.year,
-        observation.observedDate.month,
-        observation.observedDate.day,
-      );
+      final day = calendarDay(observation.observedDate);
       final existing = byDay[day];
       if (existing == null || _isLaterReport(observation, existing)) {
         byDay[day] = observation;
       }
     }
     return byDay;
+  }
+
+  /// Fiqh hardening (2026-10-18): the earliest exact time bleeding was
+  /// observed on each day — only when EVERY bleeding observation of that
+  /// day carries an exact time. A date-only or approximate-time
+  /// bleeding observation means the day's start time is genuinely
+  /// unknown, so that day gets no entry (never an assumed midnight).
+  static Map<DateTime, DateTime> _exactBleedingStartByDay(
+    Iterable<BleedingObservation> effective,
+  ) {
+    final earliest = <DateTime, DateTime>{};
+    final unknown = <DateTime>{};
+    for (final observation in effective) {
+      final flow = _flowOrNull(observation.flow);
+      if (flow == null || flow == FlowLevel.none) continue;
+      final day = calendarDay(observation.observedDate);
+      final time = observation.observedTime;
+      if (observation.precision != ObservationPrecision.exactTime ||
+          time == null) {
+        unknown.add(day);
+        continue;
+      }
+      final current = earliest[day];
+      if (current == null || time.isBefore(current)) earliest[day] = time;
+    }
+    earliest.removeWhere((day, _) => unknown.contains(day));
+    return earliest;
   }
 
   static bool _isLaterReport(

@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/predicted_range_text.dart';
 
 String _in(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -252,11 +254,18 @@ class _PredictionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final nextPeriod = canPredict ? summary.nextPeriodStart : null;
     final daysLate = canPredict ? summary.daysLate : 0;
+    // A range from her stated estimate alone is shown too, labeled as such.
+    final range =
+        canPredict || summary.predictionBasis == PredictionBasis.statedEstimate
+        ? summary.nextPeriodRange
+        : null;
+    final isArabic = AppLocaleController.instance.isArabic;
+    final basisNote = range == null
+        ? null
+        : predictionBasisNote(summary.predictionBasis, isArabic: isArabic);
     final daysUntil = nextPeriod == null
         ? null
-        : DateUtils.dateOnly(nextPeriod)
-              .difference(DateUtils.dateOnly(AppClock.now()))
-              .inDays;
+        : calendarDaysBetween(AppClock.now(), nextPeriod);
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
@@ -316,7 +325,9 @@ class _PredictionCard extends StatelessWidget {
               Expanded(
                 child: _PredictionValue(
                   label: _in('EXPECTED PERIOD', 'الحيض المتوقع'),
-                  value: _date(nextPeriod),
+                  value: range != null
+                      ? formatPredictedRange(range, isArabic: isArabic)
+                      : _date(nextPeriod),
                   note: daysLate > 0
                       ? nextPeriod != null
                             ? _in(
@@ -327,12 +338,13 @@ class _PredictionCard extends StatelessWidget {
                                 'Late by $daysLate days',
                                 'متأخرة $daysLate أيام',
                               )
-                      : daysUntil == null
-                      ? _in('Insufficient data', 'بيانات غير كافية')
-                      : _in(
-                          'In about ${daysUntil.clamp(0, 999)} days',
-                          'بعد ${daysUntil.clamp(0, 999)} أيام تقريباً',
-                        ),
+                      : basisNote ??
+                            (daysUntil == null
+                                ? _in('Insufficient data', 'بيانات غير كافية')
+                                : _in(
+                                    'In about ${daysUntil.clamp(0, 999)} days',
+                                    'بعد ${daysUntil.clamp(0, 999)} أيام تقريباً',
+                                  )),
                   color: AppColors.haid,
                 ),
               ),

@@ -3,16 +3,16 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
-import '../../../../core/services/notification_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
-import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_entries_projection.dart';
 import '../../domain/entities/bleeding_episode.dart';
+import 'start_bleeding_sheet.dart'
+    show cancelActiveBleedingReminders, rejectedWriteMessage;
 
 String _t(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
@@ -87,6 +87,38 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
 
   bool get _arabic => AppLocaleController.instance.isArabic;
 
+  /// Logging/sync hardening (proposed) — the one place this sheet turns a
+  /// failed save into what she sees: a deterministic server rejection is a
+  /// real error (and the queued copy is dropped); anything else after the
+  /// operation was queued is the honest "Saved on device — syncing."
+  Future<void> _showFailure(
+    Object error, {
+    required bool queued,
+    required String? userId,
+  }) async {
+    if (error is BleedingWriteRejectedException) {
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _errorMessage = error is BleedingWriteRejectedException
+          ? rejectedWriteMessage()
+          : queued
+          ? _t(
+              'Saved on device — syncing.',
+              'تم الحفظ على الجهاز — جارٍ المزامنة.',
+            )
+          : _t(
+              'Could not save. Please try again.',
+              'تعذر الحفظ. يرجى المحاولة مجدداً.',
+            );
+    });
+  }
+
   Future<void> _submitYes() async {
     final flow = _flow;
     if (flow == null) return;
@@ -101,85 +133,84 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
     // call below so a session change during the awaited RPC can never
     // redirect savePending/clearPending to a different account's bucket.
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    var queued = false;
 
-    final now = AppClock.now();
-    final timezone = await DeviceTimezone.currentId();
-    final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
-    final today = DateTime(now.year, now.month, now.day);
-
-    // Commit D9: persisted before the RPC is sent — the same pattern the
-    // Start/End sheets already establish. If the process dies between the
-    // server committing and this sheet ever seeing the response, the next
-    // app start's reconciliation replays this exact operation id rather
-    // than risking a fresh one on retry.
-    await PendingBleedingOperationStore.savePending(
-      PendingBleedingOperation(
-        operationId: _clientOperationId,
-        type: PendingBleedingOperationType.dailyOrBackfillObservation,
-        params: {
-          'episodeId': widget.episodeId,
-          'observedDate': today.toIso8601String(),
-          'precision': ObservationPrecision.dateOnly.value,
-          'flow': flow.value,
-          'utcOffsetMinutes': utcOffsetMinutes,
-          'timezone': timezone,
-        },
-        createdAt: now,
-      ),
-      userId: userId,
-    );
-
-    final repository = BleedingEpisodeRepositoryImpl();
-    final observationId = await repository.recordObservation(
-      clientOperationId: _clientOperationId,
-      episodeId: widget.episodeId,
-      observedDate: today,
-      precision: ObservationPrecision.dateOnly,
-      flow: flow,
-      utcOffsetMinutes: utcOffsetMinutes,
-      timezone: timezone,
-    );
-
-    if (observationId == null) {
-      // Closure Blocker 12 — the observation is already safely encrypted
-      // on-device (savePending above already committed before this RPC
-      // was ever sent) and queued for the next reconciliation attempt —
-      // "Could not save" would be a lie here; nothing was lost.
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _errorMessage = _t(
-          'Saved on device — syncing.',
-          'تم الحفظ على الجهاز — جارٍ المزامنة.',
-        );
-      });
-      return;
-    }
-
-    await PendingBleedingOperationStore.clearPending(
-      _clientOperationId,
-      userId: userId,
-    );
-
-    // Best-effort mirror into the legacy read model — see the Start/End
-    // sheets' own identical note (Blocker 12, Commit F closes this gap).
+    // Logging/sync hardening: try/finally — `_saving` can never stay stuck.
     try {
-      final observations =
-          (await repository.getObservationsForEpisode(widget.episodeId))
-              .dataOrNull ??
-          const [];
-      final recorded = observations
-          .where((o) => o.id == observationId)
-          .firstOrNull;
-      if (recorded != null) {
-        await CycleEntriesProjection().project(recorded);
-      }
-    } catch (_) {
-      // Reported internally by the projection's own repository calls.
-    }
+      final now = AppClock.now();
+      final timezone = await DeviceTimezone.currentId();
+      final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
+      final today = DateTime(now.year, now.month, now.day);
 
-    if (!mounted) return;
-    Navigator.of(context).pop(DailyCheckinOutcome.recordedToday);
+      // Commit D9: persisted before the RPC is sent — the same pattern the
+      // Start/End sheets already establish. If the process dies between
+      // the server committing and this sheet ever seeing the response, the
+      // next app start's reconciliation replays this exact operation id.
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: _clientOperationId,
+          type: PendingBleedingOperationType.dailyOrBackfillObservation,
+          params: {
+            'episodeId': widget.episodeId,
+            'observedDate': today.toIso8601String(),
+            'precision': ObservationPrecision.dateOnly.value,
+            'flow': flow.value,
+            'utcOffsetMinutes': utcOffsetMinutes,
+            'timezone': timezone,
+          },
+          createdAt: now,
+        ),
+        userId: userId,
+      );
+      queued = true;
+
+      final repository = BleedingEpisodeRepositoryImpl();
+      final observationId = await repository.recordObservation(
+        clientOperationId: _clientOperationId,
+        episodeId: widget.episodeId,
+        observedDate: today,
+        precision: ObservationPrecision.dateOnly,
+        flow: flow,
+        utcOffsetMinutes: utcOffsetMinutes,
+        timezone: timezone,
+      );
+
+      if (observationId == null) {
+        // Closure Blocker 12 — the observation is already safely encrypted
+        // on-device and queued for the next reconciliation attempt.
+        await _showFailure(StateError('queued'), queued: true, userId: userId);
+        return;
+      }
+
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
+
+      // Best-effort mirror into the legacy read model — see the Start/End
+      // sheets' own identical note (Blocker 12, Commit F closes this gap).
+      try {
+        final observations =
+            (await repository.getObservationsForEpisode(widget.episodeId))
+                .dataOrNull ??
+            const [];
+        final recorded = observations
+            .where((o) => o.id == observationId)
+            .firstOrNull;
+        if (recorded != null) {
+          await CycleEntriesProjection().project(recorded);
+        }
+      } catch (_) {
+        // Reported internally by the projection's own repository calls.
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pop(DailyCheckinOutcome.recordedToday);
+    } catch (error) {
+      await _showFailure(error, queued: queued, userId: userId);
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
+    }
   }
 
   Future<void> _submitNo() async {
@@ -191,98 +222,91 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       _errorMessage = null;
     });
 
-    // Commit H — concurrent account-switch closure: captured once, up
-    // front, and threaded through every PendingBleedingOperationStore
-    // call below so a session change during the awaited RPC can never
-    // redirect savePending/clearPending to a different account's bucket.
+    // Commit H — concurrent account-switch closure (see _submitYes).
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    var queued = false;
 
-    final now = AppClock.now();
-    final timezone = await DeviceTimezone.currentId();
-    final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
-
-    await PendingBleedingOperationStore.savePending(
-      PendingBleedingOperation(
-        operationId: _clientOperationId,
-        type: PendingBleedingOperationType.endEpisode,
-        params: {
-          'episodeId': widget.episodeId,
-          'endDate': endDate.toIso8601String(),
-          'endPrecision': ObservationPrecision.dateOnly.value,
-          'observationPrecision': ObservationPrecision.dateOnly.value,
-          'timezone': timezone,
-          'utcOffsetMinutes': utcOffsetMinutes,
-        },
-        createdAt: now,
-      ),
-      userId: userId,
-    );
-
-    final repository = BleedingEpisodeRepositoryImpl();
-    final result = await repository.endEpisode(
-      clientOperationId: _clientOperationId,
-      episodeId: widget.episodeId,
-      endDate: endDate,
-      endPrecision: ObservationPrecision.dateOnly,
-      observationPrecision: ObservationPrecision.dateOnly,
-      timezone: timezone,
-      utcOffsetMinutes: utcOffsetMinutes,
-    );
-
-    if (result == null) {
-      // Closure Blocker 12 — already safely queued (savePending ran
-      // before this RPC), so this is never "Could not save."
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _errorMessage = _t(
-          'Saved on device — syncing.',
-          'تم الحفظ على الجهاز — جارٍ المزامنة.',
-        );
-      });
-      return;
-    }
-
-    await PendingBleedingOperationStore.clearPending(
-      _clientOperationId,
-      userId: userId,
-    );
     try {
-      final observations =
-          (await repository.getObservationsForEpisode(widget.episodeId))
-              .dataOrNull ??
-          const [];
-      final closingObservation = observations
-          .where((o) => o.id == result.closingObservationId)
-          .firstOrNull;
-      if (closingObservation != null) {
-        await CycleEntriesProjection().project(closingObservation);
-      }
-    } catch (_) {
-      // Reported internally by the projection's own repository calls.
-    }
+      final now = AppClock.now();
+      final timezone = await DeviceTimezone.currentId();
+      final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
-    // Commit E9 — ending the episode cancels its active-bleeding
-    // reminders; no reminder should keep asking about an episode that no
-    // longer exists as open. New critical finding (notification
-    // continuity beyond 7 days): every id the ROLLING WINDOW could have
-    // left scheduled (not only today's — later days may already be
-    // scheduled from an earlier refresh), or an ended episode would
-    // still get reminded on days that were never going to arrive.
-    final signedInUserId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
-    if (signedInUserId != null) {
-      final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
-      for (final id in ActiveBleedingReminderScheduler.rollingWindowReminderIds(
-        userId: signedInUserId,
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: _clientOperationId,
+          type: PendingBleedingOperationType.endEpisode,
+          params: {
+            'episodeId': widget.episodeId,
+            'endDate': endDate.toIso8601String(),
+            'endPrecision': ObservationPrecision.dateOnly.value,
+            'observationPrecision': ObservationPrecision.dateOnly.value,
+            'timezone': timezone,
+            'utcOffsetMinutes': utcOffsetMinutes,
+          },
+          createdAt: now,
+        ),
+        userId: userId,
+      );
+      queued = true;
+
+      final repository = BleedingEpisodeRepositoryImpl();
+      final result = await repository.endEpisode(
+        clientOperationId: _clientOperationId,
         episodeId: widget.episodeId,
-        today: today,
-      )) {
-        await NotificationService.instance.cancel(id);
-      }
-    }
+        endDate: endDate,
+        endPrecision: ObservationPrecision.dateOnly,
+        observationPrecision: ObservationPrecision.dateOnly,
+        timezone: timezone,
+        utcOffsetMinutes: utcOffsetMinutes,
+      );
 
-    if (!mounted) return;
-    Navigator.of(context).pop(DailyCheckinOutcome.ended);
+      if (result != null) {
+        await PendingBleedingOperationStore.clearPending(
+          _clientOperationId,
+          userId: userId,
+        );
+        try {
+          final observations =
+              (await repository.getObservationsForEpisode(widget.episodeId))
+                  .dataOrNull ??
+              const [];
+          final closingObservation = observations
+              .where((o) => o.id == result.closingObservationId)
+              .firstOrNull;
+          if (closingObservation != null) {
+            await CycleEntriesProjection().project(closingObservation);
+          }
+        } catch (_) {
+          // Reported internally by the projection's own repository calls.
+        }
+      }
+
+      // Commit E9 — ending the episode cancels its active-bleeding
+      // reminders (the whole rolling window). Logging/sync hardening: a
+      // queued (offline) end cancels them too.
+      try {
+        await cancelActiveBleedingReminders(
+          episodeId: widget.episodeId,
+          utcOffsetMinutes: utcOffsetMinutes,
+        );
+      } catch (_) {
+        // Best effort.
+      }
+
+      if (result == null) {
+        // Closure Blocker 12 — already safely queued (savePending ran
+        // before this RPC), so this is never "Could not save."
+        await _showFailure(StateError('queued'), queued: true, userId: userId);
+        return;
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pop(DailyCheckinOutcome.ended);
+    } catch (error) {
+      await _showFailure(error, queued: queued, userId: userId);
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
+    }
   }
 
   Future<void> _submitUnsure() async {
@@ -291,10 +315,25 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
       _errorMessage = null;
     });
 
-    final repository = BleedingEpisodeRepositoryImpl();
-    final result = await repository.markEpisodeUncertain(widget.episodeId);
+    try {
+      final repository = BleedingEpisodeRepositoryImpl();
+      final result = await repository.markEpisodeUncertain(widget.episodeId);
 
-    if (result == null) {
+      if (result == null) {
+        if (!mounted) return;
+        setState(() {
+          _saving = false;
+          _errorMessage = _t(
+            'Could not save. Please try again.',
+            'تعذر الحفظ. يرجى المحاولة مجدداً.',
+          );
+        });
+        return;
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pop(DailyCheckinOutcome.markedUncertain);
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _saving = false;
@@ -303,11 +342,9 @@ class _DailyCheckinSheetState extends State<_DailyCheckinSheet> {
           'تعذر الحفظ. يرجى المحاولة مجدداً.',
         );
       });
-      return;
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
     }
-
-    if (!mounted) return;
-    Navigator.of(context).pop(DailyCheckinOutcome.markedUncertain);
   }
 
   Future<void> _pickOtherEndDate() async {
@@ -565,74 +602,108 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
     // call below so a session change during the awaited RPC can never
     // redirect savePending/clearPending to a different account's bucket.
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+    var queued = false;
 
-    final now = AppClock.now();
-    final timezone = await DeviceTimezone.currentId();
-    final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
+    // Logging/sync hardening: try/finally — `_saving` can never stay stuck.
+    try {
+      final now = AppClock.now();
+      final timezone = await DeviceTimezone.currentId();
+      final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
-    await PendingBleedingOperationStore.savePending(
-      PendingBleedingOperation(
-        operationId: _clientOperationId,
-        type: PendingBleedingOperationType.dailyOrBackfillObservation,
-        params: {
-          'episodeId': widget.episodeId,
-          'observedDate': observedDate.toIso8601String(),
-          'precision': ObservationPrecision.dateOnly.value,
-          'flow': flow.value,
-          'utcOffsetMinutes': utcOffsetMinutes,
-          'timezone': timezone,
-        },
-        createdAt: now,
-      ),
-      userId: userId,
-    );
+      await PendingBleedingOperationStore.savePending(
+        PendingBleedingOperation(
+          operationId: _clientOperationId,
+          type: PendingBleedingOperationType.dailyOrBackfillObservation,
+          params: {
+            'episodeId': widget.episodeId,
+            'observedDate': observedDate.toIso8601String(),
+            'precision': ObservationPrecision.dateOnly.value,
+            'flow': flow.value,
+            'utcOffsetMinutes': utcOffsetMinutes,
+            'timezone': timezone,
+          },
+          createdAt: now,
+        ),
+        userId: userId,
+      );
+      queued = true;
 
-    final repository = BleedingEpisodeRepositoryImpl();
-    final observationId = await repository.recordObservation(
-      clientOperationId: _clientOperationId,
-      episodeId: widget.episodeId,
-      observedDate: observedDate,
-      precision: ObservationPrecision.dateOnly,
-      flow: flow,
-      utcOffsetMinutes: utcOffsetMinutes,
-      timezone: timezone,
-    );
+      final repository = BleedingEpisodeRepositoryImpl();
+      final observationId = await repository.recordObservation(
+        clientOperationId: _clientOperationId,
+        episodeId: widget.episodeId,
+        observedDate: observedDate,
+        precision: ObservationPrecision.dateOnly,
+        flow: flow,
+        utcOffsetMinutes: utcOffsetMinutes,
+        timezone: timezone,
+      );
 
-    if (observationId == null) {
-      // Closure Blocker 12 — already safely queued (savePending ran
-      // before this RPC), so this is never "Could not save."
+      if (observationId == null) {
+        // Closure Blocker 12 — already safely queued (savePending ran
+        // before this RPC), so this is never "Could not save."
+        if (!mounted) return;
+        setState(() {
+          _saving = false;
+          _errorMessage = _t(
+            'Saved on device — syncing.',
+            'تم الحفظ على الجهاز — جارٍ المزامنة.',
+          );
+        });
+        return;
+      }
+
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
+      try {
+        final observations =
+            (await repository.getObservationsForEpisode(widget.episodeId))
+                .dataOrNull ??
+            const [];
+        final recorded = observations
+            .where((o) => o.id == observationId)
+            .firstOrNull;
+        if (recorded != null) {
+          await CycleEntriesProjection().project(recorded);
+        }
+      } catch (_) {
+        // Reported internally by the projection's own repository calls.
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on BleedingWriteRejectedException {
+      // Logging/sync hardening: e.g. a day outside the episode, or an
+      // episode that has since ended — a real error, and the queued copy
+      // is dropped (re-sending can never succeed).
+      await PendingBleedingOperationStore.clearPending(
+        _clientOperationId,
+        userId: userId,
+      );
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _errorMessage = _t(
-          'Saved on device — syncing.',
-          'تم الحفظ على الجهاز — جارٍ المزامنة.',
-        );
+        _errorMessage = rejectedWriteMessage();
       });
-      return;
-    }
-
-    await PendingBleedingOperationStore.clearPending(
-      _clientOperationId,
-      userId: userId,
-    );
-    try {
-      final observations =
-          (await repository.getObservationsForEpisode(widget.episodeId))
-              .dataOrNull ??
-          const [];
-      final recorded = observations
-          .where((o) => o.id == observationId)
-          .firstOrNull;
-      if (recorded != null) {
-        await CycleEntriesProjection().project(recorded);
-      }
     } catch (_) {
-      // Reported internally by the projection's own repository calls.
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _errorMessage = queued
+            ? _t(
+                'Saved on device — syncing.',
+                'تم الحفظ على الجهاز — جارٍ المزامنة.',
+              )
+            : _t(
+                'Could not save. Please try again.',
+                'تعذر الحفظ. يرجى المحاولة مجدداً.',
+              );
+      });
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
     }
-
-    if (!mounted) return;
-    Navigator.of(context).pop(true);
   }
 
   @override

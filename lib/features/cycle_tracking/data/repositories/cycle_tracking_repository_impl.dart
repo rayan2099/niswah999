@@ -59,10 +59,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       final response = await query.order('date', ascending: false).limit(limit);
       final remote = _parseCycleEntries(response as List<dynamic>);
 
-      final merged = <String, CycleLog>{};
-      for (final entry in [...localLogs, ...remote]) {
-        merged[entry.id] = entry;
-      }
+      final merged = _mergeLocalAndRemote(localLogs, remote);
       final ordered = merged.values.toList()
         ..sort((a, b) => b.date.compareTo(a.date));
       return ordered;
@@ -131,6 +128,26 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     } on PostgrestException catch (error) {
       throw NetworkFailure(error.message);
     }
+  }
+
+  /// Logging/sync hardening (proposed): a remote row replaces its local
+  /// copy only when that local copy is already synced. A local edit that is
+  /// still `pending` (or `failed`) is newer than anything the server holds
+  /// for that id — it is what she last entered — so it keeps precedence
+  /// until it actually syncs.
+  static Map<String, CycleLog> _mergeLocalAndRemote(
+    List<CycleLog> localLogs,
+    List<CycleLog> remote,
+  ) {
+    final merged = <String, CycleLog>{
+      for (final entry in localLogs) entry.id: entry,
+    };
+    for (final entry in remote) {
+      final local = merged[entry.id];
+      if (local != null && local.syncStatus != SyncStatus.synced) continue;
+      merged[entry.id] = entry;
+    }
+    return merged;
   }
 
   /// Parses remote `cycle_entries` rows one at a time so a single record
@@ -371,10 +388,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
           .limit(limit);
       final remote = _parseCycleEntries(response as List<dynamic>);
 
-      final merged = <String, CycleLog>{};
-      for (final entry in [...localLogs, ...remote]) {
-        merged[entry.id] = entry;
-      }
+      final merged = _mergeLocalAndRemote(localLogs, remote);
       final ordered = merged.values.toList()
         ..sort((a, b) => b.date.compareTo(a.date));
 

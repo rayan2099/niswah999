@@ -8,11 +8,14 @@ import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/ttc_mode_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../domain/entities/cycle_log.dart';
 import '../../domain/services/cycle_calculation_service.dart';
 import '../viewmodels/cycle_tracking_view_model.dart';
 import '../widgets/cycle_calendar.dart';
 import '../widgets/cycle_log_form_sheet.dart';
+import '../widgets/log_day_entry_router.dart';
+import '../widgets/predicted_range_text.dart';
 
 String _ct(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -149,6 +152,8 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
                         logs: _viewModel.logs,
                         cycleDay: monthCalculation.currentCycleDay,
                         cycleLength: monthCalculation.averageCycleLength,
+                        nextPeriodStart: summary.nextPeriodStart,
+                        daysLate: summary.daysLate,
                         hasSufficientHistory:
                             monthCalculation.hasSufficientHistory,
                         regularity: monthCalculation.regularity,
@@ -306,16 +311,29 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
     });
   }
 
-  void _openDate(DateTime date) {
-    final existing = _viewModel.logs
-        .where((log) => DateUtils.isSameDay(log.date, date))
-        .firstOrNull;
-    showCycleLogSheet(
-      context,
-      viewModel: _viewModel,
-      existingLog: existing,
-      date: date,
-    );
+  /// Bleeding on a tapped day is recorded only through the canonical
+  /// start/check-in/backfill sheets (never as a `cycle_entries`-only row,
+  /// which Today's Fiqh state never reads); symptoms and notes stay on the
+  /// legacy sheet.
+  Future<void> _openDate(DateTime date) async {
+    final choice = await showLogDayChooser(context, day: date);
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case LogDayChoice.bleeding:
+        final saved = await logCanonicalBleedingForDay(context, day: date);
+        if (saved) await _viewModel.loadLogs();
+      case LogDayChoice.symptomsAndNotes:
+        final existing = _viewModel.logs
+            .where((log) => DateUtils.isSameDay(log.date, date))
+            .firstOrNull;
+        await showCycleLogSheet(
+          context,
+          viewModel: _viewModel,
+          existingLog: existing,
+          date: date,
+          mode: CycleLogSheetMode.symptomsOnly,
+        );
+    }
   }
 }
 
@@ -921,7 +939,14 @@ class _PregnancyChanceCard extends StatelessWidget {
               ),
               _ChartLabel(
                 label: _ct('NEXT CYCLE', 'الدورة القادمة'),
-                value: summary.nextPeriodStart != null
+                value:
+                    summary.nextPeriodStart != null &&
+                        summary.nextPeriodRange != null
+                    ? formatPredictedRange(
+                        summary.nextPeriodRange!,
+                        isArabic: AppLocaleController.instance.isArabic,
+                      )
+                    : summary.nextPeriodStart != null
                     ? _shortDate(summary.nextPeriodStart!)
                     : summary.daysLate > 0
                     ? _ct(
@@ -942,10 +967,16 @@ class _PregnancyChanceCard extends StatelessWidget {
               border: Border.all(color: const Color(0xFFFEF3C7)),
             ),
             child: Text(
-              _ct(
-                'Predictions improve as you log more cycles',
-                'التنبؤ يتحسن مع المزيد من الدورات',
-              ),
+              (summary.hasPlausibleAverage
+                      ? predictionBasisNote(
+                          summary.predictionBasis,
+                          isArabic: AppLocaleController.instance.isArabic,
+                        )
+                      : null) ??
+                  _ct(
+                    'Predictions improve as you log more cycles',
+                    'التنبؤ يتحسن مع المزيد من الدورات',
+                  ),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Color(0xFFD97706),
@@ -1253,6 +1284,8 @@ class _MonthSummary extends StatelessWidget {
     required this.logs,
     required this.cycleDay,
     required this.cycleLength,
+    required this.nextPeriodStart,
+    required this.daysLate,
     required this.hasSufficientHistory,
     required this.regularity,
     required this.onPeriodChanged,
@@ -1265,6 +1298,11 @@ class _MonthSummary extends StatelessWidget {
   final List<CycleLog> logs;
   final int? cycleDay;
   final int? cycleLength;
+
+  /// From the same summary Today and Insights use, so the "next period"
+  /// countdown agrees across screens (predicted length, late handling).
+  final DateTime? nextPeriodStart;
+  final int daysLate;
   final bool hasSufficientHistory;
   final CycleRegularity regularity;
   final ValueChanged<_SummaryPeriod> onPeriodChanged;
@@ -1281,6 +1319,8 @@ class _MonthSummary extends StatelessWidget {
     );
     final latestByDay = <String, CycleLog>{};
     for (final log in monthLogs) {
+      // Symptoms/notes-only rows are neither Haid nor Tahara days.
+      if (!log.recordsFlow) continue;
       final key = '${log.date.year}-${log.date.month}-${log.date.day}';
       final existing = latestByDay[key];
       if (existing == null || log.date.isAfter(existing.date)) {
@@ -1498,12 +1538,18 @@ class _MonthSummary extends StatelessWidget {
               Expanded(
                 child: _SummaryMetric(
                   label: _ct('NEXT PERIOD', 'الحيض القادم'),
-                  value:
-                      !isCurrentMonth || !canPredict || factualCycleDay == null
+                  value: !isCurrentMonth || !canPredict
                       ? '—'
-                      : '${math.max(0, factualCycleLength - factualCycleDay)}',
-                  unit:
-                      !isCurrentMonth || !canPredict || factualCycleDay == null
+                      : daysLate > 0
+                      ? '$daysLate'
+                      : nextPeriodStart == null
+                      ? '—'
+                      : '${math.max(0, calendarDaysBetween(AppClock.now(), nextPeriodStart!))}',
+                  unit: !isCurrentMonth || !canPredict
+                      ? ''
+                      : daysLate > 0
+                      ? _ct('days late', 'أيام تأخير')
+                      : nextPeriodStart == null
                       ? ''
                       : _ct('days left', 'أيام متبقية'),
                 ),

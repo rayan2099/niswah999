@@ -1,3 +1,4 @@
+import '../../../../core/utils/calendar_days.dart';
 import '../entities/cycle_log.dart';
 import 'cycle_calculation_service.dart';
 import 'madhhab_rule_evaluator.dart';
@@ -76,39 +77,41 @@ class CycleStatusEngine {
       averagePeriodLength: calculation.averagePeriodLength,
     );
 
-    if (logs.isEmpty) return baseline();
-    final sorted = [...logs]..sort((a, b) => a.date.compareTo(b.date));
+    // Symptoms/notes-only rows carry no flow fact (see CycleLog.recordsFlow).
+    final flowLogs = logs.where((log) => log.recordsFlow).toList();
+    if (flowLogs.isEmpty) return baseline();
+    final sorted = [...flowLogs]..sort((a, b) => a.date.compareTo(b.date));
     final latest = sorted.last;
     if (latest.flow == FlowLevel.none) return baseline();
 
-    var activeStart = latest.date;
-    DateTime? previousPurityStart;
-    for (var index = sorted.length - 1; index >= 0; index--) {
-      final log = sorted[index];
+    // Split the history into bleeding runs. `flow == FlowLevel.none` is
+    // the sole authoritative boundary signal (an explicit "not bleeding"
+    // observation) — deliberately no longer also breaking on
+    // `log.cycleDay == 1` (found and fixed via parity_today_lower_test
+    // .dart: that check once pinned every canonical episode's start to
+    // "today"). A completed run ends on the date of the `none` log that
+    // closed it; the current run is the trailing one (still open, since
+    // the latest log is bleeding).
+    final completedRuns = <_BleedingRun>[];
+    CycleLog? runFirstLog;
+    for (final log in sorted) {
       if (log.flow == FlowLevel.none) {
-        previousPurityStart = log.date;
-        break;
+        if (runFirstLog != null) {
+          completedRuns.add(_BleedingRun(runFirstLog, log.date));
+          runFirstLog = null;
+        }
+      } else {
+        runFirstLog ??= log;
       }
-      activeStart = log.date;
     }
-    // Deliberately no longer also breaking on `log.cycleDay == 1`: that
-    // field defaults to 1 (CycleLog's own constructor default) and is
-    // never set at all by CanonicalFiqhEvidenceAdapter.buildEffectiveLogs,
-    // which builds every canonical-evidence-derived log this engine now
-    // receives. With that check still present, the scan broke on the very
-    // first (latest) entry for ANY canonical-backed episode, pinning
-    // activeStart to "today" regardless of the episode's true start date
-    // — bleedingDuration then collapsed to just the current day's own
-    // elapsed hours, which is below every madhhab's minimum, so a
-    // genuinely-open, well-within-bounds Haid episode always misclassified
-    // as needsAdvisory. `flow == FlowLevel.none` is the correct, sole
-    // authoritative boundary signal (an explicit "not bleeding"
-    // observation) — found and fixed via parity_today_lower_test.dart.
+    final currentRun = runFirstLog!;
+    final activeStart = currentRun.date;
 
-    final bleedingDuration = now.difference(activeStart);
-    final daysIntoCurrentEpisode = bleedingDuration.inDays + 1 > 0
-        ? bleedingDuration.inDays + 1
-        : 1;
+    // Fiqh hardening (2026-10-18), DST: calendar days, never
+    // `Duration.inDays` between two local midnights (23h across a
+    // spring-forward change, which made "day 2" read as "day 1").
+    final daysElapsed = calendarDaysBetween(activeStart, now) + 1;
+    final daysIntoCurrentEpisode = daysElapsed > 0 ? daysElapsed : 1;
 
     if (madhhab == null) {
       // Currently bleeding, but no madhhab is SELECTED — never guess one.
@@ -118,20 +121,103 @@ class CycleStatusEngine {
       );
     }
 
-    final result = const MadhhabRuleEvaluator().evaluate(
-      madhhab: madhhab,
-      hasSufficientHistory: calculation.hasSufficientHistory,
-      isBleeding: true,
-      bleedingDuration: bleedingDuration,
-      purityBefore: previousPurityStart == null
-          ? null
-          : activeStart.difference(previousPurityStart),
-    );
+    final minimumHaid = MadhhabRuleEvaluator.minimumHaidFor(madhhab);
+    final minimumPurity = MadhhabRuleEvaluator.minimumPurityFor(madhhab);
 
-    if (result.state != FiqhCycleState.needsAdvisory) {
-      final mappedState = result.state == FiqhCycleState.insufficientHistory
+    // Fiqh hardening (2026-10-18): minimum purity (tuhr) is the interval
+    // between two *menstrual* episodes (haidfigh.md §1 "between two
+    // distinct menstrual cycles"), so it is measured from the end of the
+    // last earlier run that could itself have been haid — never from a
+    // run that was definitively too short to be haid under this madhhab
+    // (e.g. Hanafi spotting under 72h). That earlier run's length is
+    // taken at its most generous (from its start day's midnight, or its
+    // exact start time, to the END of the day of its closing `none` log —
+    // "it stopped on D" means bleeding may have lasted into D), so a run
+    // is only skipped when it is certainly below the minimum; a run that
+    // merely might have been haid still counts and keeps the purity
+    // short (the conservative direction: needsAdvisory, never a
+    // confident fresh haid). Cumulative talfiq across separate runs is
+    // NOT modelled here (see docs: such cases fall to needsAdvisory).
+    DateTime? stopDay;
+    for (final run in completedRuns.reversed) {
+      // Calendar days, never wall-clock hours between local midnights: a
+      // 3-calendar-day run across a spring-forward change is 71h and was
+      // wrongly skipped (round-2 property test R2-2). An exact start time
+      // is subtracted only when one is known.
+      final firstTime = run.first.observedTime;
+      final runLength = firstTime == null
+          ? Duration(days: calendarDaysBetween(run.first.date, run.end) + 1)
+          : addCalendarDays(run.end, 1).difference(firstTime);
+      if (minimumHaid == null || runLength >= minimumHaid) {
+        stopDay = run.end;
+        break;
+      }
+    }
+    // Round-2 hardening (2026-10-21, proposed): purity is read the same
+    // conservative way as the minimum haid duration below. "It stopped on
+    // D" says bleeding may have lasted until the END of D (the closing
+    // `none` observation never carries an exact time), and a date-only new
+    // start may have begun at the START of its day (or exactly at its
+    // observed time). The minimum (FD-7: 15 days; Hanbali 13) counts as
+    // met only when it holds over that SHORTEST interval; otherwise the
+    // evaluator's purity gate returns needsAdvisory. Previously this was
+    // `calendarDaysBetween(stopDay, startDay)` — the most generous reading,
+    // up to a day longer than the bleeding-free time actually known.
+    // Counted in calendar days (DST-safe) unless the new start has an
+    // exact time: whole days from the end of the stop day to the start of
+    // the new start day.
+    final Duration? purityBefore;
+    if (stopDay == null) {
+      purityBefore = null;
+    } else {
+      final startTime = currentRun.observedTime;
+      final shortestPurity = startTime == null
+          ? Duration(days: calendarDaysBetween(stopDay, activeStart) - 1)
+          : startTime.difference(addCalendarDays(stopDay, 1));
+      purityBefore = shortestPurity.isNegative
+          ? Duration.zero
+          : shortestPurity;
+    }
+
+    // Fiqh hardening (2026-10-18): a date-only start says only that
+    // bleeding began at some point on that day. The duration is bounded
+    // from both sides — from the day's midnight (longest) and from its
+    // end (shortest) — and only a result that holds under BOTH bounds is
+    // a confident haid. When the minimum is met only by assuming
+    // bleeding began at midnight, the state stays needsAdvisory until it
+    // is met under the shortest reading too. An exact observed time
+    // (carried through by CanonicalFiqhEvidenceAdapter) collapses both
+    // bounds onto that moment.
+    final earliestStart = currentRun.observedTime ?? activeStart;
+    final latestStart =
+        currentRun.observedTime ?? addCalendarDays(activeStart, 1);
+    final longestDuration = now.difference(earliestStart);
+    final shortestRaw = now.difference(latestStart);
+    final shortestDuration = shortestRaw.isNegative
+        ? Duration.zero
+        : shortestRaw;
+
+    MadhhabRuleResult evaluateWith(Duration duration) =>
+        const MadhhabRuleEvaluator().evaluate(
+          madhhab: madhhab,
+          hasSufficientHistory: calculation.hasSufficientHistory,
+          isBleeding: true,
+          bleedingDuration: duration,
+          purityBefore: purityBefore,
+        );
+    final fromEarliest = evaluateWith(longestDuration).state;
+    final fromLatest = evaluateWith(shortestDuration).state;
+    final resultState =
+        fromEarliest == FiqhCycleState.haid && fromLatest == FiqhCycleState.haid
+        ? FiqhCycleState.haid
+        : fromEarliest == FiqhCycleState.insufficientHistory
+        ? FiqhCycleState.insufficientHistory
+        : FiqhCycleState.needsAdvisory;
+
+    if (resultState != FiqhCycleState.needsAdvisory) {
+      final mappedState = resultState == FiqhCycleState.insufficientHistory
           ? FiqhCycleState.tahara
-          : result.state;
+          : resultState;
       // Only haid/needsAdvisory ever mean "currently bleeding" for display
       // purposes — if the fiqh evaluator falls back to insufficientHistory
       // (mapped to tahara) despite the latest log technically being
@@ -146,15 +232,16 @@ class CycleStatusEngine {
       );
     }
 
-    // result.minimumHaid is null for Maliki (FD-7, 2026-10-15: no
-    // time-based minimum) — needsAdvisory can then only be reached via
-    // the maximum bound, for which there is no future "will become
-    // confirmed Haid" date to show (she already would have been, from
-    // the very start, were a minimum to apply at all).
-    final minimumHaid = result.minimumHaid;
-    final confirmAt = minimumHaid == null
-        ? null
-        : activeStart.add(minimumHaid);
+    // A "confirms at" moment exists only when the sole open question is
+    // the minimum duration: never for a purity shortfall or the maximum
+    // bound (nothing later will turn those into a confirmed haid), and
+    // never for Maliki (FD-7, 2026-10-15: no time-based minimum).
+    final awaitingMinimumOnly =
+        minimumHaid != null &&
+        (purityBefore == null || purityBefore >= minimumPurity) &&
+        longestDuration <= MadhhabRuleEvaluator.maximumHaidFor(madhhab) &&
+        shortestDuration < minimumHaid;
+    final confirmAt = awaitingMinimumOnly ? latestStart.add(minimumHaid) : null;
     return baseline(
       state: FiqhCycleState.needsAdvisory,
       confirmAt: confirmAt != null && confirmAt.isAfter(now)
@@ -163,4 +250,14 @@ class CycleStatusEngine {
       daysIntoCurrentEpisode: daysIntoCurrentEpisode,
     );
   }
+}
+
+class _BleedingRun {
+  const _BleedingRun(this.first, this.end);
+
+  /// The run's first bleeding log (its date, and exact time if known).
+  final CycleLog first;
+
+  /// The date of the `none` log that closed the run.
+  final DateTime end;
 }
