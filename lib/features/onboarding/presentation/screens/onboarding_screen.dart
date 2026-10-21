@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:collection/collection.dart' show DeepCollectionEquality;
 import 'package:flutter/cupertino.dart' show CupertinoPicker;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
@@ -188,7 +189,59 @@ enum _PeriodSubStep { pickStart, stillHappening, pickEnd }
 /// 4th, [unanswered], exists only so "no episode should be created yet"
 /// has a real representation distinct from any of the other three; it is
 /// never itself persisted.
-enum _ActiveBleedingAnswer { unanswered, active, ended, uncertain }
+///
+/// Onboarding/server hardening (proposed, finding #4): [endedEndUnknown]
+/// is "No, it has stopped" followed by "I'm not sure exactly when". It
+/// used to be folded into [uncertain], which saved an OPEN episode ("may
+/// still be bleeding") — the opposite of what she said. The episode model
+/// has no "ended, end date unknown" state (the contract requires an
+/// `end_date` for `ended`), so this answer creates no episode at all; only
+/// her baseline estimates, if any, are saved.
+enum _ActiveBleedingAnswer {
+  unanswered,
+  active,
+  ended,
+  uncertain,
+  endedEndUnknown,
+}
+
+/// Onboarding/server hardening (proposed, findings #2/#3): whether two
+/// queued onboarding submissions carry the same answers. Provenance
+/// (`startSource`/`endSource`, derived from "today") and the UTC offset are
+/// ignored — the same answer given on a later day is still the same answer.
+@visibleForTesting
+bool sameOnboardingAnswers(Map<String, dynamic> a, Map<String, dynamic> b) {
+  Map<String, dynamic>? answers(Object? raw) {
+    if (raw is! Map) return null;
+    return Map<String, dynamic>.from(raw)
+      ..remove('startSource')
+      ..remove('endSource');
+  }
+
+  const equality = DeepCollectionEquality();
+  return equality.equals(answers(a['episode']), answers(b['episode'])) &&
+      equality.equals(answers(a['baseline']), answers(b['baseline']));
+}
+
+/// Onboarding/server hardening (proposed, finding #14): a usual bleeding
+/// duration must be shorter than the usual cycle length (the time from one
+/// start to the next includes the bleeding itself). Mirrors the
+/// `cycle_baselines_duration_below_cycle_check` constraint. Returns null
+/// when the pair is plausible or either value is missing.
+@visibleForTesting
+String? baselinePairError({
+  required int? durationDays,
+  required int? cycleLengthDays,
+  required bool arabic,
+}) {
+  if (durationDays == null || cycleLengthDays == null) return null;
+  if (durationDays < cycleLengthDays) return null;
+  return arabic
+      ? 'مدة نزول الدم ($durationDays أيام) يجب أن تكون أقل من طول الدورة '
+            '($cycleLengthDays يومًا).'
+      : 'Bleeding that lasts $durationDays days has to be shorter than a '
+            '$cycleLengthDays-day cycle.';
+}
 
 /// Onboarding redesign, Part 3: the optional "improve predictions?" sub-flow
 /// living entirely at step 6. [ask] is the gate itself; [duration]/
@@ -329,7 +382,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // out) already has a saved answer — show it selected instead of blank,
     // otherwise re-selecting anything (or the step just looking unanswered)
     // silently overwrites their real answer via setMarried below.
-    _isMarried = MaritalStatusController.instance.isMarried;
+    // Onboarding/server hardening (proposed, finding #13): only a real
+    // saved answer is pre-selected; a first-time user starts unanswered.
+    _isMarried = MaritalStatusController.instance.answer;
     unawaited(_resolveOnboardingOperationId());
   }
 
@@ -562,7 +617,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           onAccept: () => setState(
             () => _predictionsSubStep = _PredictionsSubStep.duration,
           ),
-          onSkip: _next,
+          // Onboarding/server hardening (proposed, finding #12): skipping
+          // means "don't use estimates" — anything she scrolled to before
+          // coming back here is discarded, not silently saved.
+          onSkip: () {
+            setState(() {
+              _haidLengthValue = null;
+              _cycleLengthValue = null;
+            });
+            _next();
+          },
         );
       case _PredictionsSubStep.duration:
         return _NumberWheelStep(
@@ -592,6 +656,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           initialValue: _haidLengthValue,
           maxValue: 20,
+          validate: (v) => baselinePairError(
+            durationDays: v,
+            cycleLengthDays: _cycleLengthValue,
+            arabic: _arabic,
+          ),
           onChanged: (v) => setState(() => _haidLengthValue = v),
           onNext: () => setState(
             () => _predictionsSubStep = _PredictionsSubStep.cycleLength,
@@ -621,6 +690,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           initialValue: _cycleLengthValue,
           maxValue: 90,
+          validate: (v) => baselinePairError(
+            durationDays: _haidLengthValue,
+            cycleLengthDays: v,
+            arabic: _arabic,
+          ),
           onChanged: (v) => setState(() => _cycleLengthValue = v),
           onNext: _next,
           onUnsure: () {
@@ -639,7 +713,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       case _PeriodSubStep.pickStart:
         return _PeriodPickStart(
           selected: _periodDate,
-          onPick: (date) => setState(() => _periodDate = date),
+          // Onboarding/server hardening (proposed, finding #11): a new start
+          // date invalidates the end date and the "still happening?" answer
+          // given for the old one — otherwise a stale end before the new
+          // start stays selected and the whole save is rejected.
+          onPick: (date) => setState(() {
+            if (_periodDate != date) {
+              _periodEndDate = null;
+              _activeBleedingAnswer = _ActiveBleedingAnswer.unanswered;
+            }
+            _periodDate = date;
+          }),
           onContinue: _periodDate == null
               ? null
               : () => setState(
@@ -690,7 +774,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           onUnsure: () {
             setState(() {
               _periodEndDate = null;
-              _activeBleedingAnswer = _ActiveBleedingAnswer.uncertain;
+              _activeBleedingAnswer = _ActiveBleedingAnswer.endedEndUnknown;
             });
             _next();
           },
@@ -883,9 +967,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId != null) {
       final periodDate = _periodDate;
+      // Finding #4: "stopped, not sure when" is not an episode we can
+      // record truthfully (see [_ActiveBleedingAnswer.endedEndUnknown]).
       final hasEpisode =
           periodDate != null &&
-          _activeBleedingAnswer != _ActiveBleedingAnswer.unanswered;
+          (_activeBleedingAnswer == _ActiveBleedingAnswer.active ||
+              _activeBleedingAnswer == _ActiveBleedingAnswer.ended ||
+              _activeBleedingAnswer == _ActiveBleedingAnswer.uncertain);
       final hasBaseline = _haidLengthValue != null || _cycleLengthValue != null;
 
       if (hasEpisode || hasBaseline) {
@@ -926,7 +1014,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     _ActiveBleedingAnswer.uncertain =>
                       ContinuationCertainty.uncertain,
                     _ActiveBleedingAnswer.ended ||
-                    _ActiveBleedingAnswer.unanswered =>
+                    _ActiveBleedingAnswer.unanswered ||
+                    _ActiveBleedingAnswer.endedEndUnknown =>
                       ContinuationCertainty.confirmed,
                   },
             startDate: periodDate,
@@ -954,37 +1043,48 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         // the id, or reconcilePendingOperations running independently at
         // app start/resume) recognize and complete the *same* logical
         // submission instead of risking a second one.
+        final params = <String, dynamic>{
+          'utcOffsetMinutes': utcOffsetMinutes,
+          if (episode != null)
+            'episode': {
+              'lifecycleStatus': episode.lifecycleStatus.value,
+              if (episode.continuationCertainty != null)
+                'continuationCertainty': episode.continuationCertainty!.value,
+              'startDate': episode.startDate.toIso8601String(),
+              'startPrecision': episode.startPrecision.value,
+              'startSource': episode.startSource.value,
+              if (episode.endDate != null)
+                'endDate': episode.endDate!.toIso8601String(),
+              if (episode.endPrecision != null)
+                'endPrecision': episode.endPrecision!.value,
+              if (episode.endSource != null)
+                'endSource': episode.endSource!.value,
+            },
+          if (baseline != null)
+            'baseline': {
+              if (baseline.usualBleedingDurationDays != null)
+                'usualBleedingDurationDays': baseline.usualBleedingDurationDays,
+              if (baseline.usualCycleLengthDays != null)
+                'usualCycleLengthDays': baseline.usualCycleLengthDays,
+            },
+        };
+
+        // Onboarding/server hardening (proposed, finding #3): an operation
+        // id stands for ONE set of answers. If what is queued under it
+        // (from a failed earlier attempt, possibly already committed on the
+        // server with its response lost) differs from what she is
+        // submitting now, record_onboarding_menstrual_history would treat
+        // this as a retry and hand back the old rows as if her changed
+        // answer had saved. Drop the stale queued submission and use a
+        // fresh id; an unchanged answer keeps the id so a genuine retry
+        // stays idempotent.
+        await _settleQueuedOnboardingOperation(userId, params);
+
         await PendingBleedingOperationStore.savePending(
           PendingBleedingOperation(
             operationId: _onboardingOperationId,
             type: PendingBleedingOperationType.onboardingHistory,
-            params: {
-              'utcOffsetMinutes': utcOffsetMinutes,
-              if (episode != null)
-                'episode': {
-                  'lifecycleStatus': episode.lifecycleStatus.value,
-                  if (episode.continuationCertainty != null)
-                    'continuationCertainty':
-                        episode.continuationCertainty!.value,
-                  'startDate': episode.startDate.toIso8601String(),
-                  'startPrecision': episode.startPrecision.value,
-                  'startSource': episode.startSource.value,
-                  if (episode.endDate != null)
-                    'endDate': episode.endDate!.toIso8601String(),
-                  if (episode.endPrecision != null)
-                    'endPrecision': episode.endPrecision!.value,
-                  if (episode.endSource != null)
-                    'endSource': episode.endSource!.value,
-                },
-              if (baseline != null)
-                'baseline': {
-                  if (baseline.usualBleedingDurationDays != null)
-                    'usualBleedingDurationDays':
-                        baseline.usualBleedingDurationDays,
-                  if (baseline.usualCycleLengthDays != null)
-                    'usualCycleLengthDays': baseline.usualCycleLengthDays,
-                },
-            },
+            params: params,
             createdAt: DateTime.now(),
           ),
           userId: userId,
@@ -1083,10 +1183,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           });
           return;
         }
+      } else {
+        // Onboarding/server hardening (proposed, finding #2): nothing to
+        // save any more (e.g. she changed a failed "started X" answer to
+        // "I'm not sure"). A submission still queued from the failed
+        // attempt must not be replayed later by background sync.
+        await _settleQueuedOnboardingOperation(userId, null);
       }
     }
 
     await _finishOnboarding();
+  }
+
+  /// Onboarding/server hardening (proposed, findings #2/#3): reconciles
+  /// the queued onboarding submission with the answers she is submitting
+  /// now ([params], or null when there is nothing to save). A queued
+  /// submission with the same answers is kept (its id is reused, so the
+  /// retry stays idempotent); anything else is dropped so
+  /// `reconcilePendingOperations` can never replay an answer she changed
+  /// or withdrew, and a changed answer gets a fresh operation id.
+  Future<void> _settleQueuedOnboardingOperation(
+    String userId,
+    Map<String, dynamic>? params,
+  ) async {
+    final queued = await PendingBleedingOperationStore.getPendingByType(
+      PendingBleedingOperationType.onboardingHistory,
+      userId: userId,
+    );
+    if (queued != null) {
+      if (params != null && sameOnboardingAnswers(queued.params, params)) {
+        _onboardingOperationId = queued.operationId;
+        return;
+      }
+      await PendingBleedingOperationStore.clearPending(
+        queued.operationId,
+        userId: userId,
+      );
+      if (queued.operationId == _onboardingOperationId) {
+        _onboardingOperationId = const Uuid().v4();
+      }
+    }
   }
 
   /// Manual QA fix round 3 (2026-10-11), Part 3 — explicit product
@@ -1904,6 +2040,7 @@ class _NumberWheelStep extends StatefulWidget {
     required this.onNext,
     required this.onUnsure,
     this.maxValue = 99,
+    this.validate,
   });
   final String title, description;
   final int? initialValue;
@@ -1911,6 +2048,12 @@ class _NumberWheelStep extends StatefulWidget {
   final VoidCallback onNext;
   final VoidCallback onUnsure;
   final int maxValue;
+
+  /// Onboarding/server hardening (proposed, finding #14): returns a message
+  /// when the chosen value is impossible together with her other answer
+  /// (e.g. bleeding longer than the whole cycle). Continue stays disabled
+  /// while it returns non-null.
+  final String? Function(int value)? validate;
   static const int minValue = 1;
 
   @override
@@ -1953,6 +2096,9 @@ class _NumberWheelStepState extends State<_NumberWheelStep> {
   Widget build(BuildContext context) {
     final itemCount = widget.maxValue - _NumberWheelStep.minValue + 1;
     final unit = _tr('days', 'أيام');
+    final validationError = _touched
+        ? widget.validate?.call(_displayedValue)
+        : null;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2133,6 +2279,19 @@ class _NumberWheelStepState extends State<_NumberWheelStep> {
             ),
           ),
         ),
+        if (validationError != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            validationError,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.onboardingAccent,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+        ],
         const SizedBox(height: 24),
         // Part 7's exact specified hierarchy: wheel, "I'm not sure", then
         // the Continue CTA last.
@@ -2141,7 +2300,9 @@ class _NumberWheelStepState extends State<_NumberWheelStep> {
           child: Text(_tr('I’m not sure', 'لست متأكدة')),
         ),
         const SizedBox(height: 8),
-        _Continue(onPressed: _touched ? widget.onNext : null),
+        _Continue(
+          onPressed: _touched && validationError == null ? widget.onNext : null,
+        ),
       ],
     );
   }

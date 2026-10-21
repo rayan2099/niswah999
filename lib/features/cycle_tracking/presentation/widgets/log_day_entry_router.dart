@@ -5,6 +5,7 @@ import '../../../../core/network/supabase_client.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/utils/calendar_days.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
+import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/load_result.dart';
 import 'daily_checkin_sheet.dart';
 import 'start_bleeding_sheet.dart';
@@ -42,8 +43,8 @@ Future<LogDayChoice?> showLogDayChooser(
               title: Text(_t('Bleeding', 'نزيف')),
               subtitle: Text(
                 _t(
-                  'Start, update or add a missing day of your period',
-                  'بدء الحيض أو متابعته أو إضافة يوم ناقص',
+                  "Start a period, or log a day of the one you're tracking now",
+                  'بدء حيض، أو تسجيل يوم من الحيض الذي تتابعينه الآن',
                 ),
               ),
               onTap: () =>
@@ -62,40 +63,91 @@ Future<LogDayChoice?> showLogDayChooser(
   );
 }
 
+void _showCouldNotVerify(BuildContext context) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        _t(
+          "We couldn't verify your tracking data right now. Try again.",
+          'تعذر التحقق من بيانات تتبعكِ الآن. يرجى المحاولة مجدداً.',
+        ),
+      ),
+    ),
+  );
+}
+
 /// Records bleeding on [day] through the canonical sheets only:
 /// - an open episode covering [day]: today's check-in, or a backfill for an
 ///   earlier day of that episode;
-/// - no open episode: the start-bleeding sheet.
+/// - no open episode: the start-bleeding sheet, pre-set to [day] — unless
+///   [day] is on or before the end of an episode she already ended, which
+///   `start_bleeding_episode` rejects; she is pointed to the calendar's
+///   correction flow instead.
 ///
 /// Returns true when something was saved. A read failure is shown as
 /// "couldn't verify", never treated as "no open episode".
 Future<bool> logCanonicalBleedingForDay(
   BuildContext context, {
   required DateTime day,
+  // Test seams (the dashboard's canonicalRepositoryOverride/
+  // canonicalUserIdOverride pattern); production passes neither.
+  @visibleForTesting BleedingEpisodeRepositoryImpl? repositoryOverride,
+  @visibleForTesting String? userIdOverride,
 }) async {
-  final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
-  if (userId == null) return showStartBleedingSheet(context);
+  final userId =
+      userIdOverride ?? NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+  if (userId == null) return showStartBleedingSheet(context, initialDate: day);
 
-  final result = await BleedingEpisodeRepositoryImpl().getOpenEpisode(userId);
+  final repository = repositoryOverride ?? BleedingEpisodeRepositoryImpl();
+  final result = await repository.getOpenEpisode(userId);
   if (!context.mounted) return false;
   if (result is LoadUnavailable) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _t(
-            "We couldn't verify your tracking data right now. Try again.",
-            'تعذر التحقق من بيانات تتبعكِ الآن. يرجى المحاولة مجدداً.',
-          ),
-        ),
-      ),
-    );
+    _showCouldNotVerify(context);
     return false;
   }
 
   final episode = result.dataOrNull;
   final episodeId = episode?.id;
   if (episode == null || episodeId == null) {
-    return showStartBleedingSheet(context);
+    // Round-2 hardening (proposed): `start_bleeding_episode` rejects a
+    // start on or before the end of any episode she already ended (an
+    // open episode from that day would overlap it), and a day inside an
+    // ended episode is changed through its own observations. Say so up
+    // front instead of opening a start sheet that can only fail.
+    final episodes = await repository.getEpisodesForUser(userId);
+    if (!context.mounted) return false;
+    if (episodes is LoadUnavailable) {
+      _showCouldNotVerify(context);
+      return false;
+    }
+    final endsOnOrAfterDay = (episodes.dataOrNull ?? const <BleedingEpisode>[])
+        .any(
+          (e) =>
+              e.lifecycleStatus == LifecycleStatus.ended &&
+              e.endDate != null &&
+              calendarDaysBetween(day, e.endDate!) >= 0,
+        );
+    if (endsOnOrAfterDay) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: const Key('log-day-ended-episode-guidance'),
+          content: Text(
+            _t(
+              "This day is within or before a period you've already "
+                  "ended, so a new period can't start here. To change that "
+                  'period\'s days, open the cycle calendar on Today and '
+                  'choose "Correct this entry".',
+              'هذا اليوم ضمن حيض أنهيتِه أو قبله، لذا لا يمكن بدء حيض '
+                  'جديد فيه. لتعديل أيام ذلك الحيض، افتحي تقويم الدورة من '
+                  'صفحة اليوم واختاري "تصحيح هذا الإدخال".',
+            ),
+          ),
+        ),
+      );
+      return false;
+    }
+    if (!context.mounted) return false;
+    return showStartBleedingSheet(context, initialDate: day);
   }
   if (calendarDaysBetween(episode.startDate, day) < 0) {
     ScaffoldMessenger.of(context).showSnackBar(

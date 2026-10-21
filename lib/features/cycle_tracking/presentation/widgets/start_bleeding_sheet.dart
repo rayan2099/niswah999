@@ -6,6 +6,7 @@ import '../../../../core/network/supabase_client.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../../../core/utils/device_timezone.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../notifications/domain/services/notification_scheduler.dart';
@@ -62,23 +63,39 @@ DateTime _earliestReportableDate(DateTime now) =>
 /// classification is a separate, later layer that may not even be
 /// resolvable yet if the Madhhab is unset). Returns true if a new episode
 /// was actually started, so the caller (the dashboard) knows to refresh.
-Future<bool> showStartBleedingSheet(BuildContext context) async {
+///
+/// [initialDate] (round-2 hardening, proposed) pre-selects the day she
+/// tapped on a calendar, so "Bleeding" on a past day starts from THAT day
+/// rather than a blank sheet whose first choice is "Today". A future day
+/// is ignored (bleeding cannot start in the future).
+Future<bool> showStartBleedingSheet(
+  BuildContext context, {
+  DateTime? initialDate,
+}) async {
   final result = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => const _StartBleedingSheet(),
+    builder: (_) => _StartBleedingSheet(initialDate: initialDate),
   );
   return result ?? false;
 }
 
 class _StartBleedingSheet extends StatefulWidget {
-  const _StartBleedingSheet();
+  const _StartBleedingSheet({this.initialDate});
+  final DateTime? initialDate;
   @override
   State<_StartBleedingSheet> createState() => _StartBleedingSheetState();
 }
 
 class _StartBleedingSheetState extends State<_StartBleedingSheet> {
-  DateTime? _startDate;
+  late DateTime? _startDate = _initialStartDate(widget.initialDate);
+
+  static DateTime? _initialStartDate(DateTime? day) {
+    if (day == null) return null;
+    final picked = calendarDay(day);
+    return calendarDaysBetween(AppClock.now(), picked) > 0 ? null : picked;
+  }
+
   ObservationFlow? _flow;
   bool _saving = false;
   String? _errorMessage;

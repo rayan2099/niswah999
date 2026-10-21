@@ -68,10 +68,15 @@ class CycleTrackingController {
       math.min(maxLateToleranceDays, (1.5 * spreadDays).ceil());
 
   /// Days the period expected on [expected] is most likely to start on:
-  /// from `ceil(spread)` days early to `ceil(1.5 × spread)` days late
-  /// (cycles run late more often than early), never starting before
-  /// [today]. Null once [today] is past the late end — she is then
-  /// clearly late and nothing is predicted.
+  /// from `ceil(spread)` days early to [lateToleranceDays] late
+  /// (`ceil(1.5 × spread)`, capped — cycles run late more often than
+  /// early), never starting before [today]. Null once [today] is past the
+  /// late end — she is then clearly late and nothing is predicted.
+  ///
+  /// Proposed (round-2 property tests, 2026-10-21): the late end used to be
+  /// the uncapped `ceil(1.5 × spread)`, so for a spread above ~6.7 days a
+  /// range was still offered after [summarizeHistory] had already called
+  /// her "late by N days" with no date.
   static PredictedDateRange? nextPeriodRange({
     required DateTime expected,
     required double spreadDays,
@@ -79,7 +84,7 @@ class CycleTrackingController {
   }) {
     final day = calendarDay(today);
     final earliest = addCalendarDays(expected, -spreadDays.ceil());
-    final latest = addCalendarDays(expected, (1.5 * spreadDays).ceil());
+    final latest = addCalendarDays(expected, lateToleranceDays(spreadDays));
     if (latest.isBefore(day)) return null;
     return PredictedDateRange(
       earliest: earliest.isBefore(day) ? day : earliest,
@@ -107,7 +112,13 @@ class CycleTrackingController {
       averageCycleLength - lutealPhaseDays,
     );
     final widen = spreadDays <= 2 ? 0 : math.min(3, spreadDays.ceil());
-    final start = addCalendarDays(ovulationDay, -5 - widen);
+    // Never before the cycle's own first day (proposed, round-2 property
+    // tests 2026-10-21): a 21-day cycle widened by 3 days began the day
+    // before the period, inside the previous cycle.
+    final unclampedStart = addCalendarDays(ovulationDay, -5 - widen);
+    final start = calendarDaysBetween(cycleStart, unclampedStart) < 0
+        ? calendarDay(cycleStart)
+        : unclampedStart;
     final end = addCalendarDays(ovulationDay, 1 + widen);
 
     return FertileWindow(start: start, end: end, peakDay: ovulationDay);

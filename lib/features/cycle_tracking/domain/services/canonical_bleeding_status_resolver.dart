@@ -4,6 +4,7 @@ import '../../../../core/utils/calendar_days.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../entities/bleeding_episode.dart';
 import '../entities/load_result.dart';
+import 'cycle_calculation_service.dart' show CanonicalEpisodeTiming;
 
 /// Menstrual Data Integrity charter, Commit F3 — explicit ring states.
 /// Deliberately NOT a spectrum of "sufficient/insufficient history" (the
@@ -52,6 +53,7 @@ class CanonicalBleedingStatus {
     required this.completedEpisodeCount,
     this.isDegraded = false,
     this.quarantinedCount = 0,
+    this.episodeTimings = const [],
   });
 
   final RingFactualState state;
@@ -72,6 +74,12 @@ class CanonicalBleedingStatus {
   /// doc comment for why a degraded read can never reach that state.
   final bool isDegraded;
   final int quarantinedCount;
+
+  /// Round-2 hardening (proposed): every episode that was read, as
+  /// start/end DATES only — the `canonicalEpisodes` that
+  /// `CanonicalFiqhAssessment.assess` needs, so Today rules from the same
+  /// episode history the reports and the AI advisor use (no second read).
+  final List<CanonicalEpisodeTiming> episodeTimings;
 }
 
 /// Reads `bleeding_episodes` directly — deliberately never via the
@@ -128,6 +136,10 @@ class CanonicalBleedingStatusResolver {
     final completedCount = episodes
         .where((e) => e.lifecycleStatus == LifecycleStatus.ended)
         .length;
+    final timings = [
+      for (final e in episodes)
+        CanonicalEpisodeTiming(startDate: e.startDate, endDate: e.endDate),
+    ];
 
     if (openEpisode != null) {
       // Calendar days, never `Duration.inDays` between local midnights:
@@ -141,6 +153,7 @@ class CanonicalBleedingStatusResolver {
         completedEpisodeCount: completedCount,
         isDegraded: isDegraded,
         quarantinedCount: quarantinedCount,
+        episodeTimings: timings,
       );
     }
 
@@ -152,6 +165,7 @@ class CanonicalBleedingStatusResolver {
         completedEpisodeCount: 0,
         isDegraded: isDegraded,
         quarantinedCount: quarantinedCount,
+        episodeTimings: timings,
       );
     }
 
@@ -179,6 +193,7 @@ class CanonicalBleedingStatusResolver {
       completedEpisodeCount: completedCount,
       isDegraded: isDegraded,
       quarantinedCount: quarantinedCount,
+      episodeTimings: timings,
     );
   }
 }

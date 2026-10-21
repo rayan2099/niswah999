@@ -28,8 +28,9 @@ class _FakeExportSectionFetcher implements ExportSectionFetcher {
   @override
   Future<List<Map<String, dynamic>>> fetchMany(
     String table,
-    String userId,
-  ) async {
+    String userId, {
+    List<String> matchAny = const ['user_id'],
+  }) async {
     calledTables.add(table);
     if (failingTables.containsKey(table)) {
       throw failingTables[table]!;
@@ -279,6 +280,7 @@ class _EmptyResultFetcher implements ExportSectionFetcher {
   @override
   Future<List<Map<String, dynamic>>> fetchMany(
     String table,
-    String userId,
-  ) async => const [];
+    String userId, {
+    List<String> matchAny = const ['user_id'],
+  }) async => const [];
 }

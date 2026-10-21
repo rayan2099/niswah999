@@ -125,6 +125,9 @@ export interface UserAiContext {
   };
 }
 
+/** App-side `CycleLog.symptomsOnlyMarker`: a symptoms/notes-only row. */
+export const SYMPTOMS_ONLY_MARKER = 'flow:unrecorded';
+
 interface CycleEntryRow {
   date: string;
   flow: string;
@@ -149,6 +152,24 @@ interface WellbeingLogRow {
 }
 
 const MS_PER_DAY = 86_400_000;
+
+const ALLOWED_MADHHABS = new Set(['hanafi', 'maliki', 'shafii', 'hanbali']);
+
+/**
+ * Onboarding/server hardening (proposed): user- and client-controlled text
+ * rendered into a system prompt becomes ONE line (control and line/paragraph
+ * separator characters collapsed), loses [CONTEXT]/[END CONTEXT]/[KNOWLEDGE]
+ * markers so it cannot close the block or open a fake one, and is bounded.
+ */
+export function sanitizeForPrompt(raw: string, maxChars = 500): string {
+  const oneLine = raw
+    // deno-lint-ignore no-control-regex
+    .replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ')
+    .replace(/\[\s*(END\s+)?(CONTEXT|KNOWLEDGE)[^\]]*\]/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return oneLine.length > maxChars ? `${oneLine.slice(0, maxChars)}…` : oneLine;
+}
 
 // Thin adapter over the real, shared, already-tested pregnancy_status.ts —
 // deliberately not reimplemented here (see the file-header note on why a
@@ -179,7 +200,8 @@ function derivePregnancyContext(
 export function decodeSymptomSeverities(raw: string[] | null): Record<string, number> {
   const reserved = new Set(['energy', 'sleep', 'color', 'mood', 'notes']);
   const severities: Record<string, number> = {};
-  for (const entry of raw ?? []) {
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    if (typeof entry !== 'string') continue;
     const separatorIndex = entry.indexOf(':');
     if (separatorIndex < 0) continue;
     const key = entry.slice(0, separatorIndex);
@@ -192,8 +214,8 @@ export function decodeSymptomSeverities(raw: string[] | null): Record<string, nu
 }
 
 export function decodeLegacyNote(raw: string[] | null): string | null {
-  for (const entry of raw ?? []) {
-    if (entry.startsWith('notes:')) return entry.slice('notes:'.length);
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    if (typeof entry === 'string' && entry.startsWith('notes:')) return entry.slice('notes:'.length);
   }
   return null;
 }
@@ -287,26 +309,50 @@ export async function buildUserAiContext(
   // Sort ascending by date for the episode scan (mirrors CycleStatusEngine's
   // own sort direction), then read backward from the latest entry.
   const sortedAscending = [...cycleEntries].sort((a, b) => a.date.localeCompare(b.date));
-  const latest = sortedAscending[sortedAscending.length - 1] ?? null;
+  // Round-2 hardening (proposed): a symptoms/notes-only row (marker
+  // 'flow:unrecorded', see CycleLog.symptomsOnlyMarker in the app) records
+  // no flow fact, so the bleeding scan below skips it; its symptoms and
+  // notes are still read further down.
+  const flowAscending = sortedAscending.filter(
+    (entry) => !(Array.isArray(entry.symptoms) && entry.symptoms.includes(SYMPTOMS_ONLY_MARKER)),
+  );
+  const latest = flowAscending[flowAscending.length - 1] ?? null;
   const hasHistory = cycleEntries.length > 0;
   let isCurrentlyBleeding: boolean | null = null;
   let daysIntoCurrentEpisode: number | null = null;
 
-  if (latest) {
+  // Onboarding/server hardening (proposed): a flow log only says something
+  // about "now" when it is from today or yesterday — legacy logs rarely end
+  // with an explicit flow:"none" day, so an old log stays "unknown" (null)
+  // instead of "bleeding for 40 days". The current run also stops at the
+  // first gap between logged days, so two separate periods are never
+  // merged into one long bleed.
+  const dayIndex = (iso: string) => Math.floor(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) / MS_PER_DAY);
+  const latestIsRecent = latest != null && dayIndex(now.toISOString()) - dayIndex(latest.date) <= 1;
+  if (latest && latestIsRecent) {
     isCurrentlyBleeding = latest.flow !== 'none';
     if (isCurrentlyBleeding) {
-      let activeStartIndex = sortedAscending.length - 1;
-      for (let i = sortedAscending.length - 1; i >= 0; i--) {
-        if (sortedAscending[i].flow === 'none') break;
+      let activeStartIndex = flowAscending.length - 1;
+      for (let i = flowAscending.length - 2; i >= 0; i--) {
+        if (flowAscending[i].flow === 'none') break;
+        if (dayIndex(flowAscending[i + 1].date) - dayIndex(flowAscending[i].date) > 1) break;
         activeStartIndex = i;
       }
-      const activeStart = new Date(sortedAscending[activeStartIndex].date);
+      const activeStart = new Date(flowAscending[activeStartIndex].date);
       daysIntoCurrentEpisode =
         Math.max(0, Math.floor((now.getTime() - activeStart.getTime()) / MS_PER_DAY)) + 1;
     }
   }
 
-  const fiqhUncertainty = fiqhUncertaintyFor(options.clientFiqhState);
+  // Onboarding/server hardening (proposed): client-supplied values are
+  // validated here, for every caller (ai-assistant-chat passed them raw) —
+  // an unrecognised classification or madhhab is never rendered.
+  const clientFiqhState = normalizeClientFiqhState(options.clientFiqhState);
+  const clientMadhhab =
+    typeof options.clientMadhhab === 'string' && ALLOWED_MADHHABS.has(options.clientMadhhab.toLowerCase())
+      ? options.clientMadhhab.toLowerCase()
+      : null;
+  const fiqhUncertainty = fiqhUncertaintyFor(clientFiqhState);
 
   const symptomsRecent = sortedAscending
     .slice(-10)
@@ -323,7 +369,7 @@ export async function buildUserAiContext(
     .slice(0, notesLimit)
     .map((entry) => ({
       date: entry.date,
-      text: (entry.notes && entry.notes.trim()) || decodeLegacyNote(entry.symptoms) || '',
+      text: sanitizeForPrompt((entry.notes && entry.notes.trim()) || decodeLegacyNote(entry.symptoms) || ''),
       source: 'cycle_entries' as const,
     }));
 
@@ -331,7 +377,7 @@ export async function buildUserAiContext(
     .filter((log) => log.notes && log.notes.trim())
     .map((log) => ({
       date: log.log_date,
-      text: log.notes!.trim(),
+      text: sanitizeForPrompt(log.notes!.trim()),
       source: 'wellbeing_logs' as const,
     }));
 
@@ -352,16 +398,16 @@ export async function buildUserAiContext(
         'isCurrentlyBleeding/daysIntoCurrentEpisode are an informational scan of recent flow entries for AI context only — NOT the deterministic fiqh ruling. See the fiqh block for that.',
     },
     fiqh: {
-      madhhab: options.clientMadhhab ?? null,
-      madhhabSource: options.clientMadhhab ? 'client_supplied' : 'not_provided',
+      madhhab: clientMadhhab,
+      madhhabSource: clientMadhhab ? 'client_supplied' : 'not_provided',
       madhhabState:
         options.clientMadhhabState === 'unset' ||
         options.clientMadhhabState === 'unknown' ||
-        options.clientMadhhabState === 'selected'
+        (options.clientMadhhabState === 'selected' && clientMadhhab)
           ? options.clientMadhhabState
           : 'not_provided',
-      classification: options.clientFiqhState ?? null,
-      classificationSource: options.clientFiqhState ? 'client_computed' : 'not_provided',
+      classification: clientFiqhState,
+      classificationSource: clientFiqhState ? 'client_computed' : 'not_provided',
       uncertainty: fiqhUncertainty,
     },
     wellbeing: {
@@ -502,7 +548,9 @@ export function formatContextBlock(context: UserAiContext, scope: ContextScope):
     if (context.notes.recent.length) {
       lines.push('recent_user_notes (user-authored statements, NOT verified facts):');
       for (const note of context.notes.recent) {
-        lines.push(`  - [${note.date}] ${note.text}`);
+        // JSON-quoted single line: a note is data and can never close the
+        // context block or forge a field line.
+        lines.push(`  - [${note.date}] ${JSON.stringify(sanitizeForPrompt(note.text))}`);
       }
     }
   };

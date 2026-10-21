@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "https://esm.sh/@supabase/supabase-js@2": "./supabase_js_stub.ts",
+    "https://deno.land/std@0.208.0/assert/mod.ts": "./std_assert_stub.ts"
+  }
+}

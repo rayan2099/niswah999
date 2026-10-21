@@ -28,6 +28,13 @@ enum ReportEvidenceNote {
   /// quarantined row, or a logged bleeding day after the latest episode's
   /// stop date) — the same "Unable to verify" Today shows.
   evidenceUnverified,
+
+  /// A Shafi'i or Maliki user is bleeding on day 41..60 after the logged
+  /// birth: her school may still count it as nifas (up to 60 days), so the
+  /// report states no ruling and asks her to consult a scholar
+  /// ([PregnancyStatusEngine.needsPostNifasScholarAdvisory]; decided
+  /// 2026-10-21, pending scholar confirmation).
+  postNifasScholarAdvisory,
 }
 
 /// Everything the fiqh report PDF needs — pre-computed and gated so the
@@ -167,7 +174,15 @@ class FiqhReportInsightsEngine {
       pregnancyProfile,
       now,
     );
-    if (pregnancyStatus.mode == PregnancyMode.postpartum) {
+    // Pregnancy/nifas hardening (2026-10-21, proposed): the nifas branch
+    // applies only INSIDE the engine's nifas phase. Before, any postpartum
+    // profile — 200 days after birth, cycles long back — kept every report
+    // on "Current state: Nifas" forever and never computed her real
+    // Haid/Tahara state again. After the phase, fall through to the cycle
+    // branch. (The window itself is the engine's, unchanged; it is an open
+    // owner decision.)
+    if (pregnancyStatus.mode == PregnancyMode.postpartum &&
+        pregnancyStatus.phase == PregnancyStatusEngine.nifasPhase) {
       return FiqhReportInsights.nifas(
         madhhab: madhhab,
         daysPostpartum: pregnancyStatus.daysPostpartum!,
@@ -196,7 +211,10 @@ class FiqhReportInsightsEngine {
 
     // Evidence for the STATE and the statistics: canonical when available.
     final evidenceLogs = canonical?.effectiveLogs ?? cycleLogs;
-    final sorted = [...evidenceLogs]..sort((a, b) => a.date.compareTo(b.date));
+    // Symptoms/notes-only legacy rows carry no flow fact
+    // (CycleLog.recordsFlow); canonical logs always record one.
+    final sorted = [...evidenceLogs.where((log) => log.recordsFlow)]
+      ..sort((a, b) => a.date.compareTo(b.date));
 
     // Fiqh hardening (2026-10-18): the current state comes from the SAME
     // combination of canonical status and CycleStatusEngine the Today
@@ -204,11 +222,12 @@ class FiqhReportInsightsEngine {
     // engine's scan lives here any more. Without canonical evidence
     // (legacy callers) "an episode is open" is read from the logs
     // themselves, as before.
+    final hasOpenEpisode =
+        canonical?.hasOpenEpisode ??
+        (sorted.isNotEmpty && sorted.last.flow != FlowLevel.none);
     final assessment = CanonicalFiqhAssessment.assess(
       effectiveLogs: sorted,
-      hasOpenEpisode:
-          canonical?.hasOpenEpisode ??
-          (sorted.isNotEmpty && sorted.last.flow != FlowLevel.none),
+      hasOpenEpisode: hasOpenEpisode,
       evidenceUnresolved: canonical?.evidenceUnresolved ?? false,
       madhhab: madhhab,
       now: now,
@@ -226,8 +245,23 @@ class FiqhReportInsightsEngine {
     // Neither unverifiable evidence nor too little history while bleeding
     // is ever reported as Tahara (the same rule Today applies): the report
     // says "insufficient" and explains why.
-    final cycleState = assessment.state ?? FiqhCycleState.insufficientHistory;
-    final evidenceNote = canonical == null
+    // Nifas window decision (2026-10-21, pending scholar confirmation): a
+    // Shafi'i/Maliki user bleeding on day 41..60 gets no ruling at all —
+    // neither the Haid engine's verdict nor "nifas" — only an advisory.
+    final postNifasAdvisory =
+        pregnancyStatus.mode == PregnancyMode.postpartum &&
+        assessment.verdict != CanonicalFiqhVerdict.evidenceUnresolved &&
+        PregnancyStatusEngine.needsPostNifasScholarAdvisory(
+          daysPostpartum: pregnancyStatus.daysPostpartum!,
+          madhhab: madhhab,
+          isBleeding: hasOpenEpisode,
+        );
+    final cycleState = postNifasAdvisory
+        ? FiqhCycleState.needsAdvisory
+        : assessment.state ?? FiqhCycleState.insufficientHistory;
+    final evidenceNote = postNifasAdvisory
+        ? ReportEvidenceNote.postNifasScholarAdvisory
+        : canonical == null
         ? ReportEvidenceNote.none
         : switch (assessment.verdict) {
             CanonicalFiqhVerdict.evaluated => ReportEvidenceNote.none,
