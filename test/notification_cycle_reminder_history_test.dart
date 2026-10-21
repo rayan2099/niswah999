@@ -6,9 +6,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:niswah/core/services/notification_service.dart';
 import 'package:niswah/core/utils/app_clock.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
+import 'package:niswah/features/cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
+import 'package:niswah/features/cycle_tracking/domain/entities/cycle_log.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/cycle_calculation_service.dart';
 import 'package:niswah/features/notifications/domain/services/notification_refresh_coordinator.dart';
 import 'package:niswah/features/notifications/domain/services/notification_scheduler.dart';
+
+class _RecordingCycleRepository extends CycleTrackingRepositoryImpl {
+  _RecordingCycleRepository() : super(client: null);
+  final limits = <int>[];
+
+  @override
+  Future<List<CycleLog>> getCycleLogs({
+    DateTime? from,
+    DateTime? to,
+    int limit = 200,
+  }) async {
+    limits.add(limit);
+    return const [];
+  }
+}
 
 const _pluginChannel = MethodChannel(
   'dexterous.com/flutter/local_notifications',
@@ -101,4 +118,16 @@ void main() {
       );
     },
   );
+
+  test('the reminder reads the same history window as the view model '
+      '(prediction-efficiency audit, 2026-10-21)', () async {
+    final repository = _RecordingCycleRepository();
+    await NotificationRefreshCoordinator.refresh(
+      userId: 'user-1',
+      cycleRepository: repository,
+      bleedingRepository: BleedingEpisodeRepositoryImpl(client: null),
+      cycleHistoryLoader: (_) async => onboardingHistory,
+    );
+    expect(repository.limits, [CycleCalculationService.historyLogLimit]);
+  });
 }

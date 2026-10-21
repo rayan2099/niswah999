@@ -208,6 +208,16 @@ class CycleCalculationResult {
 class CycleCalculationService {
   const CycleCalculationService();
 
+  /// How many of her most recent `cycle_entries` rows every prediction
+  /// reads (Today, Insights, the Calendar tab, the reminder and the
+  /// reports), so they all see the same history. Large enough (about
+  /// three years of daily logging) that the cut never lands in the
+  /// cycles a prediction uses: with 200 rows it could fall mid-period,
+  /// turning a period's third day into a "cycle start", and the reminder
+  /// (which read 1,000) could disagree with Today (proposed,
+  /// prediction-efficiency audit 2026-10-21).
+  static const int historyLogLimit = 1000;
+
   /// The correct `cycleDay` for a brand-new log at [date] with [flow],
   /// given every other already-stored log ([existingLogs]) — day 1 if this
   /// genuinely starts a new Haid episode, otherwise the real day count

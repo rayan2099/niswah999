@@ -4,6 +4,10 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/utils/app_clock.dart';
+import 'package:niswah/features/auth/data/repositories/auth_repository_impl.dart';
+import 'package:niswah/features/auth/domain/entities/app_user.dart';
+import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
+import 'package:niswah/features/cycle_tracking/domain/entities/load_result.dart';
 import 'package:niswah/features/cycle_tracking/domain/controllers/cycle_tracking_controller.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/cycle_log.dart';
@@ -51,17 +55,57 @@ List<CycleLog> _history(List<DateTime> starts, {int days = 4}) => [
 class _FakeRepository implements CycleTrackingRepository {
   _FakeRepository(this.logs);
   final List<CycleLog> logs;
+  final limits = <int>[];
 
   @override
   Future<List<CycleLog>> getCycleLogs({
     DateTime? from,
     DateTime? to,
     int limit = 200,
-  }) async => logs;
+  }) async {
+    limits.add(limit);
+    return logs;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
+
+class _SignedInAuth implements AuthRepositoryImpl {
+  @override
+  Future<AppUser?> get currentUser async =>
+      const AppUser(id: 'user-1', email: 'user@example.com');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _EpisodeRepository extends BleedingEpisodeRepositoryImpl {
+  _EpisodeRepository(this.episodes, {this.quarantined = 0})
+    : super(client: null);
+  final List<BleedingEpisode> episodes;
+  final int quarantined;
+
+  @override
+  Future<LoadResult<List<BleedingEpisode>>> getEpisodesForUser(
+    String userId,
+  ) async => quarantined > 0
+      ? LoadDegraded(episodes, quarantined)
+      : LoadSuccess(episodes);
+}
+
+BleedingEpisode _ended(String id, DateTime start, DateTime end) =>
+    BleedingEpisode(
+      id: id,
+      userId: 'user-1',
+      lifecycleStatus: LifecycleStatus.ended,
+      startDate: start,
+      startPrecision: ObservationPrecision.dateOnly,
+      startSource: ObservationSource.userObserved,
+      endDate: end,
+      endPrecision: ObservationPrecision.dateOnly,
+      endSource: ObservationSource.userObserved,
+    );
 
 class _CountingCalculationService extends CycleCalculationService {
   _CountingCalculationService();
@@ -220,6 +264,64 @@ void main() {
     // Before: the shell loaded it and the Today screen (always mounted in
     // the IndexedStack) loaded it again — every startup read twice.
     expect(storage.cycleLogReads, readsPerLoad);
+  });
+
+  group('degraded canonical history and the history window', () {
+    final episodes = [
+      _ended('a', DateTime(2026, 6, 23), DateTime(2026, 6, 28)),
+      _ended('b', DateTime(2026, 7, 21), DateTime(2026, 7, 26)),
+    ];
+
+    Future<CycleTrackingViewModel> load({int quarantined = 0}) async {
+      AppClock.now = () => DateTime(2026, 8, 10, 12);
+      final vm = CycleTrackingViewModel(
+        repository: _FakeRepository(const []),
+        authRepository: _SignedInAuth(),
+        statedBaselineLoader: (_) async => null,
+        bleedingEpisodeRepository: _EpisodeRepository(
+          episodes,
+          quarantined: quarantined,
+        ),
+      );
+      await vm.loadLogs();
+      return vm;
+    }
+
+    test('a clean read predicts (control)', () async {
+      final vm = await load();
+      expect(vm.canonicalHistoryComplete, isTrue);
+      expect(vm.cycleCalculation.canPredictFromHistory, isTrue);
+      expect(vm.summary.nextPeriodStart, DateTime(2026, 8, 18));
+    });
+
+    test('a degraded read (a quarantined row) predicts nothing, like the '
+        'reminder and the canonical calendar, but keeps the logged '
+        'statistics', () async {
+      final vm = await load(quarantined: 1);
+      expect(vm.canonicalHistoryComplete, isFalse);
+      final calculation = vm.cycleCalculation;
+      expect(calculation.canPredict, isFalse);
+      expect(calculation.canPredictFromHistory, isFalse);
+      expect(calculation.averageCycleLength, 28);
+      expect(calculation.currentCycleDay, 21);
+      expect(vm.summary.nextPeriodStart, isNull);
+      expect(vm.summary.nextPeriodRange, isNull);
+      expect(vm.summary.fertileWindow.peakDay, isNull);
+      expect(vm.summary.hasPlausibleAverage, isFalse);
+    });
+
+    test('the view model reads the same history window as the reminder and '
+        'reports', () async {
+      final repository = _FakeRepository(const []);
+      final vm = CycleTrackingViewModel(
+        repository: repository,
+        canonicalEpisodeLoader: (_) async => const [],
+        statedBaselineLoader: (_) async => null,
+      );
+      await vm.loadLogs();
+      expect(repository.limits, [CycleCalculationService.historyLogLimit]);
+      expect(CycleCalculationService.historyLogLimit, 1000);
+    });
   });
 
   group('one prediction gate everywhere', () {

@@ -190,10 +190,18 @@ device-verified, not medically reviewed. Synthetic data only.
   presets also kept the clock time, so their first day's logs were left
   out in every zone.
 
-Not changed (recorded for review): the view model still predicts from a
-degraded `bleeding_episodes` read (a quarantined row) while the reminder
-and the canonical calendar refuse to; the view model reads 200 remote
-`cycle_entries` rows and the reminder 1,000; a bleeding restart under 15
+- **No prediction from a degraded episodes read (proposed).** The view
+  model predicted from a `bleeding_episodes` read with a quarantined row,
+  while the reminder and the canonical calendar refused to (integrity
+  contract). It now keeps the rows that parsed for the logged statistics
+  but clears every prediction field, so Today, Insights and the Calendar
+  tab show their existing "no prediction" state.
+- **One history window (proposed).** The view model read the newest 200
+  remote `cycle_entries` rows and the reminder and reports 1,000; a
+  200-row cut could land mid-period and add a false cycle start. All of
+  them now read `CycleCalculationService.historyLogLimit` (1,000).
+
+Not changed (recorded for review): a bleeding restart under 15
 days after a start moves the prediction's anchor to the restart; the
 Calendar tab repeats "Expected Haid" every predicted cycle while the
 canonical calendar shows only the next period; the conception-chance

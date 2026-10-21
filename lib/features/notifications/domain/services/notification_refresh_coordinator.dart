@@ -497,7 +497,9 @@ class NotificationRefreshCoordinator {
     // it is rather than planning from history as if not pregnant.
     if (profileRead.failed) return;
 
-    final logs = await cycleRepository.getCycleLogs(limit: 1000);
+    final logs = await cycleRepository.getCycleLogs(
+      limit: CycleCalculationService.historyLogLimit,
+    );
     // The same canonical episode history (e.g. periods reported during
     // onboarding) the dashboard predicts from — without it the reminder
     // could be missing, or land on a different date than the app shows.
