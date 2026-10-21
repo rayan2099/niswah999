@@ -276,6 +276,16 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [fake_supabase.dart](../../test/logging_sync_hardening/support/fake_supabase.dart)
 
+## test/pregnancy_notifications_hardening
+
+- [dashboard_nifas_prayer_card_test.dart](../../test/pregnancy_notifications_hardening/dashboard_nifas_prayer_card_test.dart)
+- [dashboard_trimester_label_test.dart](../../test/pregnancy_notifications_hardening/dashboard_trimester_label_test.dart)
+- [dst_fire_time_test.dart](../../test/pregnancy_notifications_hardening/dst_fire_time_test.dart)
+- [notification_copy_and_feed_test.dart](../../test/pregnancy_notifications_hardening/notification_copy_and_feed_test.dart)
+- [pregnancy_state_sync_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_state_sync_test.dart)
+- [pregnancy_week_and_milestone_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_week_and_milestone_test.dart)
+- [reports_postpartum_never_exits_test.dart](../../test/pregnancy_notifications_hardening/reports_postpartum_never_exits_test.dart)
+
 ## test/screens_hardening
 
 - [bleeding_entry_routing_test.dart](../../test/screens_hardening/bleeding_entry_routing_test.dart)

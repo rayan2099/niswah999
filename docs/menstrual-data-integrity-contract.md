@@ -1649,7 +1649,9 @@ the case. Regression tests: `test/fiqh_hardening/`.
   modelled.
 - The nifas 40-day window differs between
   `pregnancy_status_controller.dart` and `pregnancy_status_engine.dart`.
-  It was reported to the owner and was not changed.
+  It was reported to the owner and was not changed. (Update 2026-10-21,
+  proposed: both now read the engine's phase. The window itself is still
+  an open decision. See §19.)
 
 ## 17. Screens hardening — what the tracking screens show (2026-10-18, branch `fix/tracking-hardening`) — status: PROPOSED
 
@@ -1805,3 +1807,43 @@ scenario 1 (the overlap is accepted).
 - **Reminders after a queued end:** a later notification refresh may
   reschedule active-bleeding reminders until the queued end syncs and the
   episode reads as ended.
+
+## 19. Pregnancy, nifas and reminders hardening (2026-10-21, branch `fix/pregnancy-notifications-hardening`) — status: PROPOSED
+
+Proposed and implemented on the branch. These changes are not reviewed,
+deployed or verified live. Each is proven by a test in
+[`test/pregnancy_notifications_hardening/`](../test/pregnancy_notifications_hardening/),
+which passes under UTC and `TZ=America/New_York`. Open decisions:
+[pregnancy/nifas open decisions](../project-hub/decisions/2026-10-21-pregnancy-nifas-open-decisions.md).
+Feature maps: [pregnancy_profile](../project-hub/generated/feature-pregnancy_profile.md),
+[notifications](../project-hub/generated/feature-notifications.md),
+[dashboard](../project-hub/generated/feature-dashboard.md).
+
+| # | Finding (what was wrong) | Proposed change | Test |
+|---|---|---|---|
+| 1 | During active nifas, Today showed the Nifas card and also a prayer card saying "Salah is obligatory". It also showed the Haid/Tahara banner ("Prayer and fasting are obligatory"). | [dashboard_screen.dart](../lib/features/dashboard/presentation/screens/dashboard_screen.dart): while nifas is active, `_PrayerStatusCard(nifasActive:)` defers to the Nifas card. It is unresolved and shows "Unknown" for each prayer, the same as needsAdvisory. The Fiqh banner and Istihadah toggle are hidden. | `dashboard_nifas_prayer_card_test.dart` |
+| 2 | Once `is_postpartum` was set, the Fiqh, Doctor and Husband reports said "Nifas" forever. They never computed haid/tahara again. | [fiqh_report_insights_engine.dart](../lib/features/fiqh_report/domain/services/fiqh_report_insights_engine.dart) uses the nifas branch only while the engine phase is `نفاس`. After that it falls through to the cycle branch. | `reports_postpartum_never_exits_test.dart` |
+| 3 | Turning pregnancy or nifas off changed the device only. The `pregnancy_profile` row kept driving the weekly pregnancy reminders, the reports and the AI context. No state change re-planned the reminders. | New [`PregnancyStateSync`](../lib/features/pregnancy_profile/data/pregnancy_state_sync.dart) updates the device store and the row (`markPostpartumStarted` / new `markTrackingEnded`), then calls `NotificationRefreshCoordinator.refresh`. Activation also refreshes. This is **not** a pregnancy-loss flow (see the open decisions). | `pregnancy_state_sync_test.dart` |
+| 4 | The in-app feed logged a reminder when it was *scheduled*. It showed "Just now", sometimes days or weeks early. | [notification_log_controller.dart](../lib/core/preferences/notification_log_controller.dart): entries carry `fireAt` and stay hidden, and out of the unread count, until then. `upsertScheduled` replaces a slot's unfired entry. `removePending` drops it when the reminder is cancelled. | `notification_copy_and_feed_test.dart` |
+| 5 | "Your period may be approaching" could fire while she was pregnant or in nifas. | `NotificationScheduler.suppressesCycleReminder`. The coordinator reads the synced profile once and checks it plus the on-device flags. A failed profile read is treated as unknown and leaves pregnancy and nifas reminders as they are. | `notification_copy_and_feed_test.dart` |
+| 6 | Dashboard trimester labels: weeks 14–16 showed "First" and week 27 showed "Third". | `pregnancyStageFor` uses `PregnancyStatusEngine.trimesterForWeek` (ACOG ≤13 / ≤27). The Nutfah/Alaqah/Mudghah labels for weeks 1–12 and the size buckets are **unchanged**. | `dashboard_trimester_label_test.dart` |
+| 7 | The nifas reminder said "Nifas is nearing its end / about 5 days remain". That is a flat 40-day rule the repo does not document. | Neutral feed copy: "Nifas tracking: It's been 35 days since the birth date you logged" / "متابعة النفاس: مرّ 35 يوماً على تاريخ الولادة المسجّل". There is no claim about the end of nifas and no day-number convention. Only planned inside the engine's nifas phase. | `notification_copy_and_feed_test.dart` |
+| 8 | The birth date was always "now", so she could not log the real delivery day. | `pickBirthDate` defaults to today, lets her go back up to a year and blocks future dates. The date is passed to both stores. The controller rejects a future date. | `pregnancy_state_sync_test.dart` |
+| 9 | The dashboard capped the week at 40; the engine and server cap at 42. | One shared `PregnancyStatusEngine.maxWeek` (42). The dashboard now computes its week with the engine. | `pregnancy_week_and_milestone_test.dart`, `pregnancy_status_parity_test.dart` (updated) |
+| 10 | The milestone planner probed at midnight. A refresh after the week flipped returned null and cancelled the valid reminder. | Probes at the 09:00 fire time over 8 days, comparing each 09:00 with the previous day's 09:00. Every refresh plans the same reminder. | `pregnancy_week_and_milestone_test.dart` |
+| 11 | Fire times and the rolling window used `Duration(days:)`, which drifts by an hour or a day across DST. | `addCalendarDays`/`calendarDay` in the planners and the rolling window. The daily wellbeing first fire is built as a wall-clock `TZDateTime`. Engine postpartum days use `calendarDaysBetween`. | `dst_fire_time_test.dart` |
+| 12 | Cycle, pregnancy and nifas text appeared on the lock screen. | Discreet OS copy ("Niswah — You have a new reminder in Niswah." / "نِسواه — لديكِ تذكير جديد في نِسواه."), matching active-bleeding Commit E3. The specific text goes to the in-app feed only (`PlannedNotification.feed*`). | `notification_copy_and_feed_test.dart` |
+
+**One shared nifas definition.** The dashboard (`PregnancyStatusController.isNifasActive` / `nifasDay`) now reads the engine's own phase and elapsed calendar days. The window is unchanged: day 0 to day 40 after the logged birth date. This settles the §16 note that the controller and the engine differed by one day. The dashboard's nifas card now stays on through elapsed day 40, which it shows as "Day 41/40". Fixing that display depends on the open decisions below.
+
+**Existing tests updated because they encoded the old behavior:**
+- `test/pregnancy_status_parity_test.dart`: dashboard cap 40 → 42; nifas inactive from elapsed day 41, not 40.
+- `test/services/notification_scheduler_test.dart`: the week number is now in `feedBodyAr`, not the lock-screen `bodyAr`.
+
+**Open decisions (owner, scholar and/or medical; nothing here decides them):**
+- The nifas window: a flat 40 days that is not Madhhab-aware. The schema allows `madhhab_max_days` 40/60.
+- Nifas day numbering: 0-based in the reports, 1-based on the dashboard. The dashboard card's hard-coded "/40" denominator and remaining-day count belong to the same decision.
+- A pregnancy-loss/miscarriage flow: none exists. Needs scholar and medical review.
+- The Nutfah/Alaqah/Mudghah stage-to-week mapping on the dashboard: weeks ≤4 / ≤8 / ≤12 of gestation. It is undocumented in the repo and needs scholar review.
+
+**Residual, not changed:** the Today ring still shows the Haid engine's phase label (for example "Day N of Tahara") during nifas. It makes no obligatory/lifted claim. Nifas still has no Fiqh engine (see `FOUNDER_DECISIONS.md` FD-1).
