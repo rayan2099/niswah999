@@ -19,6 +19,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [notification_repository.dart](../../lib/features/notifications/domain/repositories/notification_repository.dart)
 - [notification_refresh_coordinator.dart](../../lib/features/notifications/domain/services/notification_refresh_coordinator.dart)
 - [notification_scheduler.dart](../../lib/features/notifications/domain/services/notification_scheduler.dart)
+- [prayer_reminder_scheduler.dart](../../lib/features/notifications/domain/services/prayer_reminder_scheduler.dart)
 - [notification_feed_screen.dart](../../lib/features/notifications/presentation/screens/notification_feed_screen.dart)
 - [notification_settings_screen.dart](../../lib/features/notifications/presentation/screens/notification_settings_screen.dart)
 - [notification_settings_view_model.dart](../../lib/features/notifications/presentation/viewmodels/notification_settings_view_model.dart)

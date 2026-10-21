@@ -73,6 +73,11 @@ void main() {
 
   group('NotificationService.scheduleAt outcome honesty', () {
     test('a platform call the OS actually accepts returns accepted', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('flutter_timezone'),
+            (call) async => 'UTC',
+          );
       await NotificationService.instance.initialize();
       final outcome = await NotificationService.instance.scheduleAt(
         id: 1,
@@ -86,6 +91,11 @@ void main() {
     test('a genuine platform scheduling rejection returns failed, never a '
         'false accepted — the exact false-success-audit gap this finding '
         'closes', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('flutter_timezone'),
+            (call) async => 'UTC',
+          );
       await NotificationService.instance.initialize();
       shouldFailZonedSchedule = true;
 
@@ -109,6 +119,11 @@ void main() {
     test('a known-disabled OS notification permission is reported as '
         'permissionUnavailable — checked before ever attempting the '
         'platform scheduling call', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('flutter_timezone'),
+            (call) async => 'UTC',
+          );
       await NotificationService.instance.initialize();
       notificationsEnabled = false;
 
@@ -124,6 +139,11 @@ void main() {
 
     test('scheduleDaily surfaces the same honest failed outcome on a '
         'genuine platform rejection', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('flutter_timezone'),
+            (call) async => 'UTC',
+          );
       await NotificationService.instance.initialize();
       shouldFailZonedSchedule = true;
 
@@ -141,6 +161,11 @@ void main() {
 
   group('NotificationService.cancel outcome honesty', () {
     test('a successful cancellation returns true', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('flutter_timezone'),
+            (call) async => 'UTC',
+          );
       await NotificationService.instance.initialize();
       final result = await NotificationService.instance.cancel(1);
       expect(result, isTrue);
@@ -148,6 +173,11 @@ void main() {
 
     test('a genuine platform cancellation failure returns false — never '
         'recorded as a successful cancellation', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('flutter_timezone'),
+            (call) async => 'UTC',
+          );
       await NotificationService.instance.initialize();
       shouldFailCancel = true;
 

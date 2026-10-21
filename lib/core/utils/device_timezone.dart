@@ -37,6 +37,7 @@ class DeviceTimezone {
   /// after a later travel/zone change; this cache only ever feeds *new*
   /// writes and *future* reminder computation.
   static String? _cached;
+  static int _requestGeneration = 0;
 
   /// Best-effort: returns null (never throws) if the platform channel is
   /// unavailable — a caller must treat this as optional metadata, not a
@@ -50,9 +51,10 @@ class DeviceTimezone {
   static Future<String?> currentId({bool forceRefresh = false}) async {
     final cached = _cached;
     if (!forceRefresh && cached != null) return cached;
+    final generation = ++_requestGeneration;
     try {
       final id = await FlutterTimezone.getLocalTimezone();
-      _cached = id;
+      if (generation == _requestGeneration) _cached = id;
       return id;
     } catch (_) {
       return null;
@@ -64,6 +66,7 @@ class DeviceTimezone {
   /// call this whenever the device's timezone may plausibly have changed
   /// (app resume; before any timezone-sensitive reminder recomputation).
   static void invalidateCache() {
+    _requestGeneration++;
     _cached = null;
   }
 }

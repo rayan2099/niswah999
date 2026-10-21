@@ -20,14 +20,38 @@ import '../../domain/entities/notification_event.dart';
 class NotificationEventLogStore {
   NotificationEventLogStore._();
 
+  static Future<void>? _recordTail;
+
   static const _storageKey = 'niswah_notification_event_log';
 
   /// Caps unbounded growth — this is an audit trail for recent behavior,
   /// not a permanent ledger; the oldest events are dropped first.
   static const _maxEntries = 500;
 
-  static Future<void> record(NotificationEvent event) async {
+  static Future<void> record(NotificationEvent event) {
+    final operation = (_recordTail ?? Future<void>.value()).then(
+      (_) => _record(event),
+    );
+    final settled = operation.catchError((Object _) {});
+    _recordTail = settled;
+    settled.then((_) {
+      if (identical(_recordTail, settled)) _recordTail = null;
+    });
+    return operation;
+  }
+
+  static Future<void> _record(NotificationEvent event) async {
     final existing = await loadAll();
+    if (existing.any(
+      (e) =>
+          e.reminderId == event.reminderId &&
+          e.state == event.state &&
+          e.userId == event.userId &&
+          e.episodeId == event.episodeId &&
+          e.logicalLocalDate == event.logicalLocalDate,
+    )) {
+      return;
+    }
     final updated = [event, ...existing];
     final capped = updated.length > _maxEntries
         ? updated.sublist(0, _maxEntries)

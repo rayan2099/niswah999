@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/network/supabase_client.dart';
@@ -10,8 +8,38 @@ import '../../domain/repositories/notification_repository.dart';
 import '../../domain/services/notification_refresh_coordinator.dart';
 
 class NotificationSettingsViewModel extends ChangeNotifier {
-  NotificationSettingsViewModel({NotificationRepository? repository})
-    : _repository = repository ?? NotificationRepositoryImpl();
+  NotificationSettingsViewModel({
+    NotificationRepository? repository,
+    Future<bool> Function()? requestPermission,
+    Future<void> Function(String? userId)? refresh,
+    String? Function()? currentUserId,
+  }) : _repository = repository ?? NotificationRepositoryImpl(),
+       _requestPermission =
+           requestPermission ?? NotificationService.instance.requestPermission,
+       _refresh =
+           refresh ??
+           ((userId) => NotificationRefreshCoordinator.refresh(userId: userId)),
+       _currentUserId =
+           currentUserId ??
+           (() => NiswahSupabase.clientOrNull?.auth.currentUser?.id);
+
+  final Future<bool> Function() _requestPermission;
+  final Future<void> Function(String? userId) _refresh;
+  final String? Function() _currentUserId;
+  Future<void> _saveTail = Future<void>.value();
+  int _revision = 0;
+  bool _disposed = false;
+  bool? permissionGranted;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
 
   final NotificationRepository _repository;
 
@@ -20,7 +48,7 @@ class NotificationSettingsViewModel extends ChangeNotifier {
   Map<NotificationType, NotificationPreference> preferences = {
     NotificationType.prayer: const NotificationPreference(
       type: NotificationType.prayer,
-      enabled: true,
+      enabled: false,
       leadTimeMinutes: 15,
       channels: ['local'],
     ),
@@ -45,17 +73,24 @@ class NotificationSettingsViewModel extends ChangeNotifier {
   };
 
   Future<void> loadPreferences() async {
+    final revision = _revision;
+    final generation = NotificationService.instance.sessionGeneration;
     isLoading = true;
     errorMessage = null;
-    notifyListeners();
-
+    _notify();
     try {
-      preferences = await _repository.loadPreferences();
-    } catch (error) {
-      errorMessage = error.toString();
+      final loaded = await _repository.loadPreferences();
+      if (revision == _revision &&
+          generation == NotificationService.instance.sessionGeneration) {
+        preferences = loaded;
+      }
+    } catch (_) {
+      if (revision == _revision) errorMessage = 'load';
     } finally {
-      isLoading = false;
-      notifyListeners();
+      if (revision == _revision) {
+        isLoading = false;
+        _notify();
+      }
     }
   }
 
@@ -71,7 +106,7 @@ class NotificationSettingsViewModel extends ChangeNotifier {
         preferences[type] ??
         NotificationPreference(
           type: type,
-          enabled: enabled,
+          enabled: false,
           leadTimeMinutes: leadTimeMinutes,
           channels: channels ?? const <String>['local'],
         );
@@ -84,32 +119,47 @@ class NotificationSettingsViewModel extends ChangeNotifier {
       preferredMinute: preferredMinute ?? current.preferredMinute,
     );
 
-    preferences = {...preferences, type: updated};
-    notifyListeners();
-
-    if (enabled) {
-      // Contextual — only ever prompted when a user actually turns a
-      // reminder on, not unconditionally at app launch.
-      unawaited(NotificationService.instance.requestPermission());
-    }
-
+    // Snapshot the account and order writes before any permission dialog.
+    final userId = _currentUserId();
+    final generation = NotificationService.instance.sessionGeneration;
+    final revision = ++_revision;
+    bool isCurrent() =>
+        revision == _revision &&
+        generation == NotificationService.instance.sessionGeneration &&
+        userId == _currentUserId();
+    final previous = preferences;
+    final snapshot = {...preferences, type: updated};
     try {
-      await _repository.savePreferences(preferences);
-    } catch (error) {
-      errorMessage = error.toString();
-      notifyListeners();
+      NotificationPreference.fromJson(updated.toJson());
+    } catch (_) {
+      errorMessage = 'invalid';
+      _notify();
       return;
     }
-
-    // New critical finding (notification cancellation closure, Finding
-    // 1) — a saved preference change (most importantly, disabling a
-    // reminder) must reconcile the scheduler promptly, not wait for an
-    // unrelated app-start/resume trigger. Mirrors the exact same
-    // "schedule immediately rather than waiting" pattern the contextual-
-    // consent flow already established (`dashboard_screen.dart`'s own
-    // enable-reminder call site).
-    await NotificationRefreshCoordinator.refresh(
-      userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
-    );
+    preferences = snapshot;
+    isLoading = false;
+    errorMessage = null;
+    _notify();
+    final saved = _saveTail.then((_) => _repository.savePreferences(snapshot));
+    _saveTail = saved.catchError((Object _) {});
+    var persisted = false;
+    try {
+      await saved;
+      persisted = true;
+      if (!isCurrent()) return;
+      if (enabled && !current.enabled) {
+        permissionGranted = await _requestPermission();
+        if (!isCurrent()) return;
+      }
+      await _refresh(userId);
+    } catch (_) {
+      if (isCurrent()) {
+        if (!persisted) preferences = previous;
+        errorMessage = 'save';
+        _notify();
+      }
+      return;
+    }
+    if (isCurrent()) _notify();
   }
 }

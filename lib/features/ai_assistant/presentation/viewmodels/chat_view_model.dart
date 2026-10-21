@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
@@ -49,8 +50,10 @@ class ChatViewModel extends ChangeNotifier {
     unawaited(
       NotificationService.instance.showNow(
         id: id,
-        title: titleAr,
-        body: bodyAr,
+        title: 'Niswah',
+        body: AppLocaleController.instance.isArabic
+            ? 'افتحي نِسواه لمراجعة تحديث مهم.'
+            : 'Open Niswah to review an important update.',
       ),
     );
     unawaited(
@@ -259,12 +262,18 @@ class ChatViewModel extends ChangeNotifier {
     // Independent of the network call below, so a red-flag symptom is
     // never silently dropped if the backend is unreachable.
     final isRedFlagLocally = DrNiswahRedFlags.matches(content);
+    final notificationSession = NotificationService.instance.sessionGeneration;
+    bool isCurrentSession() =>
+        notificationSession == NotificationService.instance.sessionGeneration;
 
     try {
       final response = await DrNiswahBackendService.instance.send(
         threadId: threadId,
         content: content,
       );
+      // A delayed reply belongs to the session that sent it. It must not
+      // add an alert or private feed entry after sign-out/account change.
+      if (!isCurrentSession()) return;
       final assistantMessage = ChatMessage(
         id: 'local_assistant_${DateTime.now().microsecondsSinceEpoch}',
         threadId: threadId,
@@ -288,6 +297,7 @@ class ChatViewModel extends ChangeNotifier {
       notifyListeners();
       if (response.urgent) _notifyUrgent();
     } catch (error, stack) {
+      if (!isCurrentSession()) return;
       if (isRedFlagLocally) {
         final bannerMessage = ChatMessage(
           id: 'local_urgent_${DateTime.now().microsecondsSinceEpoch}',
