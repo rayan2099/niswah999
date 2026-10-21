@@ -30,19 +30,16 @@ class PregnancyStateSync {
     String? Function()? currentUserId,
     Future<void> Function(String? userId)? refreshNotifications,
     PregnancyStatusController? controller,
-  }) : _repository = repository,
+  }) : _repo = repository ?? PregnancyProfileRepository(),
        _currentUserId = currentUserId ?? _signedInUserId,
        _refreshNotifications =
            refreshNotifications ?? _defaultRefreshNotifications,
        _controller = controller ?? PregnancyStatusController.instance;
 
-  final PregnancyProfileRepository? _repository;
+  final PregnancyProfileRepository _repo;
   final String? Function() _currentUserId;
   final Future<void> Function(String? userId) _refreshNotifications;
   final PregnancyStatusController _controller;
-
-  PregnancyProfileRepository get _repo =>
-      _repository ?? PregnancyProfileRepository();
 
   static String? _signedInUserId() =>
       NiswahSupabase.clientOrNull?.auth.currentUser?.id;

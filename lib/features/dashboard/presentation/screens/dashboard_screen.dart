@@ -1406,10 +1406,7 @@ class _PregnancyOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isArabic = AppLocaleController.instance.isArabic;
-    final (stageName, sizeName) = pregnancyStageFor(
-      week,
-      isArabic: isArabic,
-    );
+    final (stageName, sizeName) = pregnancyStageFor(week, isArabic: isArabic);
     final remainingWeeks = math.max(0, 40 - week);
     final daysToBirth = remainingWeeks * 7;
     final progressPercent = ((week / 40) * 100).round();

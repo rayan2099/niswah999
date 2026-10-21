@@ -1,21 +1,15 @@
-// Round 2 review — FAILING BY DESIGN until fixed, in any DST-observing
-// zone. Run with:  TZ=America/New_York flutter test <this file>
-// (In UTC/no-DST zones the arithmetic coincides and these pass.)
-//
-// planNifasCountdown / planPregnancyMilestone build fire times with
-// `today.add(Duration(days: n))` (24h multiples) instead of calendar-day
-// arithmetic (`addCalendarDays`, which planCycleReminder already uses), so
-// a DST change between now and the fire day shifts the 09:00 reminder.
+// Pregnancy/notifications hardening (2026-10-21) — regression tests for
+// finding 11 (calendar-day math in reminder fire times and the rolling
+// window). Meaningful in a DST zone; run both ways:
+//   flutter test test/pregnancy_notifications_hardening
+//   TZ=America/New_York flutter test test/pregnancy_notifications_hardening
 import 'package:flutter_test/flutter_test.dart';
+import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
 import 'package:niswah/features/notifications/domain/services/notification_scheduler.dart';
 import 'package:niswah/features/pregnancy_profile/domain/entities/pregnancy_profile.dart';
 
 void main() {
-  final dstZone =
-      DateTime(2026, 10, 31).timeZoneOffset != DateTime(2026, 11, 2).timeZoneOffset;
-
-  test('nifas day-35 warning fires at 09:00 local even across a DST change '
-      '(zone has DST between Oct 31 and Nov 2 2026: $dstZone)', () {
+  test('nifas reminder fires at 09:00 local across a DST change', () {
     final plan = NotificationScheduler.planNifasCountdown(
       profile: PregnancyProfile(
         id: 'p',
@@ -25,15 +19,10 @@ void main() {
       ),
       now: DateTime(2026, 10, 20, 12),
     );
-    expect(plan, isNotNull);
     expect(plan!.fireAt, DateTime(2026, 11, 24, 9));
   });
 
-  // Also fails in UTC: the planner probes candidate days at 00:00, so when
-  // the week flips before 09:00 (set-up time 08:00) the reminder lands a
-  // day late (Nov 3). In New York it is additionally an hour early (08:00).
-  test('pregnancy milestone across fall-back fires on the right day at 09:00',
-      () {
+  test('pregnancy milestone across fall-back: right day, 09:00', () {
     final plan = NotificationScheduler.planPregnancyMilestone(
       profile: PregnancyProfile(
         id: 'p',
@@ -44,8 +33,45 @@ void main() {
       ),
       now: DateTime(2026, 10, 31, 12),
     );
-    expect(plan, isNotNull);
-    // Week 13 begins 2026-11-02 08:00 local; the 09:00 reminder that day.
+    // Week 13 begins 2026-11-02 ~08:00 local; the 09:00 reminder that day.
     expect(plan!.fireAt, DateTime(2026, 11, 2, 9));
+  });
+
+  test('rolling check-in window: one plan per distinct local day across '
+      'fall-back, every one at the preferred time', () {
+    final episode = BleedingEpisode(
+      id: 'ep',
+      userId: 'u',
+      lifecycleStatus: LifecycleStatus.open,
+      continuationCertainty: ContinuationCertainty.confirmed,
+      startDate: DateTime(2026, 10, 30),
+      startPrecision: ObservationPrecision.dateOnly,
+      startSource: ObservationSource.userObserved,
+    );
+    final plans = ActiveBleedingReminderScheduler.planRollingDailyCheckins(
+      episode: episode,
+      todaysObservationCount: 0,
+      now: DateTime(2026, 10, 31, 8),
+      leadHour: 18,
+      leadMinute: 0,
+      daysAhead: 5,
+    );
+    expect(plans.map((p) => p.fireAt), [
+      DateTime(2026, 10, 31, 18),
+      DateTime(2026, 11, 1, 18),
+      DateTime(2026, 11, 2, 18),
+      DateTime(2026, 11, 3, 18),
+      DateTime(2026, 11, 4, 18),
+    ]);
+    expect(plans.map((p) => p.id).toSet(), hasLength(5));
+    expect(
+      ActiveBleedingReminderScheduler.rollingWindowReminderIds(
+        userId: 'u',
+        episodeId: 'ep',
+        today: DateTime(2026, 10, 31),
+        daysAhead: 5,
+      ),
+      plans.map((p) => p.id).toList(),
+    );
   });
 }

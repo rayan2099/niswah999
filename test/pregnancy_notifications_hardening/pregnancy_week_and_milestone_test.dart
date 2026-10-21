@@ -1,4 +1,6 @@
-// Round 2 review — FAILING BY DESIGN until fixed.
+// Pregnancy/notifications hardening (2026-10-21) — regression tests.
+// Findings 9 (one shared week cap) and 10 (milestone probed at the 09:00
+// fire time over 8 days, so a refresh never cancels a valid reminder).
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/preferences/pregnancy_status_controller.dart';
 import 'package:niswah/core/utils/app_clock.dart';
@@ -19,40 +21,59 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('weekly milestone reminder', () {
-    // Pregnancy set up Monday 2026-10-05 15:00 at week 12. The engine's
-    // week flips at 15:00 every Monday; the planner probes candidate days
-    // at MIDNIGHT, so it sees the flip a day late — and on the flip day
-    // itself, after 15:00, it finds no higher week within its 7-day probe.
-    final setAt = DateTime(2026, 10, 5, 15);
-    final profile = _manual(12, setAt);
+    // Set up Monday 2026-10-05 15:00 at week 12: the engine's week flips at
+    // 15:00 every Monday, so the first 09:00 on/after each flip is Tuesday.
+    final profile = _manual(12, DateTime(2026, 10, 5, 15));
 
-    test('a refresh on the boundary day AFTER the flip still plans the next '
-        'milestone (it currently returns null, and _apply(null) CANCELS id '
-        '102 — the already-scheduled week-13 reminder is lost)', () {
+    test('refreshes before and after the flip plan the SAME reminder', () {
       final morning = NotificationScheduler.planPregnancyMilestone(
         profile: profile,
         now: DateTime(2026, 10, 12, 10),
       );
-      // Precondition: the 10:00 refresh scheduled "entered week 13".
       expect(morning, isNotNull);
-      expect(morning!.bodyEn, contains('week 13'));
+      expect(morning!.feedBodyEn, contains('week 13'));
       expect(morning.fireAt, DateTime(2026, 10, 13, 9));
 
+      // Previously null here, and the coordinator then cancelled id 102.
       final evening = NotificationScheduler.planPregnancyMilestone(
         profile: profile,
         now: DateTime(2026, 10, 12, 16),
       );
-      expect(evening, isNotNull,
-          reason: 'no milestone planned; coordinator cancels id 102');
+      expect(evening, morning);
+    });
+
+    test('after that reminder fired, the next week is planned', () {
+      final plan = NotificationScheduler.planPregnancyMilestone(
+        profile: profile,
+        now: DateTime(2026, 10, 13, 10),
+      );
+      expect(plan!.fireAt, DateTime(2026, 10, 20, 9));
+      expect(plan.feedBodyEn, contains('week 14'));
+    });
+
+    test('a week that flips before 09:00 is announced that same morning', () {
+      final plan = NotificationScheduler.planPregnancyMilestone(
+        profile: _manual(12, DateTime(2026, 10, 5, 8)),
+        now: DateTime(2026, 10, 8, 12),
+      );
+      expect(plan!.fireAt, DateTime(2026, 10, 12, 9));
+    });
+
+    test('no milestone once the shared cap is reached', () {
+      final plan = NotificationScheduler.planPregnancyMilestone(
+        profile: _manual(42, DateTime(2026, 10, 5, 15)),
+        now: DateTime(2026, 10, 6, 10),
+      );
+      expect(plan, isNull);
     });
   });
 
-  group('dashboard vs engine week cap', () {
+  group('one shared week cap', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
     tearDown(() => AppClock.now = DateTime.now);
 
-    test('3 weeks after setting week 39, dashboard and chat/reports/'
-        'notifications must agree on the week', () async {
+    test('3 weeks after setting week 39, the dashboard and the engine '
+        '(chat/reports/notifications) agree', () async {
       final start = DateTime(2026, 9, 1, 10);
       AppClock.now = () => start;
       final c = PregnancyStatusController.instance;
@@ -64,7 +85,7 @@ void main() {
         _manual(39, start),
         later,
       ).week;
-      // dashboard: clamp(1, 40) -> 40 ; engine: clamp(1, 42) -> 42
+      expect(engineWeek, PregnancyStatusEngine.maxWeek);
       expect(c.currentWeek, engineWeek);
       await c.deactivate();
     });

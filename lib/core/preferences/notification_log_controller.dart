@@ -158,8 +158,7 @@ class NotificationLogController extends ChangeNotifier {
     final now = AppClock.now();
     final kept = [
       for (final existing in _entries)
-        if (!(_inSlot(existing, slot) && !existing.isVisibleAt(now)))
-          existing,
+        if (!(_inSlot(existing, slot) && !existing.isVisibleAt(now))) existing,
     ];
     if (kept.any((existing) => existing.id == entry.id)) {
       if (kept.length == _entries.length) return;
@@ -177,8 +176,7 @@ class NotificationLogController extends ChangeNotifier {
     final now = AppClock.now();
     final kept = [
       for (final existing in _entries)
-        if (!(_inSlot(existing, slot) && !existing.isVisibleAt(now)))
-          existing,
+        if (!(_inSlot(existing, slot) && !existing.isVisibleAt(now))) existing,
     ];
     if (kept.length == _entries.length) return;
     _entries = kept;

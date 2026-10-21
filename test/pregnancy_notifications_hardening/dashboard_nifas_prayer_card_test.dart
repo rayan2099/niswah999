@@ -1,9 +1,9 @@
-// Round 2 review — FAILING BY DESIGN until fixed. Proves: during active
-// nifas (day 3 after birth) the dashboard shows the Nifas card ("salah is
-// lifted while bleeding continues") AND, directly below it, the
-// Haid-engine-driven prayer card asserting "Salah is obligatory". The
-// CanonicalFiqhAssessment that feeds the prayer card has no nifas input at
-// all (dashboard_screen.dart ~617-623, 965-968).
+// Pregnancy/notifications hardening (2026-10-21) — regression test for
+// finding 1: during active nifas the dashboard used to show the Nifas card
+// ("salah is lifted while bleeding continues") AND the Haid-engine-driven
+// prayer card asserting "Salah is obligatory". The prayer card now defers
+// to the Nifas card (unresolved, "Unknown" per prayer) and the Fiqh banner
+// is hidden.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -75,8 +75,9 @@ _Repo _history() => _Repo(
 );
 
 void main() {
-  testWidgets('nifas day 3: prayer card must not assert "Salah is obligatory"',
-      (tester) async {
+  testWidgets('nifas day 3: prayer card defers to the Nifas card', (
+    tester,
+  ) async {
     // Harness clock: 2026-08-18 12:00. Birth logged 2026-08-16 10:00.
     await ParityTestHarness.pump(
       tester,
@@ -95,14 +96,23 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(PregnancyStatusController.instance.isNifasActive, isTrue);
-    expect(find.byKey(const Key('nifas-status')), findsOneWidget,
-        reason: 'precondition: the Nifas card is on screen');
-    expect(find.textContaining('salah is lifted while bleeding continues'),
-        findsOneWidget);
+    expect(
+      find.byKey(const Key('nifas-status')),
+      findsOneWidget,
+      reason: 'precondition: the Nifas card is on screen',
+    );
+    expect(
+      find.textContaining('salah is lifted while bleeding continues'),
+      findsOneWidget,
+    );
 
     final s = tester.state<ScrollableState>(find.byType(Scrollable).first);
     s.position.jumpTo(s.position.maxScrollExtent);
     await tester.pumpAndSettle();
     expect(find.text('Salah is obligatory'), findsNothing);
+    expect(find.textContaining('obligatory'), findsNothing);
+    expect(find.text('Salah is lifted'), findsNothing);
+    expect(find.text('See your Nifas status above'), findsOneWidget);
+    expect(find.text('Unknown'), findsNWidgets(5));
   });
 }
