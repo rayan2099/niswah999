@@ -238,13 +238,12 @@ void main() {
   });
 
   testWidgets(
-    'an empty day within an episode offers to add the missing entry, and '
-    'opens the real backfill sheet',
+    'an empty day within an open episode offers to add the missing entry, '
+    'and opens the real backfill sheet',
     (tester) async {
-      final episode = _episode(
-        start: DateTime(2026, 8, 1),
-        end: DateTime(2026, 8, 5),
-      );
+      // record_bleeding_observation only accepts new facts on an OPEN
+      // episode, so the offer is made only there (logging/sync hardening).
+      final episode = _episode(start: DateTime(2026, 8, 1));
       await pumpCalendar(tester, episodes: [episode], observations: const []);
 
       await tester.tap(
@@ -259,6 +258,23 @@ void main() {
       expect(find.text('Add a missing day'), findsOneWidget);
     },
   );
+
+  testWidgets('an empty day within an ENDED episode does not offer to add a '
+      'missing entry the server would reject', (tester) async {
+    final episode = _episode(
+      start: DateTime(2026, 8, 1),
+      end: DateTime(2026, 8, 5),
+    );
+    await pumpCalendar(tester, episodes: [episode], observations: const []);
+
+    await tester.tap(
+      find.byKey(const ValueKey('canonical-day-2026-08-02T00:00:00.000')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Add missing entry'), findsNothing);
+  });
 
   testWidgets('a day with no episode at all offers no fabricated action, only '
       'honest guidance', (tester) async {
@@ -348,17 +364,14 @@ void main() {
         start: DateTime(2026, 7, 1),
         end: DateTime(2026, 7, 5),
       );
-      // Average gap: 30 days -> predicted next start ~2026-07-31,
-      // safely inside the fixed test clock's own month (August 2026)
-      // once navigated there is unnecessary; predicted start actually
-      // lands July 31 — navigate to July to see it alongside real data.
+      // Gap: 30 days -> predicted next start 2026-07-31, still ahead of
+      // "today" (July 20), so it is drawn.
+      AppClock.now = () => DateTime(2026, 7, 20, 12);
       await pumpCalendar(
         tester,
         episodes: [firstEpisode, secondEpisode],
         observations: const [],
       );
-      await tester.tap(find.byIcon(Icons.chevron_left_rounded));
-      await tester.pumpAndSettle();
       expect(find.text('July 2026'), findsOneWidget);
 
       final predictedCell = tester.widget<CustomPaint>(
@@ -378,6 +391,46 @@ void main() {
             'a predicted day must be painted with the dashed marker, '
             'never rendered plain like a real bleeding day',
       );
+    },
+  );
+
+  testWidgets(
+    'a clearly late period is never drawn as predicted bleeding on days '
+    'that have already passed',
+    (tester) async {
+      // Predicted start July 31; "today" (the default clock) is Aug 18,
+      // 18 days later with nothing logged.
+      await pumpCalendar(
+        tester,
+        episodes: [
+          _episode(
+            id: 'ep-first',
+            start: DateTime(2026, 6, 1),
+            end: DateTime(2026, 6, 5),
+          ),
+          _episode(
+            id: 'ep-second',
+            start: DateTime(2026, 7, 1),
+            end: DateTime(2026, 7, 5),
+          ),
+        ],
+        observations: const [],
+      );
+      await tester.tap(find.byIcon(Icons.chevron_left_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text('July 2026'), findsOneWidget);
+
+      final cell = tester.widget<CustomPaint>(
+        find
+            .descendant(
+              of: find.byKey(
+                const ValueKey('canonical-day-2026-07-31T00:00:00.000'),
+              ),
+              matching: find.byType(CustomPaint),
+            )
+            .first,
+      );
+      expect(cell.foregroundPainter, isNull);
     },
   );
 
@@ -821,13 +874,12 @@ void main() {
           start: DateTime(2026, 7, 1),
           end: DateTime(2026, 7, 5),
         );
+        AppClock.now = () => DateTime(2026, 7, 20, 12);
         await pumpCalendar(
           tester,
           episodes: [firstEpisode, secondEpisode],
           episodesQuarantinedCount: 1,
         );
-        await tester.tap(find.byIcon(Icons.chevron_left_rounded));
-        await tester.pumpAndSettle();
         expect(find.text('July 2026'), findsOneWidget);
 
         // The same fixture produces a real prediction (see the

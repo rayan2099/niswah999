@@ -1,8 +1,11 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/errors/network_failure.dart';
+import '../../../../core/storage/secure_local_store.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
@@ -48,6 +51,38 @@ class CorrectionConflictException implements Exception {
   String toString() => 'CorrectionConflictException($supersedesId)';
 }
 
+/// Logging/sync hardening (proposed, 2026-10-18) — the server answered a
+/// write with a deterministic rejection: a validation `RAISE EXCEPTION`
+/// (SQLSTATE `P0001`), a constraint violation (`23xxx`) or malformed input
+/// (`22xxx`). Re-sending the same data can never succeed, so this is never
+/// reported to her as "Saved on device — syncing": the write sheets show a
+/// real error and drop the queued copy, and
+/// [BleedingEpisodeRepositoryImpl.reconcilePendingOperations] files it as
+/// [PendingOperationFailureCategory.validation] instead of retrying it as a
+/// network gap.
+class BleedingWriteRejectedException implements Exception {
+  const BleedingWriteRejectedException(this.code, this.message);
+
+  /// The Postgres/PostgREST error code, e.g. `P0001` or `23514`.
+  final String code;
+  final String message;
+
+  @override
+  String toString() => 'BleedingWriteRejectedException($code: $message)';
+}
+
+/// Logging/sync hardening (proposed) — `record_onboarding_menstrual_history`
+/// returned normally but with `episode_conflict = true`: nothing was saved
+/// for the episode part. Thrown only by the background replay, so a
+/// conflicting queued onboarding submission stays pending (needs her
+/// review) instead of being cleared as if it had saved.
+class OnboardingEpisodeConflictException implements Exception {
+  const OnboardingEpisodeConflictException();
+
+  @override
+  String toString() => 'OnboardingEpisodeConflictException';
+}
+
 /// Writes/reads the first-class `bleeding_episodes` / `bleeding_observations`
 /// / `cycle_baselines` model (menstrual-data-integrity charter). Deliberately
 /// server-only for this initial slice — every caller today (onboarding, the
@@ -67,6 +102,54 @@ class BleedingEpisodeRepositoryImpl {
   /// [ObservationSource.userObserved]; reporting any other date is
   /// [ObservationSource.userReportedHistorical]) consistently with what
   /// the canonical RPC itself uses for future-date rejection.
+  /// A deterministic server rejection — see [BleedingWriteRejectedException].
+  static bool isPermanentRejectionCode(String? code) {
+    if (code == null) return false;
+    return code == 'P0001' || code.startsWith('23') || code.startsWith('22');
+  }
+
+  /// No response from the server at all (offline, DNS, refused, timeout).
+  /// postgrest does not wrap these in a [PostgrestException].
+  static bool isTransportFailure(Object error) =>
+      error is http.ClientException || isNetworkFailure(error);
+
+  /// Shared failure policy for every write that can be queued on device:
+  /// a deterministic rejection is thrown as [BleedingWriteRejectedException];
+  /// anything transient (a transport failure or a non-deterministic
+  /// PostgREST error) returns normally so the caller reports the queued
+  /// "Saved on device — syncing" outcome. Anything else is rethrown.
+  static void _classifyWriteFailure(
+    Object error,
+    StackTrace stack, {
+    required String context,
+    String? recordId,
+  }) {
+    if (error is PostgrestException) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: context,
+        feature: 'cycle_tracking',
+        recordId: recordId,
+      );
+      if (isPermanentRejectionCode(error.code)) {
+        throw BleedingWriteRejectedException(error.code!, error.message);
+      }
+      return;
+    }
+    if (isTransportFailure(error)) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: context,
+        feature: 'cycle_tracking',
+        recordId: recordId,
+      );
+      return;
+    }
+    Error.throwWithStackTrace(error, stack);
+  }
+
   static DateTime localToday(int utcOffsetMinutes) {
     // AppClock.now defaults to DateTime.now (identical production
     // behavior); it is the single controllable clock the notification
@@ -171,11 +254,13 @@ class BleedingEpisodeRepositoryImpl {
       if (error.code == '23505') {
         throw const ActiveEpisodeAlreadyExistsException();
       }
-      AppErrorReporter.report(
+      // A deterministic rejection is thrown as
+      // BleedingWriteRejectedException; anything transient is rethrown
+      // unchanged (the Start sheet reports it as queued).
+      _classifyWriteFailure(
         error,
         stack,
         context: 'BleedingEpisodeRepositoryImpl.startEpisode',
-        feature: 'cycle_tracking',
       );
       rethrow;
     }
@@ -232,12 +317,14 @@ class BleedingEpisodeRepositoryImpl {
         episodeId: row['episode_id'] as String,
         closingObservationId: row['closing_observation_id'] as String,
       );
-    } on PostgrestException catch (error, stack) {
-      AppErrorReporter.report(
+    } catch (error, stack) {
+      // Logging/sync hardening: null only for a transient failure (the
+      // operation stays queued); a deterministic rejection throws
+      // BleedingWriteRejectedException.
+      _classifyWriteFailure(
         error,
         stack,
         context: 'BleedingEpisodeRepositoryImpl.endEpisode',
-        feature: 'cycle_tracking',
         recordId: episodeId,
       );
       return null;
@@ -268,7 +355,12 @@ class BleedingEpisodeRepositoryImpl {
           .eq('id', episodeId)
           .single();
       return BleedingEpisode.fromJson(response);
-    } on PostgrestException catch (error, stack) {
+    } catch (error, stack) {
+      if (error is! PostgrestException && !isTransportFailure(error)) {
+        rethrow;
+      }
+      // Not queued on device (no pending operation backs it), so every
+      // failure — transient or not — is an honest "could not save".
       AppErrorReporter.report(
         error,
         stack,
@@ -331,12 +423,11 @@ class BleedingEpisodeRepositoryImpl {
       );
       final row = (response as List).single as Map<String, dynamic>;
       return row['observation_id'] as String?;
-    } on PostgrestException catch (error, stack) {
-      AppErrorReporter.report(
+    } catch (error, stack) {
+      _classifyWriteFailure(
         error,
         stack,
         context: 'BleedingEpisodeRepositoryImpl.recordObservation',
-        feature: 'cycle_tracking',
         recordId: episodeId,
       );
       return null;
@@ -403,15 +494,14 @@ class BleedingEpisodeRepositoryImpl {
       );
       final row = (response as List).single as Map<String, dynamic>;
       return row['observation_id'] as String?;
-    } on PostgrestException catch (error, stack) {
-      if (error.code == 'NW409') {
+    } catch (error, stack) {
+      if (error is PostgrestException && error.code == 'NW409') {
         throw CorrectionConflictException(supersedesId);
       }
-      AppErrorReporter.report(
+      _classifyWriteFailure(
         error,
         stack,
         context: 'BleedingEpisodeRepositoryImpl.correctObservation',
-        feature: 'cycle_tracking',
         recordId: supersedesId,
       );
       return null;
@@ -500,6 +590,27 @@ class BleedingEpisodeRepositoryImpl {
       currentId = all.where((o) => o.supersedesId == currentId).firstOrNull?.id;
     }
     return chain;
+  }
+
+  /// Logging/sync hardening (proposed) — whether [id] is a canonical
+  /// `bleeding_observations` row, i.e. whether a `cycle_entries` row with
+  /// the same id is [CycleEntriesProjection]'s mirror of it. The legacy log
+  /// sheet must not overwrite such a mirror (the canonical observation is
+  /// the fact; corrections go through `correct_observation`). Null when it
+  /// cannot be determined (no session, offline, malformed id).
+  Future<bool?> isCanonicalObservationId(String id) async {
+    final client = _client;
+    if (client == null) return null;
+    try {
+      final response = await client
+          .from('bleeding_observations')
+          .select('id')
+          .eq('id', id)
+          .maybeSingle();
+      return response != null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String?> _episodeIdFor(String observationId) async {
@@ -855,9 +966,19 @@ class BleedingEpisodeRepositoryImpl {
   /// ever waste a retry slot silently forever ("do not retry invalid
   /// operations indefinitely").
   Future<void> reconcilePendingOperations({bool forceAll = false}) async {
-    final pending = await PendingBleedingOperationStore.loadPending();
+    // Logging/sync hardening (proposed): the queue's owner is captured
+    // ONCE. Every load/save/clear below targets that owner's bucket, and
+    // the pass stops as soon as the signed-in user changes — so an account
+    // switch mid-sync can neither move this user's queued health data into
+    // another account's queue nor replay it under another session.
+    final ownerId = SecureLocalStore.currentUserId();
+    bool ownerChanged() => SecureLocalStore.currentUserId() != ownerId;
+    final pending = await PendingBleedingOperationStore.loadPending(
+      userId: ownerId,
+    );
     var clearedAny = false;
     for (final operation in pending) {
+      if (ownerChanged()) break;
       if (!forceAll && !operation.eligibleForAutomaticRetry) continue;
       // Set by the cases below when the replay produced an observation
       // the interactive path would have mirrored into the legacy read
@@ -929,7 +1050,7 @@ class BleedingEpisodeRepositoryImpl {
             final params = operation.params;
             final episodeJson = params['episode'] as Map<String, dynamic>?;
             final baselineJson = params['baseline'] as Map<String, dynamic>?;
-            await recordOnboardingHistory(
+            final onboardingResult = await recordOnboardingHistory(
               clientOperationId: operation.operationId,
               utcOffsetMinutes: params['utcOffsetMinutes'] as int,
               episode: episodeJson == null
@@ -978,6 +1099,11 @@ class BleedingEpisodeRepositoryImpl {
                           baselineJson['usualCycleLengthDays'] as int?,
                     ),
             );
+            // Logging/sync hardening: a conflict saved NOTHING for the
+            // episode part — never cleared, never "onboarding complete".
+            if (onboardingResult.episodeConflict) {
+              throw const OnboardingEpisodeConflictException();
+            }
             // The historical data is now durably saved server-side — she
             // must never be routed back through onboarding to re-answer
             // (and risk a second, semantically-duplicate submission)
@@ -1066,7 +1192,10 @@ class BleedingEpisodeRepositoryImpl {
               );
             }
         }
-        await PendingBleedingOperationStore.clearPending(operation.operationId);
+        await PendingBleedingOperationStore.clearPending(
+          operation.operationId,
+          userId: ownerId,
+        );
         clearedAny = true;
         if (replayedObservationId != null) {
           await _projectReplayedObservation(
@@ -1094,8 +1223,10 @@ class BleedingEpisodeRepositoryImpl {
             _categorizeReconciliationError(error),
             attemptedAt: DateTime.now(),
           ),
+          userId: ownerId,
         );
       }
+      if (ownerChanged()) break;
     }
     // Only after every projection above has run, so a listener that
     // refreshes reads the fully-reconciled state.
@@ -1154,6 +1285,16 @@ class BleedingEpisodeRepositoryImpl {
   ) {
     if (error is CorrectionConflictException) {
       return PendingOperationFailureCategory.correctionConflict;
+    }
+    // Logging/sync hardening: deterministic outcomes that re-sending the
+    // same data cannot change — never auto-retried, surfaced for review.
+    if (error is BleedingWriteRejectedException ||
+        error is ActiveEpisodeAlreadyExistsException ||
+        error is OnboardingEpisodeConflictException) {
+      return PendingOperationFailureCategory.validation;
+    }
+    if (isTransportFailure(error)) {
+      return PendingOperationFailureCategory.network;
     }
     if (error is PostgrestException) {
       final code = error.code;
@@ -1223,12 +1364,11 @@ class CycleBaselineRepositoryImpl {
       );
       final row = (response as List).single as Map<String, dynamic>;
       return row['baseline_id'] as String?;
-    } on PostgrestException catch (error, stack) {
-      AppErrorReporter.report(
+    } catch (error, stack) {
+      BleedingEpisodeRepositoryImpl._classifyWriteFailure(
         error,
         stack,
         context: 'CycleBaselineRepositoryImpl.saveBaseline',
-        feature: 'cycle_tracking',
         recordId: clientOperationId,
       );
       return null;

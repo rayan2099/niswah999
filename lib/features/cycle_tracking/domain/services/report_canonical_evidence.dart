@@ -23,6 +23,7 @@ class ReportCanonicalEvidence {
     required this.hasOpenEpisode,
     required this.evidenceUnresolved,
     this.unavailable = false,
+    this.statedBaseline,
   });
 
   /// Effective (post-correction) canonical days with a representable flow.
@@ -39,6 +40,11 @@ class ReportCanonicalEvidence {
 
   /// The canonical read itself failed — genuinely unknown, never "no data".
   final bool unavailable;
+
+  /// Her onboarding estimate of her usual cycle/period length, so report
+  /// predictions blend it in exactly as Today does. Null when she gave
+  /// none or it could not be read.
+  final CycleBaseline? statedBaseline;
 
   /// Same definition the dashboard uses: an excluded "I'm not sure" day only
   /// matters when it falls on/after the currently open episode's start.
@@ -62,6 +68,7 @@ class ReportCanonicalEvidence {
     required String? userId,
     required DateTime now,
     BleedingEpisodeRepositoryImpl? repository,
+    CycleBaselineRepositoryImpl? baselineRepository,
   }) async {
     if (userId == null) return null;
     final repo = repository ?? BleedingEpisodeRepositoryImpl();
@@ -81,6 +88,14 @@ class ReportCanonicalEvidence {
 
     final status = await CanonicalBleedingStatusResolver(repo)
         .resolve(userId: userId, now: now);
+    CycleBaseline? statedBaseline;
+    try {
+      statedBaseline =
+          await (baselineRepository ?? CycleBaselineRepositoryImpl())
+              .getBaseline(userId);
+    } catch (_) {
+      statedBaseline = null;
+    }
     final episodes = episodesResult.dataOrNull ?? const <BleedingEpisode>[];
     final observations =
         observationsResult.dataOrNull ?? const <BleedingObservation>[];
@@ -105,6 +120,7 @@ class ReportCanonicalEvidence {
             observations: observations,
             openEpisodeStart: status.openEpisode?.startDate,
           ),
+      statedBaseline: statedBaseline,
     );
   }
 }

@@ -154,4 +154,25 @@ void main() {
       AppLocaleController.instance.setArabic(false);
     },
   );
+
+  testWidgets(
+    'a logged bleeding day shows as Haid even when nothing can be predicted',
+    (tester) async {
+      await pumpCalendar(
+        tester,
+        logs: [log(date: '2026-08-20', flow: FlowLevel.medium)],
+      );
+
+      final semantics = tester.getSemantics(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Semantics &&
+              w.properties.label != null &&
+              w.properties.label!.startsWith('20,'),
+        ),
+      );
+      expect(semantics.label, contains('Haid'));
+      expect(semantics.label, isNot(contains('Tahara')));
+    },
+  );
 }

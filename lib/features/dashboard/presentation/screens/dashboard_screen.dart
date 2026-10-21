@@ -21,8 +21,10 @@ import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/preferences/user_scoped_preferences.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
-import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
+import '../../../pregnancy_profile/data/pregnancy_state_sync.dart';
+import '../../../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
 import '../../../cycle_tracking/data/local/pending_bleeding_operation_store.dart';
 import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
@@ -32,7 +34,7 @@ import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/canonical_bleeding_status_resolver.dart';
 import '../../../cycle_tracking/domain/services/canonical_fiqh_evidence_adapter.dart';
 import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
-import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
+import '../../../cycle_tracking/domain/services/canonical_fiqh_assessment.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
 import '../../../cycle_tracking/domain/services/cycle_status_engine.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
@@ -40,6 +42,8 @@ import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_mode
 import '../../../cycle_tracking/presentation/screens/canonical_calendar_screen.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
 import '../../../cycle_tracking/presentation/widgets/daily_checkin_sheet.dart';
+import '../../../cycle_tracking/presentation/widgets/log_day_entry_router.dart';
+import '../../../cycle_tracking/presentation/widgets/predicted_range_text.dart';
 import '../../../cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
 import '../../../dream_interpreter/presentation/screens/dream_interpreter_screen.dart';
 import '../../../notifications/presentation/screens/notification_feed_screen.dart';
@@ -583,40 +587,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // themselves — never here, since the underlying calculation must
         // still run honestly either way.
         final canonicalFiqhLogs = _canonicalFiqhLogs ?? const <CycleLog>[];
-        final fiqhLogs = canonicalFiqhLogs;
-        final fiqhCalculation = const CycleCalculationService().calculate(
-          canonicalFiqhLogs,
-          asOf: AppClock.now(),
-        );
-        // The engine always runs (regardless of _istihadahMode) so every
-        // state — including manual istihadah — shares the same real,
-        // flow-aware day-count data; the toggle only overrides which
-        // label is displayed below, never the underlying computation.
-        final snapshot = fiqhCalculation.hasSufficientHistory
-            ? const CycleStatusEngine().evaluate(
-                logs: fiqhLogs,
-                calculation: fiqhCalculation,
-                madhhab: MadhhabController.instance.selectedOrNull,
-                now: AppClock.now(),
-              )
-            : const CycleStatusSnapshot(
-                state: FiqhCycleState.tahara,
-                confirmAt: null,
-                daysIntoCurrentEpisode: null,
-                cycleDayEstimate: null,
-                averageCycleLength: null,
-                averagePeriodLength: null,
-              );
-        final mappedState = switch (snapshot.state) {
-          FiqhCycleState.haid => _FiqhState.haid,
-          FiqhCycleState.needsAdvisory => _FiqhState.needsAdvisory,
-          FiqhCycleState.tahara ||
-          FiqhCycleState.insufficientHistory => _FiqhState.tahara,
-          // Fiqh Remediation Wave 1 (Section E): never mapped to tahara —
-          // that would silently claim purity for a currently-bleeding user
-          // with no Madhhab SELECTED.
-          FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
-        };
         // Closure Blocker 2 — the factual question "is there an open
         // bleeding episode?" is now answered ONLY by canonical
         // bleeding_episodes (via _canonicalStatus), never unioned with
@@ -641,43 +611,82 @@ class _DashboardScreenState extends State<DashboardScreen> {
           RingFactualState.factualOpenEpisode => true,
           _ => false,
         };
-        // New critical finding — a factually open episode (she is
-        // genuinely, currently being tracked as bleeding) combined with
-        // *insufficient* Fiqh evidence (never enough real observations to
-        // reach any evaluated conclusion at all — distinct from a
-        // genuine, evidence-backed Tahara/Istihadah ruling, which this
-        // does not touch) must never fall through to the same "Tahara"
-        // label a brand-new, not-currently-bleeding account gets. Without
-        // this guard, `_PrayerStatusCard` — unconditional, rendered
-        // regardless of which ring branch above shows — would have said
-        // "Salah is obligatory" for a woman who is, right now, factually
-        // bleeding, purely because her observations hadn't finished
-        // loading/existing yet. Folded into the same evidence-unresolved
-        // signal as a genuine read failure: both mean "cannot honestly
-        // conclude anything yet," never a confident ruling either way.
-        // Checked against `fiqhCalculation.hasSufficientHistory` directly —
-        // not `snapshot.state == FiqhCycleState.insufficientHistory` — because
-        // the fallback snapshot above (used precisely when history is
-        // insufficient) is itself hardcoded to report `FiqhCycleState.tahara`,
-        // never the `insufficientHistory` enum value. Matching on the enum
-        // value here would never fire.
-        final insufficientEvidenceWhileFactuallyBleeding =
-            hasOpenEpisode == true && !fiqhCalculation.hasSufficientHistory;
-        // New critical finding — evidence-unresolved takes priority over
-        // every other signal, including her own manual Istihadah toggle:
-        // if the canonical observations backing this conclusion could not
-        // be verified, nothing computed from them (nor a toggle that
-        // itself assumes a specific, knowable state) may be confidently
-        // asserted. Every consumer of `state` below (the ring, the Salah
-        // banner, the prayer-status card) must treat this case as "we
-        // don't know," never silently substitute the last-good value.
-        final state = _canonicalFiqhEvidenceUnresolved
-            ? _FiqhState.evidenceUnresolved
-            : insufficientEvidenceWhileFactuallyBleeding
-            ? _FiqhState.insufficientHistory
-            : _istihadahMode
-            ? _FiqhState.istihadah
-            : mappedState;
+        // Fiqh hardening (2026-10-18) — canonical status and the engine
+        // are combined in ONE shared place (CanonicalFiqhAssessment), the
+        // same one the Fiqh/Doctor/Husband reports and the AI advisor's
+        // clientFiqhState use, so they can never disagree with Today. It
+        // covers, in order: evidence-unresolved (a failed read, a
+        // quarantined row, a material "I'm not sure" day, or a bleeding
+        // day logged after the latest episode's stop date while nothing
+        // is open — the engine must not say "currently bleeding" then);
+        // a factually open episode with insufficient history (never the
+        // "Tahara" a brand-new, not-bleeding account gets — `_PrayerStatusCard`
+        // would otherwise say "Salah is obligatory"); otherwise the
+        // engine's own state. The engine always runs (regardless of
+        // _istihadahMode) so every state — including manual istihadah —
+        // shares the same real, flow-aware day-count data.
+        final fiqhAssessment = CanonicalFiqhAssessment.assess(
+          effectiveLogs: canonicalFiqhLogs,
+          hasOpenEpisode: hasOpenEpisode,
+          evidenceUnresolved: _canonicalFiqhEvidenceUnresolved,
+          madhhab: MadhhabController.instance.selectedOrNull,
+          now: AppClock.now(),
+          // The same episode history the reports and the AI advisor use.
+          canonicalEpisodes: _canonicalStatus?.episodeTimings ?? const [],
+        );
+        final snapshot = fiqhAssessment.snapshot;
+        final mappedState = switch (snapshot.state) {
+          FiqhCycleState.haid => _FiqhState.haid,
+          FiqhCycleState.needsAdvisory => _FiqhState.needsAdvisory,
+          FiqhCycleState.tahara ||
+          FiqhCycleState.insufficientHistory => _FiqhState.tahara,
+          // Fiqh Remediation Wave 1 (Section E): never mapped to tahara —
+          // that would silently claim purity for a currently-bleeding user
+          // with no Madhhab SELECTED.
+          FiqhCycleState.madhhabUnresolved => _FiqhState.madhhabUnresolved,
+        };
+        // Evidence-unresolved takes priority over every other signal,
+        // including her own manual Istihadah toggle: nothing computed from
+        // unverifiable evidence (nor a toggle that itself assumes a
+        // specific, knowable state) may be confidently asserted. Nor may
+        // the toggle stand in for a missing Madhhab (owner-e4 §14: no
+        // Haid/Tahara/Istihadah ruling ever appears with no Madhhab
+        // selected).
+        // Nifas window decision (2026-10-21, pending scholar
+        // confirmation): a Shafi'i/Maliki user bleeding on day 41..60
+        // after the logged birth gets no ruling — the ring and the prayer
+        // card read "needs review" and the advisory card below asks her to
+        // consult a scholar. Unverifiable evidence keeps its own state.
+        final postNifasAdvisory =
+            fiqhAssessment.verdict != CanonicalFiqhVerdict.evidenceUnresolved &&
+            PregnancyStatusEngine.needsPostNifasScholarAdvisoryOn(
+              birthDate: PregnancyStatusController.instance.nifasStartedAt,
+              today: AppClock.now(),
+              madhhab: MadhhabController.instance.selectedOrNull,
+              isBleeding: hasOpenEpisode,
+            );
+        final state = postNifasAdvisory
+            ? _FiqhState.needsAdvisory
+            : switch (fiqhAssessment.verdict) {
+                CanonicalFiqhVerdict.evidenceUnresolved =>
+                  _FiqhState.evidenceUnresolved,
+                CanonicalFiqhVerdict.insufficientHistory =>
+                  _FiqhState.insufficientHistory,
+                CanonicalFiqhVerdict.evaluated =>
+                  _istihadahMode && mappedState != _FiqhState.madhhabUnresolved
+                      ? _FiqhState.istihadah
+                      : mappedState,
+              };
+        // The prayer card states an obligation, so it must not let the
+        // manual Istihadah toggle mask an engine result that is itself
+        // "needs a case-specific review": Istihadah means she prays
+        // (haidfigh.md §1), but whether this bleeding IS istihadah is
+        // exactly what the engine could not settle.
+        final prayerCardState =
+            state == _FiqhState.istihadah &&
+                mappedState == _FiqhState.needsAdvisory
+            ? _FiqhState.needsAdvisory
+            : state;
         // The Fiqh/ring DISPLAY label remains legacy-derived — a
         // deliberately separate, non-factual concern (Commit G4: Fiqh
         // sits above evidence, never overrides it). Only ever used for
@@ -743,28 +752,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                               ),
                               onLogBirth: () async {
-                                await PregnancyStatusController.instance
-                                    .startNifas();
-                                final userId = NiswahSupabase
-                                    .clientOrNull
-                                    ?.auth
-                                    .currentUser
-                                    ?.id;
-                                var syncedToAccount = true;
-                                if (userId != null) {
-                                  try {
-                                    await PregnancyProfileRepository()
-                                        .markPostpartumStarted(userId);
-                                  } catch (error, stack) {
-                                    syncedToAccount = false;
-                                    AppErrorReporter.report(
-                                      error,
-                                      stack,
-                                      context: 'DashboardScreen.onLogBirth',
-                                      feature: 'pregnancy_profile',
+                                // Birth date: defaults to today, never in
+                                // the future; synced to both stores and the
+                                // reminders re-planned (PregnancyStateSync).
+                                final birthDate = await pickBirthDate(context);
+                                if (birthDate == null) return;
+                                final syncedToAccount =
+                                    await PregnancyStateSync().startNifas(
+                                      birthDate: birthDate,
                                     );
-                                  }
-                                }
                                 if (!mounted) return;
                                 // Local nifas tracking remains authoritative
                                 // on a sync failure — the local toggle above
@@ -803,7 +799,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ] else if (hasOpenEpisode ||
                               !calculation.hasSufficientHistory ||
-                              !calculation.hasPlausibleAverage) ...[
+                              !calculation.hasPlausibleAverage ||
+                              // The ring lays out a predicted cycle and
+                              // counts down to its phases — never drawn
+                              // when the predictor itself declined (every
+                              // interval outside the predictable range, or
+                              // only her stated estimate to go on).
+                              !calculation.canPredictFromHistory) ...[
                             // Commit F3 — an explicit ring state, not
                             // "insufficient history" as a single
                             // catch-all: an open episode is ALWAYS shown
@@ -824,10 +826,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               _FactualCompletedHistoryCard(
                                 completedCount:
                                     _canonicalStatus!.completedEpisodeCount,
+                                estimateRange:
+                                    summary.predictionBasis ==
+                                        PredictionBasis.statedEstimate
+                                    ? summary.nextPeriodRange
+                                    : null,
                               )
                             else
                               _InsufficientCycleDataCard(
                                 onLog: () => _startBleeding(),
+                                hasLoggedCycles:
+                                    calculation.hasSufficientHistory,
                               ),
                             const SizedBox(height: 24),
                             _QuickActions(
@@ -861,7 +870,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             // (Quick Actions, just below) still works
                             // regardless — only the Fiqh *conclusion* is
                             // withheld.
-                            if (_canonicalFiqhEvidenceUnresolved)
+                            if (state == _FiqhState.evidenceUnresolved)
                               _FiqhEvidenceUnresolvedCard(
                                 onRetry: () =>
                                     unawaited(_refreshCanonicalStatus()),
@@ -872,15 +881,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 cycleDay: cycleDay!,
                                 state: state,
                                 isCurrentlyBleeding: fiqhDisplayState,
-                                confirmAt: snapshot.confirmAt,
+                                confirmAt: postNifasAdvisory
+                                    ? null
+                                    : snapshot.confirmAt,
                                 daysIntoCurrentEpisode:
                                     snapshot.daysIntoCurrentEpisode,
-                                onTap: () => showCycleLogSheet(
-                                  context,
-                                  viewModel: _viewModel,
-                                  existingLog: _todayLog(),
-                                  initialFlow: FlowLevel.medium,
-                                ),
+                                // Bleeding goes through the canonical
+                                // sheets only; the legacy sheet is offered
+                                // for symptoms/notes (see
+                                // showLogDayChooser).
+                                onTap: () =>
+                                    unawaited(_logToday(hasOpenEpisode: false)),
                               ),
                             const SizedBox(height: 24),
                             _QuickActions(
@@ -903,6 +914,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const SizedBox(height: 16),
                           ],
+                          if (postNifasAdvisory) ...[
+                            const PostNifasAdvisoryCard(),
+                            const SizedBox(height: 16),
+                          ],
                           const SizedBox(height: 28),
                           _WellbeingCard(
                             onLog: _showWellbeingCheckIn,
@@ -918,7 +933,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           // The web app hides the Istihadah toggle while
                           // pregnant.
+                          // Pregnancy/nifas hardening (2026-10-21): no
+                          // Haid/Tahara/Istihadah banner during nifas — the
+                          // Haid engine knows nothing about postpartum
+                          // bleeding, and its Tahara copy ("Prayer and
+                          // fasting are obligatory") contradicted the Nifas
+                          // card above.
                           if (!PregnancyStatusController.instance.isPregnant &&
+                              !PregnancyStatusController
+                                  .instance
+                                  .isNifasActive &&
+                              !postNifasAdvisory &&
                               calculation.hasSufficientHistory) ...[
                             const SizedBox(height: 32),
                             _IstihadahToggle(
@@ -940,11 +965,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         .selectedOrNull
                                         ?.name ??
                                     '',
-                                onLogBlood: () => showCycleLogSheet(
-                                  context,
-                                  viewModel: _viewModel,
-                                  existingLog: _todayLog(),
-                                  initialFlow: FlowLevel.medium,
+                                // "Log today's blood" — canonical only, so
+                                // the entry reaches the Fiqh state above.
+                                onLogBlood: () => unawaited(
+                                  hasOpenEpisode == true
+                                      ? _checkInToday()
+                                      : _startBleeding(),
                                 ),
                                 onAskAdvisor: () => _openFullScreen(
                                   const DrNiswahChatScreen(
@@ -959,7 +985,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(height: 16),
                           _PrayerStatusCard(
                             viewModel: _prayerViewModel,
-                            fiqhState: state,
+                            fiqhState: prayerCardState,
+                            nifasActive: PregnancyStatusController
+                                .instance
+                                .isNifasActive,
                           ),
                           const SizedBox(height: 16),
                           _DreamCard(
@@ -1110,7 +1139,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
         builder: (_) => const CanonicalCalendarScreen(),
       ),
     );
-    if (mounted) unawaited(_refreshCanonicalStatus());
+    if (!mounted) return;
+    // A correction/backfill there is also projected into the legacy read
+    // model behind the ring, the Calendar tab and Insights, and can fill
+    // the gap the missed-check-in banner is showing.
+    await _viewModel.loadLogs();
+    if (mounted) setState(() => _missedCheckinRefreshToken++);
+    unawaited(_refreshCanonicalStatus());
+  }
+
+  /// The Today ring's tap: bleeding is recorded only through the canonical
+  /// start/check-in sheets (never the legacy `cycle_entries`-only sheet,
+  /// which Today's Fiqh state never reads); symptoms and notes stay on the
+  /// legacy sheet.
+  Future<void> _logToday({required bool hasOpenEpisode}) async {
+    final choice = await showLogDayChooser(context, day: AppClock.now());
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case LogDayChoice.bleeding:
+        await (hasOpenEpisode ? _checkInToday() : _startBleeding());
+      case LogDayChoice.symptomsAndNotes:
+        await showCycleLogSheet(
+          context,
+          viewModel: _viewModel,
+          existingLog: _todayLog(),
+          mode: CycleLogSheetMode.symptomsOnly,
+        );
+    }
   }
 
   /// Menstrual Data Integrity charter, Commit D — Section 6/7: the single
@@ -1326,6 +1381,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
+/// Stage name and size comparison for [week].
+///
+/// The Nutfah/Alaqah/Mudghah label comes from
+/// [PregnancyStatusEngine.classicalStageForGestationalDays] (three 40-day
+/// stages from conception; decided 2026-10-21 as a conservative default,
+/// pending scholar confirmation) for [gestationalDays] — the precise
+/// gestational age when known, otherwise the first day of [week]. Outside
+/// those stages the trimester label comes from
+/// [PregnancyStatusEngine.trimesterForWeek] (ACOG: ≤13 / ≤27), the same
+/// rule the chat and reports use. The size comparisons keep their original
+/// week buckets.
+@visibleForTesting
+(String, String) pregnancyStageFor(
+  int week, {
+  required bool isArabic,
+  int? gestationalDays,
+}) {
+  final (sizeAr, sizeEn) = switch (week) {
+    <= 4 => ('بحجم حبة الخشخاش', 'Size of a poppy seed'),
+    <= 8 => ('بحجم حبة الفاصولياء', 'Size of a bean'),
+    <= 12 => ('بحجم حبة الليمون', 'Size of a lemon'),
+    <= 16 => ('بحجم ثمرة الأفوكادو', 'Size of an avocado'),
+    <= 26 => ('بحجم ثمرة الموز', 'Size of a banana'),
+    _ => ('بحجم ثمرة البطيخ', 'Size of a watermelon'),
+  };
+  final stage = PregnancyStatusEngine.classicalStageForGestationalDays(
+    gestationalDays ?? week * 7,
+  );
+  final (stageAr, stageEn) = switch (stage) {
+    ClassicalEmbryoStage.nutfah => ('مرحلة النطفة', 'Nutfah stage'),
+    ClassicalEmbryoStage.alaqah => ('مرحلة العلقة', 'Alaqah stage'),
+    ClassicalEmbryoStage.mudghah => ('مرحلة المضغة', 'Mudghah stage'),
+    null => switch (PregnancyStatusEngine.trimesterForWeek(week)) {
+      1 => ('الثلث الأول', 'First trimester'),
+      2 => ('الثلث الثاني', 'Second trimester'),
+      _ => ('الثلث الثالث', 'Third trimester'),
+    },
+  };
+  return isArabic ? (stageAr, sizeAr) : (stageEn, sizeEn);
+}
+
 /// Pregnancy tracker summary shown on the dashboard while the user has
 /// "أنا حامل حالياً" active — mirroring the web app's Today pregnancy view.
 class _PregnancyOverview extends StatelessWidget {
@@ -1339,40 +1435,15 @@ class _PregnancyOverview extends StatelessWidget {
   final VoidCallback onOpenDoctor;
   final VoidCallback onLogBirth;
 
-  static (String, String) _stage(int week, {required bool isArabic}) {
-    final (ar, en) = switch (week) {
-      <= 4 => (
-        ('مرحلة النطفة', 'بحجم حبة الخشخاش'),
-        ('Nutfah stage', 'Size of a poppy seed'),
-      ),
-      <= 8 => (
-        ('مرحلة العلقة', 'بحجم حبة الفاصولياء'),
-        ('Alaqah stage', 'Size of a bean'),
-      ),
-      <= 12 => (
-        ('مرحلة المضغة', 'بحجم حبة الليمون'),
-        ('Mudghah stage', 'Size of a lemon'),
-      ),
-      <= 16 => (
-        ('الثلث الأول', 'بحجم ثمرة الأفوكادو'),
-        ('First trimester', 'Size of an avocado'),
-      ),
-      <= 26 => (
-        ('الثلث الثاني', 'بحجم ثمرة الموز'),
-        ('Second trimester', 'Size of a banana'),
-      ),
-      _ => (
-        ('الثلث الثالث', 'بحجم ثمرة البطيخ'),
-        ('Third trimester', 'Size of a watermelon'),
-      ),
-    };
-    return isArabic ? ar : en;
-  }
-
   @override
   Widget build(BuildContext context) {
     final isArabic = AppLocaleController.instance.isArabic;
-    final (stageName, sizeName) = _stage(week, isArabic: isArabic);
+    final (stageName, sizeName) = pregnancyStageFor(
+      week,
+      isArabic: isArabic,
+      gestationalDays:
+          PregnancyStatusController.instance.currentGestationalDays,
+    );
     final remainingWeeks = math.max(0, 40 - week);
     final daysToBirth = remainingWeeks * 7;
     final progressPercent = ((week / 40) * 100).round();
@@ -1771,14 +1842,74 @@ class _PregnancyCountdownCard extends StatelessWidget {
 
 /// Nifas status card shown after تسجيل الولادة — explains what changes for
 /// the user during the ~40-day Nifas window.
+/// The Nifas card's day label: elapsed calendar days since the logged birth
+/// date ([day], 0-based — the same count the reports and the reminder copy
+/// use). Day 0 is "Birth day"; then "Day 1/40" … "Day 40/40". Decided
+/// convention (2026-10-21, team at the owner's request).
+@visibleForTesting
+String nifasDayLabel(int day) =>
+    day <= 0 ? _l('Birth day', 'يوم الولادة') : '${_l('Day', 'اليوم')} $day/40';
+
+/// Nifas window decision (2026-10-21, pending scholar confirmation): shown
+/// instead of any ruling when a Shafi'i/Maliki user is bleeding on day
+/// 41..60 after the logged birth
+/// ([PregnancyStatusEngine.needsPostNifasScholarAdvisory]).
+@visibleForTesting
+class PostNifasAdvisoryCard extends StatelessWidget {
+  const PostNifasAdvisoryCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('post-nifas-advisory'),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E7),
+        borderRadius: BorderRadius.circular(34),
+        border: Border.all(color: const Color(0xFFFDE6C4)),
+      ),
+      child: Directionality(
+        textDirection: AppLocaleController.instance.isArabic
+            ? TextDirection.rtl
+            : TextDirection.ltr,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              _l('Please consult a scholar', 'يُرجى استشارة أهل العلم'),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: const Color(0xFF9A6700),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _l(
+                PregnancyStatusEngine.postNifasAdvisoryEn,
+                PregnancyStatusEngine.postNifasAdvisoryAr,
+              ),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NifasStatusCard extends StatelessWidget {
   const _NifasStatusCard({required this.day});
 
+  /// Elapsed calendar days since the logged birth date (0-based).
   final int day;
 
   @override
   Widget build(BuildContext context) {
-    final remaining = math.max(0, 40 - day + 1);
+    final remaining = math.max(0, 40 - day);
     return Container(
       key: const Key('nifas-status'),
       padding: const EdgeInsets.all(24),
@@ -1823,7 +1954,7 @@ class _NifasStatusCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${_l('Day', 'اليوم')} $day/40',
+                  nifasDayLabel(day),
                   style: const TextStyle(
                     color: Color(0xFFB45309),
                     fontSize: 13,
@@ -1901,9 +2032,17 @@ class _PregnancyChip extends StatelessWidget {
 }
 
 class _InsufficientCycleDataCard extends StatelessWidget {
-  const _InsufficientCycleDataCard({required this.onLog});
+  const _InsufficientCycleDataCard({
+    required this.onLog,
+    this.hasLoggedCycles = false,
+  });
 
   final VoidCallback onLog;
+
+  /// Two or more starts are logged, but no prediction can be drawn from
+  /// them yet (e.g. every interval is outside the predictable range) —
+  /// "two Haid starts are needed" would then be untrue.
+  final bool hasLoggedCycles;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -1960,10 +2099,15 @@ class _InsufficientCycleDataCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _l(
-                          'Two Haid starts are needed for your personal pattern.',
-                          'نحتاج إلى بدايتَي حيض لحساب نمطكِ الشخصي.',
-                        ),
+                        hasLoggedCycles
+                            ? _l(
+                                'Your logged cycles are too far apart to predict from yet. Keep logging each period.',
+                                'دوراتكِ المسجّلة متباعدة جداً للتوقع منها حتى الآن. واصلي تسجيل كل حيض.',
+                              )
+                            : _l(
+                                'Two Haid starts are needed for your personal pattern.',
+                                'نحتاج إلى بدايتَي حيض لحساب نمطكِ الشخصي.',
+                              ),
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodySmall
                             ?.copyWith(fontSize: 10, height: 1.4),
@@ -2292,10 +2436,18 @@ class _FactualOpenEpisodeCard extends StatelessWidget {
 /// fabricating an average/next-period/fertile-window — a single episode
 /// cannot support a cycle-to-cycle prediction (F5, F6's own explicit
 /// eligibility boundary).
+///
+/// [estimateRange] is the one forward-looking thing it may show: the range
+/// her next period is likely to start in, from her own onboarding estimate
+/// and labeled as that (charter F6), never as her pattern.
 class _FactualCompletedHistoryCard extends StatelessWidget {
-  const _FactualCompletedHistoryCard({required this.completedCount});
+  const _FactualCompletedHistoryCard({
+    required this.completedCount,
+    this.estimateRange,
+  });
 
   final int completedCount;
+  final PredictedDateRange? estimateRange;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -2362,8 +2514,55 @@ class _FactualCompletedHistoryCard extends StatelessWidget {
           ),
         ),
       ),
+      if (estimateRange != null) ...[
+        const SizedBox(height: 18),
+        _NextPeriodRangeLine(
+          range: estimateRange!,
+          basis: PredictionBasis.statedEstimate,
+        ),
+      ],
     ],
   );
+}
+
+/// "Next period likely 27 Oct – 1 Nov", with a note when the prediction
+/// rests on her stated estimate.
+class _NextPeriodRangeLine extends StatelessWidget {
+  const _NextPeriodRangeLine({required this.range, required this.basis});
+
+  final PredictedDateRange range;
+  final PredictionBasis? basis;
+
+  @override
+  Widget build(BuildContext context) {
+    final isArabic = AppLocaleController.instance.isArabic;
+    final note = predictionBasisNote(basis, isArabic: isArabic);
+    return Column(
+      key: const Key('today-next-period-range'),
+      children: [
+        Text(
+          '${_l('Next period likely', 'الحيض القادم متوقع')} ${formatPredictedRange(range, isArabic: isArabic)}',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: AppColors.emeraldInk,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (note != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            note,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textTertiary,
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _DashboardHeader extends StatelessWidget {
@@ -2577,7 +2776,10 @@ class _CycleOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cycleLength = summary.averageCycleLength!;
+    // The ring is laid out on the same predicted cycle the fertile window
+    // and next-period date come from, so its segments agree with them.
+    final cycleLength =
+        summary.predictedCycleLength ?? summary.averageCycleLength!;
     // When the real average isn't known yet, fall back to the real elapsed
     // days of the current episode (not a guess at the eventual total) —
     // without this, the outer ring draws the Haid zone as a literal
@@ -2641,7 +2843,12 @@ class _CycleOverview extends StatelessWidget {
                       builder: (context) {
                         final (headline, subtitle) = _ringCenterText(
                           state: state,
-                          dayInActiveSegment: dayInActiveSegment,
+                          // Past the active segment's end (pre-period,
+                          // expected day, or late) the clamped "day N of
+                          // N" would be untrue — show the phase alone.
+                          dayInActiveSegment: _isPastActiveSegment(segmentPlan)
+                              ? null
+                              : dayInActiveSegment,
                           confirmAt: confirmAt,
                           segmentPlan: segmentPlan,
                           averagePeriodLength: summary.averagePeriodLength,
@@ -2701,10 +2908,22 @@ class _CycleOverview extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         _buildStateMessage(context, overdue, segmentPlan, dayInActiveSegment),
+        if (summary.nextPeriodStart != null &&
+            summary.nextPeriodRange != null) ...[
+          const SizedBox(height: 10),
+          _NextPeriodRangeLine(
+            range: summary.nextPeriodRange!,
+            basis: summary.predictionBasis,
+          ),
+        ],
         const SizedBox(height: 24),
         _PhaseTimeline(
           segmentPlan: segmentPlan,
-          dayInActiveSegment: dayInActiveSegment,
+          // Same rule as the ring's headline: no frozen "N of N" once she
+          // is past the active segment.
+          dayInActiveSegment: _isPastActiveSegment(segmentPlan)
+              ? null
+              : dayInActiveSegment,
           averagePeriodLength: summary.averagePeriodLength,
         ),
       ],
@@ -2750,7 +2969,7 @@ class _CycleOverview extends StatelessWidget {
                 'This bleeding pattern falls outside your madhhab\'s usual range — please consult a trusted source.',
                 'نمط هذا النزيف يخرج عن الحدود المعتادة في مذهبك، يُنصح باستشارة مصدر موثوق.',
               ),
-      _FiqhState.tahara => _nextSegmentMessage(segmentPlan, dayInActiveSegment),
+      _FiqhState.tahara => _taharaMessage(segmentPlan, dayInActiveSegment),
       _FiqhState.madhhabUnresolved => _l(
         'Bleeding detected — select your Madhhab in Settings to see your Fiqh state.',
         'تم رصد نزيف — يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حالتكِ الفقهية.',
@@ -2816,6 +3035,47 @@ class _CycleOverview extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Whether today's real cycle day lies beyond the end of the active
+  /// (haid/tahara) segment — the planner only ever marks those as active,
+  /// so from the pre-period onward (and once late) the clamped day within
+  /// the active segment stops moving.
+  bool _isPastActiveSegment(CycleSegmentPlan segmentPlan) {
+    final activeIndex = segmentPlan.activeIndex;
+    if (activeIndex == null) return false;
+    var endDay = 0;
+    for (var i = 0; i <= activeIndex; i++) {
+      endDay += segmentPlan.segments[i].durationDays;
+    }
+    return cycleDay > endDay;
+  }
+
+  /// The tahara pill: late and next-period wording come from the same
+  /// summary Insights uses, so the two screens never disagree; only within
+  /// the active segment does it fall back to "{next segment} in N days".
+  String _taharaMessage(CycleSegmentPlan segmentPlan, int? dayInActiveSegment) {
+    final daysLate = summary.daysLate;
+    if (daysLate > 0) {
+      return summary.nextPeriodStart != null
+          ? _l(
+              'Your period is $daysLate days late — it may start any day',
+              'حيضكِ متأخر $daysLate أيام — قد يبدأ في أي يوم',
+            )
+          : _l(
+              'Your period is $daysLate days late',
+              'حيضكِ متأخر $daysLate أيام',
+            );
+    }
+    final nextPeriodStart = summary.nextPeriodStart;
+    if (nextPeriodStart != null && _isPastActiveSegment(segmentPlan)) {
+      final daysUntil = calendarDaysBetween(AppClock.now(), nextPeriodStart);
+      return daysUntil <= 0
+          ? _l('Your period is expected today', 'يُتوقع أن يبدأ حيضكِ اليوم')
+          : '${_segmentLabel(CycleSegmentId.expected)} ${_l('in', 'خلال')} '
+                '$daysUntil ${_l('days', 'أيام')}';
+    }
+    return _nextSegmentMessage(segmentPlan, dayInActiveSegment);
   }
 
   /// "{next segment} in N days" — N is days remaining in the currently
@@ -3115,6 +3375,23 @@ class _SyncStatusBannerState extends State<_SyncStatusBanner> {
   }
 }
 
+/// The day after the most recent day of the open episode that has at least
+/// one observation (never assumes today is covered merely because the
+/// episode started recently). Calendar-day arithmetic: adding 24 hours to a
+/// local midnight lands on 23:00 of the same day when clocks go back, which
+/// re-asked for a day she had already covered.
+@visibleForTesting
+DateTime missedCheckinFirstMissingDay({
+  required DateTime episodeStartDate,
+  required Iterable<DateTime> observedDates,
+}) {
+  var mostRecentCovered = episodeStartDate;
+  for (final date in observedDates) {
+    if (date.isAfter(mostRecentCovered)) mostRecentCovered = date;
+  }
+  return addCalendarDays(mostRecentCovered, 1);
+}
+
 class _MissedCheckinBanner extends StatefulWidget {
   const _MissedCheckinBanner({super.key, required this.onAdd});
 
@@ -3156,24 +3433,12 @@ class _MissedCheckinBannerState extends State<_MissedCheckinBanner> {
       return;
     }
     final observations = observationsResult.dataOrNull ?? const [];
-    final utcOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+    final utcOffsetMinutes = AppClock.now().timeZoneOffset.inMinutes;
     final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
-
-    // The most recent day that genuinely has at least one observation —
-    // never assumes today is covered merely because the episode started
-    // recently.
-    DateTime mostRecentCovered = episode.startDate;
-    for (final observation in observations) {
-      if (observation.observedDate.isAfter(mostRecentCovered)) {
-        mostRecentCovered = observation.observedDate;
-      }
-    }
-
-    final firstMissingDay = DateTime(
-      mostRecentCovered.year,
-      mostRecentCovered.month,
-      mostRecentCovered.day,
-    ).add(const Duration(days: 1));
+    final firstMissingDay = missedCheckinFirstMissingDay(
+      episodeStartDate: episode.startDate,
+      observedDates: [for (final o in observations) o.observedDate],
+    );
 
     // A gap exists only if that first missing day is strictly before
     // today — today itself not yet having a check-in is not "missed" (an
@@ -3762,21 +4027,87 @@ class _DoctorNiswahCard extends StatelessWidget {
 }
 
 class _PrayerStatusCard extends StatelessWidget {
-  const _PrayerStatusCard({required this.viewModel, required this.fiqhState});
+  const _PrayerStatusCard({
+    required this.viewModel,
+    required this.fiqhState,
+    this.nifasActive = false,
+  });
 
   final PrayerTrackingViewModel viewModel;
   final _FiqhState fiqhState;
 
+  /// Pregnancy/nifas hardening (2026-10-21, proposed): while nifas is
+  /// active the Haid engine's state says nothing about postpartum
+  /// bleeding, so this card defers to the Nifas card — never "obligatory"
+  /// nor its own "lifted" — the same unresolved treatment as needsAdvisory.
+  final bool nifasActive;
+
   @override
   Widget build(BuildContext context) {
-    final lifted = fiqhState == _FiqhState.haid;
+    final lifted = !nifasActive && fiqhState == _FiqhState.haid;
     // New critical finding — when canonical evidence is unresolved,
     // neither "lifted" nor "obligatory" may be confidently asserted:
     // both are themselves rulings, and the whole point of this state is
-    // that no ruling can be drawn right now.
+    // that no ruling can be drawn right now. Fiqh hardening (2026-10-18):
+    // the same holds with no Madhhab selected (owner-e4 §14) and for a
+    // case that needs a case-specific review — both previously fell
+    // through to "Salah is obligatory".
     final insufficientHistory = fiqhState == _FiqhState.insufficientHistory;
+    final madhhabUnresolved = fiqhState == _FiqhState.madhhabUnresolved;
+    final needsAdvisory = fiqhState == _FiqhState.needsAdvisory;
     final unresolved =
-        fiqhState == _FiqhState.evidenceUnresolved || insufficientHistory;
+        nifasActive ||
+        fiqhState == _FiqhState.evidenceUnresolved ||
+        insufficientHistory ||
+        madhhabUnresolved ||
+        needsAdvisory;
+    final title = nifasActive
+        ? _l('See your Nifas status above', 'راجعي حالة النفاس أعلاه')
+        : insufficientHistory
+        ? _l('Not enough history yet', 'لا يوجد سجل كافٍ بعد')
+        : madhhabUnresolved
+        ? _stateLabel(_FiqhState.madhhabUnresolved)
+        : needsAdvisory
+        ? _l('Please consult a trusted source', 'يُنصح باستشارة مصدر موثوق')
+        : unresolved
+        ? _l('Unable to verify', 'تعذر التحقق')
+        : lifted
+        ? _l('Salah is lifted', 'الصلاة مرفوعة عنكِ')
+        : _l('Salah is obligatory', 'الصلاة واجبة عليكِ');
+    final subtitle = nifasActive
+        ? _l(
+            "Niswah doesn't work out your prayer status during nifas — see the Nifas card, and if you need guidance today, please ask a trusted scholar.",
+            'لا تحدد نسواه حكم صلاتكِ أثناء النفاس — راجعي بطاقة النفاس، وإن احتجتِ إلى إرشاد اليوم فاسألي أهل العلم الموثوقين.',
+          )
+        : insufficientHistory
+        ? _l(
+            "Your entry is saved. Niswah doesn't have enough recorded history yet to work out your prayer status — if you need guidance today, please ask a trusted scholar.",
+            'تم حفظ ما سجّلتِه. لا تتوفر لدى نسواه بيانات كافية لتحديد حالة صلاتكِ بعد — إن احتجتِ إلى إرشاد اليوم فاسألي أهل العلم الموثوقين.',
+          )
+        : madhhabUnresolved
+        ? _l(
+            'Select your Madhhab in Settings to see your prayer status.',
+            'يُرجى اختيار مذهبكِ من الإعدادات لمعرفة حكم صلاتكِ.',
+          )
+        : needsAdvisory
+        ? _l(
+            "This bleeding pattern needs a case-specific review, so Niswah can't confirm your prayer status — please ask a trusted scholar.",
+            'نمط هذا النزيف يحتاج إلى مراجعة خاصة بالحالة، لذلك لا يمكن لنسواه تأكيد حكم صلاتكِ — يُرجى سؤال أهل العلم الموثوقين.',
+          )
+        : unresolved
+        ? _l(
+            "We couldn't verify your tracking data — your prayer obligation can't be confirmed right now.",
+            'تعذر التحقق من بيانات تتبعكِ — لا يمكن تأكيد حكم الصلاة الآن.',
+          )
+        : lifted
+        ? _l(
+            'Your obligations change based on your Fiqh state',
+            'تتغير عباداتكِ حسب حالتكِ الفقهية',
+          )
+        : _l(
+            'Prayer times help identify prayers affected by Haid and when Ghusl is due.',
+            'نظهر أوقات الصلاة لمعرفة الصلوات المتأثرة بالحيض وموعد الاغتسال.',
+          );
     final names = {
       prayer.PrayerName.fajr: _l('Fajr', 'الفجر'),
       prayer.PrayerName.dhuhr: _l('Dhuhr', 'الظهر'),
@@ -3809,13 +4140,7 @@ class _PrayerStatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      insufficientHistory
-                          ? _l('Not enough history yet', 'لا يوجد سجل كافٍ بعد')
-                          : unresolved
-                          ? _l('Unable to verify', 'تعذر التحقق')
-                          : lifted
-                          ? _l('Salah is lifted', 'الصلاة مرفوعة عنكِ')
-                          : _l('Salah is obligatory', 'الصلاة واجبة عليكِ'),
+                      title,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: unresolved
                             ? const Color(0xFF6B7280)
@@ -3828,25 +4153,7 @@ class _PrayerStatusCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      insufficientHistory
-                          ? _l(
-                              "Your entry is saved. Niswah doesn't have enough recorded history yet to work out your prayer status — if you need guidance today, please ask a trusted scholar.",
-                              'تم حفظ ما سجّلتِه. لا تتوفر لدى نسواه بيانات كافية لتحديد حالة صلاتكِ بعد — إن احتجتِ إلى إرشاد اليوم فاسألي أهل العلم الموثوقين.',
-                            )
-                          : unresolved
-                          ? _l(
-                              "We couldn't verify your tracking data — your prayer obligation can't be confirmed right now.",
-                              'تعذر التحقق من بيانات تتبعكِ — لا يمكن تأكيد حكم الصلاة الآن.',
-                            )
-                          : lifted
-                          ? _l(
-                              'Your obligations change based on your Fiqh state',
-                              'تتغير عباداتكِ حسب حالتكِ الفقهية',
-                            )
-                          : _l(
-                              'Prayer times help identify prayers affected by Haid and when Ghusl is due.',
-                              'نظهر أوقات الصلاة لمعرفة الصلوات المتأثرة بالحيض وموعد الاغتسال.',
-                            ),
+                      subtitle,
                       style: const TextStyle(
                         color: AppColors.textTertiary,
                         fontSize: 9,
@@ -4180,6 +4487,16 @@ class _FiqhStateBanner extends StatelessWidget {
   final _FiqhState state;
   final int cycleDay;
   final String madhhab;
+
+  /// [madhhab] is the enum's English `name`; the Arabic sentence needs the
+  /// Arabic name ("المذهب الحنفي", never "المذهب الHANAFI").
+  static String _arabicMadhhabName(String name) => switch (name) {
+    'hanafi' => 'حنفي',
+    'maliki' => 'مالكي',
+    'shafii' => 'شافعي',
+    'hanbali' => 'حنبلي',
+    _ => name,
+  };
   final VoidCallback onLogBlood;
   final VoidCallback onAskAdvisor;
   final VoidCallback onRetry;
@@ -4259,7 +4576,7 @@ class _FiqhStateBanner extends StatelessWidget {
             Text(
               _l(
                 'Based on ${madhhab.toUpperCase()} madhhab',
-                'بناءً على المذهب ال${madhhab.toUpperCase()}',
+                'بناءً على المذهب ال${_arabicMadhhabName(madhhab)}',
               ),
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: state.color.withValues(alpha: 0.55),

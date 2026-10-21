@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_days.dart';
 import '../entities/cycle_log.dart';
 
 enum CycleSegmentId { haid, tahara1, fertile, tahara2, prePeriod, expected }
@@ -74,7 +75,9 @@ class CycleSegmentPlanner {
     required int? cycleDayEstimate,
   }) {
     int dayOffset(DateTime? date) =>
-        date == null ? periodLength : date.difference(cycleStart).inDays + 1;
+        // Calendar days, not 24-hour spans: across a DST spring-forward a
+        // local-midnight difference is 23h short and `.inDays` loses a day.
+        date == null ? periodLength : calendarDaysBetween(cycleStart, date) + 1;
 
     var fertileStartOffset = dayOffset(fertileWindow.start);
     var fertileEndOffset = dayOffset(fertileWindow.end);
@@ -86,12 +89,17 @@ class CycleSegmentPlanner {
     );
 
     final tahara1Duration = math.max(0, fertileStartOffset - periodLength - 1);
-    // The day immediately after the fertile window ends — where tahara2
-    // begins, regardless of how long tahara1 or the fertile window were.
-    final tahara2Start = fertileEndOffset + 1;
+    // The day after both the fertile window and the period have ended —
+    // where tahara2 begins. Proposed (round-2 property tests, 2026-10-21):
+    // it used to start right after the fertile window even when the period
+    // was still running, so the two overlapped and the segments summed to
+    // more than the cycle.
+    final lastNonTaharaOffset = math.max(fertileEndOffset, periodLength);
+    final tahara2Start = lastNonTaharaOffset + 1;
     final tahara2Duration = math.max(
       0,
-      (cycleLength - prePeriodDuration - expectedDuration) - fertileEndOffset,
+      (cycleLength - prePeriodDuration - expectedDuration) -
+          lastNonTaharaOffset,
     );
 
     final allSegments = [

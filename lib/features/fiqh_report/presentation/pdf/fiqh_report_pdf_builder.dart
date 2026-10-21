@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../../cycle_tracking/domain/services/madhhab_rule_evaluator.dart';
+import '../../../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 import '../../domain/services/fiqh_report_insights_engine.dart';
 
 /// Renders "التقرير الفقهي" as a real PDF from real [FiqhReportInsights] —
@@ -366,6 +367,8 @@ class FiqhReportPdfBuilder {
         insights.evidenceNote != ReportEvidenceNote.none) {
       final unavailable =
           insights.evidenceNote == ReportEvidenceNote.recordsUnavailable;
+      final unverified =
+          insights.evidenceNote == ReportEvidenceNote.evidenceUnverified;
       widgets.add(
         _card(
           bg: '#FFF8E7',
@@ -374,9 +377,30 @@ class FiqhReportPdfBuilder {
                 ? (isArabic
                       ? 'تعذّر التحقق من سجلاتكِ الآن، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. أعيدي إنشاء التقرير لاحقًا.'
                       : "Your records couldn't be verified right now, so your current Fiqh state cannot be determined. Generate the report again later.")
+                : unverified
+                ? (isArabic
+                      ? 'تعذّر التحقق من بعض سجلاتكِ، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. راجعي سجلاتكِ، واسألي مختصة شرعية موثوقة إن احتجتِ إلى إرشاد اليوم.'
+                      : "Some of your records couldn't be verified, so your current Fiqh state cannot be determined. Review your records, and ask a trusted scholar if you need guidance today.")
                 : (isArabic
                       ? 'هناك نزيف مسجَّل حاليًا، لكن الأدلة المسجلة لا تكفي لتحديد حالتكِ الفقهية. تابعي التسجيل، واسألي مختصة شرعية موثوقة إن احتجتِ إلى إرشاد اليوم.'
                       : "A bleeding episode is recorded, but the recorded evidence isn't enough to work out your Fiqh state. Keep logging, and ask a trusted scholar if you need guidance today."),
+            style: pw.TextStyle(
+              color: PdfColor.fromHex(_advisory),
+              fontSize: 10,
+              lineSpacing: 2,
+            ),
+          ),
+        ),
+      );
+    } else if (state == FiqhCycleState.needsAdvisory &&
+        insights.evidenceNote == ReportEvidenceNote.postNifasScholarAdvisory) {
+      widgets.add(
+        _card(
+          bg: '#FFF8E7',
+          child: pw.Text(
+            isArabic
+                ? PregnancyStatusEngine.postNifasAdvisoryAr
+                : PregnancyStatusEngine.postNifasAdvisoryEn,
             style: pw.TextStyle(
               color: PdfColor.fromHex(_advisory),
               fontSize: 10,
@@ -443,14 +467,20 @@ class FiqhReportPdfBuilder {
             children: [
               _statColumn(
                 isArabic ? 'متوسط طول الدورة' : 'Avg. cycle length',
-                isArabic
+                insights.averageCycleLengthDays == null
+                    ? '—'
+                    : isArabic
                     ? '${insights.averageCycleLengthDays} يوماً'
                     : '${insights.averageCycleLengthDays} days',
                 semiBold,
               ),
               _statColumn(
                 isArabic ? 'متوسط مدة الحيض' : 'Avg. haid duration',
-                isArabic
+                // A missing average (e.g. history known only from
+                // onboarding dates) prints as "—", never "null days".
+                insights.averageHaidDurationDays == null
+                    ? '—'
+                    : isArabic
                     ? '${insights.averageHaidDurationDays} أيام'
                     : '${insights.averageHaidDurationDays} days',
                 semiBold,

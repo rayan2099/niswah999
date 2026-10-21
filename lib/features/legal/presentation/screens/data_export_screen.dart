@@ -123,11 +123,13 @@ class _DataExportScreenState extends State<DataExportScreen> {
                       child: Text(
                         _pr(
                           'This is a raw technical export of your account, '
-                          'cycle, prayer, pregnancy, chat, and community '
+                          'cycle, prayer, pregnancy, wellbeing, dream, '
+                          'Madhhab, chat, private message and community '
                           'data. It does not include internal '
                           'safety-review records.',
                           'هذا تصدير تقني خام لبيانات حسابكِ ودورتكِ '
-                          'وصلاتكِ وحملكِ ومحادثاتكِ ومحتوى '
+                          'وصلاتكِ وحملكِ وحالتكِ النفسية وأحلامكِ '
+                          'ومذهبكِ ومحادثاتكِ ورسائلكِ الخاصة ومحتوى '
                           'مجتمعكِ. لا يشمل سجلات المراجعة الداخلية '
                           'للسلامة.',
                         ),

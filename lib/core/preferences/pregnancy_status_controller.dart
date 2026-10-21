@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../features/pregnancy_profile/domain/entities/pregnancy_profile.dart';
+import '../../features/pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 import '../utils/app_clock.dart';
+import '../utils/calendar_days.dart';
 import 'user_scoped_preferences.dart';
 
 /// Persists the "I am currently pregnant" (أنا حامل حالياً) status so the
@@ -28,24 +31,65 @@ class PregnancyStatusController extends ChangeNotifier {
   DateTime? get activatedAt => _activatedAt;
   DateTime? get nifasStartedAt => _nifasStartedAt;
 
-  /// Nifas lasts up to ~40 days after birth.
-  bool get isNifasActive {
+  /// The engine's own postpartum status for the locally logged birth date —
+  /// the ONE shared nifas definition (2026-10-21, proposed): the dashboard
+  /// previously used its own `elapsed < 40` rule while the reports and
+  /// notifications used the engine's phase, so they disagreed on day 40.
+  /// Which days count as nifas is unchanged from the engine and remains an
+  /// open owner decision.
+  PregnancyStatus? get _postpartumStatus {
     final start = _nifasStartedAt;
-    if (start == null) return false;
-    return AppClock.now().difference(start).inDays < 40;
+    if (start == null) return null;
+    return PregnancyStatusEngine.getStatus(
+      PregnancyProfile(
+        id: '',
+        userId: '',
+        isPostpartum: true,
+        postpartumStartDate: calendarDay(start),
+      ),
+      AppClock.now(),
+    );
   }
 
-  /// Days elapsed since birth (0-based).
-  int get nifasDay => _nifasStartedAt == null
-      ? 0
-      : AppClock.now().difference(_nifasStartedAt!).inDays + 1;
+  /// True while the engine's phase for the logged birth date is nifas.
+  bool get isNifasActive =>
+      _postpartumStatus?.phase == PregnancyStatusEngine.nifasPhase;
 
-  /// Current pregnancy week derived from the activation date and the week
-  /// the user selected during setup (1 week of pregnancy elapses per 7 days).
+  /// Elapsed calendar days since the logged birth date (0 on the birth
+  /// date) — the engine's `daysPostpartum`, the same count the reports and
+  /// the nifas reminder copy use. Proposed default (2026-10-21) until the
+  /// owner decides how nifas days are numbered: the dashboard shows 0 as
+  /// "Birth day" and N as "Day N/40", so it can never read "Day 41/40"
+  /// inside the engine window. 0 when no birth is logged.
+  int get nifasDay => _postpartumStatus?.daysPostpartum ?? 0;
+
+  /// Current pregnancy week, computed by [PregnancyStatusEngine] from the
+  /// week chosen at setup and the activation time — the same math, and the
+  /// same [PregnancyStatusEngine.maxWeek] cap, the chat/reports/
+  /// notifications use for the synced `manual_week` profile.
   int get currentWeek {
     if (!_isPregnant || _activatedAt == null) return _startWeek;
-    final elapsedWeeks = AppClock.now().difference(_activatedAt!).inDays ~/ 7;
-    return (_startWeek + elapsedWeeks).clamp(1, 40);
+    return PregnancyStatusEngine.getStatus(
+          PregnancyProfile(
+            id: '',
+            userId: '',
+            trackingBasis: TrackingBasis.manualWeek,
+            manualWeekValue: _startWeek,
+            manualWeekSetAt: _activatedAt,
+          ),
+          AppClock.now(),
+        ).week ??
+        _startWeek;
+  }
+
+  /// Current gestational age in days (from the LMP convention): the week
+  /// chosen at setup (its first day) plus whole calendar days since
+  /// activation. Feeds the classical stage label
+  /// ([PregnancyStatusEngine.classicalStageForGestationalDays]).
+  int get currentGestationalDays {
+    final activated = _activatedAt;
+    if (!_isPregnant || activated == null) return _startWeek * 7;
+    return _startWeek * 7 + calendarDaysBetween(activated, AppClock.now());
   }
 
   static const _allKeys = [
@@ -81,12 +125,19 @@ class PregnancyStatusController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Records the moment of birth and starts Nifas tracking (up to 40 days).
-  Future<void> startNifas() async {
+  /// Records the birth date and starts Nifas tracking. [birthDate] defaults
+  /// to today; only its calendar date is kept. A future date is rejected
+  /// with an [ArgumentError].
+  Future<void> startNifas({DateTime? birthDate}) async {
+    final today = calendarDay(AppClock.now());
+    final birthDay = calendarDay(birthDate ?? today);
+    if (birthDay.isAfter(today)) {
+      throw ArgumentError.value(birthDate, 'birthDate', 'is in the future');
+    }
     _isPregnant = false;
     _startWeek = 1;
     _activatedAt = null;
-    _nifasStartedAt = AppClock.now();
+    _nifasStartedAt = birthDay;
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_k(_storageKey), false);
@@ -101,7 +152,10 @@ class PregnancyStatusController extends ChangeNotifier {
   /// Activates pregnancy tracking with the week chosen in the setup sheet.
   Future<void> activate({required int startWeek}) async {
     _isPregnant = true;
-    _startWeek = startWeek.clamp(1, 40);
+    _startWeek = startWeek.clamp(
+      PregnancyStatusEngine.minWeek,
+      PregnancyStatusEngine.maxWeek,
+    );
     _activatedAt = AppClock.now();
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();

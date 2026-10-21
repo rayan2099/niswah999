@@ -443,9 +443,12 @@ class HusbandReportPdfBuilder {
                     : 'Insufficient data for calculation')
               : null);
 
+    final nextRange = insights.nextPeriodRange;
     final safeNextPeriod = insights.nextPeriodDate == null
         ? (isArabic ? 'غير محدد بعد' : 'Not determined yet')
-        : _dateLabel(insights.nextPeriodDate!, isArabic);
+        : nextRange == null || nextRange.earliest == nextRange.latest
+        ? _dateLabel(insights.nextPeriodDate!, isArabic)
+        : '${_dateLabel(nextRange.earliest, isArabic)} - ${_dateLabel(nextRange.latest, isArabic)}';
     final safeFertileWindow =
         insights.fertileWindowStart == null || insights.fertileWindowEnd == null
         ? '...'
@@ -500,8 +503,10 @@ class HusbandReportPdfBuilder {
             pw.SizedBox(height: currentDayLine != null ? 2 : 10),
             _infoRow(
               isArabic
-                  ? 'متى تنتهي الدورة المتوقع: $safeNextPeriod'
-                  : 'Expected End: $safeNextPeriod',
+                  // The value is the NEXT period's expected start — never
+                  // labeled as when the current state ends.
+                  ? 'الحيض المتوقع القادم: $safeNextPeriod'
+                  : 'Next expected period: $safeNextPeriod',
             ),
           ],
         ),

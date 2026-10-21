@@ -30,6 +30,8 @@ void main() {
         currentCycleDay: 5,
         averageCycleLength: 28,
         cycleLengths: const [28],
+        predictedCycleLength: 28,
+        predictionSpreadDays: 3,
       );
 
       final plan = NotificationScheduler.planCycleReminder(
@@ -40,6 +42,47 @@ void main() {
       // predicted next start = Jan 29 + 28 = Feb 26; lead day = Feb 23.
       expect(plan, isNotNull);
       expect(plan!.fireAt, DateTime(2026, 2, 23, 9));
+    });
+
+    test('uses the predicted cycle length, not the raw mean', () {
+      // 28, 28 and a 56-day gap (one period never logged): the raw mean
+      // is 37, but the next period is due 28 days after the last start.
+      final calculation = CycleCalculationResult(
+        haidStarts: [
+          DateTime(2026, 6, 11),
+          DateTime(2026, 7, 9),
+          DateTime(2026, 8, 6),
+          DateTime(2026, 10, 1),
+        ],
+        currentCycleDay: 10,
+        averageCycleLength: 37,
+        cycleLengths: const [28, 28, 56],
+        predictedCycleLength: 28,
+        predictionSpreadDays: 3,
+      );
+
+      final plan = NotificationScheduler.planCycleReminder(
+        calculation: calculation,
+        now: DateTime(2026, 10, 10),
+      );
+
+      expect(plan!.fireAt, DateTime(2026, 10, 26, 9));
+    });
+
+    test('an unpredictable history plans nothing', () {
+      final calculation = CycleCalculationResult(
+        haidStarts: [DateTime(2026, 1, 1), DateTime(2026, 1, 3)],
+        currentCycleDay: 1,
+        averageCycleLength: 2,
+        cycleLengths: const [2],
+      );
+
+      final plan = NotificationScheduler.planCycleReminder(
+        calculation: calculation,
+        now: DateTime(2026, 1, 3),
+      );
+
+      expect(plan, isNull);
     });
 
     test('a predicted date already in the past plans nothing', () {
@@ -86,7 +129,10 @@ void main() {
 
       expect(plan, isNotNull);
       expect(plan!.fireAt, DateTime(2026, 1, 15, 9));
-      expect(plan.bodyAr, contains('2'));
+      // The specific text now lives in the in-app feed only; the OS
+      // (lock-screen) copy is discreet (2026-10-21).
+      expect(plan.feedBodyAr, contains('2'));
+      expect(plan.bodyAr, isNot(contains('2')));
     });
 
     test(

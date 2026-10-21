@@ -21,6 +21,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 Filename matches only; inspect imports and behavior to establish actual coverage.
 
 - [husband_report_pdf_builder_test.dart](../../test/husband_report_pdf_builder_test.dart)
+- [husband_report_expected_end_test.dart](../../test/screens_hardening/husband_report_expected_end_test.dart)
 - [husband_report_insights_engine_test.dart](../../test/services/husband_report_insights_engine_test.dart)
 
 ## Requirements, decisions, and verification

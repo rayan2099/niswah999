@@ -294,11 +294,43 @@ void main() {
       // condition that broke `if (log.cycleDay == 1) break;` for every
       // canonical-backed open episode, in both the engine 01ef39e already
       // fixed and the second copy fixed here.
+      //
+      // Fiqh hardening (2026-10-18): the adapter now DOES set cycleDay (1 on
+      // the first day of each bleeding run, counting up after it). This
+      // fixture originally held one single 7-day episode and passed only
+      // BECAUSE of the cycleDay default: every adapted day 2+ days after
+      // the previous "start" counted as a new Haid start, so one episode
+      // looked like enough history. With that fixed, two earlier completed
+      // episodes are now part of the evidence so the open one is genuinely
+      // rule-able — the engine/report parity this group protects is
+      // unchanged.
       List<CycleLog> openHanafiInBoundsEpisodeLogs({
         required DateTime now,
         required int daysOpen,
       }) {
+        BleedingObservation priorDay(
+          String episode,
+          DateTime day,
+          ObservationFlow flow,
+        ) => BleedingObservation(
+          userId: 'u1',
+          episodeId: episode,
+          observedDate: day,
+          precision: ObservationPrecision.dateOnly,
+          flow: flow,
+          source: ObservationSource.userReportedHistorical,
+          utcOffsetMinutes: 0,
+        );
         final observations = [
+          for (final month in [8, 9]) ...[
+            for (var d = 1; d <= 6; d++)
+              priorDay(
+                'p$month',
+                DateTime(2026, month, d),
+                ObservationFlow.medium,
+              ),
+            priorDay('p$month', DateTime(2026, month, 7), ObservationFlow.none),
+          ],
           for (var i = 0; i < daysOpen; i++)
             BleedingObservation(
               userId: 'u1',
@@ -322,12 +354,15 @@ void main() {
       final logs = openHanafiInBoundsEpisodeLogs(now: now, daysOpen: daysOpen);
 
       test(
-        'sanity: the adapter really does leave every entry at the cycleDay '
-        'default (1) -- otherwise this regression test would not be '
-        'exercising the real defect at all',
+        'sanity: the adapter numbers each bleeding run from day 1 (it used '
+        'to leave every entry at the cycleDay default of 1)',
         () {
-          expect(logs, isNotEmpty);
-          expect(logs.every((log) => log.cycleDay == 1), isTrue);
+          final open = logs
+              .where((log) => !log.date.isBefore(DateTime(2026, 10, 10)))
+              .map((log) => log.cycleDay)
+              .toList();
+          expect(open, [1, 2, 3, 4, 5, 6, 7]);
+          expect(logs.where((log) => log.cycleDay == 1).length, 3);
         },
       );
 

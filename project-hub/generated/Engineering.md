@@ -91,6 +91,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## lib/core/utils
 
 - [app_clock.dart](../../lib/core/utils/app_clock.dart)
+- [calendar_days.dart](../../lib/core/utils/calendar_days.dart)
 - [db_timestamp.dart](../../lib/core/utils/db_timestamp.dart)
 - [device_timezone.dart](../../lib/core/utils/device_timezone.dart)
 
@@ -167,4 +168,6 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261012090000_record_onboarding_menstrual_history_episode_reconciliation.sql](../../supabase/migrations/20261012090000_record_onboarding_menstrual_history_episode_reconciliation.sql)
 - [20261014220000_madhhab_history_ruleset_version_future_safety.sql](../../supabase/migrations/20261014220000_madhhab_history_ruleset_version_future_safety.sql)
 - [20261015120000_kb_human_review_status_provenance.sql](../../supabase/migrations/20261015120000_kb_human_review_status_provenance.sql)
+- [20261018090000_bleeding_write_boundary_validation.sql](../../supabase/migrations/20261018090000_bleeding_write_boundary_validation.sql)
 - [20261021090000_users_privileged_columns_guard.sql](../../supabase/migrations/20261021090000_users_privileged_columns_guard.sql)
+- [20261021100000_onboarding_server_hardening.sql](../../supabase/migrations/20261021100000_onboarding_server_hardening.sql)

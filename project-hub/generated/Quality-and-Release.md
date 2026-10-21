@@ -24,6 +24,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
+- [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
@@ -136,6 +137,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [bleeding_episode_entity_test.dart](../../test/bleeding_episode_entity_test.dart)
 - [bleeding_episode_repository_test.dart](../../test/bleeding_episode_repository_test.dart)
 - [bleeding_reconcile_signal_test.dart](../../test/bleeding_reconcile_signal_test.dart)
+- [calendar_days_test.dart](../../test/calendar_days_test.dart)
 - [calendar_legend_live_language_switch_test.dart](../../test/calendar_legend_live_language_switch_test.dart)
 - [canonical_bleeding_status_resolver_test.dart](../../test/canonical_bleeding_status_resolver_test.dart)
 - [canonical_calendar_screen_test.dart](../../test/canonical_calendar_screen_test.dart)
@@ -152,6 +154,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [cycle_entries_projection_test.dart](../../test/cycle_entries_projection_test.dart)
 - [cycle_local_sync_idempotency_test.dart](../../test/cycle_local_sync_idempotency_test.dart)
 - [cycle_log_strict_parsing_test.dart](../../test/cycle_log_strict_parsing_test.dart)
+- [cycle_prediction_estimate_test.dart](../../test/cycle_prediction_estimate_test.dart)
 - [cycle_tracking_controller_test.dart](../../test/cycle_tracking_controller_test.dart)
 - [cycle_tracking_ui_flow_test.dart](../../test/cycle_tracking_ui_flow_test.dart)
 - [dashboard_canonical_degraded_evidence_test.dart](../../test/dashboard_canonical_degraded_evidence_test.dart)
@@ -180,6 +183,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [madhhab_suggestion_service_test.dart](../../test/madhhab_suggestion_service_test.dart)
 - [network_failure_test.dart](../../test/network_failure_test.dart)
 - [niswah_loading_indicator_test.dart](../../test/niswah_loading_indicator_test.dart)
+- [notification_cycle_reminder_history_test.dart](../../test/notification_cycle_reminder_history_test.dart)
 - [notification_event_log_test.dart](../../test/notification_event_log_test.dart)
 - [notification_log_controller_test.dart](../../test/notification_log_controller_test.dart)
 - [notification_multi_day_continuity_test.dart](../../test/notification_multi_day_continuity_test.dart)
@@ -229,6 +233,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
 - [widget_test.dart](../../test/widget_test.dart)
 
+## test/fiqh_hardening
+
+- [ai_client_fiqh_state_test.dart](../../test/fiqh_hardening/ai_client_fiqh_state_test.dart)
+- [dashboard_prayer_card_test.dart](../../test/fiqh_hardening/dashboard_prayer_card_test.dart)
+- [fiqh_engine_hardening_test.dart](../../test/fiqh_hardening/fiqh_engine_hardening_test.dart)
+
 ## test/fixtures
 
 - [backend_gate_vectors.json](../../test/fixtures/backend_gate_vectors.json)
@@ -248,6 +258,92 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [profile_ar_390x844.png](../../test/goldens/profile_ar_390x844.png)
 - [profile_en_390x844.png](../../test/goldens/profile_en_390x844.png)
 - [today_lower_ar_390x844.png](../../test/goldens/today_lower_ar_390x844.png)
+
+## test/logging_sync_hardening
+
+- [account_deletion_pending_ops_test.dart](../../test/logging_sync_hardening/account_deletion_pending_ops_test.dart)
+- [bleeding_sheet_failure_outcomes_test.dart](../../test/logging_sync_hardening/bleeding_sheet_failure_outcomes_test.dart)
+- [cycle_logs_merge_test.dart](../../test/logging_sync_hardening/cycle_logs_merge_test.dart)
+- [legacy_log_provenance_test.dart](../../test/logging_sync_hardening/legacy_log_provenance_test.dart)
+- [observation_detail_backfill_offer_test.dart](../../test/logging_sync_hardening/observation_detail_backfill_offer_test.dart)
+- [reconcile_pending_operations_test.dart](../../test/logging_sync_hardening/reconcile_pending_operations_test.dart)
+
+## test/logging_sync_hardening/sql
+
+- [canonical_rpc_regression.sql](../../test/logging_sync_hardening/sql/canonical_rpc_regression.sql)
+
+## test/logging_sync_hardening/support
+
+- [fake_supabase.dart](../../test/logging_sync_hardening/support/fake_supabase.dart)
+
+## test/onboarding_server_hardening
+
+- [data_export_completeness_test.dart](../../test/onboarding_server_hardening/data_export_completeness_test.dart)
+- [madhhab_offline_selection_test.dart](../../test/onboarding_server_hardening/madhhab_offline_selection_test.dart)
+- [onboarding_answers_test.dart](../../test/onboarding_server_hardening/onboarding_answers_test.dart)
+
+## test/onboarding_server_hardening/deno
+
+- [ai_user_context_hardening.test.ts](../../test/onboarding_server_hardening/deno/ai_user_context_hardening.test.ts)
+- [import_map.json](../../test/onboarding_server_hardening/deno/import_map.json)
+- [std_assert_stub.ts](../../test/onboarding_server_hardening/deno/std_assert_stub.ts)
+- [supabase_js_stub.ts](../../test/onboarding_server_hardening/deno/supabase_js_stub.ts)
+
+## test/onboarding_server_hardening/sql
+
+- [00_bootstrap_stub_supabase.sql](../../test/onboarding_server_hardening/sql/00_bootstrap_stub_supabase.sql)
+- [02_onboarding_rpc_duplicates_and_overlaps.sql](../../test/onboarding_server_hardening/sql/02_onboarding_rpc_duplicates_and_overlaps.sql)
+- [03_baseline_duration_longer_than_cycle.sql](../../test/onboarding_server_hardening/sql/03_baseline_duration_longer_than_cycle.sql)
+- [04_account_deletion_completeness.sql](../../test/onboarding_server_hardening/sql/04_account_deletion_completeness.sql)
+- [run_sql_checks.sh](../../test/onboarding_server_hardening/sql/run_sql_checks.sh)
+
+## test/pregnancy_notifications_hardening
+
+- [classical_stage_mapping_test.dart](../../test/pregnancy_notifications_hardening/classical_stage_mapping_test.dart)
+- [dashboard_nifas_day_label_test.dart](../../test/pregnancy_notifications_hardening/dashboard_nifas_day_label_test.dart)
+- [dashboard_nifas_prayer_card_test.dart](../../test/pregnancy_notifications_hardening/dashboard_nifas_prayer_card_test.dart)
+- [dashboard_trimester_label_test.dart](../../test/pregnancy_notifications_hardening/dashboard_trimester_label_test.dart)
+- [dst_fire_time_test.dart](../../test/pregnancy_notifications_hardening/dst_fire_time_test.dart)
+- [nifas_window_decision_test.dart](../../test/pregnancy_notifications_hardening/nifas_window_decision_test.dart)
+- [notification_copy_and_feed_test.dart](../../test/pregnancy_notifications_hardening/notification_copy_and_feed_test.dart)
+- [notification_review_findings_test.dart](../../test/pregnancy_notifications_hardening/notification_review_findings_test.dart)
+- [pregnancy_state_sync_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_state_sync_test.dart)
+- [pregnancy_tracking_ended_no_nifas_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_tracking_ended_no_nifas_test.dart)
+- [pregnancy_week_and_milestone_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_week_and_milestone_test.dart)
+- [reports_postpartum_never_exits_test.dart](../../test/pregnancy_notifications_hardening/reports_postpartum_never_exits_test.dart)
+
+## test/round2_hardening
+
+- [fiqh_assessment_round2_test.dart](../../test/round2_hardening/fiqh_assessment_round2_test.dart)
+- [log_day_router_past_day_test.dart](../../test/round2_hardening/log_day_router_past_day_test.dart)
+- [symptoms_on_bleeding_days_test.dart](../../test/round2_hardening/symptoms_on_bleeding_days_test.dart)
+- [symptoms_only_sheet_marker_test.dart](../../test/round2_hardening/symptoms_only_sheet_marker_test.dart)
+
+## test/round2_properties
+
+- [calendar_segment_properties_test.dart](../../test/round2_properties/calendar_segment_properties_test.dart)
+- [fiqh_properties_test.dart](../../test/round2_properties/fiqh_properties_test.dart)
+- [fiqh_regressions_test.dart](../../test/round2_properties/fiqh_regressions_test.dart)
+- [prediction_properties_test.dart](../../test/round2_properties/prediction_properties_test.dart)
+- [round2_regressions_test.dart](../../test/round2_properties/round2_regressions_test.dart)
+- [run_all_timezones.sh](../../test/round2_properties/run_all_timezones.sh)
+
+## test/round2_properties/support
+
+- [fiqh_surfaces.dart](../../test/round2_properties/support/fiqh_surfaces.dart)
+- [property_runner.dart](../../test/round2_properties/support/property_runner.dart)
+- [synthetic_history.dart](../../test/round2_properties/support/synthetic_history.dart)
+
+## test/screens_hardening
+
+- [bleeding_entry_routing_test.dart](../../test/screens_hardening/bleeding_entry_routing_test.dart)
+- [calendar_dst_and_empty_test.dart](../../test/screens_hardening/calendar_dst_and_empty_test.dart)
+- [dashboard_late_period_ring_test.dart](../../test/screens_hardening/dashboard_late_period_ring_test.dart)
+- [dashboard_stale_summary_after_midnight_test.dart](../../test/screens_hardening/dashboard_stale_summary_after_midnight_test.dart)
+- [dst_day_counts_test.dart](../../test/screens_hardening/dst_day_counts_test.dart)
+- [husband_report_expected_end_test.dart](../../test/screens_hardening/husband_report_expected_end_test.dart)
+- [next_period_cross_screen_test.dart](../../test/screens_hardening/next_period_cross_screen_test.dart)
+- [report_null_average_test.dart](../../test/screens_hardening/report_null_average_test.dart)
 
 ## test/security
 

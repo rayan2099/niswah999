@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../domain/entities/cycle_log.dart';
 import '../../domain/entities/evidence_provenance.dart';
 
@@ -30,9 +31,10 @@ class CycleCalendar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final monthStart = DateTime(month.year, month.month);
-    final gridStart = monthStart.subtract(
-      Duration(days: monthStart.weekday % 7),
-    );
+    // Calendar-day arithmetic, never `Duration(days:)`: local midnights
+    // are 23/25 hours apart across a DST change, which shifted every cell
+    // after it by a day (a duplicated day, the month's last day missing).
+    final gridStart = addCalendarDays(monthStart, -(monthStart.weekday % 7));
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final dayCount = (((monthStart.weekday % 7) + daysInMonth) / 7).ceil() * 7;
     return Container(
@@ -134,9 +136,15 @@ class CycleCalendar extends StatelessWidget {
               crossAxisSpacing: 3,
             ),
             itemBuilder: (context, index) {
-              final date = gridStart.add(Duration(days: index));
+              final date = addCalendarDays(gridStart, index);
+              // A symptoms/notes-only row says nothing about bleeding, so
+              // the day's marker comes from a row that records flow.
               final log = logs
-                  .where((entry) => DateUtils.isSameDay(entry.date, date))
+                  .where(
+                    (entry) =>
+                        entry.recordsFlow &&
+                        DateUtils.isSameDay(entry.date, date),
+                  )
                   .firstOrNull;
               return _CalendarDay(
                 date: date,
@@ -214,27 +222,34 @@ class CycleCalendar extends StatelessWidget {
   }
 
   _DayMarker _markerFor(DateTime date, CycleLog? log) {
-    final cycleLength = summary.averageCycleLength;
-    final periodLength = summary.averagePeriodLength;
-    if (cycleLength == null || periodLength == null) {
-      return _DayMarker.tahara;
-    }
+    // A stored log is a fact and never depends on a prediction existing.
     if (log != null) {
       return log.flow == FlowLevel.none ? _DayMarker.tahara : _DayMarker.haid;
     }
+    // A day with no entry is "No entry", never "Tahara": purity is a
+    // ruling drawn from a logged no-bleeding day, not from absent data.
+    final cycleLength = summary.predictedCycleLength;
+    final periodLength = summary.averagePeriodLength;
+    if (cycleLength == null || periodLength == null) {
+      return _DayMarker.none;
+    }
     final start = summary.lastCycleStart;
-    if (start == null) return _DayMarker.tahara;
-    final difference = DateUtils.dateOnly(date)
-        .difference(DateUtils.dateOnly(start))
-        .inDays;
-    if (difference < 0) return _DayMarker.none;
-    final cycleDay = difference % cycleLength + 1;
-    // A degenerate average (e.g. 2 days, from two Haid starts logged close
-    // together) would otherwise repeat this "Expected Haid" block every
-    // couple of days instead of once per real cycle — never project it
-    // without the same plausibility gate the fertile window already uses.
-    if (summary.hasPlausibleAverage && cycleDay <= periodLength) {
-      return _DayMarker.expectedHaid;
+    if (start == null) return _DayMarker.none;
+    if (calendarDaysBetween(start, date) < 0) return _DayMarker.none;
+    // "Expected Haid" repeats forward from the next predicted start only —
+    // never on days already past (that would draw a prediction over a late
+    // period's real, unlogged days), and not at all once she is clearly
+    // late (nextPeriodStart is then null until a new start is logged).
+    // summary.hasPlausibleAverage still gates it, so a degenerate average
+    // (e.g. 2 days) can never repeat a block every couple of days.
+    final nextStart = summary.nextPeriodStart;
+    if (summary.hasPlausibleAverage &&
+        nextStart != null &&
+        calendarDaysBetween(AppClock.now(), date) >= 0) {
+      final sinceNext = calendarDaysBetween(nextStart, date);
+      if (sinceNext >= 0 && sinceNext % cycleLength < periodLength) {
+        return _DayMarker.expectedHaid;
+      }
     }
     if (!showFertileWindow) return _DayMarker.none;
     // Reuses the single shared fertile-window projection (CycleTrackingController

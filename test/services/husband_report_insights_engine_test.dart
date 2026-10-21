@@ -76,8 +76,8 @@ void main() {
   );
 
   test(
-    'overdue history: next period and fertile window are rolled forward, '
-    'never shown in the past — the exact bug reported in the Husband Report',
+    'overdue history: no next period or fertile window is ever shown in the '
+    'past, and next month is not silently substituted for a late period',
     () {
       // Same 28-day-apart history as above, but "now" is well past the
       // naive projection (Jan 29 + 28 = Feb 26) with no new Haid start
@@ -97,17 +97,24 @@ void main() {
         now: now,
       );
 
-      expect(insights.nextPeriodDate, isNotNull);
+      // Three days late, inside the expected window: "any day now".
+      expect(insights.nextPeriodDate, DateTime(2026, 3, 1));
       expect(
-        insights.nextPeriodDate!.isBefore(now),
-        isFalse,
-        reason: 'a "next period" prediction must never be in the past',
+        insights.fertileWindowStart,
+        isNull,
+        reason:
+            'while she is late the fertile window is withheld rather than '
+            'shown in the past or moved to next month',
       );
-      expect(
-        insights.fertileWindowStart!.isBefore(now),
-        isFalse,
-        reason: 'the fertile window must roll forward with the prediction',
+
+      final clearlyLate = HusbandReportInsightsEngine.analyze(
+        cycleLogs: logs,
+        madhhab: Madhhab.hanbali,
+        displayName: 'أم محمد',
+        now: DateTime(2026, 3, 20),
       );
+      expect(clearlyLate.nextPeriodDate, isNull);
+      expect(clearlyLate.fertileWindowStart, isNull);
     },
   );
 

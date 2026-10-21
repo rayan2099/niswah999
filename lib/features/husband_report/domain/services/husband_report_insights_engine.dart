@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/calendar_days.dart';
 import '../../../cycle_tracking/domain/controllers/cycle_tracking_controller.dart';
 import '../../../cycle_tracking/domain/entities/cycle_log.dart';
 import '../../../cycle_tracking/domain/services/cycle_segment_planner.dart';
@@ -25,6 +26,7 @@ class HusbandReportInsights extends Equatable {
     required this.fertileWindowEnd,
     this.fertilePeakDay,
     this.segmentPlan,
+    this.nextPeriodRange,
   });
 
   final String displayName;
@@ -33,6 +35,10 @@ class HusbandReportInsights extends Equatable {
   /// Predicted start of the next period — null until two Haid starts have
   /// been logged, same gate as [FiqhReportInsights.hasEnoughForAverages].
   final DateTime? nextPeriodDate;
+
+  /// Days the next period is most likely to start on; set exactly when
+  /// [nextPeriodDate] is (never from her stated estimate alone).
+  final PredictedDateRange? nextPeriodRange;
   final DateTime? fertileWindowStart;
   final DateTime? fertileWindowEnd;
 
@@ -56,6 +62,7 @@ class HusbandReportInsights extends Equatable {
     fertileWindowEnd,
     fertilePeakDay,
     segmentPlan,
+    nextPeriodRange,
   ];
 }
 
@@ -82,6 +89,7 @@ class HusbandReportInsightsEngine {
     );
 
     DateTime? nextPeriodDate;
+    PredictedDateRange? nextPeriodRange;
     DateTime? fertileStart;
     DateTime? fertileEnd;
     DateTime? fertilePeakDay;
@@ -91,14 +99,16 @@ class HusbandReportInsightsEngine {
         canonical?.effectiveLogs ?? cycleLogs,
         now: now,
         canonicalEpisodes: canonical?.episodes ?? const [],
+        statedBaseline: canonical?.statedBaseline,
       );
       nextPeriodDate = summary.nextPeriodStart;
+      nextPeriodRange = nextPeriodDate == null ? null : summary.nextPeriodRange;
       fertileStart = summary.fertileWindow.start;
       fertileEnd = summary.fertileWindow.end;
       fertilePeakDay = summary.fertileWindow.peakDay;
 
       final cycleStart = summary.lastCycleStart;
-      final cycleLength = summary.averageCycleLength;
+      final cycleLength = summary.predictedCycleLength;
       final periodLength = summary.averagePeriodLength;
       // Fiqh Remediation Wave 1 (Section E): `isBleedingNow` below is
       // fiqh-derived (`FiqhCycleState.haid`) — if the madhhab is
@@ -113,7 +123,7 @@ class HusbandReportInsightsEngine {
           periodLength != null &&
           summary.hasPlausibleAverage &&
           fiqh.cycleState != FiqhCycleState.madhhabUnresolved) {
-        final cycleDayEstimate = now.difference(cycleStart).inDays + 1;
+        final cycleDayEstimate = calendarDaysBetween(cycleStart, now) + 1;
         segmentPlan = const CycleSegmentPlanner().plan(
           cycleLength: cycleLength,
           periodLength: periodLength,
@@ -129,6 +139,7 @@ class HusbandReportInsightsEngine {
       displayName: displayName,
       fiqh: fiqh,
       nextPeriodDate: nextPeriodDate,
+      nextPeriodRange: nextPeriodRange,
       fertileWindowStart: fertileStart,
       fertileWindowEnd: fertileEnd,
       fertilePeakDay: fertilePeakDay,

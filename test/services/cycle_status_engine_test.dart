@@ -105,7 +105,10 @@ void main() {
 
       expect(snapshot.state, FiqhCycleState.needsAdvisory);
       expect(snapshot.daysIntoCurrentEpisode, isNotNull);
-      expect(snapshot.confirmAt, DateTime(2026, 2, 2));
+      // Date-only start: confirmed only once 24h have passed even if
+      // bleeding began at the END of Feb 1 (fiqh hardening, 2026-10-18 —
+      // previously Feb 2, which assumed a midnight start).
+      expect(snapshot.confirmAt, DateTime(2026, 2, 3));
     },
   );
 
@@ -196,12 +199,15 @@ void main() {
         bleeding('e2-start', DateTime(2026, 2, 1)),
         bleeding('e2-day2', DateTime(2026, 2, 2), cycleDay: 2),
       ];
-      final now = DateTime(2026, 2, 2);
+      final now = DateTime(2026, 2, 3);
 
       final unresolved = evaluateWithMadhhab(logs, now, null);
-      // Bleeding since Feb 1 00:00, evaluated at Feb 2 00:00 = exactly
-      // 24h — Shafi'i's minimum haid duration, so this is a real `haid`
-      // classification once a madhhab is actually supplied.
+      // Bleeding logged date-only from Feb 1, evaluated at Feb 3 00:00 —
+      // at least 24h even if it began at the very end of Feb 1 (Shafi'i's
+      // minimum haid duration), so this is a real `haid` classification
+      // once a madhhab is actually supplied. (Fiqh hardening, 2026-10-18:
+      // was Feb 2 00:00, which met the minimum only by assuming a
+      // midnight start.)
       final resolved = evaluateWithMadhhab(logs, now, Madhhab.shafii);
 
       expect(unresolved.state, FiqhCycleState.madhhabUnresolved);

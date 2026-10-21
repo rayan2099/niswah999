@@ -7,11 +7,15 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../domain/entities/bleeding_episode.dart';
+import '../../domain/entities/cycle_log.dart' show PredictionBasis;
 import '../../domain/entities/evidence_provenance.dart';
 import '../../domain/entities/load_result.dart';
+import '../../domain/controllers/cycle_tracking_controller.dart';
+import '../../domain/services/cycle_calculation_service.dart';
 import '../widgets/cycle_calendar.dart' show hijriMonthLabel;
 import '../widgets/observation_detail_sheet.dart';
 import '../widgets/provenance_badge.dart';
@@ -216,6 +220,10 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
                         // would have changed the answer.
                         allowPrediction:
                             !_episodesDegraded && !_observationsDegraded,
+                        statedCycleLength:
+                            CycleCalculationService.statedCycleLength(
+                              _baseline,
+                            ),
                         onDayTap: _onDayTap,
                       ),
                       const SizedBox(height: 20),
@@ -359,6 +367,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
     required this.observations,
     required this.allowPrediction,
     required this.onDayTap,
+    this.statedCycleLength,
   });
 
   final DateTime month;
@@ -372,19 +381,30 @@ class _CanonicalMonthGrid extends StatelessWidget {
   final bool allowPrediction;
   final void Function(DateTime day, _DayEvidence evidence) onDayTap;
 
+  /// Her stated usual cycle length, blended into the prediction while her
+  /// logged history is short — the same blend the dashboard uses.
+  final int? statedCycleLength;
+
   @override
   Widget build(BuildContext context) {
     final monthStart = DateTime(month.year, month.month);
-    final gridStart = monthStart.subtract(
-      Duration(days: monthStart.weekday % 7),
-    );
+    // Calendar-day arithmetic, never `Duration(days:)`: local midnights
+    // are 23/25 hours apart across a DST change, which shifted every cell
+    // after it by a day (a duplicated day, the month's last day missing).
+    final gridStart = addCalendarDays(monthStart, -(monthStart.weekday % 7));
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final dayCount = (((monthStart.weekday % 7) + daysInMonth) / 7).ceil() * 7;
     final arabic = AppLocaleController.instance.isArabic;
     final today = DateUtils.dateOnly(AppClock.now());
 
     final effectiveByDay = _effectiveByDay(observations);
-    final prediction = allowPrediction ? _predictNextEpisode(episodes) : null;
+    final prediction = allowPrediction
+        ? _predictNextEpisode(
+            episodes,
+            today: today,
+            statedCycleLength: statedCycleLength,
+          )
+        : null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
@@ -427,7 +447,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
               childAspectRatio: 0.95,
             ),
             itemBuilder: (context, index) {
-              final date = gridStart.add(Duration(days: index));
+              final date = addCalendarDays(gridStart, index);
               final dayKey = DateTime(date.year, date.month, date.day);
               final rawForDay = observations
                   .where((o) => DateUtils.isSameDay(o.observedDate, dayKey))
@@ -549,8 +569,10 @@ class _CanonicalMonthGrid extends StatelessWidget {
   /// average must never repeat a fabricated "Expected Haid" block every
   /// few days.
   static (DateTime, DateTime)? _predictNextEpisode(
-    List<BleedingEpisode> episodes,
-  ) {
+    List<BleedingEpisode> episodes, {
+    required DateTime today,
+    int? statedCycleLength,
+  }) {
     final ended =
         episodes
             .where((e) => e.lifecycleStatus == LifecycleStatus.ended)
@@ -558,34 +580,48 @@ class _CanonicalMonthGrid extends StatelessWidget {
           ..sort((a, b) => a.startDate.compareTo(b.startDate));
     if (ended.length < 2) return null;
 
-    final gaps = <int>[];
-    for (var i = 1; i < ended.length; i++) {
-      gaps.add(
-        DateUtils.dateOnly(ended[i].startDate)
-            .difference(DateUtils.dateOnly(ended[i - 1].startDate))
-            .inDays,
-      );
+    final gaps = <int>[
+      for (var i = 1; i < ended.length; i++)
+        calendarDaysBetween(ended[i - 1].startDate, ended[i].startDate),
+    ];
+    // The same predicted length (recent cycles weighted, missed-log gaps
+    // dropped, her stated estimate blended in while history is short) the
+    // dashboard, reports and reminders use. Never drawn from her estimate
+    // alone: an estimate is not attached to calendar days.
+    final prediction = CycleCalculationService.predictFromIntervals(
+      gaps,
+      statedCycleLength: statedCycleLength,
+    );
+    if (prediction == null ||
+        prediction.basis == PredictionBasis.statedEstimate) {
+      return null;
     }
-    final averageGap = gaps.reduce((a, b) => a + b) / gaps.length;
-    if (averageGap < 15 || averageGap > 90) return null;
 
+    // end_date is the day bleeding was recorded as stopped (the episode's
+    // closing `flow = none` observation), so the bleeding days are
+    // start..end-1 — the same count CycleCalculationService averages.
     final durations = ended
-        .map(
-          (e) =>
-              DateUtils.dateOnly(e.endDate!)
-                  .difference(DateUtils.dateOnly(e.startDate))
-                  .inDays +
-              1,
-        )
+        .map((e) => calendarDaysBetween(e.startDate, e.endDate!))
+        .where((days) => days > 0)
         .toList();
+    if (durations.isEmpty) return null;
     final averageDuration =
         durations.reduce((a, b) => a + b) / durations.length;
 
     final last = ended.last;
-    final predictedStart = DateUtils.dateOnly(last.startDate)
-        .add(Duration(days: averageGap.round()));
-    final predictedEnd = predictedStart.add(
-      Duration(days: averageDuration.round() - 1),
+    final expectedStart = addCalendarDays(last.startDate, prediction.length);
+    // A late period: keep showing "any day now" from today while still
+    // inside the expected window, then nothing once clearly late — never
+    // draw predicted bleeding over days that have already passed.
+    final daysLate = calendarDaysBetween(expectedStart, today);
+    if (daysLate >
+        CycleTrackingController.lateToleranceDays(prediction.spreadDays)) {
+      return null;
+    }
+    final predictedStart = daysLate > 0 ? calendarDay(today) : expectedStart;
+    final predictedEnd = addCalendarDays(
+      predictedStart,
+      averageDuration.round() - 1,
     );
     // Never project over an already-open episode's own real data — that
     // would be exactly the "fabricate bleeding between two reported
