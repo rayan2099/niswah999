@@ -249,6 +249,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [profile_en_390x844.png](../../test/goldens/profile_en_390x844.png)
 - [today_lower_ar_390x844.png](../../test/goldens/today_lower_ar_390x844.png)
 
+## test/security
+
+- [00_bootstrap_stub_supabase.sql](../../test/security/00_bootstrap_stub_supabase.sql)
+- [run_sql_checks.sh](../../test/security/run_sql_checks.sh)
+- [users_privileged_columns_guard.sql](../../test/security/users_privileged_columns_guard.sql)
+
 ## test/services
 
 - [auth_controller_test.dart](../../test/services/auth_controller_test.dart)

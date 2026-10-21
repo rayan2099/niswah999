@@ -21,6 +21,7 @@ Evidence key: 🟥 Confirmed by Controlled Test · 🟧 Confirmed by Code/Config
 | SEC-009 | INJ (AI-xx) | SEC3 — Low | `lib/features/private_messaging/data/repositories/private_messaging_repository.dart` | PostgREST `.or()` filters built via raw string interpolation of a caller-supplied user ID instead of structured filter builders; not currently exploitable because RLS independently backstops every returned row, but fragile | NO (backlog) | OPEN |
 | SEC-010 | — | UNKNOWN | Live Supabase project | Whether the migrations in `supabase/migrations/` (and `schema.sql`) have actually been applied, in this order, to the production Supabase project was **not verifiable** from source alone | Contributes to "no critical unknown" gate | UNKNOWN |
 | SEC-011 | — | UNKNOWN | Live Supabase project / dashboard | Live dashboard-only configuration (Auth rate limits, leaked-password protection, email-confirmation requirement, redirect-URL allow-list for `niswah://login-callback`, Realtime RLS enforcement toggle, actual `SUPABASE_SERVICE_ROLE_KEY` scoping) was **not accessible** | Contributes to "no critical unknown" gate | UNKNOWN |
+| SEC-012 (added 2026-10-21) | AUTHZ / DATA | **SEC0 — Critical** | `public.users` RLS (`users_update_own`) + `is_admin()`/`can_access_user()` | Any authenticated user can set her own `users.role = 'admin'`, after which `can_access_user()` exposes every other user's health rows | YES | FIX PROPOSED (migration `20261021090000`), not deployed; production exposure unknown until the audit query below is run |
 
 ---
 
@@ -206,6 +207,28 @@ The following are configured outside the reviewed source tree, on the Supabase p
 **Status: UNKNOWN / NOT VERIFIED.**
 
 ---
+
+## SEC-012 — Self-promotion to admin through `users_update_own` (Critical, added 2026-10-21)
+
+- **Evidence:** 🟥 Confirmed by controlled test against a local Postgres 16 rebuild (stub Supabase roles, `supabase/canonical_baseline/00_public_baseline_draft.sql`, every migration in order). Not tested against any live project. The same policy text appears in `supabase/live_schema_capture/2026-09-04_public.sql` (`users_update_own`), so production is presumed affected.
+- **Attack path:** `update public.users set role = 'admin' where id = auth.uid()` succeeds for any signed-in user (`authenticated` has UPDATE on every column; the policy checks only `auth.uid() = id`). `is_admin()` then returns true, and every policy using `can_access_user()` (`auth.uid() = row_user_id OR is_admin()`) grants read — and, for `FOR ALL` policies, delete — on every other user's rows: `bleeding_episodes`, `bleeding_observations`, `cycle_baselines`, `cycle_entries`, `prayer_log`, `pregnancy_records`, `nifas_records`, `istihadah_episodes`, `adah_ledger`, `symptoms_log`, `secret_vault`, `ramadan_records`, `chat_history`, and `users` itself. The same path lets a user grant herself `premium_status`/`premium_expires_at`.
+- **Proposed fix (implemented on `fix/users-role-escalation`, not deployed):** `supabase/migrations/20261021090000_users_privileged_columns_guard.sql` adds a `BEFORE INSERT OR UPDATE` trigger raising `42501` when `authenticated`/`anon` change `role`, `premium_status` or `premium_expires_at` (or insert non-default values), and narrows `users_update_own`/`users_delete_own` to the caller's own row. `service_role`, `postgres` and the postgres-owned signup trigger are unaffected. The app never writes these columns (checked in `lib/`).
+- **Verification:** `test/security/users_privileged_columns_guard.sql` (run with `test/security/run_sql_checks.sh`) fails without the migration ("self-promotion to admin was allowed") and passes with it: self-promotion and premium self-grant rejected, a client insert with privileged values rejected, ordinary profile updates (name, madhhab, onboarding flag, language, anonymous mode) still work, `service_role` can still change `role`, and another user's rows stay invisible.
+- **Required production check (read-only, owner to run before/after deploy):** see the audit query below. `public.users` has no change history for these columns; only `updated_at` (bumped by any update) is available, so a non-`user` role is the only reliable signal of past escalation.
+
+```sql
+-- Who is not a plain user, or has a premium expiry set?
+select id, role, premium_status, premium_expires_at, created_at, updated_at
+from public.users
+where role <> 'user' or premium_expires_at is not null
+order by updated_at desc;
+
+-- Context: how many accounts in total, and premium_status distribution
+-- (its column default is true, so false is the unusual value).
+select role, premium_status, count(*) from public.users group by 1, 2 order by 1, 2;
+```
+
+Any `admin` row that the owner did not create deliberately (via the dashboard/service role) should be treated as a data-access incident: reset the role with the service role and review Supabase API logs for that user id.
 
 ## Static Verification Matrix (selected)
 
