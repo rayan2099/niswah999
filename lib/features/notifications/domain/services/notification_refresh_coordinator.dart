@@ -492,6 +492,11 @@ class NotificationRefreshCoordinator {
       return;
     }
 
+    // A failed profile read leaves pregnancy status unknown (nothing on
+    // this device says pregnant or nifas either): keep the cycle slot as
+    // it is rather than planning from history as if not pregnant.
+    if (profileRead.failed) return;
+
     final logs = await cycleRepository.getCycleLogs(limit: 1000);
     // The same canonical episode history (e.g. periods reported during
     // onboarding) the dashboard predicts from — without it the reminder
@@ -534,15 +539,25 @@ class NotificationRefreshCoordinator {
       return;
     }
 
+    // A birth logged on this device (nifas active) ends the pregnancy-week
+    // slot whatever the server says: the row may still read pregnant (its
+    // postpartum write failed) or be unreadable right now.
+    final locallyInNifas = PregnancyStatusController.instance.isNifasActive;
+    if (locallyInNifas) {
+      await _apply(NotificationScheduler.pregnancyNotificationId, null);
+    }
+
     // A failed profile read is "unknown": leave whatever is scheduled as
     // it is (it previously threw out of the whole refresh).
     if (profileRead.failed) return;
 
     final profile = profileRead.profile;
-    final pregnancyPlan = NotificationScheduler.planPregnancyMilestone(
-      profile: profile,
-      now: now,
-    );
+    final pregnancyPlan = locallyInNifas
+        ? null
+        : NotificationScheduler.planPregnancyMilestone(
+            profile: profile,
+            now: now,
+          );
     await _apply(NotificationScheduler.pregnancyNotificationId, pregnancyPlan);
 
     final nifasPlan = NotificationScheduler.planNifasCountdown(

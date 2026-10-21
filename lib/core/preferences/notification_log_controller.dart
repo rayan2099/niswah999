@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -100,6 +101,38 @@ class NotificationLogController extends ChangeNotifier {
   static const _storageKey = 'niswah_notification_log';
 
   List<NotificationLogEntry> _entries = const [];
+
+  /// Fires when the nearest not-yet-fired entry becomes visible, so an
+  /// open feed (and the bell's unread count) updates at its fire time
+  /// instead of waiting for some unrelated change.
+  Timer? _revealTimer;
+
+  @override
+  void notifyListeners() {
+    _planReveal();
+    super.notifyListeners();
+  }
+
+  void _planReveal() {
+    _revealTimer?.cancel();
+    _revealTimer = null;
+    final now = AppClock.now();
+    DateTime? nearest;
+    for (final entry in _entries) {
+      final fireAt = entry.fireAt;
+      if (fireAt == null || !fireAt.isAfter(now)) continue;
+      if (nearest == null || fireAt.isBefore(nearest)) nearest = fireAt;
+    }
+    if (nearest == null) return;
+    _revealTimer = Timer(nearest.difference(now), notifyListeners);
+  }
+
+  @override
+  void dispose() {
+    _revealTimer?.cancel();
+    _revealTimer = null;
+    super.dispose();
+  }
 
   /// What the feed shows: entries whose reminder has fired (or that never
   /// had a fire time), newest first by [NotificationLogEntry.shownAt].
