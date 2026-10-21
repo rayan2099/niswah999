@@ -125,6 +125,9 @@ export interface UserAiContext {
   };
 }
 
+/** App-side `CycleLog.symptomsOnlyMarker`: a symptoms/notes-only row. */
+export const SYMPTOMS_ONLY_MARKER = 'flow:unrecorded';
+
 interface CycleEntryRow {
   date: string;
   flow: string;
@@ -287,7 +290,14 @@ export async function buildUserAiContext(
   // Sort ascending by date for the episode scan (mirrors CycleStatusEngine's
   // own sort direction), then read backward from the latest entry.
   const sortedAscending = [...cycleEntries].sort((a, b) => a.date.localeCompare(b.date));
-  const latest = sortedAscending[sortedAscending.length - 1] ?? null;
+  // Round-2 hardening (proposed): a symptoms/notes-only row (marker
+  // 'flow:unrecorded', see CycleLog.symptomsOnlyMarker in the app) records
+  // no flow fact, so the bleeding scan below skips it; its symptoms and
+  // notes are still read further down.
+  const flowAscending = sortedAscending.filter(
+    (entry) => !(entry.symptoms ?? []).includes(SYMPTOMS_ONLY_MARKER),
+  );
+  const latest = flowAscending[flowAscending.length - 1] ?? null;
   const hasHistory = cycleEntries.length > 0;
   let isCurrentlyBleeding: boolean | null = null;
   let daysIntoCurrentEpisode: number | null = null;
@@ -295,12 +305,12 @@ export async function buildUserAiContext(
   if (latest) {
     isCurrentlyBleeding = latest.flow !== 'none';
     if (isCurrentlyBleeding) {
-      let activeStartIndex = sortedAscending.length - 1;
-      for (let i = sortedAscending.length - 1; i >= 0; i--) {
-        if (sortedAscending[i].flow === 'none') break;
+      let activeStartIndex = flowAscending.length - 1;
+      for (let i = flowAscending.length - 1; i >= 0; i--) {
+        if (flowAscending[i].flow === 'none') break;
         activeStartIndex = i;
       }
-      const activeStart = new Date(sortedAscending[activeStartIndex].date);
+      const activeStart = new Date(flowAscending[activeStartIndex].date);
       daysIntoCurrentEpisode =
         Math.max(0, Math.floor((now.getTime() - activeStart.getTime()) / MS_PER_DAY)) + 1;
     }

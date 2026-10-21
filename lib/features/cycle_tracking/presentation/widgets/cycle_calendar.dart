@@ -137,8 +137,14 @@ class CycleCalendar extends StatelessWidget {
             ),
             itemBuilder: (context, index) {
               final date = addCalendarDays(gridStart, index);
+              // A symptoms/notes-only row says nothing about bleeding, so
+              // the day's marker comes from a row that records flow.
               final log = logs
-                  .where((entry) => DateUtils.isSameDay(entry.date, date))
+                  .where(
+                    (entry) =>
+                        entry.recordsFlow &&
+                        DateUtils.isSameDay(entry.date, date),
+                  )
                   .firstOrNull;
               return _CalendarDay(
                 date: date,

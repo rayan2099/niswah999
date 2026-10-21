@@ -232,6 +232,10 @@ class CycleCalculationService {
     DateTime? currentEpisodeStart;
 
     for (final log in sortedLogs) {
+      // A symptoms/notes-only row states nothing about bleeding; reading
+      // its placeholder `none` would end the period mid-way and turn the
+      // next bleeding day into a new "cycle start" (round-2 hardening).
+      if (!log.recordsFlow) continue;
       final isBleeding = log.flow != FlowLevel.none;
       final date = calendarDay(log.date);
       // A cycleDay == 1 log only counts as a genuine new episode if it's

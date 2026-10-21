@@ -229,7 +229,18 @@ class CycleTrackingViewModel extends ChangeNotifier {
     // corrected through the Calendar's correction flow). Only rows that
     // could be a mirror (a provenance the projection writes) are checked;
     // an undeterminable answer (offline) does not block a local edit.
+    // Round-2 hardening (proposed): only an edit of the mirrored FACTS —
+    // the flow or the day — is blocked. Symptoms and notes are not part of
+    // the canonical observation's fact, and the "Symptoms & notes" sheet
+    // is the only place she can add them to a day she logged bleeding on;
+    // blocking those too left her unable to log cramps on any period day.
+    final changesMirroredFact =
+        existingLog != null &&
+        (formData.flow != existingLog.flow ||
+            formData.date == null ||
+            calendarDaysBetween(existingLog.date, formData.date!) != 0);
     if (existingLog != null &&
+        changesMirroredFact &&
         existingLog.dataProvenance != CycleEntryProvenance.legacyUnverified &&
         await _canonicalMirrorChecker(existingLog.id) == true) {
       throw const CanonicalMirrorEditBlockedException();

@@ -630,6 +630,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           evidenceUnresolved: _canonicalFiqhEvidenceUnresolved,
           madhhab: MadhhabController.instance.selectedOrNull,
           now: AppClock.now(),
+          // The same episode history the reports and the AI advisor use.
+          canonicalEpisodes: _canonicalStatus?.episodeTimings ?? const [],
         );
         final snapshot = fiqhAssessment.snapshot;
         final mappedState = switch (snapshot.state) {

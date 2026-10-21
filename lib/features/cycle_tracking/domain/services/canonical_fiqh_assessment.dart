@@ -13,7 +13,8 @@ enum CanonicalFiqhVerdict {
   /// The evidence cannot be verified: the canonical read failed, a row was
   /// quarantined, an "I'm not sure" day falls inside the open episode, or
   /// the effective observations contradict the canonical episode status
-  /// (the latest effective day is bleeding although no episode is open).
+  /// (the latest effective day is bleeding although no episode is open, or
+  /// is `none` although an episode is still open).
   /// No ruling — positive or negative — may be shown.
   evidenceUnresolved,
 
@@ -53,13 +54,21 @@ class CanonicalFiqhAssessment {
   /// read failed (never "no open episode").
   /// [evidenceUnresolved]: observations unreadable, quarantined rows, or a
   /// material "I'm not sure" gap (see `ReportCanonicalEvidence`).
+  /// [canonicalEpisodes]: every canonical episode's start/end dates
+  /// (`CanonicalBleedingStatus.episodeTimings`,
+  /// `ReportCanonicalEvidence.episodes`). Required (round-2 hardening,
+  /// proposed): an episode whose start observation is "I'm not sure" (e.g.
+  /// one reported during onboarding) is dropped from [effectiveLogs], so a
+  /// caller that left this out counted fewer cycles than one that passed
+  /// it — Today and the AI advisor said "insufficient history" while the
+  /// Fiqh report ruled "haid" on the same evidence.
   static CanonicalFiqhAssessment assess({
     required List<CycleLog> effectiveLogs,
     required bool? hasOpenEpisode,
     required bool evidenceUnresolved,
     required Madhhab? madhhab,
     required DateTime now,
-    List<CanonicalEpisodeTiming> canonicalEpisodes = const [],
+    required List<CanonicalEpisodeTiming> canonicalEpisodes,
   }) {
     final calculation = const CycleCalculationService().calculate(
       effectiveLogs,
@@ -100,11 +109,19 @@ class CanonicalFiqhAssessment {
     // day. The engine would keep saying "currently bleeding" (haid) from
     // those logs, while the factual record says nothing is open. Neither
     // reading can be confirmed, so no ruling is shown.
-    final latestIsBleeding =
-        effectiveLogs.isNotEmpty &&
-        effectiveLogs.reduce((a, b) => b.date.isBefore(a.date) ? a : b).flow !=
-            FlowLevel.none;
-    if (!hasOpenEpisode && latestIsBleeding) {
+    final latestFlow = effectiveLogs.isEmpty
+        ? null
+        : effectiveLogs.reduce((a, b) => b.date.isBefore(a.date) ? a : b).flow;
+    if (!hasOpenEpisode && latestFlow != null && latestFlow != FlowLevel.none) {
+      return result(CanonicalFiqhVerdict.evidenceUnresolved);
+    }
+    // Round-2 hardening (proposed) — the reverse mismatch: an episode is
+    // still open, yet the latest effective day is `none` (e.g. a day of the
+    // open episode corrected to "no bleeding"). The engine would say
+    // "Tahara" from the logs while the factual record says bleeding is
+    // still being tracked (and a clean day inside a period is not purity
+    // by itself in every madhhab). Neither reading can be confirmed.
+    if (hasOpenEpisode && latestFlow == FlowLevel.none) {
       return result(CanonicalFiqhVerdict.evidenceUnresolved);
     }
     return result(CanonicalFiqhVerdict.evaluated);

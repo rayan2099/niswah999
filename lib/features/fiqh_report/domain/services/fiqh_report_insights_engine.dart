@@ -196,7 +196,10 @@ class FiqhReportInsightsEngine {
 
     // Evidence for the STATE and the statistics: canonical when available.
     final evidenceLogs = canonical?.effectiveLogs ?? cycleLogs;
-    final sorted = [...evidenceLogs]..sort((a, b) => a.date.compareTo(b.date));
+    // Symptoms/notes-only legacy rows carry no flow fact
+    // (CycleLog.recordsFlow); canonical logs always record one.
+    final sorted = [...evidenceLogs.where((log) => log.recordsFlow)]
+      ..sort((a, b) => a.date.compareTo(b.date));
 
     // Fiqh hardening (2026-10-18): the current state comes from the SAME
     // combination of canonical status and CycleStatusEngine the Today

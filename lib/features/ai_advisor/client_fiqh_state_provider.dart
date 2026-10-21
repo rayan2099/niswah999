@@ -55,6 +55,7 @@ class ClientFiqhStateProvider {
         evidenceUnresolved: evidence.evidenceUnresolved,
         madhhab: madhhab,
         now: now,
+        canonicalEpisodes: evidence.episodes,
       );
       return switch (assessment.verdict) {
         CanonicalFiqhVerdict.evaluated => assessment.state!.name,

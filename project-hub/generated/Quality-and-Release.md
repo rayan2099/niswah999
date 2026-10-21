@@ -276,6 +276,24 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [fake_supabase.dart](../../test/logging_sync_hardening/support/fake_supabase.dart)
 
+## test/round2_hardening
+
+- [fiqh_assessment_round2_test.dart](../../test/round2_hardening/fiqh_assessment_round2_test.dart)
+- [log_day_router_past_day_test.dart](../../test/round2_hardening/log_day_router_past_day_test.dart)
+- [symptoms_on_bleeding_days_test.dart](../../test/round2_hardening/symptoms_on_bleeding_days_test.dart)
+- [symptoms_only_sheet_marker_test.dart](../../test/round2_hardening/symptoms_only_sheet_marker_test.dart)
+
+## test/round2_hardening/properties
+
+- [fiqh_properties_test.dart](../../test/round2_hardening/properties/fiqh_properties_test.dart)
+- [fiqh_regressions_test.dart](../../test/round2_hardening/properties/fiqh_regressions_test.dart)
+
+## test/round2_hardening/properties/support
+
+- [fiqh_surfaces.dart](../../test/round2_hardening/properties/support/fiqh_surfaces.dart)
+- [property_runner.dart](../../test/round2_hardening/properties/support/property_runner.dart)
+- [synthetic_history.dart](../../test/round2_hardening/properties/support/synthetic_history.dart)
+
 ## test/screens_hardening
 
 - [bleeding_entry_routing_test.dart](../../test/screens_hardening/bleeding_entry_routing_test.dart)

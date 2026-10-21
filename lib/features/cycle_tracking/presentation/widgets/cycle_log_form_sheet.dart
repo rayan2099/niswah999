@@ -786,6 +786,11 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
             if (_isPeriodMode) 'color:$_resolvedBloodColor',
             'mood:$_mood',
             ..._symptoms.entries.map((entry) => '${entry.key}:${entry.value}'),
+            // Round-2 hardening (proposed): symptoms/notes for a day with
+            // no flow row yet record no flow fact — the placeholder `none`
+            // is never read as "not bleeding" (CycleLog.recordsFlow).
+            if (!_isPeriodMode && (existing == null || !existing.recordsFlow))
+              CycleLog.symptomsOnlyMarker,
           ],
         ),
         existingLog: existing,

@@ -1651,6 +1651,50 @@ the case. Regression tests: `test/fiqh_hardening/`.
   `pregnancy_status_controller.dart` and `pregnancy_status_engine.dart`.
   It was reported to the owner and was not changed.
 
+**Round-2 amendments (2026-10-21, branch `fix/round2-regressions`) —
+status: PROPOSED.** Found by an adversarial review of this wave; not merged,
+not device-verified, not scholar-reviewed. No FD-7 value changed.
+Regression tests: `test/round2_hardening/`.
+
+- **Purity is read at its shortest, like the minimum haid already is**
+  (`cycle_status_engine.dart`). "It stopped on D" (the closing `none`
+  observation, which never has an exact time) means bleeding may have
+  lasted to the end of D, and a date-only new start may have begun at the
+  start of its day. The minimum purity (15 days; Hanbali 13) counts as met
+  only over that shortest interval; otherwise the result is
+  `needsAdvisory`. Previously it was counted in calendar days from the stop
+  day to the start day, which could be up to a day longer than the time
+  actually known to be clean. For the same reason, item 5's "certainly
+  below the minimum" test for skipping an earlier run now measures that
+  run up to the end of its stop day.
+  Test: `fiqh_assessment_round2_test.dart`. The F4 fixture in
+  `test/fiqh_hardening/fiqh_engine_hardening_test.dart` was shortened to a
+  one-day spotting run, because the old two-day run could reach exactly 72h
+  under this reading.
+- **One assessment, one history** (`canonical_fiqh_assessment.dart`).
+  `canonicalEpisodes` is now a required argument of `assess`. Today passes
+  `CanonicalBleedingStatus.episodeTimings` (the episodes its resolver
+  already read), and the AI advisor passes `ReportCanonicalEvidence.episodes`,
+  as the Fiqh report already did. Before this, an episode whose start
+  observation was "I'm not sure" (for example one reported during
+  onboarding) counted only in the report, so Today and the AI advisor said
+  "insufficient history" while the report ruled "haid" (property R2-1).
+- **Purity and the earlier run's length are counted in calendar days**
+  (DST-safe); an exact start time is subtracted only when one is known.
+  Measured in wall-clock hours between local midnights, a 3-calendar-day
+  Hanafi run across a spring-forward change was 71h, was skipped as "not a
+  possible haid", and Today showed a confident haid after 5 clean days
+  (property R2-2; UK/US/NZ clock changes).
+- **An open episode whose latest effective day is `none`** (for example a
+  day corrected to "no bleeding") is now `evidenceUnresolved`, the reverse
+  of item 7. Previously the engine said "Tahara" from the logs while the
+  factual record still had bleeding being tracked (property R2-3).
+- R2-1..R2-3 and the Fiqh property suite (F1–F9) were copied from the
+  round-2 property suite into `test/round2_hardening/properties/` and pass
+  under UTC, `Europe/London` and `America/New_York`. R2-1's copied
+  expectation that Today says "insufficient history" encoded the pre-fix
+  behaviour and was dropped; it still asserts report == Today == AI.
+
 ## 17. Screens hardening — what the tracking screens show (2026-10-18, branch `fix/tracking-hardening`) — status: PROPOSED
 
 Status: **implemented and covered by widget/unit tests on this branch; not
@@ -1674,9 +1718,47 @@ math and the Fiqh rule evaluator were out of scope and are unchanged.
 
 Deliberately left alone: `canonical_bleeding_status_resolver.dart`'s
 open-episode day count (same DST issue; owned by the Fiqh-layer branch);
-the `symptomsOnly` sheet still saves a `flow: none` legacy row for a day with
-no prior entry (pre-existing Insights behaviour); the ring still never marks
-pre-period/expected as the active segment (planner design).
+the ring still never marks pre-period/expected as the active segment
+(planner design).
+
+**Round-2 amendments (2026-10-21, branch `fix/round2-regressions`) —
+status: PROPOSED.** Not merged, not device-verified. Tests:
+`test/round2_hardening/`.
+
+- **Symptoms-only entries record no flow.** The `symptomsOnly` sheet used
+  to save a placeholder `flow: none` row for a day with no row. Because the
+  router made that sheet the only way to log symptoms, logging cramps on a
+  period day before that day's check-in ended the period in the legacy
+  statistics, and the next bleeding day counted as a new cycle start. Such
+  a row now carries `CycleLog.symptomsOnlyMarker` (`flow:unrecorded`) in
+  its existing `symptoms` array, and `CycleLog.recordsFlow` is false for
+  it. `CycleCalculationService`, `CycleStatusEngine`, the Fiqh report, the
+  Calendar tab's day markers and Haid/Tahara tallies, and the server's
+  informational AI bleeding scan (`ai_user_context.ts`) skip it; its
+  symptoms and notes are still read. This is the smallest design that
+  keeps the row's provenance (§1/§5 unchanged: it is still the
+  same-day/historical report of symptoms she made) without letting a
+  placeholder be read as a "not bleeding" fact (no invented facts). No
+  schema or model change: `CycleLog.flow` stays non-nullable (and
+  `cycle_entries.flow_intensity` is `NOT NULL`), and every symptom decoder
+  already ignores a non-numeric value. Rows saved before this
+  change keep their old meaning.
+  Tests: `symptoms_on_bleeding_days_test.dart`,
+  `symptoms_only_sheet_marker_test.dart`.
+- **The router keeps the tapped day.** `showStartBleedingSheet` takes
+  `initialDate`, and `logCanonicalBleedingForDay` passes the day she
+  tapped. Before, she got a blank sheet whose first choice was "Today".
+  For a day on or before the end of an episode she already ended (which
+  `start_bleeding_episode` rejects since §18 #8), the router shows the
+  correction guidance instead of a start sheet that could only fail. The
+  chooser's subtitle no longer promises "add a missing day":
+  "Start a period, or log a day of the one you're tracking now" /
+  "بدء حيض، أو تسجيل يوم من الحيض الذي تتابعينه الآن".
+  Test: `log_day_router_past_day_test.dart`.
+- `dashboard_stale_summary_after_midnight_test.dart` now first asserts the
+  next-period range is shown on the expected day. Before, its only
+  assertion (the line is absent later) would also pass if the line never
+  rendered.
 
 ## 18. Logging/sync hardening wave (2026-10-18, branch `fix/tracking-hardening`) — **proposed**
 
@@ -1736,6 +1818,13 @@ cycle data is written, stored and synced. Regression tests live in
      alternative. The mirror check is `isCanonicalObservationId`. If that
      lookup is unavailable offline, the save proceeds, because it is
      best-effort.
+     *Round-2 amendment (2026-10-21, proposed):* only a change to the
+     mirrored facts (the flow or the day) is refused. A symptoms/notes-only
+     edit of a mirror row saves. Those fields are not part of the canonical
+     observation, and §17's "Symptoms & notes" sheet is the only place she
+     can add them to a day she logged bleeding on. Blocking them too meant
+     she could not log cramps on any period day.
+     Test: `test/round2_hardening/symptoms_on_bleeding_days_test.dart`.
 5. **Onboarding conflict during background sync.** The queued onboarding
    operation stays pending as `validation` (needs attention). Onboarding is
    **not** marked complete.

@@ -69,6 +69,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // Round-2 hardening: the precondition this test depends on — on Aug 18
+    // (the expected start) the range IS shown. Without it, the assertion
+    // below would also pass if the line never rendered at all.
+    expect(
+      _texts(tester).where((t) => t.startsWith('Next period likely')),
+      hasLength(1),
+      reason: 'precondition: the range is shown on the expected day',
+    );
+
     // The app stays in memory; 12 days pass. The minute timer rebuilds.
     AppClock.now = () => DateTime(2026, 8, 30, 12);
     await tester.pump(const Duration(minutes: 1));

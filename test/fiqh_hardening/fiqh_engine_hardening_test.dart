@@ -72,6 +72,9 @@ FiqhCycleState? dashboardState(
     evidenceUnresolved: false,
     madhhab: madhhab,
     now: now,
+    // Every fixture episode here starts with a flowed observation, so its
+    // start is already in the logs; the timings would add nothing.
+    canonicalEpisodes: const [],
   ).state;
 }
 
@@ -202,9 +205,13 @@ void main() {
 
   test('F4 Hanafi: tuhr is measured from the last stop of ANY bleeding, '
       'so a <72h istihadah spotting episode breaks a 25-day purity', () {
-    // Haid Mar 1-6 (stopped Mar 7). Spotting Mar 24-25 (stopped Mar 26) —
-    // under 72h, i.e. istihadah per haidfigh.md §1, not a haid. New
-    // bleeding Apr 1: clean-of-haid since Mar 7 = 25 days >= 15.
+    // Haid Mar 1-6 (stopped Mar 7). Spotting Mar 24 (stopped Mar 25) —
+    // certainly under 72h even if it lasted to the end of its stop day,
+    // i.e. istihadah per haidfigh.md §1, not a haid. New bleeding Apr 1:
+    // clean-of-haid since the end of Mar 7 = 24 days >= 15.
+    // (Round-2 hardening: the fixture was Mar 24-25 stopped Mar 26, which
+    // can reach exactly 72h when "stopped on Mar 26" is read as bleeding
+    // until the end of that day — no longer certainly below the minimum.)
     final obsList = [
       ...history(),
       ...episode(
@@ -214,8 +221,8 @@ void main() {
       ),
       ...episode(
         DateTime(2026, 3, 24),
-        DateTime(2026, 3, 25),
-        stoppedOn: DateTime(2026, 3, 26),
+        DateTime(2026, 3, 24),
+        stoppedOn: DateTime(2026, 3, 25),
         flow: ObservationFlow.spotting,
       ),
       ...episode(DateTime(2026, 4, 1), DateTime(2026, 4, 5)),
@@ -225,7 +232,7 @@ void main() {
       FiqhCycleState.haid,
       reason:
           'haidfigh.md §1: min purity is between two *menstrual* cycles; '
-          'the engine used purityBefore = 6 days (Mar 26 -> Apr 1)',
+          'the engine used purityBefore = 6 days (Mar 25 -> Apr 1)',
     );
   });
 

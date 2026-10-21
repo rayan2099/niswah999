@@ -1319,6 +1319,8 @@ class _MonthSummary extends StatelessWidget {
     );
     final latestByDay = <String, CycleLog>{};
     for (final log in monthLogs) {
+      // Symptoms/notes-only rows are neither Haid nor Tahara days.
+      if (!log.recordsFlow) continue;
       final key = '${log.date.year}-${log.date.month}-${log.date.day}';
       final existing = latestByDay[key];
       if (existing == null || log.date.isAfter(existing.date)) {

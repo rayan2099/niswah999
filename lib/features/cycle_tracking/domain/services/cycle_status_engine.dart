@@ -77,8 +77,10 @@ class CycleStatusEngine {
       averagePeriodLength: calculation.averagePeriodLength,
     );
 
-    if (logs.isEmpty) return baseline();
-    final sorted = [...logs]..sort((a, b) => a.date.compareTo(b.date));
+    // Symptoms/notes-only rows carry no flow fact (see CycleLog.recordsFlow).
+    final flowLogs = logs.where((log) => log.recordsFlow).toList();
+    if (flowLogs.isEmpty) return baseline();
+    final sorted = [...flowLogs]..sort((a, b) => a.date.compareTo(b.date));
     final latest = sorted.last;
     if (latest.flow == FlowLevel.none) return baseline();
 
@@ -129,25 +131,53 @@ class CycleStatusEngine {
     // run that was definitively too short to be haid under this madhhab
     // (e.g. Hanafi spotting under 72h). That earlier run's length is
     // taken at its most generous (from its start day's midnight, or its
-    // exact start time, to the day of its closing `none` log), so a run
+    // exact start time, to the END of the day of its closing `none` log —
+    // "it stopped on D" means bleeding may have lasted into D), so a run
     // is only skipped when it is certainly below the minimum; a run that
     // merely might have been haid still counts and keeps the purity
     // short (the conservative direction: needsAdvisory, never a
     // confident fresh haid). Cumulative talfiq across separate runs is
     // NOT modelled here (see docs: such cases fall to needsAdvisory).
-    DateTime? purityStart;
+    DateTime? stopDay;
     for (final run in completedRuns.reversed) {
-      final runLength = run.end.difference(
-        run.first.observedTime ?? run.first.date,
-      );
+      // Calendar days, never wall-clock hours between local midnights: a
+      // 3-calendar-day run across a spring-forward change is 71h and was
+      // wrongly skipped (round-2 property test R2-2). An exact start time
+      // is subtracted only when one is known.
+      final firstTime = run.first.observedTime;
+      final runLength = firstTime == null
+          ? Duration(days: calendarDaysBetween(run.first.date, run.end) + 1)
+          : addCalendarDays(run.end, 1).difference(firstTime);
       if (minimumHaid == null || runLength >= minimumHaid) {
-        purityStart = run.end;
+        stopDay = run.end;
         break;
       }
     }
-    final purityBefore = purityStart == null
-        ? null
-        : Duration(days: calendarDaysBetween(purityStart, activeStart));
+    // Round-2 hardening (2026-10-21, proposed): purity is read the same
+    // conservative way as the minimum haid duration below. "It stopped on
+    // D" says bleeding may have lasted until the END of D (the closing
+    // `none` observation never carries an exact time), and a date-only new
+    // start may have begun at the START of its day (or exactly at its
+    // observed time). The minimum (FD-7: 15 days; Hanbali 13) counts as
+    // met only when it holds over that SHORTEST interval; otherwise the
+    // evaluator's purity gate returns needsAdvisory. Previously this was
+    // `calendarDaysBetween(stopDay, startDay)` — the most generous reading,
+    // up to a day longer than the bleeding-free time actually known.
+    // Counted in calendar days (DST-safe) unless the new start has an
+    // exact time: whole days from the end of the stop day to the start of
+    // the new start day.
+    final Duration? purityBefore;
+    if (stopDay == null) {
+      purityBefore = null;
+    } else {
+      final startTime = currentRun.observedTime;
+      final shortestPurity = startTime == null
+          ? Duration(days: calendarDaysBetween(stopDay, activeStart) - 1)
+          : startTime.difference(addCalendarDays(stopDay, 1));
+      purityBefore = shortestPurity.isNegative
+          ? Duration.zero
+          : shortestPurity;
+    }
 
     // Fiqh hardening (2026-10-18): a date-only start says only that
     // bleeding began at some point on that day. The duration is bounded
