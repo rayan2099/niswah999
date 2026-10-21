@@ -98,6 +98,7 @@ Deno.serve(async (req) => {
     // fields in the context, never a guessed value (Fiqh Remediation Wave
     // 1, Section F).
     const userContext = await buildUserAiContext(userClient, {
+      userId: userData.user.id,
       clientMadhhab: typeof madhhab === 'string' ? madhhab : null,
       clientMadhhabState: typeof madhhabState === 'string' ? madhhabState : null,
       clientFiqhState: typeof clientFiqhState === 'string' ? clientFiqhState : null,

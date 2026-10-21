@@ -127,3 +127,35 @@ Deno.test('R2-AI-2: a legacy non-array symptoms value does not crash the scan', 
   const ctx = await buildUserAiContext(client, { now: NOW });
   assert(ctx.menstrualCycle.isCurrentlyBleeding === true, 'legacy row broke the scan');
 });
+
+Deno.test('tracking efficiency: the cycle_entries read is filtered to the signed-in user', async () => {
+  // Without an explicit user filter the read relies on RLS alone, whose
+  // `can_access_user(user_id)` (own row OR admin) cannot use the
+  // (user_id, date) index — a scan of every user's rows in the window, and
+  // other users' rows for an admin caller.
+  const calls: Array<{ table: string; method: string; args: unknown[] }> = [];
+  const chain = (table: string) => {
+    const c: Record<string, unknown> = {};
+    for (const m of ['select', 'gte', 'lte', 'eq', 'order', 'limit']) {
+      c[m] = (...args: unknown[]) => {
+        calls.push({ table, method: m, args });
+        return c;
+      };
+    }
+    c.maybeSingle = () => Promise.resolve({ data: null, error: null });
+    c.then = (ok: (v: unknown) => unknown, err?: (e: unknown) => unknown) =>
+      Promise.resolve({ data: [], error: null }).then(ok, err);
+    return c;
+  };
+  const client = { from: (name: string) => chain(name) } as never;
+
+  await buildUserAiContext(client, { now: NOW, userId: 'user-1' });
+
+  const filter = calls.find((c) => c.table === 'cycle_entries' && c.method === 'eq');
+  assert(
+    filter !== undefined &&
+      filter.args[0] === 'user_id' &&
+      filter.args[1] === 'user-1',
+    `cycle_entries read is not filtered by user_id: ${JSON.stringify(calls)}`,
+  );
+});

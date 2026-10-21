@@ -85,6 +85,27 @@ class SecureLocalStore {
   static Future<void> delete(String category) =>
       _secureStorage.delete(key: _scopedKey(category, currentUserId()));
 
+  static final Map<String, Future<void>> _serialTails = {};
+
+  /// Runs [action] only after every earlier [serialized] call with the
+  /// same [key] has finished, so a read-modify-write of one stored list
+  /// (read all, change one item, write all back) can never interleave with
+  /// another and silently drop its change. Two unserialized writers that
+  /// both read the blob before either writes lose one update — confirmed
+  /// for the pending bleeding-operation queue and the cycle log cache
+  /// (tracking-efficiency audit, 2026-10-21). An error in [action] reaches
+  /// its own caller only; later calls still run.
+  static Future<T> serialized<T>(String key, Future<T> Function() action) {
+    final previous = _serialTails[key] ?? Future<void>.value();
+    final result = previous.then((_) => action());
+    final tail = result.then<void>((_) {}, onError: (Object _) {});
+    _serialTails[key] = tail;
+    tail.whenComplete(() {
+      if (identical(_serialTails[key], tail)) _serialTails.remove(key);
+    });
+    return result;
+  }
+
   /// Removes this category's data for the *given* user id, regardless of
   /// who is currently signed in. Used by account-deletion cleanup (Phase F),
   /// which must run after the server-side deletion has already invalidated

@@ -44,31 +44,63 @@ class LocalCycleTrackingDataSource {
     return logs.where((log) => log.id == id).firstOrNull;
   }
 
-  Future<void> upsert(CycleLog log) async {
-    await _ensureMigrated();
-    final existing = await loadLogs();
-    final updates = <String, CycleLog>{};
-    for (final item in existing) {
-      updates[item.id] = item;
-    }
-    updates[log.id] = log;
+  // Every mutation below is a read-modify-write of one stored list, so
+  // each runs under SecureLocalStore.serialized: two overlapping writers
+  // (a save during a background sync, say) otherwise both read the old
+  // list and the second write drops the first one's change.
+  Future<void> upsert(CycleLog log) =>
+      SecureLocalStore.serialized(_category, () async {
+        await _ensureMigrated();
+        final existing = await loadLogs();
+        final updates = <String, CycleLog>{};
+        for (final item in existing) {
+          updates[item.id] = item;
+        }
+        updates[log.id] = log;
+        await _writeAll(updates.values);
+      });
 
-    final encoded = jsonEncode(
-      updates.values.map((item) => item.toJson()).toList(),
-    );
-    await SecureLocalStore.write(_category, encoded);
-  }
+  Future<void> delete(String id) =>
+      SecureLocalStore.serialized(_category, () async {
+        await _ensureMigrated();
+        final existing = await loadLogs();
+        await _writeAll(existing.where((log) => log.id != id));
+      });
 
-  Future<void> delete(String id) async {
-    await _ensureMigrated();
-    final existing = await loadLogs();
-    final remaining = existing.where((log) => log.id != id).toList();
+  /// Sets the stored copy of [uploaded] to [status] only if that copy
+  /// still holds what was uploaded (same day, flow, notes, symptoms, cycle
+  /// day, owner and provenance). A sync pass works from a snapshot and
+  /// awaits the network per row; an edit she saved meanwhile is newer than
+  /// what was uploaded and must stay `pending` (and keep its content)
+  /// instead of being overwritten by the stale snapshot marked `synced`.
+  /// A row deleted meanwhile is not brought back. Returns whether the
+  /// status was written.
+  Future<bool> setSyncStatusIfUnchanged(CycleLog uploaded, SyncStatus status) =>
+      SecureLocalStore.serialized(_category, () async {
+        await _ensureMigrated();
+        final existing = await loadLogs();
+        final index = existing.indexWhere((log) => log.id == uploaded.id);
+        if (index < 0) return false;
+        final current = existing[index];
+        if (_contentKey(current) != _contentKey(uploaded)) return false;
+        if (current.syncStatus == status) return true;
+        existing[index] = current.copyWith(syncStatus: status);
+        await _writeAll(existing);
+        return true;
+      });
 
-    await SecureLocalStore.write(
-      _category,
-      jsonEncode(remaining.map((item) => item.toJson()).toList()),
-    );
-  }
+  static String _contentKey(CycleLog log) => jsonEncode(
+    log.toJson()
+      ..remove('sync_status')
+      ..remove('time_logged')
+      ..remove('created_at')
+      ..remove('updated_at'),
+  );
+
+  Future<void> _writeAll(Iterable<CycleLog> logs) => SecureLocalStore.write(
+    _category,
+    jsonEncode(logs.map((item) => item.toJson()).toList()),
+  );
 
   /// Removes this user's cycle data — used by account-deletion local
   /// cleanup (Phase F). Takes [userId] explicitly rather than relying on

@@ -613,6 +613,39 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
+  /// One observation by id, or null when it cannot be read (no session,
+  /// not found, a read failure or an unparseable row — each reported).
+  Future<BleedingObservation?> getObservationById(String observationId) async {
+    final client = _client;
+    if (client == null) return null;
+    try {
+      final response = await client
+          .from('bleeding_observations')
+          .select()
+          .eq('id', observationId)
+          .maybeSingle();
+      return response == null ? null : BleedingObservation.fromJson(response);
+    } on PostgrestException catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'BleedingEpisodeRepositoryImpl.getObservationById',
+        feature: 'cycle_tracking',
+        recordId: observationId,
+      );
+      return null;
+    } on BleedingEpisodeParseException catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'BleedingEpisodeRepositoryImpl.getObservationById',
+        feature: 'cycle_tracking',
+        recordId: observationId,
+      );
+      return null;
+    }
+  }
+
   Future<String?> _episodeIdFor(String observationId) async {
     final client = _client;
     if (client == null) return null;
@@ -965,7 +998,38 @@ class BleedingEpisodeRepositoryImpl {
   /// retrying either with unchanged data cannot succeed and would only
   /// ever waste a retry slot silently forever ("do not retry invalid
   /// operations indefinitely").
+  static Future<void>? _reconcileInFlight;
+  static String? _reconcileInFlightOwner;
+
+  /// App start, app resume and the needs-attention banner can each start a
+  /// replay; before this guard two overlapping passes both replayed every
+  /// queued operation (a second RPC per operation, a second projection
+  /// write) and raced each other's queue updates. A call made while a pass
+  /// for the same signed-in user is running waits for it and, unless it is
+  /// a [forceAll] request (which also retries operations the automatic
+  /// pass skips), does not start another.
   Future<void> reconcilePendingOperations({bool forceAll = false}) async {
+    while (_reconcileInFlight != null) {
+      final running = _reconcileInFlight!;
+      final sameOwner =
+          _reconcileInFlightOwner == SecureLocalStore.currentUserId();
+      await running;
+      if (sameOwner && !forceAll) return;
+    }
+    final pass = _reconcilePass(forceAll: forceAll);
+    _reconcileInFlight = pass;
+    _reconcileInFlightOwner = SecureLocalStore.currentUserId();
+    try {
+      await pass;
+    } finally {
+      if (identical(_reconcileInFlight, pass)) {
+        _reconcileInFlight = null;
+        _reconcileInFlightOwner = null;
+      }
+    }
+  }
+
+  Future<void> _reconcilePass({required bool forceAll}) async {
     // Logging/sync hardening (proposed): the queue's owner is captured
     // ONCE. Every load/save/clear below targets that owner's bucket, and
     // the pass stops as soon as the signed-in user changes — so an account
@@ -1218,7 +1282,9 @@ class BleedingEpisodeRepositoryImpl {
         // SyncState is computed from; without persisting this, "saved on
         // device, syncing" could never honestly become "needs attention"
         // no matter how many times the same operation kept failing.
-        await PendingBleedingOperationStore.savePending(
+        // Only if still queued: a completed-and-cleared operation (the
+        // sheet's own retry finished first) must not come back.
+        await PendingBleedingOperationStore.updatePendingIfQueued(
           operation.withFailure(
             _categorizeReconciliationError(error),
             attemptedAt: DateTime.now(),
@@ -1252,13 +1318,9 @@ class BleedingEpisodeRepositoryImpl {
     String? supersededObservationId,
   }) async {
     try {
-      final userId = _client?.auth.currentUser?.id;
-      if (userId == null) return;
-      final observations =
-          (await getAllObservationsForUser(userId)).dataOrNull ?? const [];
-      final replayed = observations
-          .where((o) => o.id == observationId)
-          .firstOrNull;
+      // One row by primary key — this used to read every observation she
+      // ever recorded, once per replayed operation, to pick out this one.
+      final replayed = await getObservationById(observationId);
       if (replayed == null) return;
       final projection = CycleEntriesProjection();
       if (supersededObservationId == null) {

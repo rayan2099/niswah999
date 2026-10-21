@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
     }
 
     const [userContext, safetyHits, healthHits] = await Promise.all([
-      buildUserAiContext(userClient, { currentMessageSafetyFlags: redFlags }),
+      buildUserAiContext(userClient, { userId, currentMessageSafetyFlags: redFlags }),
       retrieveKnowledge(userClient, {
         domain: 'SAFETY_ESCALATION',
         language,

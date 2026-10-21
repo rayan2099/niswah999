@@ -132,6 +132,7 @@ Deno.serve(async (req) => {
     const language = detectLanguage(question);
     const [userContext, kbHits] = await Promise.all([
       buildUserAiContext(userClient, {
+        userId: userData.user.id,
         clientMadhhab: madhhab,
         clientMadhhabState: madhhabState,
         clientFiqhState: normalizedFiqhState,
