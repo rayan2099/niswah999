@@ -27,10 +27,10 @@
 --      The app never writes these columns (checked: lib/ only updates
 --      display_name, anonymous_mode, onboarding_completed,
 --      madhhab/madhhab_selection_state, community_language).
---   2. users_update_own / users_delete_own no longer admit is_admin(): a
---      client may only update or delete her own row. No app feature uses an
---      admin client path; administrative changes go through service_role,
---      which bypasses RLS.
+--   2. users_update_own no longer admits is_admin(): a client may only
+--      update her own row. No app feature uses an admin client path;
+--      administrative changes go through service_role, which bypasses RLS.
+--   3. users_insert_own / users_delete_own are dropped (see Layer 3).
 --
 -- Idempotent: CREATE OR REPLACE / DROP ... IF EXISTS throughout.
 
@@ -96,14 +96,17 @@ CREATE TRIGGER users_guard_privileged_columns
   BEFORE INSERT OR UPDATE ON public.users
   FOR EACH ROW EXECUTE FUNCTION public.users_guard_privileged_columns();
 
--- Layer 2: own-row only for client UPDATE/DELETE on users.
+-- Layer 2: own-row only for client UPDATE on users.
 DROP POLICY IF EXISTS users_update_own ON public.users;
 CREATE POLICY users_update_own ON public.users
   FOR UPDATE
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
+-- Layer 3: no client INSERT or DELETE of profile rows at all. Otherwise a
+-- client whose premium the server revoked could delete her row and insert
+-- a fresh one with defaults (premium_status defaults to true) to get it
+-- back. The app never does either: the signup trigger creates the row and
+-- delete_my_account() (SECURITY DEFINER) removes it, both bypassing RLS.
+DROP POLICY IF EXISTS users_insert_own ON public.users;
 DROP POLICY IF EXISTS users_delete_own ON public.users;
-CREATE POLICY users_delete_own ON public.users
-  FOR DELETE
-  USING (auth.uid() = id);

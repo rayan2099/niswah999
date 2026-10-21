@@ -60,20 +60,36 @@ SELECT pg_temp.expect_denied('b0000000-0000-4000-8000-00000000000b',
   'premium_status change');
 COMMIT;
 
-\echo '--- 3. a client insert cannot smuggle privileged values'
+\echo '--- 3. a client cannot delete and re-insert her row to reset premium'
+-- An entitlement the server revoked must survive: with premium_status
+-- defaulting to true, delete + insert-with-defaults would restore it.
+BEGIN;
+SET LOCAL ROLE service_role;
+UPDATE public.users SET premium_status = false
+WHERE id = 'b0000000-0000-4000-8000-00000000000b';
+COMMIT;
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = 'b0000000-0000-4000-8000-00000000000b';
+DO $$ DECLARE n int; BEGIN
+  DELETE FROM public.users WHERE id = auth.uid();
+  GET DIAGNOSTICS n = ROW_COUNT;
+  ASSERT n = 0, 'FAIL: client deleted her own users row';
+END $$;
+COMMIT;
+-- Even with the row gone, a client insert is refused.
 DELETE FROM public.users WHERE id = 'b0000000-0000-4000-8000-00000000000b';
 BEGIN;
+SELECT pg_temp.expect_denied('b0000000-0000-4000-8000-00000000000b',
+  $q$INSERT INTO public.users (id) VALUES (auth.uid())$q$,
+  'client insert of a users row');
 SELECT pg_temp.expect_denied('b0000000-0000-4000-8000-00000000000b',
   $q$INSERT INTO public.users (id, premium_expires_at)
      VALUES (auth.uid(), now() + interval '1 year')$q$,
   'insert with premium_expires_at');
 COMMIT;
--- ...while a plain client insert (defaults) still works.
-BEGIN;
-SET LOCAL ROLE authenticated;
-SET LOCAL request.jwt.claim.sub = 'b0000000-0000-4000-8000-00000000000b';
-INSERT INTO public.users (id) VALUES (auth.uid());
-COMMIT;
+-- Restore B's profile the way the server would.
+INSERT INTO public.users (id) VALUES ('b0000000-0000-4000-8000-00000000000b');
 
 \echo '--- 4. ordinary profile updates still work'
 BEGIN;
@@ -116,5 +132,17 @@ DO $$ DECLARE n int; BEGIN
   ASSERT n = 0, 'FAIL: B updated A''s users row';
 END $$;
 COMMIT;
+
+\echo '--- 7. account deletion (delete_my_account, SECURITY DEFINER) still works'
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = 'b0000000-0000-4000-8000-00000000000b';
+SELECT public.delete_my_account();
+COMMIT;
+DO $$ BEGIN
+  ASSERT NOT EXISTS (SELECT 1 FROM public.users
+                     WHERE id = 'b0000000-0000-4000-8000-00000000000b'),
+    'FAIL: delete_my_account no longer removes the users row';
+END $$;
 
 \echo 'ALL PASSED'
