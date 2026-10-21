@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/notifications/domain/entities/notification_preference.dart';
+import '../utils/app_clock.dart';
 import 'user_scoped_preferences.dart';
 
 class NotificationLogEntry {
@@ -16,6 +17,7 @@ class NotificationLogEntry {
     required this.bodyEn,
     required this.createdAt,
     this.read = false,
+    this.fireAt,
   });
 
   final String id;
@@ -27,6 +29,18 @@ class NotificationLogEntry {
   final DateTime createdAt;
   final bool read;
 
+  /// When the scheduled OS notification this entry mirrors is due to fire
+  /// (2026-10-21, proposed). Null for entries that describe something that
+  /// already happened when they were added. A future [fireAt] keeps the
+  /// entry out of the feed — and out of the unread count — until then, so
+  /// the feed never shows a reminder before it fires.
+  final DateTime? fireAt;
+
+  /// The time the feed shows for this entry.
+  DateTime get shownAt => fireAt ?? createdAt;
+
+  bool isVisibleAt(DateTime now) => fireAt == null || !fireAt!.isAfter(now);
+
   NotificationLogEntry copyWith({bool? read}) => NotificationLogEntry(
     id: id,
     type: type,
@@ -36,6 +50,7 @@ class NotificationLogEntry {
     bodyEn: bodyEn,
     createdAt: createdAt,
     read: read ?? this.read,
+    fireAt: fireAt,
   );
 
   Map<String, dynamic> toJson() => {
@@ -47,6 +62,7 @@ class NotificationLogEntry {
     'body_en': bodyEn,
     'created_at': createdAt.toIso8601String(),
     'read': read,
+    if (fireAt != null) 'fire_at': fireAt!.toIso8601String(),
   };
 
   factory NotificationLogEntry.fromJson(Map<String, dynamic> json) {
@@ -64,6 +80,7 @@ class NotificationLogEntry {
           DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.now(),
       read: json['read'] as bool? ?? false,
+      fireAt: DateTime.tryParse(json['fire_at'] as String? ?? ''),
     );
   }
 }
@@ -84,9 +101,19 @@ class NotificationLogController extends ChangeNotifier {
 
   List<NotificationLogEntry> _entries = const [];
 
-  List<NotificationLogEntry> get entries => _entries;
+  /// What the feed shows: entries whose reminder has fired (or that never
+  /// had a fire time), newest first by [NotificationLogEntry.shownAt].
+  List<NotificationLogEntry> get entries {
+    final now = AppClock.now();
+    return _entries.where((entry) => entry.isVisibleAt(now)).toList()
+      ..sort((a, b) => b.shownAt.compareTo(a.shownAt));
+  }
 
-  int get unreadCount => _entries.where((entry) => !entry.read).length;
+  /// Every stored entry, including ones still waiting for their fire time
+  /// — for de-duplication only, never for display.
+  List<NotificationLogEntry> get allEntries => _entries;
+
+  int get unreadCount => entries.where((entry) => !entry.read).length;
 
   /// Reads the signed-in user's own feed (never another user's).
   Future<void> load() async {
@@ -122,6 +149,46 @@ class NotificationLogController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records the feed entry for a scheduled reminder in [slot] (e.g. its
+  /// OS notification id). Any entry for the same slot that has NOT fired
+  /// yet is replaced — a reschedule moves the reminder, it never adds a
+  /// second one — and an entry with the same [NotificationLogEntry.id] is
+  /// never added twice. Entries that already fired are history and stay.
+  Future<void> upsertScheduled(String slot, NotificationLogEntry entry) async {
+    final now = AppClock.now();
+    final kept = [
+      for (final existing in _entries)
+        if (!(_inSlot(existing, slot) && !existing.isVisibleAt(now)))
+          existing,
+    ];
+    if (kept.any((existing) => existing.id == entry.id)) {
+      if (kept.length == _entries.length) return;
+      _entries = kept;
+    } else {
+      _entries = [entry, ...kept];
+    }
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Drops not-yet-fired entries for [slot] — its reminder was cancelled,
+  /// so it must never surface in the feed later.
+  Future<void> removePending(String slot) async {
+    final now = AppClock.now();
+    final kept = [
+      for (final existing in _entries)
+        if (!(_inSlot(existing, slot) && !existing.isVisibleAt(now)))
+          existing,
+    ];
+    if (kept.length == _entries.length) return;
+    _entries = kept;
+    notifyListeners();
+    await _persist();
+  }
+
+  static bool _inSlot(NotificationLogEntry entry, String slot) =>
+      entry.id == slot || entry.id.startsWith('${slot}_');
+
   Future<void> add(NotificationLogEntry entry) async {
     _entries = [entry, ..._entries];
     notifyListeners();
@@ -138,7 +205,11 @@ class NotificationLogController extends ChangeNotifier {
   }
 
   Future<void> markAllRead() async {
-    _entries = [for (final entry in _entries) entry.copyWith(read: true)];
+    final now = AppClock.now();
+    _entries = [
+      for (final entry in _entries)
+        entry.isVisibleAt(now) ? entry.copyWith(read: true) : entry,
+    ];
     notifyListeners();
     await _persist();
   }

@@ -73,4 +73,27 @@ class PregnancyProfileRepository {
       ),
     );
   }
+
+  /// Mirrors turning pregnancy or nifas tracking OFF (profile toggles) to
+  /// the caller's row, so notifications, reports and the AI context stop
+  /// treating her as pregnant/postpartum (2026-10-21, proposed). Clears
+  /// only the tracking state; locale, fasting status and high-risk flags
+  /// are left as they are. No row -> nothing to clear. Throws on failure —
+  /// same contract as [upsert].
+  ///
+  /// This is NOT a pregnancy-loss flow: none exists, and one needs scholar
+  /// and medical review before it is built.
+  Future<void> markTrackingEnded(String userId) async {
+    final existing = await getForUser(userId);
+    if (existing == null) return;
+    await upsert(
+      PregnancyProfile(
+        id: existing.id,
+        userId: userId,
+        highRiskFlags: existing.highRiskFlags,
+        fastingStatus: existing.fastingStatus,
+        locale: existing.locale,
+      ),
+    );
+  }
 }

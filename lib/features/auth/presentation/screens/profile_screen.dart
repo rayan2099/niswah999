@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -28,6 +30,7 @@ import '../../../doctor_report/presentation/screens/doctor_report_screen.dart';
 import '../../../fiqh_report/presentation/screens/fiqh_report_screen.dart';
 import '../../../husband_report/presentation/screens/husband_report_screen.dart';
 import '../../../notifications/presentation/screens/notification_settings_screen.dart';
+import '../../../pregnancy_profile/data/pregnancy_state_sync.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
 import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
 import '../../../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
@@ -210,8 +213,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 PregnancyStatusController.instance.isPregnant,
                             onChanged: (value) => value
                                 ? _showPregnancySetupSheet()
-                                : PregnancyStatusController.instance
-                                      .deactivate(),
+                                : _deactivatePregnancyTracking(),
                           ),
                           _ToggleRow(
                             icon: Icons.child_friendly_outlined,
@@ -228,8 +230,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 .isNifasActive,
                             onChanged: (value) => value
                                 ? _startNifas()
-                                : PregnancyStatusController.instance
-                                      .deactivate(),
+                                : _deactivatePregnancyTracking(),
                           ),
                           _ToggleRow(
                             icon: Icons.favorite_border_rounded,
@@ -630,40 +631,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Rebuild on return so the unread badge refreshes.
   }
 
-  /// Starts nifas locally (existing behavior, drives the dashboard's nifas
-  /// card) and — when a real user is signed in — additively upserts
-  /// `pregnancy_profile.is_postpartum`/`postpartum_start_date` so the
-  /// "طبيبة" chat backend picks up the mode switch too. The local toggle
-  /// stays authoritative on a sync failure (reverting it would be a worse
-  /// UX regression than an unpersonalized chat) but the failure is reported
-  /// and surfaced — not silently discarded (RR-003).
+  /// Starts nifas from the birth date she picks (default today, never a
+  /// future date) on this device and — when signed in — on her
+  /// `pregnancy_profile` row, then re-plans reminders ([PregnancyStateSync]).
+  /// The local toggle stays authoritative on a sync failure (reverting it
+  /// would be a worse UX regression than an unpersonalized chat) but the
+  /// failure is reported and surfaced — not silently discarded (RR-003).
   Future<void> _startNifas() async {
-    await PregnancyStatusController.instance.startNifas();
-
-    final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
-    if (userId == null) return;
-
-    try {
-      await PregnancyProfileRepository().markPostpartumStarted(userId);
-    } catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'ProfileScreen._startNifas',
-        feature: 'pregnancy_profile',
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _pr(
-              "Nifas tracking has started on this device, but couldn't sync to your account — the chat may not be personalized yet.",
-              'بدأ تتبع النفاس على هذا الجهاز، لكن تعذّرت المزامنة مع حسابك — قد لا تكون المحادثة مخصّصة بعد.',
-            ),
+    final birthDate = await pickBirthDate(context);
+    if (birthDate == null) return;
+    final synced = await PregnancyStateSync().startNifas(birthDate: birthDate);
+    if (synced || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _pr(
+            "Nifas tracking has started on this device, but couldn't sync to your account — the chat may not be personalized yet.",
+            'بدأ تتبع النفاس على هذا الجهاز، لكن تعذّرت المزامنة مع حسابك — قد لا تكون المحادثة مخصّصة بعد.',
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
+
+  /// Turning "I am currently pregnant" or "Postpartum Mode" off — on this
+  /// device AND her `pregnancy_profile` row, so reminders, reports and the
+  /// AI context stop treating her as pregnant/postpartum.
+  Future<void> _deactivatePregnancyTracking() async {
+    final synced = await PregnancyStateSync().deactivate();
+    if (synced || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _pr(
+            "Tracking is off on this device, but couldn't sync to your account — reminders and the chat may still use the old status. Check your connection and try again.",
+            'تم إيقاف التتبع على هذا الجهاز، لكن تعذّرت المزامنة مع حسابك — قد تستمر التذكيرات والمحادثة بالحالة السابقة. تحققي من الاتصال وحاولي مرة أخرى.',
+          ),
+        ),
+      ),
+    );
   }
 
   /// Mirrors the web app flow: toggling "I am currently pregnant" ON opens
@@ -844,10 +850,12 @@ class _PregnancySetupSheetState extends State<_PregnancySetupSheet> {
             'تعذّر المزامنة مع حسابك — تفعّل تتبع الحمل على هذا الجهاز، لكن قد لا تكون المحادثة مخصّصة بعد. تحققي من الاتصال وحاولي مرة أخرى.',
           );
         });
+        unawaited(PregnancyStateSync().refreshNotifications());
         return;
       }
     }
 
+    unawaited(PregnancyStateSync().refreshNotifications());
     if (mounted) Navigator.pop(context, true);
   }
 

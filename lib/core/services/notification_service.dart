@@ -382,7 +382,17 @@ class NotificationService {
       minute,
     );
     if (firstFire.isBefore(now)) {
-      firstFire = firstFire.add(const Duration(days: 1));
+      // Calendar-day arithmetic (2026-10-21): `add(Duration(days: 1))`
+      // added 24 absolute hours, so on a DST-change eve the first
+      // occurrence landed an hour off the requested wall-clock time.
+      firstFire = tz.TZDateTime(
+        tz.local,
+        now.year,
+        now.month,
+        now.day + 1,
+        hour,
+        minute,
+      );
     }
 
     try {

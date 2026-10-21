@@ -1,5 +1,7 @@
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
+import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
@@ -8,6 +10,8 @@ import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
 import '../../../cycle_tracking/domain/entities/load_result.dart';
 import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
+import '../../../pregnancy_profile/domain/entities/pregnancy_profile.dart';
+import '../../../pregnancy_profile/domain/services/pregnancy_status_engine.dart';
 import '../../data/local/notification_event_log_store.dart';
 import '../../data/repositories/notification_repository_impl.dart';
 import '../entities/notification_event.dart';
@@ -86,18 +90,30 @@ class NotificationRefreshCoordinator {
     // for "now" everywhere else; this was the one outlier.
     final now = AppClock.now();
 
+    // Pregnancy/nifas hardening (2026-10-21, proposed): the synced profile
+    // is read ONCE and shared — the cycle reminder now needs it too (no
+    // "period approaching" while pregnant or in nifas). A failed read is
+    // "unknown" ([_ProfileRead.failed]), never "not pregnant".
+    final profileRead = userId == null
+        ? const _ProfileRead.none()
+        : await _loadProfile(
+            pregnancyRepository ?? PregnancyProfileRepository(),
+            userId,
+          );
+
     await _refreshCycle(
       preferences: preferences,
       userId: userId,
       cycleRepository: cycleRepository ?? CycleTrackingRepositoryImpl(),
       cycleHistoryLoader: cycleHistoryLoader ?? _loadCycleHistory,
       statedBaselineLoader: statedBaselineLoader ?? _loadStatedBaseline,
+      profileRead: profileRead,
       now: now,
     );
     await _refreshPregnancyAndNifas(
       preferences: preferences,
       userId: userId,
-      pregnancyRepository: pregnancyRepository ?? PregnancyProfileRepository(),
+      profileRead: profileRead,
       now: now,
     );
     await _refreshWellbeingDaily(preferences: preferences);
@@ -233,6 +249,9 @@ class NotificationRefreshCoordinator {
       // visible for a later retry rather than a false "cancelled".
       final cancelled = await NotificationService.instance.cancel(owned.id);
       if (cancelled) {
+        await NotificationLogController.instance.removePending(
+          'activeBleeding_${owned.id}',
+        );
         await _recordEventOnce(
           reminderId: owned.id.toString(),
           state: NotificationEventState.cancelled,
@@ -297,23 +316,23 @@ class NotificationRefreshCoordinator {
           plan.fireAt.month == today.month &&
           plan.fireAt.day == today.day;
       if (!isTodaysPlan) continue;
+      // Pregnancy/nifas hardening (2026-10-21): logged with its fireAt,
+      // so the feed shows it only once it has fired (never "just now"
+      // hours early); upsertScheduled never adds the same id twice.
       final logEntryId = 'activeBleeding_${plan.id}';
-      final alreadyLogged = NotificationLogController.instance.entries.any(
-        (entry) => entry.id == logEntryId,
+      await NotificationLogController.instance.upsertScheduled(
+        logEntryId,
+        NotificationLogEntry(
+          id: logEntryId,
+          type: NotificationType.activeBleeding,
+          titleAr: plan.feedTitleAr,
+          bodyAr: plan.feedBodyAr,
+          titleEn: plan.feedTitleEn,
+          bodyEn: plan.feedBodyEn,
+          createdAt: AppClock.now(),
+          fireAt: plan.fireAt,
+        ),
       );
-      if (!alreadyLogged) {
-        await NotificationLogController.instance.add(
-          NotificationLogEntry(
-            id: logEntryId,
-            type: NotificationType.activeBleeding,
-            titleAr: plan.titleAr,
-            bodyAr: plan.bodyAr,
-            titleEn: plan.titleEn,
-            bodyEn: plan.bodyEn,
-            createdAt: AppClock.now(),
-          ),
-        );
-      }
     }
   }
 
@@ -347,6 +366,9 @@ class NotificationRefreshCoordinator {
       if (owned.userId != userId) continue;
       final cancelled = await NotificationService.instance.cancel(owned.id);
       if (cancelled) {
+        await NotificationLogController.instance.removePending(
+          'activeBleeding_${owned.id}',
+        );
         await _recordEventOnce(
           reminderId: owned.id.toString(),
           state: NotificationEventState.cancelled,
@@ -447,13 +469,26 @@ class NotificationRefreshCoordinator {
     cycleHistoryLoader,
     required Future<CycleBaseline?> Function(String userId)
     statedBaselineLoader,
+    required _ProfileRead profileRead,
     required DateTime now,
   }) async {
     final enabled = preferences[NotificationType.cycle]?.enabled ?? false;
     if (!enabled) {
-      await NotificationService.instance.cancel(
-        NotificationScheduler.cycleNotificationId,
-      );
+      await _apply(NotificationScheduler.cycleNotificationId, null);
+      return;
+    }
+
+    // No "period approaching" while pregnant or in nifas — per the synced
+    // profile or this device's own flags (either is enough).
+    final pregnancyController = PregnancyStatusController.instance;
+    if (NotificationScheduler.suppressesCycleReminder(
+      pregnancy: profileRead.profile == null
+          ? null
+          : PregnancyStatusEngine.getStatus(profileRead.profile, now),
+      locallyPregnant: pregnancyController.isPregnant,
+      locallyInNifas: pregnancyController.isNifasActive,
+    )) {
+      await _apply(NotificationScheduler.cycleNotificationId, null);
       return;
     }
 
@@ -467,9 +502,7 @@ class NotificationRefreshCoordinator {
     if (canonicalEpisodes == null) {
       // Known-incomplete history (an episode was quarantined): the
       // calendar refuses to predict from it, so no reminder may either.
-      await NotificationService.instance.cancel(
-        NotificationScheduler.cycleNotificationId,
-      );
+      await _apply(NotificationScheduler.cycleNotificationId, null);
       return;
     }
     final statedBaseline = userId == null || userId == 'local-user'
@@ -491,21 +524,21 @@ class NotificationRefreshCoordinator {
   static Future<void> _refreshPregnancyAndNifas({
     required Map<NotificationType, NotificationPreference> preferences,
     required String? userId,
-    required PregnancyProfileRepository pregnancyRepository,
+    required _ProfileRead profileRead,
     required DateTime now,
   }) async {
     final enabled = preferences[NotificationType.pregnancy]?.enabled ?? false;
     if (!enabled || userId == null) {
-      await NotificationService.instance.cancel(
-        NotificationScheduler.pregnancyNotificationId,
-      );
-      await NotificationService.instance.cancel(
-        NotificationScheduler.nifasNotificationId,
-      );
+      await _apply(NotificationScheduler.pregnancyNotificationId, null);
+      await _apply(NotificationScheduler.nifasNotificationId, null);
       return;
     }
 
-    final profile = await pregnancyRepository.getForUser(userId);
+    // A failed profile read is "unknown": leave whatever is scheduled as
+    // it is (it previously threw out of the whole refresh).
+    if (profileRead.failed) return;
+
+    final profile = profileRead.profile;
     final pregnancyPlan = NotificationScheduler.planPregnancyMilestone(
       profile: profile,
       now: now,
@@ -517,6 +550,23 @@ class NotificationRefreshCoordinator {
       now: now,
     );
     await _apply(NotificationScheduler.nifasNotificationId, nifasPlan);
+  }
+
+  static Future<_ProfileRead> _loadProfile(
+    PregnancyProfileRepository repository,
+    String userId,
+  ) async {
+    try {
+      return _ProfileRead.loaded(await repository.getForUser(userId));
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationRefreshCoordinator._loadProfile',
+        feature: 'notifications',
+      );
+      return const _ProfileRead.failed();
+    }
   }
 
   static Future<void> _refreshWellbeingDaily({
@@ -542,7 +592,11 @@ class NotificationRefreshCoordinator {
 
   static Future<void> _apply(int id, PlannedNotification? plan) async {
     if (plan == null) {
-      await NotificationService.instance.cancel(id);
+      final cancelled = await NotificationService.instance.cancel(id);
+      // A cancelled reminder must never surface in the feed later.
+      if (cancelled) {
+        await NotificationLogController.instance.removePending('$id');
+      }
       return;
     }
 
@@ -559,18 +613,14 @@ class NotificationRefreshCoordinator {
     );
     if (outcome != NotificationSchedulingOutcome.accepted) return;
 
-    // The same still-pending prediction gets rescheduled every refresh
-    // (app start/resume) — that's fine for the OS scheduler (replacing a
-    // notification under the same id is a no-op if unchanged), but it
-    // must NOT re-add a log entry each time. The log-entry id embeds the
-    // plan's fireAt, so an unchanged plan reuses the same id and this
-    // simply skips re-adding.
+    // Pregnancy/nifas hardening (2026-10-21, proposed): the feed entry
+    // carries the plan's fireAt and stays hidden until then — it used to
+    // appear as "Just now" the moment the reminder was SCHEDULED (e.g.
+    // "about 5 days remain in nifas" on the birth day). The entry id
+    // still embeds fireAt, and upsertScheduled replaces this slot's
+    // not-yet-fired entry, so neither an unchanged plan nor a reschedule
+    // adds a second entry. Fired entries are history and stay.
     final logEntryId = '${id}_${plan.fireAt.millisecondsSinceEpoch}';
-    final alreadyLogged = NotificationLogController.instance.entries.any(
-      (entry) => entry.id == logEntryId,
-    );
-    if (alreadyLogged) return;
-
     final type = switch (id) {
       NotificationScheduler.cycleNotificationId => NotificationType.cycle,
       NotificationScheduler.nifasNotificationId ||
@@ -579,15 +629,17 @@ class NotificationRefreshCoordinator {
       _ => NotificationType.wellbeing,
     };
 
-    await NotificationLogController.instance.add(
+    await NotificationLogController.instance.upsertScheduled(
+      '$id',
       NotificationLogEntry(
         id: logEntryId,
         type: type,
-        titleAr: plan.titleAr,
-        bodyAr: plan.bodyAr,
-        titleEn: plan.titleEn,
-        bodyEn: plan.bodyEn,
+        titleAr: plan.feedTitleAr,
+        bodyAr: plan.feedBodyAr,
+        titleEn: plan.feedTitleEn,
+        bodyEn: plan.feedBodyEn,
         createdAt: AppClock.now(),
+        fireAt: plan.fireAt,
       ),
     );
   }
@@ -596,4 +648,15 @@ class NotificationRefreshCoordinator {
       '${date.year.toString().padLeft(4, '0')}-'
       '${date.month.toString().padLeft(2, '0')}-'
       '${date.day.toString().padLeft(2, '0')}';
+}
+
+/// The synced `pregnancy_profile` read for one refresh: [failed] means the
+/// read itself failed ("unknown"), distinct from a verified absent row.
+class _ProfileRead {
+  const _ProfileRead.none() : profile = null, failed = false;
+  const _ProfileRead.loaded(this.profile) : failed = false;
+  const _ProfileRead.failed() : profile = null, failed = true;
+
+  final PregnancyProfile? profile;
+  final bool failed;
 }
