@@ -48,6 +48,8 @@ import '../../../cycle_tracking/presentation/widgets/start_bleeding_sheet.dart';
 import '../../../dream_interpreter/presentation/screens/dream_interpreter_screen.dart';
 import '../../../notifications/presentation/screens/notification_feed_screen.dart';
 import '../../../prayer_tracking/domain/entities/prayer_entry.dart' as prayer;
+import '../../../../core/preferences/prayer_location_controller.dart';
+import '../../../prayer_tracking/presentation/widgets/prayer_settings_sheet.dart';
 import '../../../prayer_tracking/presentation/viewmodels/prayer_tracking_view_model.dart';
 import '../../../wellbeing/data/repositories/wellbeing_repository.dart';
 
@@ -298,7 +300,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadWellbeingCheckIn();
     unawaited(_refreshCanonicalStatus());
     _fiqhRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        _prayerViewModel.refresh();
+        setState(() {});
+      }
     });
     // Covers the terminated-launch case: a payload already captured
     // before this screen (or any listener) existed.
@@ -548,6 +553,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     BleedingEpisodeRepositoryImpl.reconcileCompletions.removeListener(
       _onReconcileCompleted,
     );
+    _prayerViewModel.dispose();
     _fiqhRefreshTimer?.cancel();
     unawaited(_tapSubscription?.cancel());
     super.dispose();
@@ -4105,9 +4111,11 @@ class _PrayerStatusCard extends StatelessWidget {
             'تتغير عباداتكِ حسب حالتكِ الفقهية',
           )
         : _l(
-            'Prayer times help identify prayers affected by Haid and when Ghusl is due.',
-            'نظهر أوقات الصلاة لمعرفة الصلوات المتأثرة بالحيض وموعد الاغتسال.',
+            'Prayer start times for your location. Record your prayers separately.',
+            'مواقيت بدء الصلاة حسب موقعكِ. سجّلي أداء الصلاة بنفسكِ.',
           );
+    final schedule = viewModel.schedule;
+    final location = viewModel.location;
     final names = {
       prayer.PrayerName.fajr: _l('Fajr', 'الفجر'),
       prayer.PrayerName.dhuhr: _l('Dhuhr', 'الظهر'),
@@ -4164,16 +4172,32 @@ class _PrayerStatusCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              Text(
-                _l('Makkah', 'مكة المكرمة'),
-                style: const TextStyle(
-                  color: AppColors.textTertiary,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
+              Flexible(
+                child: TextButton(
+                  onPressed: () => showPrayerSettings(context),
+                  child: Text(
+                    location == null
+                        ? _l('Set prayer location', 'حددي موقع الصلاة')
+                        : prayerLocationLabel(
+                            location,
+                            isArabic: AppLocaleController.instance.isArabic,
+                          ),
+                  ),
                 ),
               ),
             ],
           ),
+          if (schedule == null)
+            Text(
+              _l(
+                'Prayer times unavailable. Confirm your location, timezone and calculation settings.',
+                'مواقيت الصلاة غير متاحة. تأكدي من الموقع والمنطقة الزمنية وإعدادات الحساب.',
+              ),
+            )
+          else
+            Text(
+              '${location!.timezoneId} · ${prayerMethodLabel(viewModel.settings.method)}',
+            ),
           const SizedBox(height: 24),
           GridView.builder(
             itemCount: prayer.PrayerName.values.length,
@@ -4196,7 +4220,7 @@ class _PrayerStatusCard extends StatelessWidget {
                   : lifted
                   ? _l('Lifted', 'مرفوعة')
                   : _prayerStatus(viewModel.statusFor(name));
-              final time = viewModel.schedule.timeFor(name);
+              final time = schedule?.timeFor(name);
               return Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -4282,7 +4306,7 @@ class _PrayerStatusCard extends StatelessWidget {
   }
 
   String _prayerStatus(prayer.PrayerStatus status) => switch (status) {
-    prayer.PrayerStatus.pending => _l('Upcoming', 'قادمة'),
+    prayer.PrayerStatus.pending => _l('Not recorded', 'لم تُسجّل'),
     prayer.PrayerStatus.completed => _l('Prayed', 'صُلّيت'),
     prayer.PrayerStatus.missed => _l('Missed', 'فائتة'),
     prayer.PrayerStatus.excused => _l('Lifted', 'مرفوعة'),

@@ -17,8 +17,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [prayer_time_calculator.dart](../../lib/features/prayer_tracking/domain/controllers/prayer_time_calculator.dart)
 - [prayer_entry.dart](../../lib/features/prayer_tracking/domain/entities/prayer_entry.dart)
 - [prayer_tracking_repository.dart](../../lib/features/prayer_tracking/domain/repositories/prayer_tracking_repository.dart)
+- [prayer_schedule_builder.dart](../../lib/features/prayer_tracking/domain/services/prayer_schedule_builder.dart)
 - [prayer_tracking_screen.dart](../../lib/features/prayer_tracking/presentation/screens/prayer_tracking_screen.dart)
 - [prayer_tracking_view_model.dart](../../lib/features/prayer_tracking/presentation/viewmodels/prayer_tracking_view_model.dart)
+- [prayer_settings_sheet.dart](../../lib/features/prayer_tracking/presentation/widgets/prayer_settings_sheet.dart)
 
 ## Test navigation hints
 

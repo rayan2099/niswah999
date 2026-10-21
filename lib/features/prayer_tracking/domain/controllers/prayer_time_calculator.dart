@@ -3,56 +3,35 @@ import '../entities/prayer_entry.dart';
 class PrayerTimeCalculator {
   const PrayerTimeCalculator();
 
-  static PrayerTimeSlot nextPrayer({
+  /// Absolute instants handle another city's zone and prayers after midnight.
+  /// Without tomorrow's schedule there is no known next prayer after Isha.
+  static PrayerTimeSlot? nextPrayer({
     required PrayerSchedule schedule,
     required DateTime now,
+    PrayerSchedule? tomorrow,
   }) {
-    final currentDate = DateTime(now.year, now.month, now.day);
-    final targetDate = DateTime(
-      schedule.date.year,
-      schedule.date.month,
-      schedule.date.day,
-    );
-
-    final slots = PrayerName.values.map((prayerName) {
-      final time = schedule.timeFor(prayerName);
-      if (time == null) {
-        throw StateError('Missing prayer slot for $prayerName');
-      }
-      return PrayerTimeSlot(
-        name: prayerName,
-        time: time,
-        scheduledAt: time.toDateTime(targetDate),
-      );
-    }).toList();
-
-    for (final slot in slots) {
-      if (currentDate.isAtSameMomentAs(targetDate) &&
-          now.isBefore(slot.scheduledAt)) {
-        return slot;
+    final slots = <PrayerTimeSlot>[];
+    for (final day in [schedule, ?tomorrow]) {
+      for (final name in PrayerName.values) {
+        final time = day.timeFor(name);
+        if (time == null) continue;
+        final instant = day.instants[name] ?? time.toDateTime(day.date);
+        if (!instant.isBefore(now)) {
+          slots.add(
+            PrayerTimeSlot(name: name, time: time, scheduledAt: instant),
+          );
+        }
       }
     }
-
-    return slots.last;
+    slots.sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+    return slots.isEmpty ? null : slots.first;
   }
 
+  /// No entry means unrecorded, at every time of day. Do not infer completed,
+  /// missed, excused, or qadha from elapsed time or from predicted bleeding.
   static PrayerStatus statusFor({
     required PrayerSchedule schedule,
     required PrayerName prayerName,
     required DateTime now,
-  }) {
-    final time = schedule.timeFor(prayerName);
-    if (time == null) {
-      return PrayerStatus.pending;
-    }
-
-    final scheduledAt = time.toDateTime(schedule.date);
-    if (now.isBefore(scheduledAt)) {
-      return PrayerStatus.pending;
-    }
-    if (now.isAtSameMomentAs(scheduledAt)) {
-      return PrayerStatus.completed;
-    }
-    return PrayerStatus.missed;
-  }
+  }) => PrayerStatus.pending;
 }

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../../../prayer_tracking/presentation/widgets/prayer_settings_sheet.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -177,10 +179,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 10),
                       _LocationCard(
-                        city: prayerLocationLabel(
-                          PrayerLocationController.instance.resolved,
-                          isArabic: AppLocaleController.instance.isArabic,
-                        ),
+                        city:
+                            PrayerLocationController.instance.selectedOrNull ==
+                                null
+                            ? _pr('Set prayer location', 'حددي موقع الصلاة')
+                            : prayerLocationLabel(
+                                PrayerLocationController
+                                    .instance
+                                    .selectedOrNull!,
+                                isArabic: AppLocaleController.instance.isArabic,
+                              ),
                         onChange: _showCitySheet,
                       ),
                       const SizedBox(height: 30),
@@ -722,69 +730,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _showCitySheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.brandBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
-      ),
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          16,
-          24,
-          MediaQuery.viewInsetsOf(context).bottom + 32,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 48,
-              height: 5,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE5E7EB),
-                borderRadius: BorderRadius.circular(99),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              _pr('Choose your city', 'اختاري مدينتكِ'),
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: const Color(0xFF881337),
-                fontFamily: AppTypography.serifFamily,
-              ),
-            ),
-            const SizedBox(height: 18),
-            const SizedBox(height: 8),
-            for (final preset in PrayerLocationController.presets)
-              ListTile(
-                leading: Icon(
-                  preset == PrayerLocationController.instance.selectedOrNull
-                      ? Icons.check_circle_rounded
-                      : Icons.location_on_outlined,
-                  color:
-                      preset == PrayerLocationController.instance.selectedOrNull
-                      ? AppColors.success
-                      : AppColors.textTertiary,
-                ),
-                title: Text(
-                  prayerLocationLabel(
-                    preset,
-                    isArabic: AppLocaleController.instance.isArabic,
-                  ),
-                ),
-                onTap: () {
-                  PrayerLocationController.instance.select(preset);
-                  Navigator.pop(context);
-                },
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+  void _showCitySheet() => showPrayerSettings(context);
 }
 
 /// Bottom sheet replicating the web app's "إعداد تتبع الحمل" setup:

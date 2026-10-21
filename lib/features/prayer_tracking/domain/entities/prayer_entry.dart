@@ -54,6 +54,7 @@ class PrayerSchedule extends Equatable {
     required this.asr,
     required this.maghrib,
     required this.isha,
+    this.instants = const {},
   });
 
   final DateTime date;
@@ -62,6 +63,9 @@ class PrayerSchedule extends Equatable {
   final TimeOfDay asr;
   final TimeOfDay maghrib;
   final TimeOfDay isha;
+
+  /// UTC instants retained for comparisons; wall-clock values are for display.
+  final Map<PrayerName, DateTime> instants;
 
   TimeOfDay? timeFor(PrayerName prayerName) {
     switch (prayerName) {
@@ -99,7 +103,7 @@ class PrayerSchedule extends Equatable {
   }
 
   @override
-  List<Object?> get props => [date, fajr, dhuhr, asr, maghrib, isha];
+  List<Object?> get props => [date, fajr, dhuhr, asr, maghrib, isha, instants];
 }
 
 class PrayerTimeSlot extends Equatable {
@@ -162,7 +166,9 @@ class PrayerEntry extends Equatable {
       scheduledTime: scheduledTime ?? this.scheduledTime,
       status: status ?? this.status,
       notes: notes ?? this.notes,
-      completedAt: completedAt ?? this.completedAt,
+      completedAt: (status ?? this.status) == PrayerStatus.completed
+          ? completedAt ?? this.completedAt
+          : null,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

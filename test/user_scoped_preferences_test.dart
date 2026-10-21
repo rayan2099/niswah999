@@ -45,6 +45,11 @@ void main() {
     await PrayerLocationController.instance.select(
       PrayerLocationController.presets.first, // Riyadh
     );
+    await PrayerLocationController.instance.configure(
+      method: 'ummAlQura',
+      hanafiAsr: true,
+      ramadanAdjustmentUntil: DateTime(2026, 3, 19),
+    );
     await NotificationLogController.instance.add(
       NotificationLogEntry(
         id: 'n1',
@@ -71,6 +76,9 @@ void main() {
     expect(TtcModeController.instance.enabled, isFalse);
     expect(PregnancyStatusController.instance.isPregnant, isFalse);
     expect(PrayerLocationController.instance.selectedOrNull, isNull);
+    expect(PrayerLocationController.instance.method, 'muslimWorldLeague');
+    expect(PrayerLocationController.instance.hanafiAsr, isFalse);
+    expect(PrayerLocationController.instance.ramadanAdjustmentUntil, isNull);
     expect(NotificationLogController.instance.entries, isEmpty);
     final prefsB = await NotificationRepositoryImpl().loadPreferences();
     expect(
@@ -85,6 +93,12 @@ void main() {
 
     // ---- A signs back in ----
     await signInAs(a);
+    expect(PrayerLocationController.instance.method, 'ummAlQura');
+    expect(PrayerLocationController.instance.hanafiAsr, isTrue);
+    expect(
+      PrayerLocationController.instance.ramadanAdjustmentUntil,
+      DateTime(2026, 3, 19),
+    );
     expect(MaritalStatusController.instance.isMarried, isTrue);
     expect(TtcModeController.instance.enabled, isTrue);
     expect(PregnancyStatusController.instance.isPregnant, isTrue);
