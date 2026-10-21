@@ -297,6 +297,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [04_account_deletion_completeness.sql](../../test/onboarding_server_hardening/sql/04_account_deletion_completeness.sql)
 - [run_sql_checks.sh](../../test/onboarding_server_hardening/sql/run_sql_checks.sh)
 
+## test/prediction_efficiency
+
+- [prediction_efficiency_test.dart](../../test/prediction_efficiency/prediction_efficiency_test.dart)
+
 ## test/pregnancy_notifications_hardening
 
 - [classical_stage_mapping_test.dart](../../test/pregnancy_notifications_hardening/classical_stage_mapping_test.dart)

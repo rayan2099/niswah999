@@ -5,8 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/utils/app_clock.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
+import 'package:niswah/features/cycle_tracking/domain/controllers/cycle_tracking_controller.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/bleeding_episode.dart';
 import 'package:niswah/features/cycle_tracking/domain/entities/load_result.dart';
+import 'package:niswah/features/cycle_tracking/domain/services/cycle_calculation_service.dart';
 import 'package:niswah/features/cycle_tracking/presentation/screens/canonical_calendar_screen.dart';
 
 import 'support/device_timezone_test_support.dart';
@@ -393,6 +395,68 @@ void main() {
       );
     },
   );
+
+  testWidgets('the predicted block starts on the date the shared summary gives '
+      '(prediction-efficiency audit, 2026-10-21)', (tester) async {
+    // A period stopped the day it started (Jun 29) and restarted the next
+    // day (Jun 30): one episode for the shared summary (no cycle starts
+    // a day after the last), which predicts from starts Jun 1, Jun 29
+    // and Jul 28 -> 29 days -> Aug 26. The calendar's own copy of the
+    // logic counted Jun 30 as another start (gaps 28, 1, 28 -> 28 days)
+    // and drew the block from Aug 25.
+    final episodes = [
+      _episode(id: 'a', start: DateTime(2026, 6, 1), end: DateTime(2026, 6, 6)),
+      _episode(
+        id: 'b',
+        start: DateTime(2026, 6, 29),
+        end: DateTime(2026, 6, 29),
+      ),
+      _episode(
+        id: 'c',
+        start: DateTime(2026, 6, 30),
+        end: DateTime(2026, 7, 4),
+      ),
+      _episode(
+        id: 'd',
+        start: DateTime(2026, 7, 28),
+        end: DateTime(2026, 8, 2),
+      ),
+    ];
+    final summary = const CycleTrackingController().summarizeHistory(
+      const [],
+      now: AppClock.now(),
+      canonicalEpisodes: [
+        for (final e in episodes)
+          CanonicalEpisodeTiming(startDate: e.startDate, endDate: e.endDate),
+      ],
+    );
+    expect(summary.nextPeriodStart, DateTime(2026, 8, 26));
+
+    await pumpCalendar(tester, episodes: episodes);
+    bool predicted(int day) =>
+        tester
+            .widget<CustomPaint>(
+              find
+                  .descendant(
+                    of: find.byKey(
+                      ValueKey(
+                        'canonical-day-${DateTime(2026, 8, day).toIso8601String()}',
+                      ),
+                    ),
+                    matching: find.byType(CustomPaint),
+                  )
+                  .first,
+            )
+            .foregroundPainter !=
+        null;
+    expect(predicted(25), isFalse);
+    // Average period 5 days (Jun 1-6 and Jul 28-Aug 2; the same-day stop
+    // has no length): Aug 26-30.
+    for (var day = 26; day <= 30; day++) {
+      expect(predicted(day), isTrue, reason: 'Aug $day');
+    }
+    expect(predicted(31), isFalse);
+  });
 
   testWidgets(
     'a clearly late period is never drawn as predicted bleeding on days '

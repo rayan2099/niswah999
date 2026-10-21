@@ -31,6 +31,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
     canonicalEpisodeLoader,
     Future<CycleBaseline?> Function(String userId)? statedBaselineLoader,
     Future<bool?> Function(String logId)? canonicalMirrorChecker,
+    this._calculationService = const CycleCalculationService(),
   }) : _repository = repository ?? CycleTrackingRepositoryImpl(),
        _canonicalMirrorChecker =
            canonicalMirrorChecker ?? _defaultCanonicalMirrorChecker,
@@ -96,8 +97,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
   final CycleTrackingRepository _repository;
   AuthRepositoryImpl? _authRepository;
   final CycleTrackingController _controller = CycleTrackingController();
-  final CycleCalculationService _calculationService =
-      const CycleCalculationService();
+  final CycleCalculationService _calculationService;
 
   String _currentUserId = 'local-user';
   AppUser? _currentUser;
@@ -141,12 +141,50 @@ class CycleTrackingViewModel extends ChangeNotifier {
   }
 
   CycleTrackingSummary _summarize(DateTime today) =>
-      _controller.summarizeHistory(
-        logs,
-        now: today,
-        canonicalEpisodes: canonicalEpisodes,
-        statedBaseline: statedBaseline,
-      );
+      _controller.summarizeCalculation(_calculationFor(today), today: today);
+
+  /// The last [CycleCalculationService.calculate] result and what it was
+  /// computed from. Today, the Calendar tab and Insights all read
+  /// [cycleCalculation] on every rebuild (the Today screen rebuilds at
+  /// least once a minute), and [_summarize] needs the same calculation:
+  /// with years of daily logs one run takes milliseconds, so it is
+  /// computed once per data load and calendar day, not once per read.
+  ({
+    DateTime day,
+    List<CycleLog> logs,
+    List<CanonicalEpisodeTiming> canonicalEpisodes,
+    CycleBaseline? statedBaseline,
+    CycleCalculationResult result,
+  })?
+  _calculation;
+
+  CycleCalculationResult _calculationFor(DateTime day) {
+    final cached = _calculation;
+    if (cached != null &&
+        cached.day == day &&
+        identical(cached.logs, logs) &&
+        identical(cached.canonicalEpisodes, canonicalEpisodes) &&
+        identical(cached.statedBaseline, statedBaseline)) {
+      return cached.result;
+    }
+    // `asOf` only sets the cycle day, which counts calendar days, so the
+    // day alone is the same input as the exact time.
+    final result = _calculationService.calculate(
+      logs,
+      asOf: day,
+      canonicalEpisodes: canonicalEpisodes,
+      statedBaseline: statedBaseline,
+    );
+    _calculation = (
+      day: day,
+      logs: logs,
+      canonicalEpisodes: canonicalEpisodes,
+      statedBaseline: statedBaseline,
+      result: result,
+    );
+    return result;
+  }
+
   bool isLoading = false;
   String? errorMessage;
 
@@ -159,12 +197,57 @@ class CycleTrackingViewModel extends ChangeNotifier {
 
   String get currentUserId => _currentUserId;
   AppUser? get currentUser => _currentUser;
-  CycleCalculationResult get cycleCalculation => _calculationService.calculate(
-    logs,
-    asOf: AppClock.now(),
-    canonicalEpisodes: canonicalEpisodes,
-    statedBaseline: statedBaseline,
-  );
+  CycleCalculationResult get cycleCalculation =>
+      _calculationFor(calendarDay(AppClock.now()));
+
+  ({
+    DateTime lastDay,
+    DateTime asOfDay,
+    List<CycleLog> logs,
+    List<CanonicalEpisodeTiming> canonicalEpisodes,
+    CycleCalculationResult result,
+  })?
+  _rangeCalculation;
+
+  /// Factual cycle statistics from the history logged up to and including
+  /// [lastDay] (the Calendar tab's month/year summary), with the cycle day
+  /// counted on [asOf]. Her stated estimate is not used: these are logged
+  /// facts only. Cached like [cycleCalculation]: the Calendar tab stays
+  /// mounted and rebuilds whenever the shared view model notifies.
+  CycleCalculationResult calculationUpTo({
+    required DateTime lastDay,
+    required DateTime asOf,
+  }) {
+    final dayAfter = addCalendarDays(lastDay, 1);
+    final asOfDay = calendarDay(asOf);
+    final cached = _rangeCalculation;
+    if (cached != null &&
+        cached.lastDay == calendarDay(lastDay) &&
+        cached.asOfDay == asOfDay &&
+        identical(cached.logs, logs) &&
+        identical(cached.canonicalEpisodes, canonicalEpisodes)) {
+      return cached.result;
+    }
+    // The day after [lastDay] by calendar, never `Duration(days: 1)`: on a
+    // month whose last day is a spring-forward Sunday (31 March 2024 in
+    // the UK) that landed at 01:00 the next day, pulling the next month's
+    // first-day logs into this summary.
+    final result = _calculationService.calculate(
+      logs.where((log) => log.date.isBefore(dayAfter)).toList(),
+      canonicalEpisodes: canonicalEpisodes
+          .where((episode) => episode.startDate.isBefore(dayAfter))
+          .toList(),
+      asOf: asOfDay,
+    );
+    _rangeCalculation = (
+      lastDay: calendarDay(lastDay),
+      asOfDay: asOfDay,
+      logs: logs,
+      canonicalEpisodes: canonicalEpisodes,
+      result: result,
+    );
+    return result;
+  }
 
   List<CycleLog> get filteredLogs =>
       _controller.filterLogsByPhase(logs, selectedPhase);

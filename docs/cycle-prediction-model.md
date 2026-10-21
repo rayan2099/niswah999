@@ -142,6 +142,68 @@ Verification: `test/round2_properties/` (property suites,
 fiqh regressions in `test/round2_properties/fiqh_regressions_test.dart` are
 outside this change and still fail until the fiqh fixes land.
 
+## Prediction-efficiency audit (2026-10-21) — status: proposed
+
+Changed on branch `perf/prediction-efficiency`. Implemented and covered by
+tests there; **proposed**, not owner-reviewed, not merged, not
+device-verified, not medically reviewed. Synthetic data only.
+
+- **One calculation per load, not per rebuild (proposed).** Today, the
+  Calendar tab and Insights each re-ran `CycleCalculationService.calculate`
+  on every rebuild (all three stay mounted and rebuild on every view-model
+  change, Today also once a minute), and `loadLogs` ran it a second time
+  for the summary. With three years of daily logs one run measured about
+  5 ms in the test VM, so one change cost about 20 ms of recalculation.
+  [cycle_tracking_view_model.dart](../lib/features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart)
+  now keeps the result until the data or the calendar day changes, builds
+  the summary from it (`CycleTrackingController.summarizeCalculation`), and
+  caches the Calendar tab's month/year summary (`calculationUpTo`) the same
+  way. Results are unchanged.
+- **One startup load (proposed).** The home shell and the Today screen both
+  loaded the shared view model at startup, so every launch read
+  `cycle_entries`, `bleeding_episodes` and `cycle_baselines` twice. Only
+  the Today screen (always mounted) loads it now
+  ([main.dart](../lib/main.dart)).
+- **One prediction gate (proposed).** `canPredictFromHistory` now also
+  requires `hasPlausibleAverage`, the gate Today and Insights already
+  applied. Starts logged 3 and then 20 days apart (average 12) showed no
+  prediction on Today and Insights, while the Calendar tab, the canonical
+  calendar, the husband report and the reminder still predicted from the
+  20-day interval. Insights now also uses `canPredictFromHistory`, like
+  Today's ring.
+- **The canonical calendar uses the shared summary (proposed).** Its block
+  used to come from a second copy of the prediction over the raw episode
+  list, which did not merge an episode restarted the day after a same-day
+  stop and so drew the block a day earlier than Today gave. It now uses
+  `summarizeCalculation` over the same episodes (still nothing while an
+  episode is open, from an estimate alone, or from a degraded read).
+- **No range start within 15 days of the last start (proposed).** The
+  range's early end is now never sooner than
+  `minPlausibleCycleLengthDays` after the current cycle's start: short,
+  irregular histories offered ranges from cycle day 13 (6 of 150 generated
+  irregular histories, property P2c).
+- **Calendar-day summary ranges (proposed).** The Calendar tab's month
+  summary ended at `last day + 24 h`, so a month ending on a spring-forward
+  Sunday (31 March 2024 in the UK) pulled in the next month's first day,
+  which made March 2024 show no statistics at all. The Hijri-year end and
+  the custom "last N days" presets had the same `Duration` arithmetic; the
+  presets also kept the clock time, so their first day's logs were left
+  out in every zone.
+
+Not changed (recorded for review): the view model still predicts from a
+degraded `bleeding_episodes` read (a quarantined row) while the reminder
+and the canonical calendar refuse to; the view model reads 200 remote
+`cycle_entries` rows and the reminder 1,000; a bleeding restart under 15
+days after a start moves the prediction's anchor to the restart; the
+Calendar tab repeats "Expected Haid" every predicted cycle while the
+canonical calendar shows only the next period; the conception-chance
+curve on the Calendar tab peaks one day before the predicted ovulation
+day its comment names.
+
+Tests: `test/prediction_efficiency/prediction_efficiency_test.dart`,
+`test/canonical_calendar_screen_test.dart` (shared-summary block),
+`test/round2_properties/prediction_properties_test.dart` (P2c).
+
 ## Impact and verification
 
 Tests: `test/cycle_tracking_controller_test.dart`,

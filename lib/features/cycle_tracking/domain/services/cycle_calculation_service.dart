@@ -139,8 +139,17 @@ class CycleCalculationResult {
   /// Whether the prediction rests on at least one cycle she logged, not
   /// only on her stated estimate. Anything presented as "your cycle"
   /// (fertile window, ring, reminders, calendar blocks) needs this.
+  ///
+  /// Also requires [hasPlausibleAverage], the gate Today and Insights
+  /// already applied (proposed, prediction-efficiency audit 2026-10-21):
+  /// with starts logged 3 and then 20 days apart the average is 12 days
+  /// and Today/Insights showed no prediction, while the Calendar tab, the
+  /// canonical calendar, the husband report and the reminder still
+  /// predicted from the 20-day interval alone.
   bool get canPredictFromHistory =>
-      canPredict && predictionBasis != PredictionBasis.statedEstimate;
+      canPredict &&
+      predictionBasis != PredictionBasis.statedEstimate &&
+      hasPlausibleAverage;
 
   /// Whether there are enough logged cycles to compute a meaningful spread.
   /// Stricter than [hasSufficientHistory]: a single interval has no

@@ -123,6 +123,27 @@ void main() {
     }),
   );
 
+  // Prediction-efficiency audit (2026-10-21, proposed): the range never
+  // offers a start sooner than the shortest interval the model counts as a
+  // cycle. Irregular short histories (predicted 15-19 days, spread > 3)
+  // offered ranges from cycle day 13.
+  property(
+    'P2c nextPeriodRange never starts within 15 days of the last start',
+    seedBase: 990000,
+    kindFor: (seed) => 'irregular',
+    check: (h) => forEachNow(h, (ev, now, today) {
+      final s = summarize(h, ev, now);
+      final range = s.nextPeriodRange;
+      final last = s.lastCycleStart;
+      if (range == null || last == null) return null;
+      final days = calendarDaysBetween(last, range.earliest);
+      if (days < CycleCalculationResult.minPlausibleCycleLengthDays) {
+        return 'earliest ${days}d after the last start | ${describeSummary(s)}';
+      }
+      return null;
+    }),
+  );
+
   // Doc: "Past the window: no date at all ... nothing further is predicted
   // until she logs" and the range is "gone once she is clearly late".
   property(
