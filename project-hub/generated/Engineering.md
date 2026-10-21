@@ -169,3 +169,4 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261014220000_madhhab_history_ruleset_version_future_safety.sql](../../supabase/migrations/20261014220000_madhhab_history_ruleset_version_future_safety.sql)
 - [20261015120000_kb_human_review_status_provenance.sql](../../supabase/migrations/20261015120000_kb_human_review_status_provenance.sql)
 - [20261018090000_bleeding_write_boundary_validation.sql](../../supabase/migrations/20261018090000_bleeding_write_boundary_validation.sql)
+- [20261021100000_onboarding_server_hardening.sql](../../supabase/migrations/20261021100000_onboarding_server_hardening.sql)

@@ -276,6 +276,27 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [fake_supabase.dart](../../test/logging_sync_hardening/support/fake_supabase.dart)
 
+## test/onboarding_server_hardening
+
+- [data_export_completeness_test.dart](../../test/onboarding_server_hardening/data_export_completeness_test.dart)
+- [madhhab_offline_selection_test.dart](../../test/onboarding_server_hardening/madhhab_offline_selection_test.dart)
+- [onboarding_answers_test.dart](../../test/onboarding_server_hardening/onboarding_answers_test.dart)
+
+## test/onboarding_server_hardening/deno
+
+- [ai_user_context_hardening.test.ts](../../test/onboarding_server_hardening/deno/ai_user_context_hardening.test.ts)
+- [import_map.json](../../test/onboarding_server_hardening/deno/import_map.json)
+- [std_assert_stub.ts](../../test/onboarding_server_hardening/deno/std_assert_stub.ts)
+- [supabase_js_stub.ts](../../test/onboarding_server_hardening/deno/supabase_js_stub.ts)
+
+## test/onboarding_server_hardening/sql
+
+- [00_bootstrap_stub_supabase.sql](../../test/onboarding_server_hardening/sql/00_bootstrap_stub_supabase.sql)
+- [02_onboarding_rpc_duplicates_and_overlaps.sql](../../test/onboarding_server_hardening/sql/02_onboarding_rpc_duplicates_and_overlaps.sql)
+- [03_baseline_duration_longer_than_cycle.sql](../../test/onboarding_server_hardening/sql/03_baseline_duration_longer_than_cycle.sql)
+- [04_account_deletion_completeness.sql](../../test/onboarding_server_hardening/sql/04_account_deletion_completeness.sql)
+- [run_sql_checks.sh](../../test/onboarding_server_hardening/sql/run_sql_checks.sh)
+
 ## test/pregnancy_notifications_hardening
 
 - [dashboard_nifas_day_label_test.dart](../../test/pregnancy_notifications_hardening/dashboard_nifas_day_label_test.dart)

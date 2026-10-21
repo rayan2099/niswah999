@@ -23,6 +23,8 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [onboarding_completion_error_test.dart](../../test/onboarding_completion_error_test.dart)
 - [onboarding_country_picker_test.dart](../../test/onboarding_country_picker_test.dart)
 - [onboarding_numeric_input_test.dart](../../test/onboarding_numeric_input_test.dart)
+- [onboarding_answers_test.dart](../../test/onboarding_server_hardening/onboarding_answers_test.dart)
+- [02_onboarding_rpc_duplicates_and_overlaps.sql](../../test/onboarding_server_hardening/sql/02_onboarding_rpc_duplicates_and_overlaps.sql)
 - [onboarding_ui_test.dart](../../test/onboarding_ui_test.dart)
 
 ## Related features to inspect

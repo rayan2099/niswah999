@@ -1892,7 +1892,9 @@ scenario 1 (the overlap is accepted).
 - **Onboarding overlap:** the overlap check (#8) applies only to
   `start_bleeding_episode`. Episodes inserted by
   `record_onboarding_menstrual_history` are not checked against ended
-  episodes.
+  episodes. *Update 2026-10-21 (proposed):* addressed by
+  `20261021100000_onboarding_server_hardening.sql`; see "Onboarding/server
+  hardening" below.
 - **Reminders after a queued end:** a later notification refresh may
   reschedule active-bleeding reminders until the queued end syncs and the
   episode reads as ended.
@@ -1944,3 +1946,101 @@ The card can therefore never read "Day 41/40". Previously it was 1-based ("Day 1
 - The Nutfah/Alaqah/Mudghah stage-to-week mapping on the dashboard: weeks ≤4 / ≤8 / ≤12 of gestation. It is undocumented in the repo and needs scholar review.
 
 **Residual, not changed:** the Today ring still shows the Haid engine's phase label (for example "Day N of Tahara") during nifas. It makes no obligatory/lifted claim. Nifas still has no Fiqh engine (see `FOUNDER_DECISIONS.md` FD-1).
+
+## 20. Onboarding/server hardening (proposed, 2026-10-21)
+
+Status: **proposed** on `fix/onboarding-server-hardening`; not merged, not
+applied to any hosted project, no device (E4) evidence. Findings come from
+the onboarding/server review of 2026-10-19. Regression tests:
+`test/onboarding_server_hardening/` (Dart widget/unit tests, SQL scripts run
+by `sql/run_sql_checks.sh`, and offline Deno tests in `deno/`). Finding #1
+(self-promotion to admin on `public.users`) is fixed separately by
+`20261021090000_users_privileged_columns_guard.sql` (SEC-012 in
+`production-readiness-results/security/SEC_findings.md`).
+
+### Onboarding screen (`onboarding_screen.dart`)
+
+- **#2 Withdrawn answer replayed.** After a failed save, she could change
+  "started X" to "I'm not sure". The RPC was then skipped but the queued
+  submission was not, so background sync later created the withdrawn
+  episode. Completion now drops any queued onboarding submission when there
+  is nothing to save.
+- **#3 Changed answer under the old operation id.** The queued submission is
+  compared with the new answers (`sameOnboardingAnswers`, ignoring derived
+  provenance and UTC offset). If they differ, the queued copy is dropped and
+  a fresh operation id is used. If they match, the id is reused so a genuine
+  retry stays idempotent. Server backstop below.
+- **#4 "No, it has stopped" + "I'm not sure exactly when".** This was saved as
+  an OPEN episode with uncertain continuation ("may still be bleeding"), the
+  opposite of her answer. §3 has no "ended, end date unknown" state: `ended`
+  requires `end_date`. This answer now creates **no episode**; only her
+  baseline estimates, if any, are saved. Recording the start date with an
+  unknown end would need a schema and contract decision. That decision is
+  open and not taken here.
+- **#11 Stale end date.** Changing the start date clears the end date and the
+  "still happening?" answer.
+- **#12 Skipped predictions.** "Skip for now" discards estimates she had
+  scrolled to earlier.
+- **#13 Marital status.** `MaritalStatusController` keeps `null` until she
+  answers (`answer`). Onboarding no longer pre-selects "No", and her "No" is
+  actually stored.
+- **#14 Duration not shorter than cycle.** The predictions wheels disable
+  Continue and explain why (`baselinePairError`).
+
+### Madhhab (`madhhab_controller.dart`)
+
+- **#6** Every selection sets a per-user "pending server write" flag before
+  the server write. The flag is cleared only when the server returns the
+  updated row. While the flag is set, `load()` keeps the local choice instead
+  of the server row and retries the write. Re-selecting the same madhhab also
+  retries. A reinstall before any successful retry still loses the choice,
+  because the flag is device-local.
+
+### Database (`20261021100000_onboarding_server_hardening.sql`)
+
+- **#3 backstop:** `record_onboarding_menstrual_history` rejects (P0001) a
+  replay of an operation id whose dates or baseline values differ from what
+  that id already recorded. An identical replay still returns the original
+  rows.
+- **#5:** the fresh-insert path reuses an identical ended episode (same
+  start and end) instead of duplicating it. It rejects any other overlap
+  with an ended episode, the same rule as `start_bleeding_episode`.
+- **#14:** `cycle_baselines_duration_below_cycle_check` (`NOT VALID`, so
+  existing rows are not re-checked; every new row is).
+- **Deletion (low):** `knowledge_citations.user_id` gains an
+  `ON DELETE CASCADE` FK (`NOT VALID`). Nothing writes the table today.
+
+SQL result on a local Postgres 16 rebuild (stub roles, canonical baseline,
+every migration): `02`, `03` and `04` pass with the migration. Without it,
+`02` fails on each of (a) duplicate, (b) overlap and (c) changed replay;
+`03` and `04` fail too. The existing
+`test/logging_sync_hardening/sql/canonical_rpc_regression.sql` still prints
+`ALL PASSED`.
+
+### Data export (`data_export_builder.dart`)
+
+- **#10** The export now includes `cycle_logs`, `madhhab_history`,
+  `wellbeing_logs`, `dream_entries`, `community_comments`,
+  `community_likes`, `private_conversations` (either participant) and
+  `private_messages` (all rows her participant-only RLS exposes). Before,
+  these were missing while the export still reported `export_complete: true`.
+
+### AI context (`supabase/functions/_shared/ai_user_context.ts`)
+
+These edits are kept deliberately small because a separate change owns
+canonical fiqh inputs in the same file.
+
+- **#7** A legacy flow log counts as "now" only when it is dated today or
+  yesterday. Otherwise "currently bleeding" is unknown, rendered as `null`.
+  The current run also stops at the first gap between logged days.
+- **#9** `clientFiqhState` is validated with `normalizeClientFiqhState`, and
+  the madhhab is checked against the four schools inside
+  `buildUserAiContext`, so this covers every caller.
+  `ai-assistant-chat` previously rendered both raw. "selected" without a
+  valid madhhab becomes `not_provided`.
+- **Notes (low):** note text is reduced to one line, stripped of
+  `[CONTEXT]`/`[KNOWLEDGE]` markers, bounded in length, and JSON-quoted.
+- **Not done here (#8):** reading the canonical `bleeding_episodes` table
+  into this context, including truthful "uncertain" continuation. That is
+  left to the canonical-fiqh-inputs change to the same file.
+
