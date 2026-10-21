@@ -345,6 +345,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [next_period_cross_screen_test.dart](../../test/screens_hardening/next_period_cross_screen_test.dart)
 - [report_null_average_test.dart](../../test/screens_hardening/report_null_average_test.dart)
 
+## test/security
+
+- [00_bootstrap_stub_supabase.sql](../../test/security/00_bootstrap_stub_supabase.sql)
+- [run_sql_checks.sh](../../test/security/run_sql_checks.sh)
+- [users_privileged_columns_guard.sql](../../test/security/users_privileged_columns_guard.sql)
+
 ## test/services
 
 - [auth_controller_test.dart](../../test/services/auth_controller_test.dart)
