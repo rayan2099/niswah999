@@ -27,6 +27,7 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [madhhab_resolution_test.dart](../../test/madhhab_resolution_test.dart)
 - [madhhab_ruleset_version_test.dart](../../test/madhhab_ruleset_version_test.dart)
 - [madhhab_suggestion_service_test.dart](../../test/madhhab_suggestion_service_test.dart)
+- [madhhab_offline_selection_test.dart](../../test/onboarding_server_hardening/madhhab_offline_selection_test.dart)
 - [multi_madhhab_engine_test.dart](../../test/services/multi_madhhab_engine_test.dart)
 
 ## Requirements, decisions, and verification
