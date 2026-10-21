@@ -613,9 +613,14 @@ class BleedingEpisodeRepositoryImpl {
     }
   }
 
-  /// One observation by id, or null when it cannot be read (no session,
-  /// not found, a read failure or an unparseable row — each reported).
-  Future<BleedingObservation?> getObservationById(String observationId) async {
+  /// One of [userId]'s observations by id, or null when it cannot be read
+  /// (no session, not found, a read failure or an unparseable row — each
+  /// reported). The owner filter is explicit: RLS also admits admin reads,
+  /// so an id alone could return another user's row.
+  Future<BleedingObservation?> getObservationById(
+    String observationId, {
+    required String userId,
+  }) async {
     final client = _client;
     if (client == null) return null;
     try {
@@ -623,6 +628,7 @@ class BleedingEpisodeRepositoryImpl {
           .from('bleeding_observations')
           .select()
           .eq('id', observationId)
+          .eq('user_id', userId)
           .maybeSingle();
       return response == null ? null : BleedingObservation.fromJson(response);
     } on PostgrestException catch (error, stack) {
@@ -1264,6 +1270,8 @@ class BleedingEpisodeRepositoryImpl {
         if (replayedObservationId != null) {
           await _projectReplayedObservation(
             replayedObservationId,
+            ownerId: ownerId,
+            ownerChanged: ownerChanged,
             supersededObservationId: supersededObservationId,
           );
         }
@@ -1313,15 +1321,23 @@ class BleedingEpisodeRepositoryImpl {
   /// (Calendar, Insights, AI context) never learn the episode exists.
   /// Never authoritative and never fatal: a failure here does not undo the
   /// canonical save, exactly like the interactive path.
+  ///
+  /// Skipped once the signed-in user is no longer [ownerId]: the projection
+  /// writes under the current session, so it must never carry the queue
+  /// owner's observation into another account's history.
   Future<void> _projectReplayedObservation(
     String observationId, {
+    required String ownerId,
+    required bool Function() ownerChanged,
     String? supersededObservationId,
   }) async {
+    if (ownerChanged()) return;
     try {
       // One row by primary key — this used to read every observation she
       // ever recorded, once per replayed operation, to pick out this one.
-      final replayed = await getObservationById(observationId);
-      if (replayed == null) return;
+      final replayed = await getObservationById(observationId, userId: ownerId);
+      if (replayed == null || replayed.userId != ownerId) return;
+      if (ownerChanged()) return;
       final projection = CycleEntriesProjection();
       if (supersededObservationId == null) {
         await projection.project(replayed);

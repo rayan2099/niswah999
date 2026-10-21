@@ -261,9 +261,42 @@ void main() {
             .toList();
         expect(observationReads, hasLength(1));
         expect(observationReads.single.queryParameters['id'], 'eq.obs-1');
+        // The owner filter stays: RLS alone also admits admin reads.
         expect(
-          observationReads.single.queryParameters.containsKey('user_id'),
-          isFalse,
+          observationReads.single.queryParameters['user_id'],
+          'eq.user-A',
+        );
+      },
+    );
+
+    test(
+      'no projection once the account switched during the replay',
+      () async {
+        final fake = FakeSupabase((name, body) async {
+          // An admin account signs in while the RPC is in flight.
+          SecureLocalStore.debugUserIdOverride = 'user-B';
+          return jsonResponse([
+            {'observation_id': 'obs-1'},
+          ]);
+        });
+        await fake.signIn('user-A');
+        final reads = <Uri>[];
+        fake.onTable = (request) async {
+          reads.add(request.url);
+          return jsonResponse(<dynamic>[]);
+        };
+        await PendingBleedingOperationStore.savePending(_op('op-1'));
+
+        await BleedingEpisodeRepositoryImpl(client: fake.client)
+            .reconcilePendingOperations();
+
+        expect(
+          reads.where((u) => u.path.endsWith('/bleeding_observations')),
+          isEmpty,
+        );
+        expect(
+          reads.where((u) => u.path.endsWith('/cycle_entries')),
+          isEmpty,
         );
       },
     );
