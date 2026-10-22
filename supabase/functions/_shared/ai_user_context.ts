@@ -272,6 +272,14 @@ export async function buildUserAiContext(
     now?: Date;
     /** Safety flags the caller already detected for the CURRENT message (e.g. dr-niswah-chat's own real-time red-flag keyword scan) — passed through, not derived here. */
     currentMessageSafetyFlags?: string[];
+    /**
+     * The signed-in user's id. Filters the cycle_entries read explicitly:
+     * its RLS policy (`can_access_user(user_id)` = own row OR admin) is not
+     * index-usable on its own, so without this filter the read scans every
+     * user's rows in the date window (~1.8 s vs ~0.4 ms on a 300k-row local
+     * replica), and for an admin it would return other users' entries.
+     */
+    userId?: string;
   } = {},
 ): Promise<UserAiContext> {
   const now = options.now ?? new Date();
@@ -282,6 +290,11 @@ export async function buildUserAiContext(
     .toISOString()
     .slice(0, 10);
 
+  let cycleQuery = userClient
+    .from('cycle_entries')
+    .select('date, flow, symptoms, notes');
+  if (options.userId) cycleQuery = cycleQuery.eq('user_id', options.userId);
+
   const [pregnancyResult, cycleResult, wellbeingResult] = await Promise.all([
     userClient
       .from('pregnancy_profile')
@@ -289,9 +302,7 @@ export async function buildUserAiContext(
         'tracking_basis, reference_date, manual_week_value, manual_week_set_at, is_postpartum, postpartum_start_date, high_risk_flags, fasting_status, locale',
       )
       .maybeSingle(),
-    userClient
-      .from('cycle_entries')
-      .select('date, flow, symptoms, notes')
+    cycleQuery
       .gte('date', cycleHistorySince)
       .order('date', { ascending: false })
       .limit(200),

@@ -13,16 +13,23 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## Implementation
 
 - [notification_event_log_store.dart](../../lib/features/notifications/data/local/notification_event_log_store.dart)
+- [activity_notification_repository.dart](../../lib/features/notifications/data/repositories/activity_notification_repository.dart)
 - [notification_repository_impl.dart](../../lib/features/notifications/data/repositories/notification_repository_impl.dart)
+- [app_notification_session.dart](../../lib/features/notifications/data/services/app_notification_session.dart)
+- [activity_notification.dart](../../lib/features/notifications/domain/entities/activity_notification.dart)
 - [notification_event.dart](../../lib/features/notifications/domain/entities/notification_event.dart)
 - [notification_preference.dart](../../lib/features/notifications/domain/entities/notification_preference.dart)
+- [notification_target.dart](../../lib/features/notifications/domain/entities/notification_target.dart)
 - [notification_repository.dart](../../lib/features/notifications/domain/repositories/notification_repository.dart)
 - [notification_refresh_coordinator.dart](../../lib/features/notifications/domain/services/notification_refresh_coordinator.dart)
 - [notification_scheduler.dart](../../lib/features/notifications/domain/services/notification_scheduler.dart)
 - [prayer_reminder_scheduler.dart](../../lib/features/notifications/domain/services/prayer_reminder_scheduler.dart)
+- [notification_navigator.dart](../../lib/features/notifications/presentation/navigation/notification_navigator.dart)
 - [notification_feed_screen.dart](../../lib/features/notifications/presentation/screens/notification_feed_screen.dart)
 - [notification_settings_screen.dart](../../lib/features/notifications/presentation/screens/notification_settings_screen.dart)
+- [activity_inbox_controller.dart](../../lib/features/notifications/presentation/viewmodels/activity_inbox_controller.dart)
 - [notification_settings_view_model.dart](../../lib/features/notifications/presentation/viewmodels/notification_settings_view_model.dart)
+- [notification_controls_card.dart](../../lib/features/notifications/presentation/widgets/notification_controls_card.dart)
 
 ## Test navigation hints
 

@@ -1,3 +1,5 @@
+import '../widgets/notification_controls_card.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
@@ -105,7 +107,10 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                           (_osNotificationsEnabled == null &&
                               _viewModel.permissionGranted == false))
                         const _NotificationsBlockedNotice(),
-                      ...NotificationType.values.map((type) {
+                      const NotificationControlsCard(),
+                      ...NotificationType.values.where((t) => !t.isActivity).map((
+                        type,
+                      ) {
                         final preference =
                             _viewModel.preferences[type] ??
                             NotificationPreference(
@@ -162,7 +167,11 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                                         preference.preferredHour ??
                                         (type == NotificationType.activeBleeding
                                             ? _defaultActiveBleedingHour
-                                            : type == NotificationType.wellbeing
+                                            : (type ==
+                                                      NotificationType
+                                                          .wellbeing ||
+                                                  type ==
+                                                      NotificationType.learning)
                                             ? 20
                                             : 9),
                                     minute:
@@ -248,6 +257,14 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
 
   String _label(NotificationType type) {
     return switch (type) {
+      NotificationType.privateMessage => _ns('Messages', 'الرسائل'),
+      NotificationType.communityComment => _ns('Comments', 'التعليقات'),
+      NotificationType.communityLike => _ns('Likes', 'الإعجابات'),
+      NotificationType.fertility => _ns(
+        'Estimated fertile-window reminder',
+        'تذكير نافذة الخصوبة التقديرية',
+      ),
+      NotificationType.learning => _ns('Learning reminder', 'تذكير التعلّم'),
       NotificationType.prayer => _ns(
         'Daily prayer reminders',
         'تذكيرات الصلاة اليومية',

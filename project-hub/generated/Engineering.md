@@ -65,6 +65,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [madhhab_controller.dart](../../lib/core/preferences/madhhab_controller.dart)
 - [madhhab_history_resolver.dart](../../lib/core/preferences/madhhab_history_resolver.dart)
 - [marital_status_controller.dart](../../lib/core/preferences/marital_status_controller.dart)
+- [notification_delivery_preferences.dart](../../lib/core/preferences/notification_delivery_preferences.dart)
 - [notification_log_controller.dart](../../lib/core/preferences/notification_log_controller.dart)
 - [prayer_location_controller.dart](../../lib/core/preferences/prayer_location_controller.dart)
 - [pregnancy_status_controller.dart](../../lib/core/preferences/pregnancy_status_controller.dart)
@@ -97,6 +98,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## lib/core/widgets
 
+- [app_route_observer.dart](../../lib/core/widgets/app_route_observer.dart)
 - [common_widgets.dart](../../lib/core/widgets/common_widgets.dart)
 - [diagnostics_banner.dart](../../lib/core/widgets/diagnostics_banner.dart)
 - [empty_state.dart](../../lib/core/widgets/empty_state.dart)
@@ -146,6 +148,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [index.ts](../../supabase/functions/fiqh-advisor-chat/index.ts)
 
+## supabase/functions/notification-dispatch
+
+- [.env.example](../../supabase/functions/notification-dispatch/.env.example)
+- [index.ts](../../supabase/functions/notification-dispatch/index.ts)
+- [worker.ts](../../supabase/functions/notification-dispatch/worker.ts)
+
 ## supabase/migrations
 
 - [20260906090000_ai_rate_limit.sql](../../supabase/migrations/20260906090000_ai_rate_limit.sql)
@@ -171,3 +179,5 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261018090000_bleeding_write_boundary_validation.sql](../../supabase/migrations/20261018090000_bleeding_write_boundary_validation.sql)
 - [20261021090000_users_privileged_columns_guard.sql](../../supabase/migrations/20261021090000_users_privileged_columns_guard.sql)
 - [20261021100000_onboarding_server_hardening.sql](../../supabase/migrations/20261021100000_onboarding_server_hardening.sql)
+- [20261021110000_tracking_rls_initplan_and_fk_indexes.sql](../../supabase/migrations/20261021110000_tracking_rls_initplan_and_fk_indexes.sql)
+- [20261022084701_app_wide_notifications.sql](../../supabase/migrations/20261022084701_app_wide_notifications.sql)

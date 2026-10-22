@@ -19,11 +19,27 @@ class ConversationsScreen extends StatefulWidget {
   State<ConversationsScreen> createState() => _ConversationsScreenState();
 }
 
-class _ConversationsScreenState extends State<ConversationsScreen> {
+class _ConversationsScreenState extends State<ConversationsScreen>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.viewModel.loadConversations();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.viewModel.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.viewModel.loadConversations();
+    }
   }
 
   Future<void> _openConversation(PrivateConversation conversation) async {
@@ -36,7 +52,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         ),
       ),
     );
-    widget.viewModel.loadConversations();
+    if (mounted) widget.viewModel.loadConversations();
   }
 
   @override

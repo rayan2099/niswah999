@@ -17,6 +17,18 @@ class NotificationRepositoryImpl implements NotificationRepository {
   static const String _key = 'niswah_notification_preferences';
 
   static final Map<NotificationType, NotificationPreference> _defaults = {
+    NotificationType.fertility: const NotificationPreference(
+      type: NotificationType.fertility,
+      enabled: false,
+      leadTimeMinutes: 0,
+      channels: ['local'],
+    ),
+    NotificationType.learning: const NotificationPreference(
+      type: NotificationType.learning,
+      enabled: false,
+      leadTimeMinutes: 0,
+      channels: ['local'],
+    ),
     NotificationType.prayer: const NotificationPreference(
       type: NotificationType.prayer,
       enabled: false,

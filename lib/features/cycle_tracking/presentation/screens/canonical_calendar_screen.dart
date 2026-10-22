@@ -11,7 +11,6 @@ import '../../../../core/utils/calendar_days.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../domain/entities/bleeding_episode.dart';
-import '../../domain/entities/cycle_log.dart' show PredictionBasis;
 import '../../domain/entities/evidence_provenance.dart';
 import '../../domain/entities/load_result.dart';
 import '../../domain/controllers/cycle_tracking_controller.dart';
@@ -220,10 +219,7 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
                         // would have changed the answer.
                         allowPrediction:
                             !_episodesDegraded && !_observationsDegraded,
-                        statedCycleLength:
-                            CycleCalculationService.statedCycleLength(
-                              _baseline,
-                            ),
+                        statedBaseline: _baseline,
                         onDayTap: _onDayTap,
                       ),
                       const SizedBox(height: 20),
@@ -367,7 +363,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
     required this.observations,
     required this.allowPrediction,
     required this.onDayTap,
-    this.statedCycleLength,
+    this.statedBaseline,
   });
 
   final DateTime month;
@@ -383,7 +379,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
 
   /// Her stated usual cycle length, blended into the prediction while her
   /// logged history is short — the same blend the dashboard uses.
-  final int? statedCycleLength;
+  final CycleBaseline? statedBaseline;
 
   @override
   Widget build(BuildContext context) {
@@ -402,7 +398,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
         ? _predictNextEpisode(
             episodes,
             today: today,
-            statedCycleLength: statedCycleLength,
+            statedBaseline: statedBaseline,
           )
         : null;
 
@@ -563,74 +559,56 @@ class _CanonicalMonthGrid extends StatelessWidget {
   /// A bounded, disclosed projection only — never fabricates bleeding
   /// between two reported observations (it only ever projects forward
   /// from the last known episode, into days with no real data at all).
-  /// Requires at least two ended episodes with a plausible gap (15-90
-  /// days) before projecting anything, exactly like the legacy
-  /// calendar's own [CycleCalendar] plausibility gate — a degenerate
-  /// average must never repeat a fabricated "Expected Haid" block every
-  /// few days.
+  ///
+  /// Built by [CycleTrackingController.summarizeCalculation] from these
+  /// same episodes — the summary Today, Insights, the Calendar tab, the
+  /// husband report and the reminder use — so the drawn block always
+  /// starts on the date those screens give. This used to be a second copy
+  /// of that logic over the raw episode list, and it drifted (proposed,
+  /// prediction-efficiency audit 2026-10-21): an episode restarted the day
+  /// after a same-day stop was a second cycle start here but the same
+  /// episode everywhere else, so the block began a day early, and the
+  /// average period length counted that duplicate too. Nothing is
+  /// predicted from her estimate alone (an estimate is not attached to
+  /// calendar days), from fewer than two starts, or from a degenerate
+  /// average, exactly as on those screens.
   static (DateTime, DateTime)? _predictNextEpisode(
     List<BleedingEpisode> episodes, {
     required DateTime today,
-    int? statedCycleLength,
+    CycleBaseline? statedBaseline,
   }) {
-    final ended =
-        episodes
-            .where((e) => e.lifecycleStatus == LifecycleStatus.ended)
-            .toList()
-          ..sort((a, b) => a.startDate.compareTo(b.startDate));
-    if (ended.length < 2) return null;
-
-    final gaps = <int>[
-      for (var i = 1; i < ended.length; i++)
-        calendarDaysBetween(ended[i - 1].startDate, ended[i].startDate),
-    ];
-    // The same predicted length (recent cycles weighted, missed-log gaps
-    // dropped, her stated estimate blended in while history is short) the
-    // dashboard, reports and reminders use. Never drawn from her estimate
-    // alone: an estimate is not attached to calendar days.
-    final prediction = CycleCalculationService.predictFromIntervals(
-      gaps,
-      statedCycleLength: statedCycleLength,
-    );
-    if (prediction == null ||
-        prediction.basis == PredictionBasis.statedEstimate) {
-      return null;
-    }
-
-    // end_date is the day bleeding was recorded as stopped (the episode's
-    // closing `flow = none` observation), so the bleeding days are
-    // start..end-1 — the same count CycleCalculationService averages.
-    final durations = ended
-        .map((e) => calendarDaysBetween(e.startDate, e.endDate!))
-        .where((days) => days > 0)
-        .toList();
-    if (durations.isEmpty) return null;
-    final averageDuration =
-        durations.reduce((a, b) => a + b) / durations.length;
-
-    final last = ended.last;
-    final expectedStart = addCalendarDays(last.startDate, prediction.length);
-    // A late period: keep showing "any day now" from today while still
-    // inside the expected window, then nothing once clearly late — never
-    // draw predicted bleeding over days that have already passed.
-    final daysLate = calendarDaysBetween(expectedStart, today);
-    if (daysLate >
-        CycleTrackingController.lateToleranceDays(prediction.spreadDays)) {
-      return null;
-    }
-    final predictedStart = daysLate > 0 ? calendarDay(today) : expectedStart;
-    final predictedEnd = addCalendarDays(
-      predictedStart,
-      averageDuration.round() - 1,
-    );
     // Never project over an already-open episode's own real data — that
     // would be exactly the "fabricate bleeding between two reported
     // observations" failure mode the charter prohibits.
-    final hasOpen = episodes.any(
-      (e) => e.lifecycleStatus == LifecycleStatus.open,
+    if (episodes.any((e) => e.lifecycleStatus == LifecycleStatus.open)) {
+      return null;
+    }
+    final calculation = const CycleCalculationService().calculate(
+      const [],
+      asOf: today,
+      canonicalEpisodes: [
+        for (final episode in episodes)
+          CanonicalEpisodeTiming(
+            startDate: episode.startDate,
+            endDate: episode.endDate,
+          ),
+      ],
+      statedBaseline: statedBaseline,
     );
-    if (hasOpen) return null;
-    return (predictedStart, predictedEnd);
+    final summary = const CycleTrackingController().summarizeCalculation(
+      calculation,
+      today: today,
+    );
+    // A late period: "any day now" from today while still inside the
+    // expected window, then nothing once clearly late — never predicted
+    // bleeding over days that have already passed.
+    final predictedStart = summary.nextPeriodStart;
+    // end_date is the day bleeding was recorded as stopped (the episode's
+    // closing `flow = none` observation), so the bleeding days are
+    // start..end-1 — the same count CycleCalculationService averages.
+    final periodLength = calculation.averagePeriodLength;
+    if (predictedStart == null || periodLength == null) return null;
+    return (predictedStart, addCalendarDays(predictedStart, periodLength - 1));
   }
 }
 

@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import '../../../notifications/domain/entities/notification_target.dart';
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -39,7 +43,12 @@ class ChatViewModel extends ChangeNotifier {
   /// instant a red-flag concern is detected — more accurate than polling
   /// `flagged_conversations` later, since this runs right on the code
   /// path that already knows a message was flagged.
-  void _notifyUrgent() {
+  void _notifyUrgent(String threadId, String userId) {
+    final target = NotificationTarget(
+      destination: NotificationDestination.aiChat,
+      userId: userId,
+      targetId: threadId,
+    );
     final id = _redFlagNotificationBaseId + (DateTime.now().millisecond % 100);
     const titleAr = 'مخاوف عاجلة في محادثتك';
     const bodyAr = 'تم رصد رسالة تستدعي اهتماماً عاجلاً في محادثتك مع طبيبة.';
@@ -50,6 +59,7 @@ class ChatViewModel extends ChangeNotifier {
     unawaited(
       NotificationService.instance.showNow(
         id: id,
+        payload: jsonEncode(target.toJson()),
         title: 'Niswah',
         body: AppLocaleController.instance.isArabic
             ? 'افتحي نِسواه لمراجعة تحديث مهم.'
@@ -61,6 +71,7 @@ class ChatViewModel extends ChangeNotifier {
         NotificationLogEntry(
           id: 'redflag_${DateTime.now().microsecondsSinceEpoch}',
           type: NotificationType.wellbeing,
+          target: target,
           titleAr: titleAr,
           bodyAr: bodyAr,
           titleEn: titleEn,
@@ -295,7 +306,7 @@ class ChatViewModel extends ChangeNotifier {
       );
       messages = [...messages, assistantMessage];
       notifyListeners();
-      if (response.urgent) _notifyUrgent();
+      if (response.urgent) _notifyUrgent(threadId, userId);
     } catch (error, stack) {
       if (!isCurrentSession()) return;
       if (isRedFlagLocally) {
@@ -310,7 +321,7 @@ class ChatViewModel extends ChangeNotifier {
         );
         messages = [...messages, bannerMessage];
         notifyListeners();
-        _notifyUrgent();
+        _notifyUrgent(threadId, userId);
         // PJ-003: the reassuring banner above is already a complete,
         // coherent response to this failure for an urgent message — it
         // must not also be followed by a generic/alarming `errorMessage`

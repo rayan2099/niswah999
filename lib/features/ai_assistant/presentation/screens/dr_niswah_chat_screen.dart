@@ -56,9 +56,11 @@ class DrNiswahChatScreen extends StatefulWidget {
   const DrNiswahChatScreen({
     super.key,
     this.mode = NiswahAssistantMode.general,
+    this.initialThreadId,
   });
 
   final NiswahAssistantMode mode;
+  final String? initialThreadId;
   @override
   State<DrNiswahChatScreen> createState() => _DrNiswahChatScreenState();
 }
@@ -87,6 +89,15 @@ class _DrNiswahChatScreenState extends State<DrNiswahChatScreen> {
     unawaited(_restoreCachedView());
     _model.loadThreads(userId: _currentUserId()).then((_) {
       if (!mounted) return;
+      if (widget.initialThreadId != null && !_userNavigated) {
+        final thread = _model.threads
+            .where((t) => t.id == widget.initialThreadId)
+            .firstOrNull;
+        if (thread != null) {
+          unawaited(_resumeFromPicker(thread));
+          return;
+        }
+      }
       final type = chatThreadTypeFor(widget.mode);
       final hasHistory = _model.threads.any(
         (thread) => thread.threadType == type,

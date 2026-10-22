@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import '../../domain/repositories/private_messaging_realtime.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -15,7 +19,36 @@ class ChatDetailViewModel extends ChangeNotifier {
     required PrivateMessagingRepositoryBase repository,
     required this.conversationId,
     required this.currentUserId,
-  }) : _repository = repository;
+    this.isVisible,
+  }) : _repository = repository {
+    if (repository is PrivateMessagingRealtime) {
+      _unsubscribe = (repository as PrivateMessagingRealtime).watchConversation(
+        conversationId,
+        onIncomingMessage,
+        onResync: () => unawaited(loadMessages()),
+      );
+    }
+  }
+
+  final bool Function()? isVisible;
+  void Function()? _unsubscribe;
+  bool _disposed = false;
+  bool active = true;
+  int _loadGeneration = 0;
+  final _received = <String, PrivateMessage>{};
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _loadGeneration++;
+    _unsubscribe?.call();
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
 
   List<PrivateMessage> messages = [];
   bool isLoading = false;
@@ -29,11 +62,18 @@ class ChatDetailViewModel extends ChangeNotifier {
   String? _pendingMessageId;
 
   Future<void> loadMessages() async {
+    final generation = ++_loadGeneration;
     isLoading = true;
     errorMessage = null;
     notifyListeners();
     try {
-      messages = await _repository.fetchMessages(conversationId);
+      final loaded = await _repository.fetchMessages(conversationId);
+      if (_disposed || generation != _loadGeneration) return;
+      messages = {
+        ..._received,
+        for (final message in loaded) message.id: message,
+      }.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      if (!active || !(isVisible?.call() ?? true)) return;
       await _repository.markMessagesAsRead(
         conversationId: conversationId,
         readerId: currentUserId,
@@ -47,10 +87,14 @@ class ChatDetailViewModel extends ChangeNotifier {
             message,
       ];
     } catch (e) {
-      errorMessage = e.toString();
+      if (!_disposed && generation == _loadGeneration) {
+        errorMessage = e.toString();
+      }
     } finally {
-      isLoading = false;
-      notifyListeners();
+      if (generation == _loadGeneration) {
+        isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -68,7 +112,12 @@ class ChatDetailViewModel extends ChangeNotifier {
         content: content,
         messageId: messageId,
       );
-      messages = [...messages, message];
+      if (_disposed) return false;
+      _received[message.id] = message;
+      messages = {
+        for (final m in messages) m.id: m,
+        message.id: message,
+      }.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
       _pendingMessageId = null;
       return true;
     } catch (e, stack) {
@@ -89,11 +138,14 @@ class ChatDetailViewModel extends ChangeNotifier {
 
   /// Called by realtime subscription when a new message arrives.
   void onIncomingMessage(PrivateMessage message) {
-    if (message.conversationId != conversationId) return;
+    if (_disposed || message.conversationId != conversationId) return;
+    _received[message.id] = message;
     if (messages.any((m) => m.id == message.id)) return;
     messages = [...messages, message];
     notifyListeners();
-    if (message.senderId != currentUserId) {
+    if (active &&
+        (isVisible?.call() ?? true) &&
+        message.senderId != currentUserId) {
       _repository
           .markMessagesAsRead(
             conversationId: conversationId,

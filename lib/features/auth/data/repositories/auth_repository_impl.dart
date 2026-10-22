@@ -1,3 +1,4 @@
+import '../../../notifications/data/services/app_notification_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -300,9 +301,11 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> signOut() async {
+    await AppNotificationSession.instance.beforeSignOut();
     try {
       await _client.auth.signOut();
     } on AuthException catch (error) {
+      AppNotificationSession.instance.restoreSession();
       throw AuthFailure(error.message);
     }
   }

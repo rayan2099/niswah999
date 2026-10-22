@@ -8,7 +8,8 @@ import '../../../prayer_tracking/domain/services/prayer_schedule_builder.dart';
 import 'notification_scheduler.dart';
 
 /// Five days x five prayers = 25 requests. With 30 tracking check-ins,
-/// wellbeing, cycle, pregnancy and nifas, the app owns at most 59 slots,
+/// wellbeing, cycle, pregnancy, nifas, fertility and learning, the app
+/// owns at most 61 slots,
 /// below iOS's 64-request ceiling. Refresh extends this bounded window.
 class PrayerReminderScheduler {
   static const daysAhead = 5;
@@ -60,6 +61,11 @@ class PrayerReminderScheduler {
               bodyAr: NotificationScheduler.discreetBodyAr,
               titleEn: NotificationScheduler.discreetTitleEn,
               bodyEn: NotificationScheduler.discreetBodyEn,
+              feedTitleEn: 'Prayer reminder: ${name.name}',
+              feedTitleAr:
+                  'تذكير صلاة: ${const ['الفجر', 'الظهر', 'العصر', 'المغرب', 'العشاء'][name.index]}',
+              feedBodyEn: 'Review prayer times for your confirmed location.',
+              feedBodyAr: 'راجعي مواقيت الصلاة حسب موقعكِ المؤكد.',
               payload: jsonEncode({'type': 'prayerReminder', 'userId': userId}),
             ),
           );

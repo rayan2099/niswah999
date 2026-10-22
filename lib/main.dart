@@ -1,3 +1,11 @@
+import 'core/widgets/app_route_observer.dart';
+
+import 'dart:convert';
+
+import 'features/notifications/data/services/app_notification_session.dart';
+import 'features/notifications/domain/entities/notification_target.dart';
+import 'features/notifications/presentation/navigation/notification_navigator.dart';
+
 import 'dart:async';
 import 'dart:ui';
 
@@ -158,33 +166,27 @@ Future<void> _runApp() async {
   // through AppErrorReporter.report() — wiring this hook here, rather than
   // adding Sentry calls at each of those sites, is what makes all of them
   // reach Sentry without any of them changing.
-  AppErrorReporter.onReport = (
-    error,
-    stack, {
-    context,
-    feature,
-    retryAttempt,
-    recordId,
-  }) {
-    if (AppEnvironment.sentryDsn.isEmpty) return Future.value();
-    // Returned (not `unawaited` here) so the send stays fully awaited up
-    // to AppErrorReporter.report()'s own single `unawaited` boundary —
-    // see that method's doc comment for why.
-    return Sentry.captureException(
-      error,
-      stackTrace: stack,
-      withScope: (scope) {
-        if (context != null) scope.setTag('context', context);
-        if (feature != null) scope.setTag('feature', feature);
-        if (retryAttempt != null) {
-          scope.setContexts('retry', {'attempt': retryAttempt});
-        }
-        // recordId is an opaque id only (never record content) by
-        // AppErrorReporter's own contract — safe as an extra.
-        if (recordId != null) scope.setContexts('record', {'id': recordId});
-      },
-    );
-  };
+  AppErrorReporter.onReport =
+      (error, stack, {context, feature, retryAttempt, recordId}) {
+        if (AppEnvironment.sentryDsn.isEmpty) return Future.value();
+        // Returned (not `unawaited` here) so the send stays fully awaited up
+        // to AppErrorReporter.report()'s own single `unawaited` boundary —
+        // see that method's doc comment for why.
+        return Sentry.captureException(
+          error,
+          stackTrace: stack,
+          withScope: (scope) {
+            if (context != null) scope.setTag('context', context);
+            if (feature != null) scope.setTag('feature', feature);
+            if (retryAttempt != null) {
+              scope.setContexts('retry', {'attempt': retryAttempt});
+            }
+            // recordId is an opaque id only (never record content) by
+            // AppErrorReporter's own contract — safe as an extra.
+            if (recordId != null) scope.setContexts('record', {'id': recordId});
+          },
+        );
+      };
 
   // Widget-build-time errors and platform-level async errors don't pass
   // through `main`'s zone guard — without these two hooks they fall
@@ -227,6 +229,7 @@ Future<void> _runApp() async {
   await PrayerLocationController.instance.load();
   await NotificationLogController.instance.load();
   await NotificationService.instance.initialize();
+  unawaited(AppNotificationSession.instance.start(NiswahSupabase.client));
   if (NiswahSupabase.clientOrNull?.auth.currentUser == null) {
     await NotificationService.instance.cancelAll();
   }
@@ -456,6 +459,7 @@ class NiswahApp extends StatelessWidget {
               )
             : baseDarkTheme;
         return MaterialApp(
+          navigatorObservers: [appRouteObserver],
           title: 'Niswah',
           debugShowCheckedModeBanner: false,
           theme: theme,
@@ -612,13 +616,74 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   // IndexedStack and never remount, so a screen-owned instance would
   // otherwise keep showing stale data until the app restarts.
   late final CycleTrackingViewModel _cycleViewModel;
+  final _dashboardKey = GlobalKey<DashboardScreenState>();
+  StreamSubscription<String>? _notificationTaps;
+  String? _lastTarget;
+  DateTime? _lastTargetAt;
+
+  Future<void> _routeNotification() async {
+    final payload = NotificationService.instance.peekPendingTapPayload();
+    if (payload == null || !mounted) return;
+    NotificationTarget? target;
+    try {
+      final decoded = jsonDecode(payload);
+      target = NotificationTarget.tryParse(decoded);
+      if (decoded is Map && decoded['type'] == 'prayerReminder') {
+        target = NotificationTarget.tryParse({
+          'destination': 'prayer',
+          'userId': decoded['userId'],
+        });
+      }
+      if (decoded is Map &&
+          decoded['type'] == 'activeBleedingCheckin' &&
+          decoded['userId'] ==
+              NiswahSupabase.clientOrNull?.auth.currentUser?.id &&
+          NiswahSupabase.clientOrNull?.auth.currentUser != null) {
+        setState(() => _selectedIndex = 0);
+      }
+    } catch (_) {
+      return;
+    }
+    if (target == null) return; // Existing check-in handler owns its payload.
+    NotificationService.instance.consumePendingTapPayload();
+    final now = DateTime.now();
+    if (_lastTarget == payload &&
+        _lastTargetAt != null &&
+        now.difference(_lastTargetAt!) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastTarget = payload;
+    _lastTargetAt = now;
+    await NotificationNavigator.open(
+      context,
+      target,
+      calendar: () {
+        if (mounted) setState(() => _selectedIndex = 1);
+      },
+      wellbeing: () {
+        if (!mounted) return;
+        setState(() => _selectedIndex = 0);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _dashboardKey.currentState?.openWellbeingCheckIn();
+        });
+      },
+    );
+  }
 
   @override
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex.clamp(0, 4);
-    _cycleViewModel = CycleTrackingViewModel()..loadLogs();
+    // Not loaded here: DashboardScreen is always mounted in the
+    // IndexedStack (whatever the initial tab) and loads this shared
+    // instance in its own initState. Loading it here as well ran every
+    // startup read twice — cycle_entries, bleeding_episodes and
+    // cycle_baselines (proposed, prediction-efficiency audit 2026-10-21).
+    _cycleViewModel = CycleTrackingViewModel();
     WidgetsBinding.instance.addObserver(this);
+    _notificationTaps = NotificationService.instance.onTap.listen(
+      (_) => unawaited(_routeNotification()),
+    );
     PrayerLocationController.instance.addListener(_notificationSettingsChanged);
     AppLocaleController.instance.addListener(_notificationSettingsChanged);
     // Recompute what should be scheduled the moment the home shell is
@@ -626,6 +691,7 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     // recompute fresh each time they're opened, applied to scheduling.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_refreshNotifications());
+      unawaited(_routeNotification());
       // App-start retry trigger — one of two triggers (with app-resume,
       // below) that make CycleTrackingViewModel.saveLog's "backs up
       // automatically" wording actually true rather than aspirational
@@ -644,6 +710,7 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _notificationTaps?.cancel();
     PrayerLocationController.instance.removeListener(
       _notificationSettingsChanged,
     );
@@ -674,6 +741,7 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   }
 
   Future<void> _refreshNotifications() async {
+    unawaited(AppNotificationSession.instance.refreshRegistration());
     // Closure Blocker 6 / notification cancellation closure Finding 3 —
     // `NotificationRefreshCoordinator.refresh` now refreshes `tz.local`
     // to the device's real current zone itself, before recomputing
@@ -689,6 +757,7 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
       title: 'Today',
       icon: Icons.home_rounded,
       screen: DashboardScreen(
+        key: _dashboardKey,
         onProfileTap: () => setState(() => _selectedIndex = 4),
         viewModel: _cycleViewModel,
       ),

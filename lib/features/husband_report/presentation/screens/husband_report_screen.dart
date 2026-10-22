@@ -9,6 +9,7 @@ import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../pregnancy_profile/data/repositories/pregnancy_profile_repository.dart';
+import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/report_canonical_evidence.dart';
 import '../../domain/services/husband_report_insights_engine.dart';
 import '../pdf/husband_report_pdf_builder.dart';
@@ -71,7 +72,9 @@ class _HusbandReportScreenState extends State<HusbandReportScreen> {
     final now = AppClock.now();
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
 
-    final cycleLogs = await _cycleRepository.getCycleLogs(limit: 1000);
+    final cycleLogs = await _cycleRepository.getCycleLogs(
+      limit: CycleCalculationService.historyLogLimit,
+    );
     final pregnancyProfile = userId == null
         ? null
         : await _pregnancyRepository.getForUser(userId);

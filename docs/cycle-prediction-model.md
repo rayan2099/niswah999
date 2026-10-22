@@ -142,6 +142,151 @@ Verification: `test/round2_properties/` (property suites,
 fiqh regressions in `test/round2_properties/fiqh_regressions_test.dart` are
 outside this change and still fail until the fiqh fixes land.
 
+## Prediction-efficiency audit (2026-10-21) — status: proposed
+
+Changed on branch `perf/prediction-efficiency`. Implemented and covered by
+tests there; **proposed**, not owner-reviewed, not merged, not
+device-verified, not medically reviewed. Synthetic data only.
+
+- **One calculation per load, not per rebuild (proposed).** Today, the
+  Calendar tab and Insights each re-ran `CycleCalculationService.calculate`
+  on every rebuild (all three stay mounted and rebuild on every view-model
+  change, Today also once a minute), and `loadLogs` ran it a second time
+  for the summary. With three years of daily logs one run measured about
+  5 ms in the test VM, so one change cost about 20 ms of recalculation.
+  [cycle_tracking_view_model.dart](../lib/features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart)
+  now keeps the result until the data or the calendar day changes, builds
+  the summary from it (`CycleTrackingController.summarizeCalculation`), and
+  caches the Calendar tab's month/year summary (`calculationUpTo`) the same
+  way. Results are unchanged.
+- **One startup load (proposed).** The home shell and the Today screen both
+  loaded the shared view model at startup, so every launch read
+  `cycle_entries`, `bleeding_episodes` and `cycle_baselines` twice. Only
+  the Today screen (always mounted) loads it now
+  ([main.dart](../lib/main.dart)).
+- **One prediction gate (proposed).** `canPredictFromHistory` now also
+  requires `hasPlausibleAverage`, the gate Today and Insights already
+  applied. Starts logged 3 and then 20 days apart (average 12) showed no
+  prediction on Today and Insights, while the Calendar tab, the canonical
+  calendar, the husband report and the reminder still predicted from the
+  20-day interval. Insights now also uses `canPredictFromHistory`, like
+  Today's ring.
+- **The canonical calendar uses the shared summary (proposed).** Its block
+  used to come from a second copy of the prediction over the raw episode
+  list, which did not merge an episode restarted the day after a same-day
+  stop and so drew the block a day earlier than Today gave. It now uses
+  `summarizeCalculation` over the same episodes (still nothing while an
+  episode is open, from an estimate alone, or from a degraded read).
+- **No range start within 15 days of the last start (proposed).** The
+  range's early end is now never sooner than
+  `minPlausibleCycleLengthDays` after the current cycle's start: short,
+  irregular histories offered ranges from cycle day 13 (6 of 150 generated
+  irregular histories, property P2c).
+- **Calendar-day summary ranges (proposed).** The Calendar tab's month
+  summary ended at `last day + 24 h`, so a month ending on a spring-forward
+  Sunday (31 March 2024 in the UK) pulled in the next month's first day,
+  which made March 2024 show no statistics at all. The Hijri-year end and
+  the custom "last N days" presets had the same `Duration` arithmetic; the
+  presets also kept the clock time, so their first day's logs were left
+  out in every zone.
+
+- **No prediction from a degraded episodes read (proposed).** The view
+  model predicted from a `bleeding_episodes` read with a quarantined row,
+  while the reminder and the canonical calendar refused to (integrity
+  contract). It now keeps the rows that parsed for the logged statistics
+  but clears every prediction field, so Today, Insights and the Calendar
+  tab show their existing "no prediction" state.
+- **One history window (proposed).** The view model read the newest 200
+  remote `cycle_entries` rows and the reminder and reports 1,000; a
+  200-row cut could land mid-period and add a false cycle start. All of
+  them now read `CycleCalculationService.historyLogLimit` (1,000).
+
+Not changed (recorded for review): a bleeding restart under 15
+days after a start moves the prediction's anchor to the restart (since
+addressed for predictions only; see "Resumed bleeding" below); the
+Calendar tab repeats "Expected Haid" every predicted cycle while the
+canonical calendar shows only the next period; the conception-chance
+curve on the Calendar tab peaks one day before the predicted ovulation
+day its comment names.
+
+Tests: `test/prediction_efficiency/prediction_efficiency_test.dart`,
+`test/canonical_calendar_screen_test.dart` (shared-summary block),
+`test/round2_properties/prediction_properties_test.dart` (P2c).
+
+## Resumed bleeding is uncertain for predictions (2026-10-22) — status: proposed
+
+Changed on branch `fix/resumed-bleeding-prediction`. Implemented and covered
+by tests there; **proposed**, not owner-reviewed, not scholar-reviewed, not
+merged, not device-verified. Synthetic data only.
+
+Owner direction (rayan): a one-day gap must not automatically create a new
+period or reset the prediction; there must be no blanket "anything within
+15 days is the same period" rule; every logged date is kept; an uncertain
+interval is left out of prediction learning until resolved; whether the
+returning blood and the gap are حيض or طهر is a fiqh question per madhhab
+for the scholar, and is not decided here.
+
+- **Prediction heuristic, not a fiqh ruling.** A detected start is
+  *uncertain for predictions* when it comes fewer than
+  `CycleCalculationService.resumedBleedingPredictionWindowDays` calendar
+  days after the last *confirmed* cycle start (bleeding, one clean day,
+  bleeding again; repeated resumptions are all measured from the same
+  confirmed start). Such a start always follows a clean gap of fewer than
+  15 days. The threshold is the model's existing
+  `CycleCalculationResult.minPlausibleCycleLengthDays` (15): the model
+  already never learns from an interval that short nor offers a next-period
+  range sooner than that after a start (`nextPeriodRange`), so this is the
+  existing definition of "a start the prediction model would not count as a
+  new cycle", not a new number. It is **pending owner/scholar
+  confirmation**, does not say the blood is the same period, and is **not
+  used by the fiqh engine**.
+- **Why not the clean gap from the last bleeding day.** Measured that way
+  (first tried on this branch), a genuine short cycle with a longer period
+  is uncertain forever: 16-day cycles with 5 bleeding days (an 11-day gap,
+  `cycle_tracking_controller_test.dart`) and 18–20-day cycles with 7
+  bleeding days in the irregular property histories (P7) lost every
+  prediction. A 15-day minimum on the clean gap would also mirror the
+  fiqh minimum-purity notion this heuristic must not imply.
+- **What it changes.** An uncertain start does not move the prediction
+  anchor (`predictionAnchor`, used for the next-period date and range,
+  fertile window, phase, ring cycle day `predictionCycleDay`, calendar
+  blocks, the husband report and the cycle reminder). Every interval with
+  an uncertain boundary is left out of the learning set
+  (`predictionCycleLengths`: average, leave-one-out median, spread, range
+  and the `canPredictFromHistory` gate), and is never merged into a longer
+  interval. With too few confirmed intervals the existing "no prediction" /
+  stated-estimate behaviour applies.
+- **What it does not change.** Nothing stored is modified, merged or
+  deleted; this is read-side only. `haidStarts`, `lastHaidStart`,
+  `currentCycleDay`, `cycleLengths`, `averageCycleLength` and
+  `averagePeriodLength` (what `CanonicalFiqhAssessment`, `CycleStatusEngine`
+  and the Fiqh report read) are exactly as before. Insights' average and
+  regularity stay factual statistics over every interval. Without a short
+  gap the prediction view equals the factual one.
+- **Every consumer shares it.** All of them go through
+  `CycleCalculationService.calculate` and
+  `CycleTrackingController.summarizeCalculation` / `canPredictFromHistory`;
+  Today's ring and the Calendar tab's conception card and month summary
+  read `predictionCycleDay` / `predictionAverageCycleLength`. The AI user
+  context (`supabase/functions/_shared/ai_user_context.ts`) computes no
+  prediction and is unchanged.
+- **Known limits (for review).** Bleeding that resumes 15 or more days
+  after the confirmed start (e.g. after a 12-day period and 3 clean days)
+  is still a confirmed start and moves the anchor; any interval spanning an
+  uncertain start is still left out of learning. Mid-cycle spotting under
+  15 days after a start is uncertain and so no longer moves the anchor.
+  There is no explicit "resolve" action yet. The period-length average
+  still counts a resumed run as its own period (unchanged factual
+  statistic, also read by the fiqh snapshot). The Round-2 property P7 now
+  checks the predicted length against `predictionCycleLengths`, the
+  learning set by definition.
+
+Tests: `test/resumed_bleeding/resumed_bleeding_prediction_test.dart`,
+`test/resumed_bleeding/resumed_bleeding_fiqh_parity_test.dart` (fiqh output
+fingerprints recorded from the pre-change code),
+`test/round2_properties/resumed_bleeding_properties_test.dart` (RB1–RB3),
+`test/round2_properties/prediction_properties_test.dart` (P7, learning set).
+
 ## Impact and verification
 
 Tests: `test/cycle_tracking_controller_test.dart`,

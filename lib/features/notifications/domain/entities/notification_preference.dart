@@ -12,6 +12,18 @@ enum NotificationType {
   // question, and must never be conflated with a Fiqh conclusion or a
   // forecast.
   activeBleeding,
+  fertility,
+  learning,
+  privateMessage,
+  communityComment,
+  communityLike,
+}
+
+extension NotificationTypeKind on NotificationType {
+  bool get isActivity =>
+      this == NotificationType.privateMessage ||
+      this == NotificationType.communityComment ||
+      this == NotificationType.communityLike;
 }
 
 class NotificationPreference extends Equatable {

@@ -183,9 +183,9 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     await _localDataSource.upsert(log);
     try {
       await upsertCycleLog(log);
-      await _localDataSource.upsert(
-        log.copyWith(syncStatus: SyncStatus.synced),
-      );
+      // Not a blind upsert of `log`: a newer save of the same row that
+      // finished first must not be overwritten by this older one.
+      await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.synced);
       return SyncStatus.synced;
     } on NetworkFailure catch (error, stack) {
       // Local save is authoritative for the UI; remote sync is eventually-
@@ -209,9 +209,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       // `pending` — automatic retry must not hammer a request that can
       // never succeed ("do not retry non-retryable errors blindly").
       if (!error.retryable) {
-        await _localDataSource.upsert(
-          log.copyWith(syncStatus: SyncStatus.failed),
-        );
+        await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.failed);
         return SyncStatus.failed;
       }
       return SyncStatus.pending;
@@ -278,8 +276,25 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     }
   }
 
+  Future<CyclePendingSyncResult>? _syncInFlight;
+
+  /// App start and app resume both trigger this (often back to back on a
+  /// cold start), and every pass re-uploads every pending row. A call made
+  /// while a pass is still running joins that pass instead of uploading the
+  /// same rows a second time.
   @override
-  Future<CyclePendingSyncResult> syncPendingLogs() async {
+  Future<CyclePendingSyncResult> syncPendingLogs() {
+    final running = _syncInFlight;
+    if (running != null) return running;
+    final pass = _syncPendingLogsPass();
+    _syncInFlight = pass;
+    pass.whenComplete(() {
+      if (identical(_syncInFlight, pass)) _syncInFlight = null;
+    }).ignore();
+    return pass;
+  }
+
+  Future<CyclePendingSyncResult> _syncPendingLogsPass() async {
     final client = _client;
     if (client == null) {
       return const CyclePendingSyncResult(
@@ -314,9 +329,10 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     for (final log in toRetry) {
       try {
         await upsertCycleLog(log);
-        await _localDataSource.upsert(
-          log.copyWith(syncStatus: SyncStatus.synced),
-        );
+        // `log` is this pass's snapshot: an edit she saved while the
+        // upload was in flight stays pending (it is newer than what the
+        // server now holds) instead of being replaced by the snapshot.
+        await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.synced);
         synced++;
       } on NetworkFailure catch (error, stack) {
         AppErrorReporter.report(
@@ -329,8 +345,9 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         if (error.retryable) {
           stillPending++; // left as `pending` — eligible for the next trigger
         } else {
-          await _localDataSource.upsert(
-            log.copyWith(syncStatus: SyncStatus.failed),
+          await _localDataSource.setSyncStatusIfUnchanged(
+            log,
+            SyncStatus.failed,
           );
           permanentlyFailed++;
         }

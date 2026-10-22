@@ -51,6 +51,8 @@ dependencies:
   adhan_dart: ^2.0.1
   sentry_flutter: ^9.29.0
   flutter_secure_storage: ^11.0.0
+  firebase_core: ^5.0.0
+  firebase_messaging: ^17.0.0
 
 dev_dependencies:
   flutter_test:

@@ -1,3 +1,8 @@
+import 'dart:convert';
+
+import '../viewmodels/activity_inbox_controller.dart';
+import '../../data/services/app_notification_session.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/network/supabase_client.dart';
@@ -26,12 +31,14 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
   void initState() {
     super.initState();
     NotificationLogController.instance.load();
+    ActivityInboxController.instance.refresh();
     _enableNotifications();
   }
 
   Future<void> _enableNotifications() async {
     final granted = await NotificationService.instance.requestPermission();
     if (!mounted || !granted) return;
+    await AppNotificationSession.instance.refreshRegistration();
     await NotificationRefreshCoordinator.refresh(
       userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
     );
@@ -39,6 +46,22 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
 
   static (IconData, Color) _iconAndColor(NotificationType type) =>
       switch (type) {
+        NotificationType.privateMessage => (
+          Icons.chat_bubble_outline,
+          AppColors.brandPrimary,
+        ),
+        NotificationType.communityComment || NotificationType.communityLike => (
+          Icons.forum_outlined,
+          AppColors.brandPrimary,
+        ),
+        NotificationType.fertility => (
+          Icons.calendar_month_outlined,
+          AppColors.brandPrimary,
+        ),
+        NotificationType.learning => (
+          Icons.menu_book_outlined,
+          AppColors.brandPrimary,
+        ),
         NotificationType.cycle => (Icons.water_drop_outlined, AppColors.haid),
         NotificationType.pregnancy => (
           Icons.pregnant_woman_rounded,
@@ -71,18 +94,59 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
   Widget build(BuildContext context) {
     final isArabic = AppLocaleController.instance.isArabic;
     return AnimatedBuilder(
-      animation: NotificationLogController.instance,
+      animation: Listenable.merge([
+        NotificationLogController.instance,
+        ActivityInboxController.instance,
+      ]),
       builder: (context, _) {
-        final entries = NotificationLogController.instance.entries;
+        final activity = ActivityInboxController.instance;
+        final entries = [
+          ...NotificationLogController.instance.entries,
+          for (final e in activity.entries)
+            NotificationLogEntry(
+              id: 'activity_${e.id}',
+              type: NotificationType.values.firstWhere((t) => t.name == e.kind),
+              titleAr: e.title(true),
+              bodyAr: e.body(true),
+              titleEn: e.title(false),
+              bodyEn: e.body(false),
+              createdAt: e.createdAt,
+              read: e.read,
+              target: e.target,
+            ),
+        ]..sort((a, b) => b.shownAt.compareTo(a.shownAt));
         return Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
           appBar: AppBar(
             title: Text(_nf('Notifications', 'التنبيهات')),
             actions: [
+              if (activity.unavailable)
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: _nf('Retry loading activity', 'إعادة تحميل النشاط'),
+                  onPressed: activity.refresh,
+                ),
               if (entries.any((entry) => !entry.read))
                 TextButton(
-                  onPressed: () =>
-                      NotificationLogController.instance.markAllRead(),
+                  onPressed: () async {
+                    try {
+                      await activity.markRead();
+                      await NotificationLogController.instance.markAllRead();
+                    } catch (_) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              _nf(
+                                'Could not mark all updates read. Please retry.',
+                                'تعذّر تحديد كل التحديثات كمقروءة. حاولي مجددًا.',
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                    }
+                  },
                   child: Text(_nf('Mark all read', 'تحديد الكل كمقروء')),
                 ),
             ],
@@ -93,8 +157,12 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
                     padding: const EdgeInsets.all(32),
                     child: Text(
                       _nf(
-                        'No notifications yet — reminders will appear here as they happen.',
-                        'لا توجد تنبيهات بعد — ستظهر التذكيرات هنا عند حدوثها.',
+                        activity.unavailable
+                            ? 'Activity could not be loaded. Tap refresh to retry.'
+                            : 'No notifications yet — reminders will appear here as they happen.',
+                        activity.unavailable
+                            ? 'تعذّر تحميل النشاط. اضغطي تحديث للمحاولة.'
+                            : 'لا توجد تنبيهات بعد — ستظهر التذكيرات هنا عند حدوثها.',
                       ),
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: AppColors.textSecondary),
@@ -109,8 +177,24 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
                     final entry = entries[index];
                     final (icon, color) = _iconAndColor(entry.type);
                     return InkWell(
-                      onTap: () =>
-                          NotificationLogController.instance.markRead(entry.id),
+                      onTap: () async {
+                        if (entry.target != null) {
+                          NotificationService.instance.enqueueTap(
+                            jsonEncode(entry.target!.toJson()),
+                          );
+                        }
+                        try {
+                          if (entry.id.startsWith('activity_')) {
+                            await activity.markRead(id: entry.id.substring(9));
+                          } else {
+                            await NotificationLogController.instance.markRead(
+                              entry.id,
+                            );
+                          }
+                        } catch (_) {
+                          /* Navigation still works when read sync is unavailable. */
+                        }
+                      },
                       borderRadius: BorderRadius.circular(16),
                       child: Container(
                         padding: const EdgeInsets.all(14),

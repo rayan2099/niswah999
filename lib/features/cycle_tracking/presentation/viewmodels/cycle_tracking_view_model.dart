@@ -9,6 +9,7 @@ import '../../data/repositories/cycle_tracking_repository_impl.dart';
 import '../../domain/controllers/cycle_tracking_controller.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/cycle_log.dart';
+import '../../domain/entities/load_result.dart';
 import '../../domain/repositories/cycle_tracking_repository.dart';
 import '../../domain/services/cycle_calculation_service.dart';
 import '../models/cycle_log_form_data.dart';
@@ -31,11 +32,20 @@ class CycleTrackingViewModel extends ChangeNotifier {
     canonicalEpisodeLoader,
     Future<CycleBaseline?> Function(String userId)? statedBaselineLoader,
     Future<bool?> Function(String logId)? canonicalMirrorChecker,
+    this._calculationService = const CycleCalculationService(),
+    BleedingEpisodeRepositoryImpl? bleedingEpisodeRepository,
   }) : _repository = repository ?? CycleTrackingRepositoryImpl(),
        _canonicalMirrorChecker =
            canonicalMirrorChecker ?? _defaultCanonicalMirrorChecker,
-       _canonicalEpisodeLoader =
-           canonicalEpisodeLoader ?? _defaultCanonicalEpisodeLoader,
+       _canonicalHistoryLoader = canonicalEpisodeLoader == null
+           ? ((userId) => _defaultCanonicalHistoryLoader(
+               bleedingEpisodeRepository ?? BleedingEpisodeRepositoryImpl(),
+               userId,
+             ))
+           : ((userId) async => (
+               episodes: await canonicalEpisodeLoader(userId),
+               complete: true,
+             )),
        _statedBaselineLoader =
            statedBaselineLoader ?? _defaultStatedBaselineLoader {
     _authRepository = authRepository;
@@ -52,30 +62,47 @@ class CycleTrackingViewModel extends ChangeNotifier {
   /// Canonical episode start/end DATES only (never a flow) — see
   /// [CanonicalEpisodeTiming]. A read failure yields an empty list: the
   /// legacy statistics then simply have no supplement, exactly as before,
-  /// and never a fabricated value.
-  static Future<List<CanonicalEpisodeTiming>> _defaultCanonicalEpisodeLoader(
+  /// and never a fabricated value. A degraded read (at least one row
+  /// quarantined) keeps the rows that parsed for the statistics but is
+  /// marked incomplete, so no prediction is built from it — see
+  /// [canonicalHistoryComplete].
+  static Future<({List<CanonicalEpisodeTiming> episodes, bool complete})>
+  _defaultCanonicalHistoryLoader(
+    BleedingEpisodeRepositoryImpl repository,
     String userId,
   ) async {
-    if (userId == 'local-user') return const [];
+    if (userId == 'local-user') {
+      return (episodes: const <CanonicalEpisodeTiming>[], complete: true);
+    }
     try {
-      final result = await BleedingEpisodeRepositoryImpl().getEpisodesForUser(
-        userId,
-      );
-      return (result.dataOrNull ?? const [])
-          .map(
-            (episode) => CanonicalEpisodeTiming(
+      final result = await repository.getEpisodesForUser(userId);
+      return (
+        episodes: [
+          for (final episode in result.dataOrNull ?? const <BleedingEpisode>[])
+            CanonicalEpisodeTiming(
               startDate: episode.startDate,
               endDate: episode.endDate,
             ),
-          )
-          .toList();
+        ],
+        complete: result is! LoadDegraded<List<BleedingEpisode>>,
+      );
     } catch (_) {
-      return const [];
+      return (episodes: const <CanonicalEpisodeTiming>[], complete: true);
     }
   }
 
-  final Future<List<CanonicalEpisodeTiming>> Function(String userId)
-  _canonicalEpisodeLoader;
+  final Future<({List<CanonicalEpisodeTiming> episodes, bool complete})>
+  Function(String userId)
+  _canonicalHistoryLoader;
+
+  /// False after a `bleeding_episodes` read that came back degraded (a
+  /// row was quarantined). Forward predictions are then withheld on every
+  /// screen that reads this view model — the same rule the reminder and
+  /// the canonical calendar follow (integrity contract: a prediction is
+  /// never computed from evidence known to have a gap). Proposed,
+  /// prediction-efficiency audit 2026-10-21.
+  bool get canonicalHistoryComplete => _canonicalHistoryComplete;
+  bool _canonicalHistoryComplete = true;
 
   /// Her onboarding estimate of her usual cycle and period length. A read
   /// failure is simply "no estimate": predictions then come from logged
@@ -96,8 +123,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
   final CycleTrackingRepository _repository;
   AuthRepositoryImpl? _authRepository;
   final CycleTrackingController _controller = CycleTrackingController();
-  final CycleCalculationService _calculationService =
-      const CycleCalculationService();
+  final CycleCalculationService _calculationService;
 
   String _currentUserId = 'local-user';
   AppUser? _currentUser;
@@ -141,12 +167,56 @@ class CycleTrackingViewModel extends ChangeNotifier {
   }
 
   CycleTrackingSummary _summarize(DateTime today) =>
-      _controller.summarizeHistory(
-        logs,
-        now: today,
-        canonicalEpisodes: canonicalEpisodes,
-        statedBaseline: statedBaseline,
-      );
+      _controller.summarizeCalculation(_calculationFor(today), today: today);
+
+  /// The last [CycleCalculationService.calculate] result and what it was
+  /// computed from. Today, the Calendar tab and Insights all read
+  /// [cycleCalculation] on every rebuild (the Today screen rebuilds at
+  /// least once a minute), and [_summarize] needs the same calculation:
+  /// with years of daily logs one run takes milliseconds, so it is
+  /// computed once per data load and calendar day, not once per read.
+  ({
+    DateTime day,
+    List<CycleLog> logs,
+    List<CanonicalEpisodeTiming> canonicalEpisodes,
+    CycleBaseline? statedBaseline,
+    bool historyComplete,
+    CycleCalculationResult result,
+  })?
+  _calculation;
+
+  CycleCalculationResult _calculationFor(DateTime day) {
+    final cached = _calculation;
+    if (cached != null &&
+        cached.day == day &&
+        identical(cached.logs, logs) &&
+        identical(cached.canonicalEpisodes, canonicalEpisodes) &&
+        identical(cached.statedBaseline, statedBaseline) &&
+        cached.historyComplete == canonicalHistoryComplete) {
+      return cached.result;
+    }
+    // `asOf` only sets the cycle day, which counts calendar days, so the
+    // day alone is the same input as the exact time.
+    final calculated = _calculationService.calculate(
+      logs,
+      asOf: day,
+      canonicalEpisodes: canonicalEpisodes,
+      statedBaseline: statedBaseline,
+    );
+    final result = canonicalHistoryComplete
+        ? calculated
+        : _withoutPrediction(calculated);
+    _calculation = (
+      day: day,
+      logs: logs,
+      canonicalEpisodes: canonicalEpisodes,
+      statedBaseline: statedBaseline,
+      historyComplete: canonicalHistoryComplete,
+      result: result,
+    );
+    return result;
+  }
+
   bool isLoading = false;
   String? errorMessage;
 
@@ -159,12 +229,73 @@ class CycleTrackingViewModel extends ChangeNotifier {
 
   String get currentUserId => _currentUserId;
   AppUser? get currentUser => _currentUser;
-  CycleCalculationResult get cycleCalculation => _calculationService.calculate(
-    logs,
-    asOf: AppClock.now(),
-    canonicalEpisodes: canonicalEpisodes,
-    statedBaseline: statedBaseline,
+
+  /// [calculation] with every forward-prediction field cleared, so
+  /// `canPredict` is false and every screen shows its existing
+  /// "no prediction" state. The logged statistics are kept.
+  static CycleCalculationResult _withoutPrediction(
+    CycleCalculationResult calculation,
+  ) => CycleCalculationResult(
+    haidStarts: calculation.haidStarts,
+    currentCycleDay: calculation.currentCycleDay,
+    averageCycleLength: calculation.averageCycleLength,
+    cycleLengths: calculation.cycleLengths,
+    averagePeriodLength: calculation.averagePeriodLength,
+    predictionCycleStarts: calculation.predictionCycleStarts,
+    predictionCycleLengths: calculation.predictionCycleLengths,
   );
+
+  CycleCalculationResult get cycleCalculation =>
+      _calculationFor(calendarDay(AppClock.now()));
+
+  ({
+    DateTime lastDay,
+    DateTime asOfDay,
+    List<CycleLog> logs,
+    List<CanonicalEpisodeTiming> canonicalEpisodes,
+    CycleCalculationResult result,
+  })?
+  _rangeCalculation;
+
+  /// Factual cycle statistics from the history logged up to and including
+  /// [lastDay] (the Calendar tab's month/year summary), with the cycle day
+  /// counted on [asOf]. Her stated estimate is not used: these are logged
+  /// facts only. Cached like [cycleCalculation]: the Calendar tab stays
+  /// mounted and rebuilds whenever the shared view model notifies.
+  CycleCalculationResult calculationUpTo({
+    required DateTime lastDay,
+    required DateTime asOf,
+  }) {
+    final dayAfter = addCalendarDays(lastDay, 1);
+    final asOfDay = calendarDay(asOf);
+    final cached = _rangeCalculation;
+    if (cached != null &&
+        cached.lastDay == calendarDay(lastDay) &&
+        cached.asOfDay == asOfDay &&
+        identical(cached.logs, logs) &&
+        identical(cached.canonicalEpisodes, canonicalEpisodes)) {
+      return cached.result;
+    }
+    // The day after [lastDay] by calendar, never `Duration(days: 1)`: on a
+    // month whose last day is a spring-forward Sunday (31 March 2024 in
+    // the UK) that landed at 01:00 the next day, pulling the next month's
+    // first-day logs into this summary.
+    final result = _calculationService.calculate(
+      logs.where((log) => log.date.isBefore(dayAfter)).toList(),
+      canonicalEpisodes: canonicalEpisodes
+          .where((episode) => episode.startDate.isBefore(dayAfter))
+          .toList(),
+      asOf: asOfDay,
+    );
+    _rangeCalculation = (
+      lastDay: calendarDay(lastDay),
+      asOfDay: asOfDay,
+      logs: logs,
+      canonicalEpisodes: canonicalEpisodes,
+      result: result,
+    );
+    return result;
+  }
 
   List<CycleLog> get filteredLogs =>
       _controller.filterLogsByPhase(logs, selectedPhase);
@@ -195,13 +326,17 @@ class CycleTrackingViewModel extends ChangeNotifier {
 
     try {
       await loadCurrentUser();
-      final loadedLogs = await _repository.getCycleLogs();
+      final loadedLogs = await _repository.getCycleLogs(
+        limit: CycleCalculationService.historyLogLimit,
+      );
       logs = loadedLogs
           .where(
             (log) => log.userId == _currentUserId || log.userId == 'local-user',
           )
           .toList();
-      canonicalEpisodes = await _canonicalEpisodeLoader(_currentUserId);
+      final canonicalHistory = await _canonicalHistoryLoader(_currentUserId);
+      canonicalEpisodes = canonicalHistory.episodes;
+      _canonicalHistoryComplete = canonicalHistory.complete;
       statedBaseline = await _statedBaselineLoader(_currentUserId);
       final today = calendarDay(AppClock.now());
       _summary = _summarize(today);
