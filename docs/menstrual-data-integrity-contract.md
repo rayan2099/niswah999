@@ -2059,3 +2059,85 @@ canonical fiqh inputs in the same file.
   into this context, including truthful "uncertain" continuation. That is
   left to the canonical-fiqh-inputs change to the same file.
 
+
+## 21. Tracking data path efficiency (proposed, 2026-10-21, branch `perf/tracking-efficiency`)
+
+Audit of the logging → local storage → sync → RPC → table path for wasted
+work and for ways local and synced copies could disagree. Each item was
+reproduced before it was changed; numbers come from a local Postgres 16
+replica (2,000 synthetic users, 288k observations, 300k `cycle_entries`).
+Nothing here was applied to a hosted project.
+
+### Client
+
+- **Lost local writes.** The pending bleeding-operation queue and the cycle
+  log cache are each one encrypted JSON list, rewritten whole on every
+  change. Two overlapping writers (a sheet queueing a log while a
+  background replay clears another, or a save during a background sync)
+  both read the old list, and the second write dropped the first change
+  (reproduced: two concurrent saves left one). Every read-modify-write now
+  runs under `SecureLocalStore.serialized`.
+- **A stale sync overwrote a newer edit.** `syncPendingLogs` uploads a
+  snapshot and then wrote that snapshot back as `synced`, so an edit saved
+  during the upload was replaced locally by the older version, marked as
+  synced, and never uploaded. `saveCycleLog` had the same pattern for two
+  quick saves of one row. Both now use
+  `LocalCycleTrackingDataSource.setSyncStatusIfUnchanged`, which changes the
+  status only while the stored row still holds what was uploaded, and does
+  not bring back a row deleted meanwhile.
+- **Duplicate background passes.** App start and app resume (often back to
+  back on a cold start) each started a full `syncPendingLogs` and a full
+  `reconcilePendingOperations` pass, so every queued row or operation was
+  sent twice. A call made while a pass runs now joins it; a forced retry
+  (the needs-attention banner) waits and then runs its own pass. A replay
+  that fails no longer puts back an operation that was cleared while it
+  was in flight (`PendingBleedingOperationStore.updatePendingIfQueued`).
+- **Replay projection read the whole history.** Each replayed operation
+  read every observation she ever recorded to pick out the one it had just
+  written. It now reads that row by id (`getObservationById`).
+
+### AI context (`supabase/functions/_shared/ai_user_context.ts`)
+
+- The `cycle_entries` read had no user filter and relied on RLS alone.
+  `can_access_user(user_id)` (own row OR admin) cannot use the
+  `(user_id, date)` index, so the read scanned every user's rows in the
+  60-day window: 1,757 ms on the replica, 0.44 ms with the filter. For an
+  admin it would also have returned other users' entries. All four AI
+  functions now pass `userId`. Deno test in
+  `test/onboarding_server_hardening/deno/ai_user_context_hardening.test.ts`.
+
+### Database (`20261021110000_tracking_rls_initplan_and_fk_indexes.sql`)
+
+- 21 policies on the tracking tables, plus `users_update_own`, are rewritten
+  with `ALTER POLICY` so `auth.uid()` is `(select auth.uid())`, evaluated
+  once per statement. Each policy's current text is checked against the
+  text this repo created first; a drifted policy stops the migration
+  instead of being rewritten. `can_access_user(...)` calls are unchanged.
+- Covering indexes for the foreign keys on `bleeding_episodes.superseded_by`,
+  `symptoms_log.cycle_entry_id`/`user_id`, `nifas_records.user_id`,
+  `pregnancy_records.user_id`/`nifas_id`, `istihadah_episodes.user_id` and
+  `cycle_logs (user_id, start_date DESC)`. Deleting one account went from
+  3,855 ms to 26 ms on the replica; a single `cycle_entries` delete no
+  longer scans `symptoms_log`.
+- No index is dropped. The four reported as unused match real query shapes.
+- Test: `test/security/tracking_rls_initplan_and_fk_indexes.sql` (run by
+  `test/security/run_sql_checks.sh`; fails with the migration excluded).
+
+### Known gaps (documented, not fixed)
+
+- `CycleEntriesProjection.project` calls `getCycleLogs()` (a remote read of
+  up to 200 rows plus a local decrypt) for every projected observation,
+  only to compute `cycleDay`. Bounded by the 200-row limit; changing it
+  would change how `cycleDay` is computed.
+- The write sheets re-read the whole episode's observations after a save to
+  project the one just written. Bounded by one episode (a handful of rows).
+- The replay of queued start/end/observation/correction operations does not
+  pass `startTime`/`observedTime`/`symptoms`/`notes`. No writer sets them
+  today (every canonical write is `date_only` with no symptoms or notes),
+  so nothing is lost now; a future writer that sets them must also queue
+  and replay them.
+- `can_access_user()` still evaluates `auth.uid()` per row inside its own
+  body; only the policies' direct `auth.uid()` calls were wrapped.
+
+Tests: `test/logging_sync_hardening/tracking_efficiency_test.dart` (9 of
+its 11 tests fail on the code before this change).
