@@ -4,6 +4,7 @@ import {messageFor, invalidRegistration, dispatch, secretMatches} from '../../su
 const job={job_id:'j',lease_id:'l',inbox_id:'i',recipient_id:'u',kind:'privateMessage',target_id:'conversation',device_id:'d',token:'secret-device-token',locale:'en'};
 test('push contains generic copy, opaque routing and conversation collapse; no private body',()=>{
  const m=messageFor(job).message;
+ assert.equal(m.fid,job.token);assert.equal('token' in m,false);
  assert.equal(m.notification.body,'You have a new update in Niswah.');
  assert.equal(m.data.destination,'conversation');assert.equal(m.data.userId,'u');
  assert.equal(m.android.collapse_key,'privateMessage');

@@ -2,7 +2,7 @@ export type PushJob = {job_id: string; lease_id: string; inbox_id: string;
   recipient_id: string; kind: string; target_id: string; device_id: string; token: string; locale: string};
 export function messageFor(job: PushJob) {
   if (!['privateMessage', 'communityComment', 'communityLike'].includes(job.kind)) throw new Error('Unsupported activity');
-  return {message: {token: job.token,
+  return {message: {fid: job.token,
     notification: {title: job.locale === 'ar' ? 'نِسواه' : 'Niswah',
       body: job.locale === 'ar' ? 'لديكِ تحديث جديد في نِسواه.' : 'You have a new update in Niswah.'},
     data: {type: 'activity', eventId: job.inbox_id, userId: job.recipient_id,
