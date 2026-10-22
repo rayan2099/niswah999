@@ -174,7 +174,10 @@ class CycleTrackingController {
     required DateTime today,
   }) {
     today = calendarDay(today);
-    final lastCycleStart = calculation.lastHaidStart;
+    // The prediction anchor, not the last detected start: bleeding that
+    // resumed after a short clean gap never moves a prediction (see
+    // CycleCalculationService.resumedBleedingPredictionWindowDays).
+    final lastCycleStart = calculation.predictionAnchor;
     final averageCycleLength = calculation.averageCycleLength;
     final averagePeriodLength = calculation.averagePeriodLength;
     final predictedLength = calculation.predictedCycleLength;
@@ -258,7 +261,7 @@ class CycleTrackingController {
   }) => CycleTrackingSummary(
     averageCycleLength: calculation.averageCycleLength,
     averagePeriodLength: calculation.averagePeriodLength,
-    lastCycleStart: calculation.lastHaidStart,
+    lastCycleStart: calculation.predictionAnchor,
     currentPhase: CyclePhase.follicular,
     fertileWindow: const FertileWindow(start: null, end: null, peakDay: null),
     hasPlausibleAverage: false,

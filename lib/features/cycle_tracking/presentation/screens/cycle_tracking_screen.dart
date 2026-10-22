@@ -135,7 +135,7 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
                         const SizedBox(height: 24),
                         _PregnancyChanceCard(
                           summary: summary,
-                          currentCycleDay: calculation.currentCycleDay,
+                          currentCycleDay: calculation.predictionCycleDay,
                         ),
                       ],
                       const SizedBox(height: 32),
@@ -144,8 +144,9 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
                         period: _summaryPeriod,
                         showHijri: _summaryHijri,
                         logs: _viewModel.logs,
-                        cycleDay: monthCalculation.currentCycleDay,
-                        cycleLength: monthCalculation.averageCycleLength,
+                        cycleDay: monthCalculation.predictionCycleDay,
+                        cycleLength:
+                            monthCalculation.predictionAverageCycleLength,
                         nextPeriodStart: summary.nextPeriodStart,
                         daysLate: summary.daysLate,
                         hasSufficientHistory:
