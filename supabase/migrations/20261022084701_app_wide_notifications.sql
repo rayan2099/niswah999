@@ -55,6 +55,20 @@ grant select on public.notification_inbox to authenticated;
 grant update (read_at) on public.notification_inbox to authenticated;
 create policy read_own_notification_inbox on public.notification_inbox for select to authenticated
   using (recipient_id = (select auth.uid()) and (select notification_private.has_live_session()));
+-- Read time is the server's, and a read event cannot be made unread again
+-- (which would re-arm phone delivery from a device clock or a stale client).
+create function notification_private.stamp_inbox_read()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+begin
+ -- Database-owned activity (a newer like regrouping) may resurface an event.
+ if current_user not in ('authenticated','anon') then return new; end if;
+ if old.read_at is not null then new.read_at := old.read_at;
+ elsif new.read_at is not null then new.read_at := now(); end if;
+ return new;
+end $$;
+revoke all on function notification_private.stamp_inbox_read() from public,anon,authenticated;
+create trigger notification_inbox_read_stamp before update of read_at on public.notification_inbox
+  for each row execute function notification_private.stamp_inbox_read();
 create policy mark_own_notification_read on public.notification_inbox for update to authenticated
   using (recipient_id = (select auth.uid()) and (select notification_private.has_live_session())) with check (recipient_id = (select auth.uid()) and (select notification_private.has_live_session()));
 
@@ -100,11 +114,14 @@ begin
   if not exists (select 1 from auth.sessions where id=s and user_id=u and (not_after is null or not_after>now())) then
     raise exception 'Active session required' using errcode='42501';
   end if;
-  -- Limit token abuse; token replacement is bounded and account switching
-  -- updates the one globally unique token instead of duplicating recipients.
-  if (select count(*) from notification_private.devices where recipient_id=u) >= 10
-     and not exists(select 1 from notification_private.devices where token=p_token and recipient_id=u) then
-    raise exception 'Device limit reached';
+  -- Limit token abuse; account switching updates the one globally unique
+  -- token instead of duplicating recipients. Reinstalling issues a new
+  -- installation ID without signing out, so at the limit the least recently
+  -- registered device is retired rather than refusing the current phone.
+  if not exists(select 1 from notification_private.devices where token=p_token and recipient_id=u) then
+    delete from notification_private.devices where id in (
+      select id from notification_private.devices where recipient_id=u
+      order by updated_at desc, id offset 9);
   end if;
   insert into notification_private.devices(recipient_id, session_id, token, platform)
     values(u,s,p_token,p_platform)
@@ -134,6 +151,9 @@ create function notification_private.queue_activity()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare recipient uuid; target uuid; k text; event_id uuid; hidden boolean;
 begin
+ -- Activity is secondary to the message, comment or like itself: an inbox
+ -- failure is logged and never rolls back the person's own write.
+ begin
   if tg_table_name = 'private_messages' then
     select case when participant_one=new.sender_id then participant_two else participant_one end
       into recipient from public.private_conversations
@@ -147,9 +167,22 @@ begin
     target := new.post_id;
     k := case when tg_table_name='community_comments' then 'communityComment' else 'communityLike' end;
     -- One like activity per post/day; comments/messages retain their event ids.
-    if k='communityLike' and exists(select 1 from public.notification_inbox
-      where recipient_id=recipient and kind=k and target_id=target
-        and created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC') then return new; end if;
+    -- A later like moves the group onto a like that still exists (an unliked
+    -- source would otherwise silence the whole day) and marks it unread. Its
+    -- phone alert is re-armed only if none was accepted yet today.
+    if k='communityLike' then
+      update public.notification_inbox set source_id=new.id, read_at=null
+        where recipient_id=recipient and kind=k and target_id=target
+          and created_at >= date_trunc('day', now() at time zone 'UTC') at time zone 'UTC'
+        returning id into event_id;
+      if event_id is not null then
+        insert into notification_private.push_jobs as j(inbox_id,device_id)
+          select event_id,id from notification_private.devices where recipient_id=recipient
+          on conflict (inbox_id,device_id) do update set attempts=0, available_at=now(), suppressed_at=null
+          where j.accepted_at is null and (j.leased_until is null or j.leased_until<now());
+        return new;
+      end if;
+    end if;
   end if;
   if recipient is null then return new; end if;
   insert into public.notification_inbox(recipient_id,kind,target_id,source_id)
@@ -159,7 +192,10 @@ begin
       select event_id,id from notification_private.devices where recipient_id=recipient
       on conflict do nothing;
   end if;
-  return new;
+ exception when others then
+  raise warning 'notification activity skipped for %: %', tg_table_name, sqlstate;
+ end;
+ return new;
 end $$;
 revoke all on function notification_private.queue_activity() from public,anon,authenticated;
 create trigger notification_message_created after insert on public.private_messages

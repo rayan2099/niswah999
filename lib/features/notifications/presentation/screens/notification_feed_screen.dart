@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../viewmodels/activity_inbox_controller.dart';
+import '../../domain/entities/activity_notification.dart';
 import '../../data/services/app_notification_session.dart';
 
 import 'package:flutter/material.dart';
@@ -100,19 +101,33 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
       ]),
       builder: (context, _) {
         final activity = ActivityInboxController.instance;
+        // A busy conversation or post shows as one row per day, not one per
+        // message or comment; opening it marks the whole group read.
+        final groups = activity.groups;
+        final groupIds = {
+          for (final g in groups) 'activity_${g.latest.id}': g.ids,
+        };
         final entries = [
           ...NotificationLogController.instance.entries,
-          for (final e in activity.entries)
+          for (final g in groups)
             NotificationLogEntry(
-              id: 'activity_${e.id}',
-              type: NotificationType.values.firstWhere((t) => t.name == e.kind),
-              titleAr: e.title(true),
-              bodyAr: e.body(true),
-              titleEn: e.title(false),
-              bodyEn: e.body(false),
-              createdAt: e.createdAt,
-              read: e.read,
-              target: e.target,
+              id: 'activity_${g.latest.id}',
+              type: NotificationType.values.firstWhere((t) => t.name == g.kind),
+              titleAr: ActivityNotification.titleFor(
+                g.kind,
+                true,
+                count: g.events.length,
+              ),
+              bodyAr: g.latest.body(true),
+              titleEn: ActivityNotification.titleFor(
+                g.kind,
+                false,
+                count: g.events.length,
+              ),
+              bodyEn: g.latest.body(false),
+              createdAt: g.latest.createdAt,
+              read: g.read,
+              target: g.latest.target,
             ),
         ]..sort((a, b) => b.shownAt.compareTo(a.shownAt));
         return Scaffold(
@@ -184,8 +199,8 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
                           );
                         }
                         try {
-                          if (entry.id.startsWith('activity_')) {
-                            await activity.markRead(id: entry.id.substring(9));
+                          if (groupIds[entry.id] case final ids?) {
+                            await activity.markRead(ids: ids);
                           } else {
                             await NotificationLogController.instance.markRead(
                               entry.id,

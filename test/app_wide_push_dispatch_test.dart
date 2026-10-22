@@ -76,4 +76,19 @@ void main() {
       expect(os.calls, isNot(contains('show')));
     },
   );
+  test('foreground alert names the activity kind and reuses one slot per conversation', () {
+    final id = AppNotificationSession.alertIdFor('privateMessage', 'thread');
+    expect(id, AppNotificationSession.alertIdFor('privateMessage', 'thread'));
+    expect(id, inInclusiveRange(800, 889));
+    final ids = {
+      for (var i = 0; i < 40; i++)
+        AppNotificationSession.alertIdFor('communityComment', 'post-$i'),
+    };
+    expect(ids.length, greaterThan(20));
+    expect(ids.every((i) => i >= 800 && i <= 889), true);
+    expect(
+      ActivityNotification.alertBody('privateMessage', false),
+      'You have a new message in Niswah.',
+    );
+  });
 }

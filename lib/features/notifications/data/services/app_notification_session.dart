@@ -14,6 +14,7 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/notification_delivery_preferences.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../../core/utils/device_timezone.dart';
+import '../../domain/entities/activity_notification.dart';
 import '../../domain/entities/notification_target.dart';
 import '../../presentation/viewmodels/activity_inbox_controller.dart';
 import '../repositories/activity_notification_repository.dart';
@@ -178,17 +179,32 @@ class AppNotificationSession {
       if (zone != null) {
         final delivery = NotificationDeliveryPreferences.instance;
         final before = delivery.toJson();
+        final context = {
+          'timezone': zone,
+          'locale': AppLocaleController.instance.isArabic ? 'ar' : 'en',
+        };
         final row = await client
             .from('notification_preferences')
-            .update({
-              'timezone': zone,
-              'locale': AppLocaleController.instance.isArabic ? 'ar' : 'en',
-            })
+            .update(context)
             .eq('user_id', user)
             .select()
             .maybeSingle()
             .timeout(const Duration(seconds: 10));
         if (generation != _generation) return;
+        if (row == null) {
+          // Someone who never opened the activity settings has no row, and
+          // the server would otherwise phrase every alert in its default
+          // language. Seed it from this device's current controls.
+          await client
+              .from('notification_preferences')
+              .upsert({
+                ...before,
+                ...context,
+                'user_id': user,
+              }, ignoreDuplicates: true)
+              .timeout(const Duration(seconds: 10));
+          if (generation != _generation) return;
+        }
         if (row != null && mapEquals(before, delivery.toJson())) {
           final controls = {for (final key in before.keys) key: row[key]};
           if (!mapEquals(before, controls)) {
@@ -343,12 +359,22 @@ class AppNotificationSession {
     if (_seen.length > 500) _seen.remove(_seen.first);
     final ar = AppLocaleController.instance.isArabic;
     await NotificationService.instance.showNow(
-      id: 800 + event.hashCode.abs() % 90,
+      id: alertIdFor(verified.kind, verified.target.targetId!),
       title: ar ? 'نِسواه' : 'Niswah',
-      body: ar
-          ? 'لديكِ تحديث جديد في نِسواه.'
-          : 'You have a new update in Niswah.',
+      body: ActivityNotification.alertBody(verified.kind, ar),
       payload: jsonEncode(verified.target.toJson()),
+      activity: true,
     );
+  }
+
+  /// One alert slot per conversation or post (like the worker's Android tag),
+  /// so a burst of messages replaces the previous alert instead of stacking.
+  /// Stable across launches; kept within 800–889, clear of reminder ids.
+  static int alertIdFor(String kind, String targetId) {
+    var hash = 0x811c9dc5;
+    for (final unit in '$kind:$targetId'.codeUnits) {
+      hash = ((hash ^ unit) * 0x01000193) & 0xffffffff;
+    }
+    return 800 + hash % 90;
   }
 }

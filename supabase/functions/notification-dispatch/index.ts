@@ -1,5 +1,5 @@
 import {createClient} from 'npm:@supabase/supabase-js@2.49.1';
-import {dispatch, invalidRegistration, messageFor, secretMatches} from './worker.ts';
+import {batchSize, dispatch, invalidRegistration, messageFor, secretMatches} from './worker.ts';
 
 type ServiceAccount = {client_email: string; private_key: string; project_id: string};
 let cachedToken: {value: string; expires: number} | undefined;
@@ -45,7 +45,7 @@ Deno.serve(async request => {
     };
     await rpc('cleanup_notification_activity',{});
     const counts = await dispatch({
-      claim: () => rpc('claim_notification_push',{batch_limit:50}),
+      claim: () => rpc('claim_notification_push',{batch_limit:batchSize}),
       current: job => rpc('confirm_notification_push',{p_job:job.job_id,p_lease:job.lease_id}),
       send: async job => {
         const response = await fetch(`https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`,{

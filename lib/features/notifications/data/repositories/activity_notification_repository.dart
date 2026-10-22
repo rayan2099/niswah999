@@ -5,7 +5,9 @@ import '../../domain/entities/activity_notification.dart';
 abstract interface class ActivityNotificationRepository {
   Future<List<ActivityNotification>> load(String userId);
   Future<int> unreadCount(String userId);
-  Future<void> markRead(String userId, {String? id});
+
+  /// Marks [ids] read, or every unread event when [ids] is null.
+  Future<void> markRead(String userId, {List<String>? ids});
   void Function() watch(String userId, void Function() changed);
 }
 
@@ -21,7 +23,7 @@ class SupabaseActivityNotificationRepository
         .eq('recipient_id', userId)
         .order('created_at', ascending: false)
         .limit(200);
-    return rows.map(ActivityNotification.fromJson).toList();
+    return [for (final row in rows) ?ActivityNotification.tryParse(row)];
   }
 
   @override
@@ -32,13 +34,15 @@ class SupabaseActivityNotificationRepository
       .isFilter('read_at', null);
 
   @override
-  Future<void> markRead(String userId, {String? id}) async {
+  Future<void> markRead(String userId, {List<String>? ids}) async {
+    if (ids != null && ids.isEmpty) return;
+    // The database replaces this value with its own clock.
     var q = client
         .from('notification_inbox')
         .update({'read_at': DateTime.now().toUtc().toIso8601String()})
         .eq('recipient_id', userId)
         .isFilter('read_at', null);
-    if (id != null) q = q.eq('id', id);
+    if (ids != null) q = q.inFilter('id', ids);
     await q;
   }
 

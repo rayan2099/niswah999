@@ -44,6 +44,19 @@ Explicit FCM `UNREGISTERED` responses remove invalid devices; generic provider e
 
 Source: [session bridge](../../lib/features/notifications/data/services/app_notification_session.dart), [inbox repository](../../lib/features/notifications/data/repositories/activity_notification_repository.dart), [inbox state](../../lib/features/notifications/presentation/viewmodels/activity_inbox_controller.dart), [navigation](../../lib/features/notifications/presentation/navigation/notification_navigator.dart), [worker](../../supabase/functions/notification-dispatch/worker.ts), [worker entry point](../../supabase/functions/notification-dispatch/index.ts), [controls](../../lib/features/notifications/presentation/widgets/notification_controls_card.dart).
 
+## Hardening follow-up — 2026-10-22
+
+Implemented and tested on `feat/notifications-hardening` (stacked on this branch); not deployed. The migration file was edited in place because it has not been applied to any environment.
+
+- **Source writes never fail because of notifications.** The activity trigger catches its own errors and logs a warning, so a message, comment or like is saved even if the inbox insert fails.
+- **Like groups stay deliverable.** A later like the same UTC day moves the day's group onto an existing like, marks it unread, and re-arms the phone alert only if none was accepted that day. Before, unliking the first like silenced the rest of the day.
+- **Server-owned read state.** A trigger stamps `read_at` with the database clock and stops clients from making a read event unread again, which would re-arm delivery.
+- **No device lockout.** Registering an eleventh device now retires the least recently registered one instead of failing. Reinstalling the app issues a new installation ID without signing out.
+- **Delivery.** Lock-screen copy names only the activity kind (message, comment, post activity), never a name or text. Android uses a dedicated `niswah_activity` channel (created by the app and set as the manifest default), so people can mute activity without muting reminders. APNs expiry now matches the one-hour Android TTL. The worker drains a backlog in up to five 50-job rounds within a 40-second budget, and a run that goes past its budget stops starting new sends.
+- **App.** Foreground alerts reuse one slot per conversation or post. The bell groups unread events per conversation or post per day and marks the whole group read. Reads update the badge immediately and are rolled back on failure. Bursts of realtime changes trigger at most one follow-up reload. Inbox rows of an unknown kind are skipped instead of failing the inbox. The device's locale and timezone are seeded for accounts that never opened activity settings, so alerts no longer default to Arabic. An unreadable timezone no longer overwrites the stored one. Settings have a "Turn on phone alerts" action.
+
+Verification: backend SQL/worker suite **20 passed** (the four new SQL regressions fail against the previous migration). The full non-golden app suite has **1,558 passed** with 7 skips, and the analyzer reports no errors or warnings. The Deno type check of `index.ts` was not rerun; it changed only by an import and a shared batch-size constant. Physical-device acceptance remains open as described below.
+
 ## Activation runbook — pending approval/configuration
 
 Automatic approval review rejected applying the migration to **Niswah Staging** (`ovgvevzrcefloitgcsia`) because the implementation request did not explicitly authorize persistent changes to that environment's tables, triggers, functions, grants and publication. No staging or production notification migration/worker/schedule was applied. **Niswah production is unchanged.** Do not bypass this rejection with another SQL transport.

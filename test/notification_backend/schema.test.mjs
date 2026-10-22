@@ -166,3 +166,72 @@ test('invalid quiet timezone and equal window endpoints are rejected',async()=>{
   await assert.rejects(db.query('insert into notification_preferences(user_id,quiet_start,quiet_end) values($1,60,60)',[A]));
  });
 });
+test('an unliked source does not silence the day: a later like repoints the group and re-arms an unsent alert',async()=>{
+ const owner=crypto.randomUUID(),fan=crypto.randomUUID(),own=crypto.randomUUID(),session=crypto.randomUUID();
+ await db.query('insert into auth.users values($1),($2)',[owner,fan]);
+ await db.query('insert into auth.sessions(id,user_id) values($1,$2)',[session,owner]);
+ await db.query('insert into community_posts values($1,$2,false)',[own,owner]);
+ await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner,session_id:session})]);
+ await db.query("select register_notification_device($1,'ios')",['synthetic-like-device-token-0001']);
+ await db.query('update notification_preferences set likes=true where user_id=$1',[owner]);
+ await db.query('insert into notification_preferences(user_id,likes) values($1,true) on conflict do nothing',[owner]);
+ const first=crypto.randomUUID(),second=crypto.randomUUID(),third=crypto.randomUUID();
+ await db.query('insert into community_likes values($1,$2,$3)',[first,own,fan]);
+ const group=await one("select * from notification_inbox where target_id=$1 and kind='communityLike'",[own]);
+ await db.query('delete from community_likes where id=$1',[first]);
+ // The like vanished before delivery: the job is attempted and never accepted.
+ await db.query("update notification_private.push_jobs set attempts=5 where inbox_id=$1",[group.id]);
+ await db.query("update notification_inbox set read_at=now() where id=$1",[group.id]);
+ await db.query('insert into community_likes values($1,$2,$3)',[second,own,C]);
+ const moved=await one('select * from notification_inbox where id=$1',[group.id]);
+ assert.equal(moved.source_id,second);assert.equal(moved.read_at,null);
+ assert.equal((await one("select count(*)::int n from notification_inbox where target_id=$1",[own])).n,1);
+ const job=await one('select * from notification_private.push_jobs where inbox_id=$1',[group.id]);
+ assert.equal(job.attempts,0);assert.equal(job.suppressed_at,null);
+ assert.equal((await one('select push_eligible ok from notification_private.push_eligible($1,$2)',[group.id,job.device_id])).ok,true);
+ // Once a like alert was accepted today, further likes do not re-arm it.
+ await db.query('update notification_private.push_jobs set accepted_at=now(),attempts=1 where id=$1',[job.id]);
+ await db.query('insert into community_likes values($1,$2,$3)',[third,own,B]);
+ assert.equal((await one('select attempts from notification_private.push_jobs where id=$1',[job.id])).attempts,1);
+});
+test('an inbox failure never rolls back the comment, message or like that caused it',async()=>{
+ await db.exec("alter table notification_inbox add constraint reject_comments check (kind<>'communityComment') not valid");
+ try {
+  const comment=crypto.randomUUID();
+  await db.query("update community_posts set is_hidden=false where id=$1",[post]);
+  await db.query('insert into community_comments values($1,$2,$3,false)',[comment,post,C]);
+  assert.equal((await one('select count(*)::int n from community_comments where id=$1',[comment])).n,1);
+  assert.equal((await one('select count(*)::int n from notification_inbox where source_id=$1',[comment])).n,0);
+ } finally {await db.exec('alter table notification_inbox drop constraint reject_comments');}
+});
+test('read time is stamped by the server and a read event cannot be made unread by its owner',async()=>{
+ const owner=crypto.randomUUID(),session=crypto.randomUUID(),own=crypto.randomUUID(),comment=crypto.randomUUID();
+ await db.query('insert into auth.users values($1)',[owner]);
+ await db.query('insert into auth.sessions(id,user_id) values($1,$2)',[session,owner]);
+ await db.query('insert into community_posts values($1,$2,false)',[own,owner]);
+ await db.query('insert into community_comments values($1,$2,$3,false)',[comment,own,C]);
+ const event=(await one('select id from notification_inbox where source_id=$1',[comment])).id;
+ await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner,session_id:session})]);
+ await db.exec('set role authenticated');
+ try {
+  await db.query("update notification_inbox set read_at='2099-01-01T00:00:00Z' where id=$1",[event]);
+  const stamped=(await one('select read_at from notification_inbox where id=$1',[event])).read_at;
+  assert.ok(stamped.getTime()<Date.now()+60000);
+  await db.query('update notification_inbox set read_at=null where id=$1',[event]);
+  assert.equal((await one('select read_at from notification_inbox where id=$1',[event])).read_at.getTime(),stamped.getTime());
+ } finally {await db.exec('reset role');}
+});
+test('reinstalling past the device limit retires the oldest registration instead of refusing the phone',async()=>{
+ const owner=crypto.randomUUID(),session=crypto.randomUUID();
+ await db.query('insert into auth.users values($1)',[owner]);
+ await db.query('insert into auth.sessions(id,user_id) values($1,$2)',[session,owner]);
+ await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner,session_id:session})]);
+ for (let i=0;i<12;i++) {
+  await db.query("select register_notification_device($1,'android')",[`synthetic-reinstall-token-${String(i).padStart(4,'0')}`]);
+  await db.query("update notification_private.devices set updated_at=now()-make_interval(mins=>100-$1::int) where token=$2",[i,`synthetic-reinstall-token-${String(i).padStart(4,'0')}`]);
+ }
+ const tokens=(await db.query('select token from notification_private.devices where recipient_id=$1 order by token',[owner])).rows.map(r=>r.token);
+ assert.equal(tokens.length,10);
+ assert.ok(!tokens.includes('synthetic-reinstall-token-0000')&&!tokens.includes('synthetic-reinstall-token-0001'));
+ assert.ok(tokens.includes('synthetic-reinstall-token-0011'));
+});
