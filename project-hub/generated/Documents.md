@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**167 existing Markdown documents**, grouped by source folder.
+**168 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -35,6 +35,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [parity-checklist.md](../../docs/parity-checklist.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
+
+## docs/engineering
+
+- [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
 
 ## ios/Runner/Assets.xcassets/LaunchImage.imageset
 

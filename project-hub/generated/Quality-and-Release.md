@@ -35,6 +35,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 
+## docs/engineering
+
+- [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
+
 ## production-readiness-results/master
 
 - [00_01_RELEASE_CANDIDATE_BASELINE.md](../../production-readiness-results/master/00_01_RELEASE_CANDIDATE_BASELINE.md)
@@ -209,6 +213,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [pdf_text_extractor_test.dart](../../test/pdf_text_extractor_test.dart)
 - [pending_bleeding_operation_store_test.dart](../../test/pending_bleeding_operation_store_test.dart)
 - [pending_operation_userid_threading_test.dart](../../test/pending_operation_userid_threading_test.dart)
+- [prayer_time_integrity_test.dart](../../test/prayer_time_integrity_test.dart)
 - [prayer_tracking_test.dart](../../test/prayer_tracking_test.dart)
 - [preg_smoke_test.dart](../../test/preg_smoke_test.dart)
 - [pregnancy_overview_localization_test.dart](../../test/pregnancy_overview_localization_test.dart)

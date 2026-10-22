@@ -1,8 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import '../../../../../core/localization/app_locale_controller.dart';
-import '../../../../../core/theme/app_theme.dart';
-import '../../../../../core/widgets/common_widgets.dart';
+import '../../../../core/storage/secure_local_store.dart';
+import '../../../../core/preferences/prayer_location_controller.dart';
+import '../widgets/prayer_settings_sheet.dart';
+
+import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/common_widgets.dart';
 import '../../domain/entities/prayer_entry.dart' as prayer_domain;
 import '../viewmodels/prayer_tracking_view_model.dart';
 
@@ -15,14 +21,41 @@ class PrayerTrackingScreen extends StatefulWidget {
   State<PrayerTrackingScreen> createState() => _PrayerTrackingScreenState();
 }
 
-class _PrayerTrackingScreenState extends State<PrayerTrackingScreen> {
+class _PrayerTrackingScreenState extends State<PrayerTrackingScreen>
+    with WidgetsBindingObserver {
   late final PrayerTrackingViewModel _viewModel;
+  Timer? _timer;
+  String? get _userId =>
+      SecureLocalStore.hasSession ? SecureLocalStore.currentUserId() : null;
 
   @override
   void initState() {
     super.initState();
     _viewModel = PrayerTrackingViewModel();
-    _viewModel.loadToday(userId: 'demo-user');
+    WidgetsBinding.instance.addObserver(this);
+    final userId = _userId;
+    if (userId != null) _viewModel.loadToday(userId: userId);
+    _timer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _viewModel.refresh(),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final userId = _userId;
+      if (userId != null) _viewModel.loadToday(userId: userId);
+      _viewModel.refresh();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    _viewModel.dispose();
+    super.dispose();
   }
 
   @override
@@ -53,7 +86,26 @@ class _PrayerTrackingScreenState extends State<PrayerTrackingScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _PrayerSummaryCard(schedule: schedule),
+                            TextButton(
+                              onPressed: () => showPrayerSettings(context),
+                              child: Text(
+                                _viewModel.location == null
+                                    ? _pt(
+                                        'Set prayer location',
+                                        'حددي موقع الصلاة',
+                                      )
+                                    : '${prayerLocationLabel(_viewModel.location!, isArabic: AppLocaleController.instance.isArabic)} · ${_viewModel.location!.timezoneId ?? "—"} · ${prayerMethodLabel(_viewModel.settings.method)}',
+                              ),
+                            ),
+                            if (schedule != null)
+                              _PrayerSummaryCard(schedule: schedule)
+                            else
+                              Text(
+                                _pt(
+                                  'Prayer times unavailable. Confirm your location, timezone and calculation settings.',
+                                  'مواقيت الصلاة غير متاحة. تأكدي من الموقع والمنطقة الزمنية وإعدادات الحساب.',
+                                ),
+                              ),
                             const SizedBox(height: 28),
                             if (_viewModel.errorMessage != null)
                               NiswahCard(
@@ -66,10 +118,10 @@ class _PrayerTrackingScreenState extends State<PrayerTrackingScreen> {
                                       ?.copyWith(color: AppColors.error),
                                 ),
                               )
-                            else
+                            else if (schedule != null && _userId != null)
                               _PrayerListView(
                                 viewModel: _viewModel,
-                                userId: 'demo-user',
+                                userId: _userId!,
                               ),
                             const SizedBox(height: 120),
                           ],
@@ -233,11 +285,26 @@ class _PrayerListView extends StatelessWidget {
               prayerName: prayerName,
               status: viewModel.statusFor(prayerName),
               onChanged: (status) async {
-                await viewModel.togglePrayerStatus(
-                  userId: userId,
-                  prayerName: prayerName,
-                  status: status,
-                );
+                try {
+                  await viewModel.togglePrayerStatus(
+                    userId: userId,
+                    prayerName: prayerName,
+                    status: status,
+                  );
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          _pt(
+                            'Unable to save. Please try again.',
+                            'تعذر الحفظ. حاولي مجددًا.',
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                }
               },
             ),
           );
@@ -269,8 +336,16 @@ class _PrayerTile extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  prayerName.name[0].toUpperCase() +
-                      prayerName.name.substring(1),
+                  switch (prayerName) {
+                    prayer_domain.PrayerName.fajr => _pt('Fajr', 'الفجر'),
+                    prayer_domain.PrayerName.dhuhr => _pt('Dhuhr', 'الظهر'),
+                    prayer_domain.PrayerName.asr => _pt('Asr', 'العصر'),
+                    prayer_domain.PrayerName.maghrib => _pt(
+                      'Maghrib',
+                      'المغرب',
+                    ),
+                    prayer_domain.PrayerName.isha => _pt('Isha', 'العشاء'),
+                  },
                   style: Theme.of(context).textTheme.titleMedium
                       ?.copyWith(fontWeight: FontWeight.bold),
                 ),
@@ -318,7 +393,7 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
       prayer_domain.PrayerStatus.pending => (
-        _pt('Pending', 'قادمة'),
+        _pt('Not recorded', 'لم تُسجّل'),
         AppColors.textTertiary,
       ),
       prayer_domain.PrayerStatus.completed => (

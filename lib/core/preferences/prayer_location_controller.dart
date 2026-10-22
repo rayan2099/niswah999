@@ -12,14 +12,26 @@ class PrayerLocation extends Equatable {
     required this.latitude,
     required this.longitude,
     required this.label,
+    this.timezoneId,
+    this.timezoneConfirmed = true,
   });
 
   final double latitude;
   final double longitude;
   final String label;
 
+  /// IANA zone for the selected place, independent of the phone timezone.
+  final String? timezoneId;
+  final bool timezoneConfirmed;
+
   @override
-  List<Object?> get props => [latitude, longitude, label];
+  List<Object?> get props => [
+    latitude,
+    longitude,
+    label,
+    timezoneId,
+    timezoneConfirmed,
+  ];
 }
 
 /// Thrown by [PrayerLocationController.useDeviceLocation] so the UI can show
@@ -58,29 +70,94 @@ class PrayerLocationController extends ChangeNotifier {
   static const _latKey = 'niswah_prayer_location_lat';
   static const _lngKey = 'niswah_prayer_location_lng';
   static const _labelKey = 'niswah_prayer_location_label';
+  static const _zoneKey = 'niswah_prayer_location_zone';
+  static const _confirmedKey = 'niswah_prayer_zone_confirmed';
+  static const _methodKey = 'niswah_prayer_method';
+  static const _asrKey = 'niswah_prayer_hanafi_asr';
+  static const _ramadanKey = 'niswah_prayer_ramadan_until';
 
-  /// A religiously-neutral, always-sensible default when no location has
-  /// ever been resolved — never falls back to the old flat hardcoded clock
-  /// times, which weren't correct for any real place or date.
+  String method = 'muslimWorldLeague';
+  bool hanafiAsr = false;
+  DateTime? ramadanAdjustmentUntil;
+
+  Future<void> configure({
+    required String method,
+    required bool hanafiAsr,
+    DateTime? ramadanAdjustmentUntil,
+  }) async {
+    if (!{
+      'muslimWorldLeague',
+      'ummAlQura',
+      'egyptian',
+      'dubai',
+      'northAmerica',
+      'karachi',
+    }.contains(method)) {
+      throw ArgumentError('Unsupported prayer calculation method');
+    }
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(UserScopedPreferences.key(_methodKey), method);
+    await preferences.setBool(UserScopedPreferences.key(_asrKey), hanafiAsr);
+    if (ramadanAdjustmentUntil == null) {
+      await preferences.remove(UserScopedPreferences.key(_ramadanKey));
+    } else {
+      await preferences.setString(
+        UserScopedPreferences.key(_ramadanKey),
+        ramadanAdjustmentUntil.toIso8601String(),
+      );
+    }
+    this.method = method;
+    this.hanafiAsr = hanafiAsr;
+    this.ramadanAdjustmentUntil = ramadanAdjustmentUntil;
+    notifyListeners();
+  }
+
+  /// A selectable preset. Prayer calculations require selectedOrNull;
+  /// this must not be silently substituted for an unconfirmed location.
   static const PrayerLocation mecca = PrayerLocation(
     latitude: 21.4225,
     longitude: 39.8262,
     label: 'Mecca',
+    timezoneId: 'Asia/Riyadh',
   );
 
   static const List<PrayerLocation> presets = [
-    PrayerLocation(latitude: 24.7136, longitude: 46.6753, label: 'Riyadh'),
-    PrayerLocation(latitude: 21.4858, longitude: 39.1925, label: 'Jeddah'),
+    PrayerLocation(
+      latitude: 24.7136,
+      longitude: 46.6753,
+      label: 'Riyadh',
+      timezoneId: 'Asia/Riyadh',
+    ),
+    PrayerLocation(
+      latitude: 21.4858,
+      longitude: 39.1925,
+      label: 'Jeddah',
+      timezoneId: 'Asia/Riyadh',
+    ),
     mecca,
-    PrayerLocation(latitude: 24.5247, longitude: 39.5692, label: 'Medina'),
-    PrayerLocation(latitude: 25.2048, longitude: 55.2708, label: 'Dubai'),
-    PrayerLocation(latitude: 30.0444, longitude: 31.2357, label: 'Cairo'),
+    PrayerLocation(
+      latitude: 24.5247,
+      longitude: 39.5692,
+      label: 'Medina',
+      timezoneId: 'Asia/Riyadh',
+    ),
+    PrayerLocation(
+      latitude: 25.2048,
+      longitude: 55.2708,
+      label: 'Dubai',
+      timezoneId: 'Asia/Dubai',
+    ),
+    PrayerLocation(
+      latitude: 30.0444,
+      longitude: 31.2357,
+      label: 'Cairo',
+      timezoneId: 'Africa/Cairo',
+    ),
   ];
 
   PrayerLocation? _selected;
 
-  /// The location to compute prayer times for right now — never null, so
-  /// callers never need their own fallback branch.
+  /// Legacy display compatibility only. Calculations use selectedOrNull.
   PrayerLocation get resolved => _selected ?? mecca;
 
   /// Null until the user has actually picked something — used by UI that
@@ -94,12 +171,42 @@ class PrayerLocationController extends ChangeNotifier {
       _latKey,
       _lngKey,
       _labelKey,
+      _zoneKey,
+      _confirmedKey,
+      _methodKey,
+      _asrKey,
+      _ramadanKey,
     ]);
     final lat = preferences.getDouble(UserScopedPreferences.key(_latKey));
     final lng = preferences.getDouble(UserScopedPreferences.key(_lngKey));
     final label = preferences.getString(UserScopedPreferences.key(_labelKey));
+    final zone = preferences.getString(UserScopedPreferences.key(_zoneKey));
+    method =
+        preferences.getString(UserScopedPreferences.key(_methodKey)) ??
+        'muslimWorldLeague';
+    hanafiAsr =
+        preferences.getBool(UserScopedPreferences.key(_asrKey)) ?? false;
+    ramadanAdjustmentUntil = DateTime.tryParse(
+      preferences.getString(UserScopedPreferences.key(_ramadanKey)) ?? '',
+    );
+    // Upgrade known presets only. Legacy GPS coordinates without a known
+    // timezone must be confirmed again, rather than guessing an offset.
+    String? presetZone;
+    for (final preset in presets) {
+      if (preset.latitude == lat && preset.longitude == lng) {
+        presetZone = preset.timezoneId;
+      }
+    }
     _selected = (lat != null && lng != null && label != null)
-        ? PrayerLocation(latitude: lat, longitude: lng, label: label)
+        ? PrayerLocation(
+            latitude: lat,
+            longitude: lng,
+            label: label,
+            timezoneId: zone ?? presetZone,
+            timezoneConfirmed:
+                preferences.getBool(UserScopedPreferences.key(_confirmedKey)) ??
+                presetZone != null,
+          )
         : null;
     notifyListeners();
   }
@@ -108,12 +215,19 @@ class PrayerLocationController extends ChangeNotifier {
   /// observe it before its own [load] completes.
   void resetInMemory() {
     _selected = null;
+    method = 'muslimWorldLeague';
+    hanafiAsr = false;
+    ramadanAdjustmentUntil = null;
     notifyListeners();
   }
 
   Future<void> select(PrayerLocation location) async {
-    _selected = location;
-    notifyListeners();
+    if (!location.latitude.isFinite ||
+        !location.longitude.isFinite ||
+        location.latitude.abs() > 90 ||
+        location.longitude.abs() > 180) {
+      throw ArgumentError('Invalid prayer coordinates');
+    }
     final preferences = await SharedPreferences.getInstance();
     await preferences.setDouble(
       UserScopedPreferences.key(_latKey),
@@ -127,6 +241,20 @@ class PrayerLocationController extends ChangeNotifier {
       UserScopedPreferences.key(_labelKey),
       location.label,
     );
+    if (location.timezoneId != null) {
+      await preferences.setString(
+        UserScopedPreferences.key(_zoneKey),
+        location.timezoneId!,
+      );
+    } else {
+      await preferences.remove(UserScopedPreferences.key(_zoneKey));
+    }
+    await preferences.setBool(
+      UserScopedPreferences.key(_confirmedKey),
+      location.timezoneConfirmed,
+    );
+    _selected = location;
+    notifyListeners();
   }
 
   /// Requests location permission, gets a real GPS fix, persists it, and
@@ -160,6 +288,7 @@ class PrayerLocationController extends ChangeNotifier {
       latitude: position.latitude,
       longitude: position.longitude,
       label: 'Current location',
+      timezoneConfirmed: false,
     );
     await select(location);
     return location;
