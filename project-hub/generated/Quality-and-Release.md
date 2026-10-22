@@ -298,6 +298,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [04_account_deletion_completeness.sql](../../test/onboarding_server_hardening/sql/04_account_deletion_completeness.sql)
 - [run_sql_checks.sh](../../test/onboarding_server_hardening/sql/run_sql_checks.sh)
 
+## test/prediction_efficiency
+
+- [prediction_efficiency_test.dart](../../test/prediction_efficiency/prediction_efficiency_test.dart)
+
 ## test/pregnancy_notifications_hardening
 
 - [classical_stage_mapping_test.dart](../../test/pregnancy_notifications_hardening/classical_stage_mapping_test.dart)
@@ -313,6 +317,11 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [pregnancy_week_and_milestone_test.dart](../../test/pregnancy_notifications_hardening/pregnancy_week_and_milestone_test.dart)
 - [reports_postpartum_never_exits_test.dart](../../test/pregnancy_notifications_hardening/reports_postpartum_never_exits_test.dart)
 
+## test/resumed_bleeding
+
+- [resumed_bleeding_fiqh_parity_test.dart](../../test/resumed_bleeding/resumed_bleeding_fiqh_parity_test.dart)
+- [resumed_bleeding_prediction_test.dart](../../test/resumed_bleeding/resumed_bleeding_prediction_test.dart)
+
 ## test/round2_hardening
 
 - [fiqh_assessment_round2_test.dart](../../test/round2_hardening/fiqh_assessment_round2_test.dart)
@@ -326,6 +335,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [fiqh_properties_test.dart](../../test/round2_properties/fiqh_properties_test.dart)
 - [fiqh_regressions_test.dart](../../test/round2_properties/fiqh_regressions_test.dart)
 - [prediction_properties_test.dart](../../test/round2_properties/prediction_properties_test.dart)
+- [resumed_bleeding_properties_test.dart](../../test/round2_properties/resumed_bleeding_properties_test.dart)
 - [round2_regressions_test.dart](../../test/round2_properties/round2_regressions_test.dart)
 - [run_all_timezones.sh](../../test/round2_properties/run_all_timezones.sh)
 

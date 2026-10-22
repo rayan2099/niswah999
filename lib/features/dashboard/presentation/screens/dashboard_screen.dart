@@ -570,6 +570,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final summary = _viewModel.summary;
         final calculation = _viewModel.cycleCalculation;
         final cycleDay = calculation.currentCycleDay;
+        // The ring is a prediction: counted from the prediction anchor, so
+        // bleeding that resumed after a short gap does not restart it.
+        final predictionCycleDay = calculation.predictionCycleDay;
         // New critical finding — the Fiqh engine's own INPUT is now the
         // canonical, effective (post-correction) evidence EXCLUSIVELY,
         // never `cycle_entries`/`_viewModel.logs`. The prior `??
@@ -799,7 +802,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ] else if (hasOpenEpisode ||
                               !calculation.hasSufficientHistory ||
-                              !calculation.hasPlausibleAverage ||
+                              !calculation.hasPlausiblePredictionAverage ||
                               // The ring lays out a predicted cycle and
                               // counts down to its phases — never drawn
                               // when the predictor itself declined (every
@@ -878,7 +881,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             else
                               _CycleOverview(
                                 summary: summary,
-                                cycleDay: cycleDay!,
+                                cycleDay: predictionCycleDay!,
                                 state: state,
                                 isCurrentlyBleeding: fiqhDisplayState,
                                 confirmAt: postNifasAdvisory

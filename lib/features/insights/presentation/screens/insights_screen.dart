@@ -50,7 +50,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
       final summary = _viewModel.summary;
       final calculation = _viewModel.cycleCalculation;
       final enoughData = calculation.hasSufficientHistory;
-      final canPredict = enoughData && calculation.hasPlausibleAverage;
+      // The same gate as Today's ring and the reminder: never a date when
+      // the predictor itself declined (every interval outside the
+      // predictable range), not only when the plain average is implausible.
+      final canPredict = enoughData && calculation.canPredictFromHistory;
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: SafeArea(
