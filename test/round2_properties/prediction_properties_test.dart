@@ -295,7 +295,10 @@ void main() {
       final calc = calculate(h, ev, now);
       final p = calc.predictedCycleLength;
       if (p == null) return null;
-      final plausible = calc.cycleLengths
+      // The prediction learns from its own learning set: every interval
+      // except those bounded by an uncertain (resumed-bleeding) start —
+      // docs/cycle-prediction-model.md, "Resumed bleeding" (2026-10-22).
+      final plausible = calc.predictionCycleLengths
           .where((d) => d >= 15 && d <= 90)
           .toList();
       final stated = CycleCalculationService.statedCycleLength(h.baseline);
@@ -324,7 +327,8 @@ void main() {
       final lo = pool.reduce(min);
       final hi = pool.reduce(max);
       if (p < lo || p > hi) {
-        return 'pred=$p outside [$lo,$hi] intervals=${calc.cycleLengths} '
+        return 'pred=$p outside [$lo,$hi] '
+            'intervals=${calc.predictionCycleLengths} '
             'stated=$stated basis=${calc.predictionBasis}';
       }
       if (valid.length >= 6 &&

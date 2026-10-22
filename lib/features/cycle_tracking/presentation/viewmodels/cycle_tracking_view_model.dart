@@ -241,6 +241,8 @@ class CycleTrackingViewModel extends ChangeNotifier {
     averageCycleLength: calculation.averageCycleLength,
     cycleLengths: calculation.cycleLengths,
     averagePeriodLength: calculation.averagePeriodLength,
+    predictionCycleStarts: calculation.predictionCycleStarts,
+    predictionCycleLengths: calculation.predictionCycleLengths,
   );
 
   CycleCalculationResult get cycleCalculation =>

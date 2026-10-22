@@ -53,8 +53,16 @@ class CycleCalculationResult {
     this.predictionSpreadDays,
     this.predictionBasis,
     this.predictedPeriodLength,
-  });
+    List<DateTime>? predictionCycleStarts,
+    List<int>? predictionCycleLengths,
+  }) : predictionCycleStarts = predictionCycleStarts ?? haidStarts,
+       predictionCycleLengths = predictionCycleLengths ?? cycleLengths;
 
+  /// Every detected Haid start, including bleeding that resumed after a
+  /// short clean gap. Shared with the fiqh engine
+  /// (`CanonicalFiqhAssessment`, `CycleStatusEngine`, the Fiqh report) and
+  /// deliberately unchanged by the prediction-only view below
+  /// ([predictionCycleStarts]).
   final List<DateTime> haidStarts;
   final int? currentCycleDay;
   final int? averageCycleLength;
@@ -92,6 +100,68 @@ class CycleCalculationResult {
   /// when she has a completed period on record, otherwise her stated
   /// usual bleeding duration, otherwise null.
   final int? predictedPeriodLength;
+
+  /// PREDICTION-ONLY view of [haidStarts]: the starts a forward
+  /// prediction may anchor on. A start too soon after the last confirmed
+  /// one, after a short clean gap (see [CycleCalculationService.resumedBleedingPredictionWindowDays]) is
+  /// left out — it may be the same period resuming, and whether it is
+  /// حيض or طهر is a fiqh question this model does not answer. Every
+  /// logged date is still in [haidStarts]; nothing is merged or deleted.
+  /// Equal to [haidStarts] when no start is uncertain.
+  final List<DateTime> predictionCycleStarts;
+
+  /// Starts in [haidStarts] that are not confirmed cycle starts for
+  /// prediction purposes (bleeding that resumed after a short gap).
+  List<DateTime> get uncertainCycleStarts {
+    final confirmed = predictionCycleStarts.toSet();
+    return [
+      for (final start in haidStarts)
+        if (!confirmed.contains(start)) start,
+    ];
+  }
+
+  /// Whether any detected start is uncertain for prediction purposes.
+  bool get hasUncertainCycleStart =>
+      predictionCycleStarts.length != haidStarts.length;
+
+  /// PREDICTION-ONLY learning set: the intervals between consecutive
+  /// [predictionCycleStarts] with no uncertain start between them,
+  /// oldest-to-newest. An interval with an uncertain boundary is left out
+  /// entirely — never merged into a longer one — until the history
+  /// resolves it. Equal to [cycleLengths] when no start is uncertain.
+  final List<int> predictionCycleLengths;
+
+  /// The start every forward prediction counts from: the last of
+  /// [predictionCycleStarts]. Equal to [lastHaidStart] when no start is
+  /// uncertain.
+  DateTime? get predictionAnchor =>
+      predictionCycleStarts.isEmpty ? null : predictionCycleStarts.last;
+
+  /// [currentCycleDay] counted from [predictionAnchor] instead of the last
+  /// detected start, for the ring, the conception-chance card and any other
+  /// prediction. [currentCycleDay] itself is left for the fiqh engine.
+  int? get predictionCycleDay {
+    final day = currentCycleDay;
+    final anchor = predictionAnchor;
+    if (day == null || anchor == null) return null;
+    return day + calendarDaysBetween(anchor, lastHaidStart!);
+  }
+
+  /// Plain mean of [predictionCycleLengths]; [averageCycleLength] stays the
+  /// factual mean of every interval. Null when nothing can be learned.
+  int? get predictionAverageCycleLength {
+    final lengths = predictionCycleLengths;
+    if (lengths.isEmpty) return null;
+    return (lengths.reduce((a, b) => a + b) / lengths.length).round();
+  }
+
+  /// [hasPlausibleAverage] over [predictionCycleLengths]: the prediction
+  /// gate, so a 2-day "cycle" from resumed bleeding can neither drag the
+  /// gate shut nor open it.
+  bool get hasPlausiblePredictionAverage {
+    final average = predictionAverageCycleLength;
+    return average != null && average >= minPlausibleCycleLengthDays;
+  }
 
   static const int _regularityMadCeilingDays = 10;
 
@@ -134,7 +204,8 @@ class CycleCalculationResult {
   /// Whether forward predictions can be made at all — see
   /// [predictedCycleLength]. Includes a prediction from her stated
   /// estimate alone; see [canPredictFromHistory].
-  bool get canPredict => lastHaidStart != null && predictedCycleLength != null;
+  bool get canPredict =>
+      predictionAnchor != null && predictedCycleLength != null;
 
   /// Whether the prediction rests on at least one cycle she logged, not
   /// only on her stated estimate. Anything presented as "your cycle"
@@ -146,10 +217,13 @@ class CycleCalculationResult {
   /// and Today/Insights showed no prediction, while the Calendar tab, the
   /// canonical calendar, the husband report and the reminder still
   /// predicted from the 20-day interval alone.
+  ///
+  /// Reads the prediction-only learning set ([hasPlausiblePredictionAverage]),
+  /// which equals [hasPlausibleAverage] unless a start is uncertain.
   bool get canPredictFromHistory =>
       canPredict &&
       predictionBasis != PredictionBasis.statedEstimate &&
-      hasPlausibleAverage;
+      hasPlausiblePredictionAverage;
 
   /// Whether there are enough logged cycles to compute a meaningful spread.
   /// Stricter than [hasSufficientHistory]: a single interval has no
@@ -217,6 +291,33 @@ class CycleCalculationService {
   /// (which read 1,000) could disagree with Today (proposed,
   /// prediction-efficiency audit 2026-10-21).
   static const int historyLogLimit = 1000;
+
+  /// PREDICTION HEURISTIC, not a fiqh ruling (proposed 2026-10-22, pending
+  /// owner and scholar confirmation; see docs/cycle-prediction-model.md).
+  ///
+  /// A detected start fewer than this many calendar days after the last
+  /// CONFIRMED cycle start is UNCERTAIN for predictions (typically bleeding
+  /// that resumed after a short clean gap: bleeding, one clean day,
+  /// bleeding again). It is not a confirmed new cycle start, does not move
+  /// the prediction anchor, and every interval it bounds is left out of
+  /// prediction learning. Such a start always follows a clean gap shorter
+  /// than this too, since the last bleeding day is never before the last
+  /// confirmed start.
+  ///
+  /// This is the model's own existing rule, not a new number: the model
+  /// never counts a start sooner than
+  /// [CycleCalculationResult.minPlausibleCycleLengthDays] after the last
+  /// start as a new cycle (such intervals are never learned from, and
+  /// `CycleTrackingController.nextPeriodRange` never offers one). Measuring
+  /// the clean gap from the last bleeding day instead would also flag
+  /// genuine short cycles with longer periods (a 16-day cycle with 5
+  /// bleeding days is an 11-day gap) forever, and would mirror the
+  /// fiqh minimum-purity notion this heuristic must not imply. It does not
+  /// say the blood is the same period, and it is never read by the fiqh
+  /// engine, which keeps [CycleCalculationResult.haidStarts] and
+  /// [CycleCalculationResult.currentCycleDay] exactly as before.
+  static const int resumedBleedingPredictionWindowDays =
+      CycleCalculationResult.minPlausibleCycleLengthDays;
 
   /// The correct `cycleDay` for a brand-new log at [date] with [flow],
   /// given every other already-stored log ([existingLogs]) — day 1 if this
@@ -397,6 +498,35 @@ class CycleCalculationService {
     );
   }
 
+  /// The prediction-only view of [starts] (see
+  /// [CycleCalculationResult.predictionCycleStarts]), or null when no start
+  /// is uncertain — the view is then [starts] and its intervals exactly.
+  static ({List<DateTime> starts, List<int> lengths})? _predictionView(
+    List<DateTime> starts,
+  ) {
+    if (starts.length < 2) return null;
+    final confirmed = <DateTime>[starts.first];
+    final lengths = <int>[];
+    var anyUncertain = false;
+    var interrupted = false;
+    for (final start in starts.skip(1)) {
+      final sinceConfirmed = calendarDaysBetween(confirmed.last, start);
+      if (sinceConfirmed < resumedBleedingPredictionWindowDays) {
+        anyUncertain = true;
+        interrupted = true;
+        continue;
+      }
+      if (!interrupted) lengths.add(sinceConfirmed);
+      confirmed.add(start);
+      interrupted = false;
+    }
+    if (!anyUncertain) return null;
+    return (
+      starts: List.unmodifiable(confirmed),
+      lengths: List.unmodifiable(lengths),
+    );
+  }
+
   /// [statedBaseline] is her own onboarding estimate of her usual cycle
   /// and period length. It never becomes a statistic of its own
   /// ([averageCycleLength], [cycleLengths] and [averagePeriodLength] stay
@@ -422,6 +552,7 @@ class CycleCalculationService {
     final predictedPeriodLength =
         averagePeriodLength ?? statedPeriodLength(statedBaseline);
     final statedCycle = statedCycleLength(statedBaseline);
+    final predictionView = _predictionView(starts);
 
     if (starts.length < 2) {
       final prediction = starts.isEmpty
@@ -466,8 +597,10 @@ class CycleCalculationService {
 
     final currentDay =
         calendarDaysBetween(starts.last, asOf ?? AppClock.now()) + 1;
+    // Forward predictions learn only from the prediction-only view; the
+    // factual fields below (and so the fiqh engine) keep every interval.
     final prediction = predictFromIntervals(
-      intervals,
+      predictionView?.lengths ?? intervals,
       statedCycleLength: statedCycle,
     );
     return CycleCalculationResult(
@@ -481,6 +614,8 @@ class CycleCalculationService {
       predictionSpreadDays: prediction?.spreadDays,
       predictionBasis: prediction?.basis,
       predictedPeriodLength: predictedPeriodLength,
+      predictionCycleStarts: predictionView?.starts,
+      predictionCycleLengths: predictionView?.lengths,
     );
   }
 
