@@ -32,6 +32,8 @@ before(async()=>{
  create table public.community_likes(id uuid primary key,post_id uuid,user_id uuid);
  create publication supabase_realtime;
  grant select on all tables in schema public to service_role;
+ -- Mirror Supabase: new public tables are fully granted to API roles by default.
+ alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
  `);
  const schema = await readFile(new URL('../../supabase/migrations/20261022084701_app_wide_notifications.sql',import.meta.url),'utf8');
  await db.exec(schema);
@@ -234,4 +236,17 @@ test('reinstalling past the device limit retires the oldest registration instead
  assert.equal(tokens.length,10);
  assert.ok(!tokens.includes('synthetic-reinstall-token-0000')&&!tokens.includes('synthetic-reinstall-token-0001'));
  assert.ok(tokens.includes('synthetic-reinstall-token-0011'));
+});
+test('client roles keep only the column grants the app uses, despite Supabase default privileges',async()=>{
+ for (const role of ['anon','authenticated']) {
+  for (const priv of ['insert','delete','truncate']) {
+   assert.equal((await one('select has_table_privilege($1,$2,$3) ok',[role,'public.notification_inbox',priv])).ok,false,role+' '+priv);
+  }
+  for (const column of ['kind','target_id','source_id','recipient_id','created_at']) {
+   assert.equal((await one("select has_column_privilege($1,'public.notification_inbox',$2,'update') ok",[role,column])).ok,false,role+' '+column);
+  }
+ }
+ assert.equal((await one("select has_column_privilege('authenticated','public.notification_inbox','read_at','update') ok")).ok,true);
+ assert.equal((await one("select has_table_privilege('anon','public.notification_preferences','select') ok")).ok,false);
+ assert.equal((await one("select has_table_privilege('authenticated','public.notification_preferences','delete') ok")).ok,false);
 });

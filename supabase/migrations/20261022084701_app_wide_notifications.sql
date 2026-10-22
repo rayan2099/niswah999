@@ -32,6 +32,9 @@ create table public.notification_preferences (
   check (quiet_start <> quiet_end)
 );
 alter table public.notification_preferences enable row level security;
+-- Supabase's default privileges grant every new public table to anon and
+-- authenticated in full; start from nothing and grant only what is used.
+revoke all on public.notification_preferences from anon, authenticated;
 grant select, insert, update on public.notification_preferences to authenticated;
 create policy own_notification_preferences on public.notification_preferences to authenticated
   using (user_id = (select auth.uid()) and (select notification_private.has_live_session())) with check (user_id = (select auth.uid()) and (select notification_private.has_live_session()));
@@ -51,6 +54,9 @@ create index notification_inbox_recipient_created on public.notification_inbox(r
 create index notification_inbox_group on public.notification_inbox(recipient_id,kind,target_id,created_at desc);
 create index notification_inbox_unread on public.notification_inbox(recipient_id) where read_at is null;
 alter table public.notification_inbox enable row level security;
+-- Without this revoke the default table-wide UPDATE would let an owner
+-- rewrite kind/target/source of their own events, not just read_at.
+revoke all on public.notification_inbox from anon, authenticated;
 grant select on public.notification_inbox to authenticated;
 grant update (read_at) on public.notification_inbox to authenticated;
 create policy read_own_notification_inbox on public.notification_inbox for select to authenticated
