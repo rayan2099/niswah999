@@ -22,6 +22,7 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [ai_client_fiqh_state_test.dart](../../test/fiqh_hardening/ai_client_fiqh_state_test.dart)
 - [fiqh_engine_hardening_test.dart](../../test/fiqh_hardening/fiqh_engine_hardening_test.dart)
 - [fiqh_report_pdf_builder_test.dart](../../test/fiqh_report_pdf_builder_test.dart)
+- [resumed_bleeding_fiqh_parity_test.dart](../../test/resumed_bleeding/resumed_bleeding_fiqh_parity_test.dart)
 - [fiqh_assessment_round2_test.dart](../../test/round2_hardening/fiqh_assessment_round2_test.dart)
 - [fiqh_properties_test.dart](../../test/round2_properties/fiqh_properties_test.dart)
 - [fiqh_regressions_test.dart](../../test/round2_properties/fiqh_regressions_test.dart)

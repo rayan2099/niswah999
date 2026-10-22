@@ -617,7 +617,12 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex.clamp(0, 4);
-    _cycleViewModel = CycleTrackingViewModel()..loadLogs();
+    // Not loaded here: DashboardScreen is always mounted in the
+    // IndexedStack (whatever the initial tab) and loads this shared
+    // instance in its own initState. Loading it here as well ran every
+    // startup read twice — cycle_entries, bleeding_episodes and
+    // cycle_baselines (proposed, prediction-efficiency audit 2026-10-21).
+    _cycleViewModel = CycleTrackingViewModel();
     WidgetsBinding.instance.addObserver(this);
     PrayerLocationController.instance.addListener(_notificationSettingsChanged);
     AppLocaleController.instance.addListener(_notificationSettingsChanged);

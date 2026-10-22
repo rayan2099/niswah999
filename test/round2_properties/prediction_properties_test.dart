@@ -123,6 +123,27 @@ void main() {
     }),
   );
 
+  // Prediction-efficiency audit (2026-10-21, proposed): the range never
+  // offers a start sooner than the shortest interval the model counts as a
+  // cycle. Irregular short histories (predicted 15-19 days, spread > 3)
+  // offered ranges from cycle day 13.
+  property(
+    'P2c nextPeriodRange never starts within 15 days of the last start',
+    seedBase: 990000,
+    kindFor: (seed) => 'irregular',
+    check: (h) => forEachNow(h, (ev, now, today) {
+      final s = summarize(h, ev, now);
+      final range = s.nextPeriodRange;
+      final last = s.lastCycleStart;
+      if (range == null || last == null) return null;
+      final days = calendarDaysBetween(last, range.earliest);
+      if (days < CycleCalculationResult.minPlausibleCycleLengthDays) {
+        return 'earliest ${days}d after the last start | ${describeSummary(s)}';
+      }
+      return null;
+    }),
+  );
+
   // Doc: "Past the window: no date at all ... nothing further is predicted
   // until she logs" and the range is "gone once she is clearly late".
   property(
@@ -274,7 +295,10 @@ void main() {
       final calc = calculate(h, ev, now);
       final p = calc.predictedCycleLength;
       if (p == null) return null;
-      final plausible = calc.cycleLengths
+      // The prediction learns from its own learning set: every interval
+      // except those bounded by an uncertain (resumed-bleeding) start —
+      // docs/cycle-prediction-model.md, "Resumed bleeding" (2026-10-22).
+      final plausible = calc.predictionCycleLengths
           .where((d) => d >= 15 && d <= 90)
           .toList();
       final stated = CycleCalculationService.statedCycleLength(h.baseline);
@@ -303,7 +327,8 @@ void main() {
       final lo = pool.reduce(min);
       final hi = pool.reduce(max);
       if (p < lo || p > hi) {
-        return 'pred=$p outside [$lo,$hi] intervals=${calc.cycleLengths} '
+        return 'pred=$p outside [$lo,$hi] '
+            'intervals=${calc.predictionCycleLengths} '
             'stated=$stated basis=${calc.predictionBasis}';
       }
       if (valid.length >= 6 &&

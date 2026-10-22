@@ -77,13 +77,28 @@ class CycleTrackingController {
   /// the uncapped `ceil(1.5 × spread)`, so for a spread above ~6.7 days a
   /// range was still offered after [summarizeHistory] had already called
   /// her "late by N days" with no date.
+  ///
+  /// With [cycleStart], the range also never starts sooner than
+  /// [CycleCalculationResult.minPlausibleCycleLengthDays] after it — a start
+  /// the prediction model itself would not count as a new cycle (proposed,
+  /// prediction-efficiency audit 2026-10-21: a short, irregular history,
+  /// predicted 15 days with a spread above 3, offered a range from cycle
+  /// day 13).
   static PredictedDateRange? nextPeriodRange({
     required DateTime expected,
     required double spreadDays,
     required DateTime today,
+    DateTime? cycleStart,
   }) {
     final day = calendarDay(today);
-    final earliest = addCalendarDays(expected, -spreadDays.ceil());
+    var earliest = addCalendarDays(expected, -spreadDays.ceil());
+    if (cycleStart != null) {
+      final soonest = addCalendarDays(
+        cycleStart,
+        CycleCalculationResult.minPlausibleCycleLengthDays,
+      );
+      if (earliest.isBefore(soonest)) earliest = soonest;
+    }
     final latest = addCalendarDays(expected, lateToleranceDays(spreadDays));
     if (latest.isBefore(day)) return null;
     return PredictedDateRange(
@@ -148,7 +163,21 @@ class CycleTrackingController {
       canonicalEpisodes: canonicalEpisodes,
       statedBaseline: statedBaseline,
     );
-    final lastCycleStart = calculation.lastHaidStart;
+    return summarizeCalculation(calculation, today: today);
+  }
+
+  /// [summarizeHistory] from an already computed [calculation] (made with
+  /// `asOf` on [today]'s calendar day), so a caller that also needs the
+  /// calculation itself does not run it twice.
+  CycleTrackingSummary summarizeCalculation(
+    CycleCalculationResult calculation, {
+    required DateTime today,
+  }) {
+    today = calendarDay(today);
+    // The prediction anchor, not the last detected start: bleeding that
+    // resumed after a short clean gap never moves a prediction (see
+    // CycleCalculationService.resumedBleedingPredictionWindowDays).
+    final lastCycleStart = calculation.predictionAnchor;
     final averageCycleLength = calculation.averageCycleLength;
     final averagePeriodLength = calculation.averagePeriodLength;
     final predictedLength = calculation.predictedCycleLength;
@@ -170,14 +199,21 @@ class CycleTrackingController {
       expected: expected,
       spreadDays: spreadDays,
       today: today,
+      cycleStart: cycleStart,
     );
 
-    if (!calculation.canPredictFromHistory) {
+    if (calculation.predictionBasis == PredictionBasis.statedEstimate) {
       // Her stated estimate and one logged start, nothing more (charter
       // F5/F6): only the labeled range is offered. No single "next period"
       // date, fertile window, phase or ring, which would present an
       // estimate as her own observed pattern.
       return _unpredicted(calculation, statedEstimateRange: range);
+    }
+    if (!calculation.canPredictFromHistory) {
+      // Logged cycles whose plain average is implausibly short (see
+      // [CycleCalculationResult.canPredictFromHistory]): nothing is
+      // predicted, as on Today and Insights.
+      return _unpredicted(calculation);
     }
 
     final daysLate = math.max(0, calendarDaysBetween(expected, today));
@@ -225,7 +261,7 @@ class CycleTrackingController {
   }) => CycleTrackingSummary(
     averageCycleLength: calculation.averageCycleLength,
     averagePeriodLength: calculation.averagePeriodLength,
-    lastCycleStart: calculation.lastHaidStart,
+    lastCycleStart: calculation.predictionAnchor,
     currentPhase: CyclePhase.follicular,
     fertileWindow: const FertileWindow(start: null, end: null, peakDay: null),
     hasPlausibleAverage: false,

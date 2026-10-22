@@ -596,7 +596,7 @@ class NotificationRefreshCoordinator {
     if (profileRead.failed) return;
 
     final logs = await cycleRepository
-        .getCycleLogs(limit: 1000)
+        .getCycleLogs(limit: CycleCalculationService.historyLogLimit)
         .timeout(const Duration(seconds: 10));
     if (!NotificationService.instance.isWorkCurrent) return;
     // The same canonical episode history (e.g. periods reported during

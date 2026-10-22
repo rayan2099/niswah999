@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const userContext = await buildUserAiContext(userClient);
+    const userContext = await buildUserAiContext(userClient, { userId: userData.user.id });
     const systemInstruction = `${SYSTEM_PROMPT}\n\n${formatContextBlock(userContext, 'dream_interpreter')}`;
 
     const result = await callOpenAI({

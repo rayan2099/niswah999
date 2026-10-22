@@ -153,7 +153,7 @@ class NotificationScheduler {
     }
 
     final predictedStart = addCalendarDays(
-      calculation.lastHaidStart!,
+      calculation.predictionAnchor!,
       calculation.predictedCycleLength!,
     );
     final fireAt = _atReminderHour(
