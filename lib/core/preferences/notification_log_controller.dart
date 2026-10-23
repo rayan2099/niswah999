@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/notifications/domain/entities/notification_preference.dart';
 import '../utils/app_clock.dart';
+import '../services/notification_service.dart';
 import 'user_scoped_preferences.dart';
 
 class NotificationLogEntry {
@@ -86,8 +87,8 @@ class NotificationLogEntry {
   }
 }
 
-/// Local, on-device history of notifications this app has actually
-/// scheduled/fired — what the bell icon shows. Not a settings screen (see
+/// Local history of accepted schedules and in-app alerts. Due entries
+/// become visible by their planned time; this is not a delivery receipt. Not a settings screen (see
 /// [NotificationSettingsScreen] for that, now reached from Profile).
 /// Follows this codebase's `core/preferences/*_controller.dart` pattern
 /// (ChangeNotifier singleton, persists directly to SharedPreferences as
@@ -101,6 +102,8 @@ class NotificationLogController extends ChangeNotifier {
   static const _storageKey = 'niswah_notification_log';
 
   List<NotificationLogEntry> _entries = const [];
+  int _generation = 0;
+  Future<void>? _writeTail;
 
   /// Fires when the nearest not-yet-fired entry becomes visible, so an
   /// open feed (and the bell's unread count) updates at its fire time
@@ -134,7 +137,7 @@ class NotificationLogController extends ChangeNotifier {
     super.dispose();
   }
 
-  /// What the feed shows: entries whose reminder has fired (or that never
+  /// What the feed shows: entries whose reminder is due (or that never
   /// had a fire time), newest first by [NotificationLogEntry.shownAt].
   List<NotificationLogEntry> get entries {
     final now = AppClock.now();
@@ -150,9 +153,19 @@ class NotificationLogController extends ChangeNotifier {
 
   /// Reads the signed-in user's own feed (never another user's).
   Future<void> load() async {
+    final generation = ++_generation;
+    final key = UserScopedPreferences.key(_storageKey);
     final preferences = await SharedPreferences.getInstance();
+    if (generation != _generation ||
+        key != UserScopedPreferences.key(_storageKey)) {
+      return;
+    }
     await UserScopedPreferences.adoptLegacy(preferences, const [_storageKey]);
-    final raw = preferences.getString(UserScopedPreferences.key(_storageKey));
+    if (generation != _generation ||
+        key != UserScopedPreferences.key(_storageKey)) {
+      return;
+    }
+    final raw = preferences.getString(key);
     if (raw == null || raw.isEmpty) {
       _entries = const [];
       notifyListeners();
@@ -178,6 +191,7 @@ class NotificationLogController extends ChangeNotifier {
   /// Forgets the in-memory feed (sign-out) so the next account can never
   /// observe it before its own [load] completes.
   void resetInMemory() {
+    _generation++;
     _entries = const [];
     notifyListeners();
   }
@@ -188,6 +202,7 @@ class NotificationLogController extends ChangeNotifier {
   /// second one — and an entry with the same [NotificationLogEntry.id] is
   /// never added twice. Entries that already fired are history and stay.
   Future<void> upsertScheduled(String slot, NotificationLogEntry entry) async {
+    if (!NotificationService.instance.isWorkCurrent) return;
     final now = AppClock.now();
     final kept = [
       for (final existing in _entries)
@@ -206,6 +221,7 @@ class NotificationLogController extends ChangeNotifier {
   /// Drops not-yet-fired entries for [slot] — its reminder was cancelled,
   /// so it must never surface in the feed later.
   Future<void> removePending(String slot) async {
+    if (!NotificationService.instance.isWorkCurrent) return;
     final now = AppClock.now();
     final kept = [
       for (final existing in _entries)
@@ -221,6 +237,7 @@ class NotificationLogController extends ChangeNotifier {
       entry.id == slot || entry.id.startsWith('${slot}_');
 
   Future<void> add(NotificationLogEntry entry) async {
+    if (!NotificationService.instance.isWorkCurrent) return;
     _entries = [entry, ..._entries];
     notifyListeners();
     await _persist();
@@ -245,14 +262,20 @@ class NotificationLogController extends ChangeNotifier {
     await _persist();
   }
 
-  Future<void> _persist() async {
-    final preferences = await SharedPreferences.getInstance();
+  Future<void> _persist() {
+    final key = UserScopedPreferences.key(_storageKey);
     final encoded = jsonEncode(
       _entries.map((entry) => entry.toJson()).toList(),
     );
-    await preferences.setString(
-      UserScopedPreferences.key(_storageKey),
-      encoded,
-    );
+    final operation = (_writeTail ?? Future<void>.value()).then((_) async {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(key, encoded);
+    });
+    final settled = operation.catchError((Object _) {});
+    _writeTail = settled;
+    settled.then((_) {
+      if (identical(_writeTail, settled)) _writeTail = null;
+    });
+    return operation;
   }
 }

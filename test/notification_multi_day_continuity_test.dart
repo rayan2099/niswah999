@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -313,6 +314,11 @@ void _suite(_ClockScenario scenario) {
               return null;
           }
         });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter_timezone'),
+          (call) async => Platform.environment['TZ'] ?? 'UTC',
+        );
     await NotificationService.instance.initialize();
 
     // activeBleeding defaults OFF (Commit E2) — must be explicitly

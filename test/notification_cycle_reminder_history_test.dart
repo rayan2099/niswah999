@@ -65,6 +65,8 @@ void main() {
               return null;
           }
         });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(const MethodChannel('flutter_timezone'), (call) async => 'UTC');
     await NotificationService.instance.initialize();
   });
 

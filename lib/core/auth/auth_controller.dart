@@ -39,6 +39,7 @@ class AuthController extends ChangeNotifier {
   // null client here means this is a widget test that never bootstrapped
   // Supabase — there's no backend to gate against, so default to "in".
   bool _isAuthenticated = true;
+  String? _authenticatedUserId;
 
   bool get isAuthenticated => _isAuthenticated;
 
@@ -225,6 +226,7 @@ class AuthController extends ChangeNotifier {
     }
 
     _isAuthenticated = client.auth.currentSession != null;
+    _authenticatedUserId = client.auth.currentUser?.id;
     if (_isAuthenticated) {
       unawaited(refreshOnboardingStatus());
     }
@@ -232,6 +234,19 @@ class AuthController extends ChangeNotifier {
     _subscription ??= client.auth.onAuthStateChange.listen((state) {
       final signedIn = state.session != null;
       final wasAuthenticated = _isAuthenticated;
+      final accountChanged =
+          signedIn &&
+          wasAuthenticated &&
+          state.session!.user.id != _authenticatedUserId;
+      _authenticatedUserId = state.session?.user.id;
+      if (accountChanged) {
+        unawaited(NotificationService.instance.cancelAll());
+        _isNewSignUp = false;
+        _onboardingRequestGeneration++;
+        _onboardingStatus = OnboardingStatus.loading;
+        MadhhabController.instance.resetInMemory();
+        LocalPreferenceScope.resetInMemory();
+      }
 
       if (!signedIn) {
         _isNewSignUp = false;
@@ -256,7 +271,7 @@ class AuthController extends ChangeNotifier {
         // see or have suppressed by them a reminder that isn't theirs.
         unawaited(NotificationService.instance.cancelAll());
       }
-      if (signedIn != wasAuthenticated) {
+      if (signedIn != wasAuthenticated || accountChanged) {
         _isAuthenticated = signedIn;
         notifyListeners();
       }
@@ -265,7 +280,7 @@ class AuthController extends ChangeNotifier {
       // a token refresh for an already-established session), which would
       // otherwise flash the loading state for no reason for a user
       // already in the dashboard.
-      if (signedIn && !wasAuthenticated) {
+      if (signedIn && (!wasAuthenticated || accountChanged)) {
         unawaited(refreshOnboardingStatus());
         // Fiqh Remediation Wave 1 (AUTH-005) — re-reads the canonical
         // server-side Madhhab state for whichever account just signed in,

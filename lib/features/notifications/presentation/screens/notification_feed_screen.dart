@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/network/supabase_client.dart';
+import '../../domain/services/notification_refresh_coordinator.dart';
+
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
 import '../../../../core/services/notification_service.dart';
@@ -23,7 +26,15 @@ class _NotificationFeedScreenState extends State<NotificationFeedScreen> {
   void initState() {
     super.initState();
     NotificationLogController.instance.load();
-    NotificationService.instance.requestPermission();
+    _enableNotifications();
+  }
+
+  Future<void> _enableNotifications() async {
+    final granted = await NotificationService.instance.requestPermission();
+    if (!mounted || !granted) return;
+    await NotificationRefreshCoordinator.refresh(
+      userId: NiswahSupabase.clientOrNull?.auth.currentUser?.id,
+    );
   }
 
   static (IconData, Color) _iconAndColor(NotificationType type) =>

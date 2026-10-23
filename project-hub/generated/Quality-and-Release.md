@@ -37,6 +37,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## docs/engineering
 
+- [notification-reliability.md](../../docs/engineering/notification-reliability.md)
 - [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
 
 ## production-readiness-results/master
@@ -187,13 +188,19 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [madhhab_suggestion_service_test.dart](../../test/madhhab_suggestion_service_test.dart)
 - [network_failure_test.dart](../../test/network_failure_test.dart)
 - [niswah_loading_indicator_test.dart](../../test/niswah_loading_indicator_test.dart)
+- [notification_account_transition_test.dart](../../test/notification_account_transition_test.dart)
+- [notification_chat_account_safety_test.dart](../../test/notification_chat_account_safety_test.dart)
 - [notification_cycle_reminder_history_test.dart](../../test/notification_cycle_reminder_history_test.dart)
 - [notification_event_log_test.dart](../../test/notification_event_log_test.dart)
+- [notification_ios_permissions_test.dart](../../test/notification_ios_permissions_test.dart)
 - [notification_log_controller_test.dart](../../test/notification_log_controller_test.dart)
 - [notification_multi_day_continuity_test.dart](../../test/notification_multi_day_continuity_test.dart)
+- [notification_reliability_test.dart](../../test/notification_reliability_test.dart)
 - [notification_scheduling_outcome_test.dart](../../test/notification_scheduling_outcome_test.dart)
 - [notification_settings_blocked_notice_test.dart](../../test/notification_settings_blocked_notice_test.dart)
+- [notification_settings_race_test.dart](../../test/notification_settings_race_test.dart)
 - [notification_system_test.dart](../../test/notification_system_test.dart)
+- [notification_timezone_race_test.dart](../../test/notification_timezone_race_test.dart)
 - [notification_timezone_test.dart](../../test/notification_timezone_test.dart)
 - [onboarding_completion_error_test.dart](../../test/onboarding_completion_error_test.dart)
 - [onboarding_country_picker_test.dart](../../test/onboarding_country_picker_test.dart)
@@ -213,6 +220,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [pdf_text_extractor_test.dart](../../test/pdf_text_extractor_test.dart)
 - [pending_bleeding_operation_store_test.dart](../../test/pending_bleeding_operation_store_test.dart)
 - [pending_operation_userid_threading_test.dart](../../test/pending_operation_userid_threading_test.dart)
+- [prayer_reminder_scheduler_test.dart](../../test/prayer_reminder_scheduler_test.dart)
 - [prayer_time_integrity_test.dart](../../test/prayer_time_integrity_test.dart)
 - [prayer_tracking_test.dart](../../test/prayer_tracking_test.dart)
 - [preg_smoke_test.dart](../../test/preg_smoke_test.dart)
@@ -386,6 +394,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## test/support
 
 - [device_timezone_test_support.dart](../../test/support/device_timezone_test_support.dart)
+- [notification_platform_harness.dart](../../test/support/notification_platform_harness.dart)
 - [parity_test_harness.dart](../../test/support/parity_test_harness.dart)
 - [pdf_text.dart](../../test/support/pdf_text.dart)
 - [secure_storage_test_support.dart](../../test/support/secure_storage_test_support.dart)

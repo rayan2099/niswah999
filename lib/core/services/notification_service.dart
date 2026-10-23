@@ -7,9 +7,10 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../errors/app_error_reporter.dart';
 import '../utils/device_timezone.dart';
+import '../utils/app_clock.dart';
 
 /// New integrity finding — a caller must be able to distinguish these
-/// four outcomes rather than treating "the call returned without
+/// outcomes rather than treating "the call returned without
 /// throwing" as proof of anything. [accepted] means the OS scheduling
 /// API itself acknowledged the call — it is NOT proof the notification
 /// will actually be delivered or presented (a separate guarantee this
@@ -20,18 +21,17 @@ enum NotificationSchedulingOutcome {
   /// that may be recorded as a successful "scheduled" audit event.
   accepted,
 
+  /// Newer settings or an account change invalidated this operation.
+  superseded,
+
+  /// A local wall-clock reminder requires a resolved device timezone.
+  timezoneUnavailable,
+
   /// The platform API was called and rejected/threw, or (for
   /// [NotificationService.cancel]) the cancellation call itself failed.
   failed,
 
-  /// Known, in advance of even attempting the call, that notifications
-  /// are disabled at the OS level (checked where the platform exposes a
-  /// non-prompting query API — Android's `areNotificationsEnabled()`
-  /// today; iOS has no equivalent non-prompting check in the installed
-  /// plugin version, so this outcome is never returned there — an iOS
-  /// permission-caused failure surfaces as [failed] instead, honestly
-  /// less precise rather than fabricating a distinction this plugin
-  /// cannot actually make on that platform).
+  /// The non-prompting Android or iOS query reports OS permission denied.
   permissionUnavailable,
 
   /// [NotificationService.initialize] has not yet completed — nothing
@@ -82,6 +82,66 @@ class NotificationService {
 
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+  Future<void>? _initializing;
+  Future<void>? _operationTail;
+  int _sessionGeneration = 0;
+  bool _cleanupRequired = false;
+  int get sessionGeneration => _sessionGeneration;
+  static final _guardKey = Object();
+
+  /// A refresh retains its authority across async reads. A later refresh or
+  /// sign-out invalidates that authority before any platform side effect.
+  Future<T> withWorkGuard<T>(
+    bool Function() guard,
+    Future<T> Function() work,
+  ) => runZoned(work, zoneValues: {_guardKey: guard});
+
+  bool get isWorkCurrent =>
+      (Zone.current[_guardKey] as bool Function()?)?.call() ?? true;
+
+  ({int generation, bool Function()? guard}) _captureLease() => (
+    generation: _sessionGeneration,
+    guard: Zone.current[_guardKey] as bool Function()?,
+  );
+  bool _isCurrent(({int generation, bool Function()? guard}) lease) =>
+      lease.generation == _sessionGeneration && (lease.guard?.call() ?? true);
+
+  Future<T> _serialize<T>(Future<T> Function() operation) {
+    final result = Completer<T>();
+    final running = (_operationTail ?? Future<void>.value()).then((_) async {
+      try {
+        result.complete(await operation());
+      } catch (error, stack) {
+        result.completeError(error, stack);
+      }
+    });
+    _operationTail = running;
+    running.then((_) {
+      if (identical(_operationTail, running)) _operationTail = null;
+    });
+    return result.future;
+  }
+
+  Future<bool> finishPendingAccountCleanup() => _serialize(() async {
+    if (!_initialized) return false;
+    return _retryCleanup();
+  });
+
+  Future<bool> _retryCleanup() async {
+    if (!_cleanupRequired) return true;
+    try {
+      await _plugin.cancelAll();
+      _cleanupRequired = false;
+      return true;
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.accountCleanup',
+      );
+      return false;
+    }
+  }
 
   // Commit E7 — tap routing. A tapped notification's payload (if any) is
   // captured here rather than acted on immediately: at tap time there is
@@ -105,17 +165,28 @@ class NotificationService {
   final _tapController = StreamController<String>.broadcast();
   Stream<String> get onTap => _tapController.stream;
 
-  /// Closure Blocker 6 — the real IANA zone `tz.local` is currently set
-  /// to, or null if resolution has ever failed and the safe UTC fallback
-  /// is active instead. Exposed only for tests/diagnostics; scheduling
-  /// code should never branch on this — it should just call
-  /// [refreshLocalTimezone] before scheduling and trust `tz.local`.
+  /// Resolved device IANA zone, or null when wall-clock scheduling must wait.
   String? get activeTimezoneId => _activeTimezoneId;
   String? _activeTimezoneId;
 
   /// Registers the plugin and creates the Android channel. No permission
   /// prompt here — call once from app startup.
-  Future<void> initialize() async {
+  Future<void> initialize() {
+    if (_initialized) return Future<void>.value();
+    return _initializing ??= _initialize().catchError((
+      Object error,
+      StackTrace stack,
+    ) {
+      _initializing = null;
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.initialize',
+      );
+    });
+  }
+
+  Future<void> _initialize() async {
     if (_initialized) return;
 
     tz_data.initializeTimeZones();
@@ -130,7 +201,7 @@ class NotificationService {
       requestSoundPermission: false,
     );
 
-    await _plugin.initialize(
+    final initialized = await _plugin.initialize(
       settings: const InitializationSettings(
         android: androidSettings,
         iOS: iosSettings,
@@ -142,6 +213,10 @@ class NotificationService {
         _tapController.add(payload);
       },
     );
+
+    if (initialized == false) {
+      throw StateError('Notification plugin initialization rejected');
+    }
 
     // The terminated-launch case (E7: "terminated-launch code path where
     // automated infrastructure permits") — the app process was not
@@ -185,12 +260,13 @@ class NotificationService {
   /// wall-clock local time. Historical observations are never affected —
   /// this only ever feeds future scheduling.
   ///
-  /// Never throws: an unresolvable id (the platform channel failed, or —
-  /// unexpectedly — returned an id the bundled tzdata does not recognize)
-  /// falls back to UTC, a safe, documented, predictable default rather
-  /// than leaving `tz.local` unset or crashing scheduling over it.
+  /// Unknown zones retain UTC only as an internal fallback. Wall-clock
+  /// scheduling is refused until a real device zone resolves.
   Future<void> refreshLocalTimezone({bool forceRefresh = false}) async {
-    final iana = await DeviceTimezone.currentId(forceRefresh: forceRefresh);
+    final lease = _captureLease();
+    final iana = await DeviceTimezone.currentId(forceRefresh: forceRefresh)
+        .timeout(const Duration(seconds: 3), onTimeout: () => null);
+    if (!_isCurrent(lease)) return;
     if (iana == null) {
       tz.setLocalLocation(tz.UTC);
       _activeTimezoneId = null;
@@ -216,29 +292,38 @@ class NotificationService {
   Future<bool> requestPermission() async {
     if (!_initialized) return false;
 
-    final iosPlugin = _plugin
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >();
-    if (iosPlugin != null) {
-      final granted = await iosPlugin.requestPermissions(
-        alert: true,
-        badge: true,
-        sound: true,
+    try {
+      final iosPlugin = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      if (iosPlugin != null) {
+        final granted = await iosPlugin.requestPermissions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+        return granted ?? false;
+      }
+
+      final androidPlugin = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      if (androidPlugin != null) {
+        final granted = await androidPlugin.requestNotificationsPermission();
+        return granted ?? false;
+      }
+
+      return false;
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationService.requestPermission',
       );
-      return granted ?? false;
+      return false;
     }
-
-    final androidPlugin = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    if (androidPlugin != null) {
-      final granted = await androidPlugin.requestNotificationsPermission();
-      return granted ?? false;
-    }
-
-    return true;
   }
 
   /// Whether the OS currently lets this app show notifications, read WITHOUT
@@ -269,31 +354,38 @@ class NotificationService {
     required int id,
     required String title,
     required String body,
-  }) async {
-    if (!_initialized) {
-      AppErrorReporter.report(
-        StateError(
-          'NotificationService.showNow called before initialize() succeeded',
-        ),
-        StackTrace.current,
-        context: 'NotificationService.showNow',
-      );
-      return;
-    }
-    try {
-      await _plugin.show(
-        id: id,
-        title: title,
-        body: body,
-        notificationDetails: _details(),
-      );
-    } catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'NotificationService.showNow',
-      );
-    }
+  }) {
+    final lease = _captureLease();
+    return _serialize(() async {
+      if (!_isCurrent(lease)) return;
+
+      if (!_initialized) {
+        AppErrorReporter.report(
+          StateError(
+            'NotificationService.showNow called before initialize() succeeded',
+          ),
+          StackTrace.current,
+          context: 'NotificationService.showNow',
+        );
+        return;
+      }
+      if (!await _retryCleanup() || !_isCurrent(lease)) return;
+      try {
+        await _plugin.show(
+          id: id,
+          title: title,
+          body: body,
+          notificationDetails: _details(),
+        );
+        if (!_isCurrent(lease)) await _plugin.cancel(id: id);
+      } catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'NotificationService.showNow',
+        );
+      }
+    });
   }
 
   /// One-shot, fires at [when] even if the app isn't running. Scheduling
@@ -314,38 +406,56 @@ class NotificationService {
     required String body,
     required DateTime when,
     String? payload,
-  }) async {
-    if (!_initialized) {
-      AppErrorReporter.report(
-        StateError(
-          'NotificationService.scheduleAt called before initialize() succeeded',
-        ),
-        StackTrace.current,
-        context: 'NotificationService.scheduleAt',
-      );
-      return NotificationSchedulingOutcome.uninitialized;
-    }
-    final permissionOutcome = await _checkKnownPermissionUnavailable();
-    if (permissionOutcome != null) return permissionOutcome;
-    try {
-      await _plugin.zonedSchedule(
-        id: id,
-        title: title,
-        body: body,
-        scheduledDate: tz.TZDateTime.from(when, tz.local),
-        notificationDetails: _details(),
-        payload: payload,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      );
-      return NotificationSchedulingOutcome.accepted;
-    } catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'NotificationService.scheduleAt',
-      );
-      return NotificationSchedulingOutcome.failed;
-    }
+  }) {
+    final lease = _captureLease();
+    return _serialize(() async {
+      if (!_isCurrent(lease)) return NotificationSchedulingOutcome.superseded;
+
+      if (!_initialized) {
+        AppErrorReporter.report(
+          StateError(
+            'NotificationService.scheduleAt called before initialize() succeeded',
+          ),
+          StackTrace.current,
+          context: 'NotificationService.scheduleAt',
+        );
+        return NotificationSchedulingOutcome.uninitialized;
+      }
+      if (!when.isAfter(AppClock.now())) {
+        return NotificationSchedulingOutcome.failed;
+      }
+      if (_activeTimezoneId == null && !when.isUtc) {
+        return NotificationSchedulingOutcome.timezoneUnavailable;
+      }
+      if (!await _retryCleanup()) return NotificationSchedulingOutcome.failed;
+      if (!_isCurrent(lease)) return NotificationSchedulingOutcome.superseded;
+      final permissionOutcome = await _checkKnownPermissionUnavailable();
+      if (permissionOutcome != null) return permissionOutcome;
+      if (!_isCurrent(lease)) return NotificationSchedulingOutcome.superseded;
+      try {
+        await _plugin.zonedSchedule(
+          id: id,
+          title: title,
+          body: body,
+          scheduledDate: tz.TZDateTime.from(when, tz.local),
+          notificationDetails: _details(),
+          payload: payload,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        );
+        if (!_isCurrent(lease)) {
+          await _plugin.cancel(id: id);
+          return NotificationSchedulingOutcome.superseded;
+        }
+        return NotificationSchedulingOutcome.accepted;
+      } catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'NotificationService.scheduleAt',
+        );
+        return NotificationSchedulingOutcome.failed;
+      }
+    });
   }
 
   /// Repeats daily at the given local time (e.g. the wellbeing check-in
@@ -358,88 +468,89 @@ class NotificationService {
     required int hour,
     required int minute,
     String? payload,
-  }) async {
-    if (!_initialized) {
-      AppErrorReporter.report(
-        StateError(
-          'NotificationService.scheduleDaily called before initialize() succeeded',
-        ),
-        StackTrace.current,
-        context: 'NotificationService.scheduleDaily',
-      );
-      return NotificationSchedulingOutcome.uninitialized;
-    }
-    final permissionOutcome = await _checkKnownPermissionUnavailable();
-    if (permissionOutcome != null) return permissionOutcome;
+  }) {
+    final lease = _captureLease();
+    return _serialize(() async {
+      if (!_isCurrent(lease)) return NotificationSchedulingOutcome.superseded;
 
-    final now = tz.TZDateTime.now(tz.local);
-    var firstFire = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      hour,
-      minute,
-    );
-    if (firstFire.isBefore(now)) {
-      // Calendar-day arithmetic (2026-10-21): `add(Duration(days: 1))`
-      // added 24 absolute hours, so on a DST-change eve the first
-      // occurrence landed an hour off the requested wall-clock time.
-      firstFire = tz.TZDateTime(
+      if (!_initialized) {
+        AppErrorReporter.report(
+          StateError(
+            'NotificationService.scheduleDaily called before initialize() succeeded',
+          ),
+          StackTrace.current,
+          context: 'NotificationService.scheduleDaily',
+        );
+        return NotificationSchedulingOutcome.uninitialized;
+      }
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return NotificationSchedulingOutcome.failed;
+      }
+      if (_activeTimezoneId == null) {
+        return NotificationSchedulingOutcome.timezoneUnavailable;
+      }
+      if (!await _retryCleanup()) return NotificationSchedulingOutcome.failed;
+      if (!_isCurrent(lease)) return NotificationSchedulingOutcome.superseded;
+      final permissionOutcome = await _checkKnownPermissionUnavailable();
+      if (permissionOutcome != null) return permissionOutcome;
+
+      final now = tz.TZDateTime.from(AppClock.now(), tz.local);
+      var firstFire = tz.TZDateTime(
         tz.local,
         now.year,
         now.month,
-        now.day + 1,
+        now.day,
         hour,
         minute,
       );
-    }
+      if (!firstFire.isAfter(now)) {
+        // Calendar-day arithmetic (2026-10-21): `add(Duration(days: 1))`
+        // added 24 absolute hours, so on a DST-change eve the first
+        // occurrence landed an hour off the requested wall-clock time.
+        firstFire = tz.TZDateTime(
+          tz.local,
+          now.year,
+          now.month,
+          now.day + 1,
+          hour,
+          minute,
+        );
+      }
 
-    try {
-      await _plugin.zonedSchedule(
-        id: id,
-        title: title,
-        body: body,
-        scheduledDate: firstFire,
-        notificationDetails: _details(),
-        payload: payload,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.time,
-      );
-      return NotificationSchedulingOutcome.accepted;
-    } catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'NotificationService.scheduleDaily',
-      );
-      return NotificationSchedulingOutcome.failed;
-    }
+      if (!_isCurrent(lease)) return NotificationSchedulingOutcome.superseded;
+      try {
+        await _plugin.zonedSchedule(
+          id: id,
+          title: title,
+          body: body,
+          scheduledDate: firstFire,
+          notificationDetails: _details(),
+          payload: payload,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+        if (!_isCurrent(lease)) {
+          await _plugin.cancel(id: id);
+          return NotificationSchedulingOutcome.superseded;
+        }
+        return NotificationSchedulingOutcome.accepted;
+      } catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'NotificationService.scheduleDaily',
+        );
+        return NotificationSchedulingOutcome.failed;
+      }
+    });
   }
 
-  /// Android-only, non-prompting permission query — see
-  /// [NotificationSchedulingOutcome.permissionUnavailable]'s own doc
-  /// comment for why no iOS equivalent exists here. Returns null (no
-  /// known permission problem) rather than [NotificationSchedulingOutcome.
-  /// permissionUnavailable] whenever the platform can't answer the
-  /// question at all (iOS, or the query itself failing) — silence here
-  /// is "unknown," never asserted as "unavailable."
+  /// Unknown platform permission remains unknown; only explicit denial blocks.
   Future<NotificationSchedulingOutcome?>
   _checkKnownPermissionUnavailable() async {
-    final androidPlugin = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    if (androidPlugin == null) return null;
-    try {
-      final enabled = await androidPlugin.areNotificationsEnabled();
-      if (enabled == false) {
-        return NotificationSchedulingOutcome.permissionUnavailable;
-      }
-    } catch (_) {
-      // Query itself failed — treat as unknown, not as a confirmed
-      // permission problem; the scheduling attempt below will surface
-      // its own honest failed/accepted outcome regardless.
+    final enabled = await areNotificationsEnabled();
+    if (enabled == false) {
+      return NotificationSchedulingOutcome.permissionUnavailable;
     }
     return null;
   }
@@ -460,19 +571,24 @@ class NotificationService {
   /// succeeded. A failed cancellation must never be recorded as a
   /// successful "cancelled" audit event; `false` here is the caller's
   /// signal to not record one (the notification may still be live).
-  Future<bool> cancel(int id) async {
-    if (!_initialized) return false;
-    try {
-      await _plugin.cancel(id: id);
-      return true;
-    } catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'NotificationService.cancel',
-      );
-      return false;
-    }
+  Future<bool> cancel(int id) {
+    final lease = _captureLease();
+    return _serialize(() async {
+      if (!_isCurrent(lease)) return false;
+
+      if (!_initialized) return false;
+      try {
+        await _plugin.cancel(id: id);
+        return _isCurrent(lease);
+      } catch (error, stack) {
+        AppErrorReporter.report(
+          error,
+          stack,
+          context: 'NotificationService.cancel',
+        );
+        return false;
+      }
+    });
   }
 
   /// New critical finding (local notification reconciliation closure) —
@@ -492,10 +608,17 @@ class NotificationService {
   /// an empty list — "unknown," never "confirmed nothing pending" — so
   /// a caller must treat an empty result from a failed read the same
   /// honest way Closure Blocker 1 already treats any other unknown: as
-  /// nothing to safely act on, not as verified-empty.
-  Future<List<PendingActiveBleedingReminder>>
-  pendingActiveBleedingReminders() async {
-    if (!_initialized) return const [];
+  /// nothing to safely act on, not as verified-empty. Scheduling a replacement
+  /// window uses [throwOnFailure] so unknown reads cannot admit overlapping plans.
+  Future<List<PendingActiveBleedingReminder>> pendingActiveBleedingReminders({
+    bool throwOnFailure = false,
+  }) async {
+    if (!_initialized) {
+      if (throwOnFailure) {
+        throw StateError('Notification service not initialized');
+      }
+      return const [];
+    }
     List<PendingNotificationRequest> requests;
     try {
       requests = await _plugin.pendingNotificationRequests();
@@ -505,6 +628,7 @@ class NotificationService {
         stack,
         context: 'NotificationService.pendingActiveBleedingReminders',
       );
+      if (throwOnFailure) rethrow;
       return const [];
     }
 
@@ -548,18 +672,13 @@ class NotificationService {
   /// live for a next, different account on the same device to see. Also
   /// discards any still-pending tap payload — a stale one is never
   /// re-checked against a later, different sign-in.
-  Future<void> cancelAll() async {
+  Future<void> cancelAll() {
+    _sessionGeneration++;
     _pendingTapPayload = null;
-    if (!_initialized) return;
-    try {
-      await _plugin.cancelAll();
-    } catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'NotificationService.cancelAll',
-      );
-    }
+    _cleanupRequired = true;
+    return _serialize(() async {
+      if (_initialized) await _retryCleanup();
+    });
   }
 
   NotificationDetails _details() => const NotificationDetails(
@@ -569,6 +688,7 @@ class NotificationService {
       channelDescription: _channelDescription,
       importance: Importance.high,
       priority: Priority.high,
+      visibility: NotificationVisibility.private,
     ),
     iOS: DarwinNotificationDetails(),
   );

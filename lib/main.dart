@@ -227,6 +227,9 @@ Future<void> _runApp() async {
   await PrayerLocationController.instance.load();
   await NotificationLogController.instance.load();
   await NotificationService.instance.initialize();
+  if (NiswahSupabase.clientOrNull?.auth.currentUser == null) {
+    await NotificationService.instance.cancelAll();
+  }
 
   runApp(const NiswahApp());
 }
@@ -621,6 +624,8 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     // cycle_baselines (proposed, prediction-efficiency audit 2026-10-21).
     _cycleViewModel = CycleTrackingViewModel();
     WidgetsBinding.instance.addObserver(this);
+    PrayerLocationController.instance.addListener(_notificationSettingsChanged);
+    AppLocaleController.instance.addListener(_notificationSettingsChanged);
     // Recompute what should be scheduled the moment the home shell is
     // reachable (i.e. the user is signed in) — mirrors how the reports
     // recompute fresh each time they're opened, applied to scheduling.
@@ -644,6 +649,10 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    PrayerLocationController.instance.removeListener(
+      _notificationSettingsChanged,
+    );
+    AppLocaleController.instance.removeListener(_notificationSettingsChanged);
     super.dispose();
   }
 
@@ -663,6 +672,10 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
       unawaited(_cycleViewModel.retryPendingSync());
       unawaited(BleedingEpisodeRepositoryImpl().reconcilePendingOperations());
     }
+  }
+
+  void _notificationSettingsChanged() {
+    if (mounted) unawaited(_refreshNotifications());
   }
 
   Future<void> _refreshNotifications() async {

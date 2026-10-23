@@ -1,3 +1,5 @@
+import 'package:timezone/timezone.dart' as tz;
+
 import 'dart:convert';
 
 import 'package:equatable/equatable.dart';
@@ -101,8 +103,14 @@ class NotificationScheduler {
   static const discreetBodyAr = 'لديكِ تذكير جديد في نِسواه.';
   static const discreetBodyEn = 'You have a new reminder in Niswah.';
 
-  static DateTime _atReminderHour(DateTime day) =>
-      DateTime(day.year, day.month, day.day, reminderHour);
+  static DateTime _atReminderHour(
+    DateTime day,
+    DateTime now,
+    int hour,
+    int minute,
+  ) => now is tz.TZDateTime
+      ? tz.TZDateTime(now.location, day.year, day.month, day.day, hour, minute)
+      : DateTime(day.year, day.month, day.day, hour, minute);
 
   /// Whether the cycle reminder must be withheld: while pregnant, or inside
   /// the engine's nifas phase — per the synced [pregnancy] status or the
@@ -129,6 +137,8 @@ class NotificationScheduler {
     PregnancyStatus? pregnancy,
     bool locallyPregnant = false,
     bool locallyInNifas = false,
+    int reminderHour = 9,
+    int reminderMinute = 0,
   }) {
     if (suppressesCycleReminder(
       pregnancy: pregnancy,
@@ -148,6 +158,9 @@ class NotificationScheduler {
     );
     final fireAt = _atReminderHour(
       addCalendarDays(predictedStart, -cycleLeadDays),
+      now,
+      reminderHour,
+      reminderMinute,
     );
 
     if (!fireAt.isAfter(now)) return null;
@@ -177,6 +190,8 @@ class NotificationScheduler {
   static PlannedNotification? planPregnancyMilestone({
     required PregnancyProfile? profile,
     required DateTime now,
+    int reminderHour = 9,
+    int reminderMinute = 0,
   }) {
     final current = PregnancyStatusEngine.getStatus(profile, now);
     if (current.mode != PregnancyMode.pregnant || current.week == null) {
@@ -185,12 +200,22 @@ class NotificationScheduler {
 
     final today = calendarDay(now);
     for (var offset = 0; offset <= milestoneProbeDays; offset++) {
-      final fireAt = _atReminderHour(addCalendarDays(today, offset));
+      final fireAt = _atReminderHour(
+        addCalendarDays(today, offset),
+        now,
+        reminderHour,
+        reminderMinute,
+      );
       if (!fireAt.isAfter(now)) continue;
       final candidate = PregnancyStatusEngine.getStatus(profile, fireAt);
       final previous = PregnancyStatusEngine.getStatus(
         profile,
-        _atReminderHour(addCalendarDays(today, offset - 1)),
+        _atReminderHour(
+          addCalendarDays(today, offset - 1),
+          now,
+          reminderHour,
+          reminderMinute,
+        ),
       );
       if (candidate.mode == PregnancyMode.pregnant &&
           candidate.week != null &&
@@ -223,6 +248,8 @@ class NotificationScheduler {
   static PlannedNotification? planNifasCountdown({
     required PregnancyProfile? profile,
     required DateTime now,
+    int reminderHour = 9,
+    int reminderMinute = 0,
   }) {
     final current = PregnancyStatusEngine.getStatus(profile, now);
     final birthDate = profile?.postpartumStartDate;
@@ -234,6 +261,9 @@ class NotificationScheduler {
 
     final fireAt = _atReminderHour(
       addCalendarDays(calendarDay(birthDate), nifasWarningDay),
+      now,
+      reminderHour,
+      reminderMinute,
     );
     if (!fireAt.isAfter(now)) return null;
 
@@ -297,7 +327,8 @@ class ActiveBleedingReminderScheduler {
     // flutter_local_notifications ids are platform 32-bit signed ints;
     // masking into the positive range avoids ever handing the plugin a
     // negative id.
-    return hash & 0x7fffffff;
+    final id = hash & 0x7fffffff;
+    return id < 1024 ? id + 1024 : id;
   }
 
   /// Commit E7 — an opaque payload the tap handler can parse to route to
@@ -424,8 +455,8 @@ class ActiveBleedingReminderScheduler {
   /// Chosen size, documented rather than arbitrary: 30 days (a full
   /// month) — comfortably covers any realistic length of time between
   /// app opens, and (audited in `notification_scheduler_test.dart`)
-  /// leaves 34 of iOS's shared 64-pending-notification budget free for
-  /// the cycle/pregnancy/nifas/wellbeing reminders plus future headroom,
+  /// leaves room within iOS's 64-pending-notification budget for
+  /// 25 prayer slots and four cycle/pregnancy/nifas/wellbeing slots,
   /// even with every one of this window's 30 days scheduled at once. This
   /// is a product/UX bound on how far ahead reminders are pre-scheduled,
   /// not a medical claim about how long bleeding can last — the window
@@ -501,13 +532,22 @@ class ActiveBleedingReminderScheduler {
     required int leadHour,
     required int leadMinute,
   }) {
-    var fireAt = DateTime(
-      localDay.year,
-      localDay.month,
-      localDay.day,
-      leadHour,
-      leadMinute,
-    );
+    var fireAt = now is tz.TZDateTime
+        ? tz.TZDateTime(
+            now.location,
+            localDay.year,
+            localDay.month,
+            localDay.day,
+            leadHour,
+            leadMinute,
+          )
+        : DateTime(
+            localDay.year,
+            localDay.month,
+            localDay.day,
+            leadHour,
+            leadMinute,
+          );
     if (!fireAt.isAfter(now)) {
       // New critical finding — this catch-up point must be STABLE
       // across repeated calls on the same day, derived only from the

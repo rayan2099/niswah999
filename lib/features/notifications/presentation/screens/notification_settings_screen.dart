@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/services/notification_service.dart';
+import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../domain/entities/notification_preference.dart';
+import '../../../prayer_tracking/presentation/widgets/prayer_settings_sheet.dart';
 import '../viewmodels/notification_settings_view_model.dart';
 
 String _ns(String en, String ar) => AppLocaleController.instance.text(en, ar);
@@ -46,6 +48,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _viewModel.dispose();
     super.dispose();
   }
 
@@ -59,7 +62,12 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     final check =
         widget.notificationsEnabled ??
         NotificationService.instance.areNotificationsEnabled;
-    final enabled = await check();
+    bool? enabled;
+    try {
+      enabled = await check();
+    } catch (_) {
+      enabled = null;
+    }
     if (!mounted) return;
     setState(() => _osNotificationsEnabled = enabled);
   }
@@ -83,7 +91,19 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      if (_osNotificationsEnabled == false)
+                      if (_viewModel.errorMessage != null)
+                        Text(
+                          _ns(
+                            'Unable to save notification settings. Please try again.',
+                            'تعذر حفظ إعدادات التنبيهات. حاولي مجددًا.',
+                          ),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      if (_osNotificationsEnabled == false ||
+                          (_osNotificationsEnabled == null &&
+                              _viewModel.permissionGranted == false))
                         const _NotificationsBlockedNotice(),
                       ...NotificationType.values.map((type) {
                         final preference =
@@ -113,14 +133,17 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                                     ),
                                     Switch(
                                       value: preference.enabled,
-                                      onChanged: (value) {
-                                        _viewModel.updatePreference(
+                                      onChanged: (value) async {
+                                        await _viewModel.updatePreference(
                                           type: type,
                                           enabled: value,
                                           leadTimeMinutes:
                                               preference.leadTimeMinutes,
                                           channels: preference.channels,
                                         );
+                                        if (mounted) {
+                                          await _refreshOsPermission();
+                                        }
                                       },
                                     ),
                                   ],
@@ -133,11 +156,15 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                                 // leadTimeMinutes slider every other type
                                 // uses was a false control here (the
                                 // scheduler never read it).
-                                if (type == NotificationType.activeBleeding)
+                                if (type != NotificationType.prayer)
                                   _ReminderTimeRow(
                                     hour:
                                         preference.preferredHour ??
-                                        _defaultActiveBleedingHour,
+                                        (type == NotificationType.activeBleeding
+                                            ? _defaultActiveBleedingHour
+                                            : type == NotificationType.wellbeing
+                                            ? 20
+                                            : 9),
                                     minute:
                                         preference.preferredMinute ??
                                         _defaultActiveBleedingMinute,
@@ -155,11 +182,41 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                                   )
                                 else ...[
                                   Text(
+                                    _ns(
+                                      'Uses your confirmed prayer location and calculation settings. Scheduled up to five days ahead; opening Niswah renews the schedule. Phone settings can delay reminders.',
+                                      'تستخدم موقع الصلاة وطريقة الحساب المؤكدَين. تُجدول لخمسة أيام قادمة ويُجدّد الجدول عند فتح نِسواه. قد تؤخر إعدادات الهاتف وصول التذكيرات.',
+                                    ),
+                                  ),
+                                  if (PrayerLocationController
+                                          .instance
+                                          .selectedOrNull
+                                          ?.timezoneConfirmed !=
+                                      true)
+                                    Text(
+                                      _ns(
+                                        'Confirm your prayer location and timezone in Prayer settings first.',
+                                        'أكدي موقع الصلاة والمنطقة الزمنية من إعدادات مواقيت الصلاة أولًا.',
+                                      ),
+                                    ),
+                                  TextButton(
+                                    onPressed: () async {
+                                      await showPrayerSettings(context);
+                                      if (mounted) setState(() {});
+                                    },
+                                    child: Text(
+                                      _ns(
+                                        'Prayer settings',
+                                        'إعدادات مواقيت الصلاة',
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
                                     '${_ns('Lead time', 'وقت التنبيه المسبق')}: ${preference.leadTimeMinutes} ${_ns('minutes', 'دقيقة')}',
                                   ),
                                   const SizedBox(height: 12),
                                   Slider(
                                     value: preference.leadTimeMinutes
+                                        .clamp(0, 120)
                                         .toDouble(),
                                     min: 0,
                                     max: 120,

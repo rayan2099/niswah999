@@ -1,9 +1,15 @@
+import 'dart:async';
+
+import 'package:timezone/timezone.dart' as tz;
+
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/preferences/notification_log_controller.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../../../core/utils/app_clock.dart';
+import '../../../../core/utils/calendar_days.dart';
+import '../../../../core/preferences/prayer_location_controller.dart';
 import '../../../cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../cycle_tracking/domain/entities/bleeding_episode.dart';
@@ -17,6 +23,7 @@ import '../../data/repositories/notification_repository_impl.dart';
 import '../entities/notification_event.dart';
 import '../entities/notification_preference.dart';
 import 'notification_scheduler.dart';
+import 'prayer_reminder_scheduler.dart';
 
 /// The side-effecting glue between real app state and
 /// [NotificationService] — loads preferences + real data, asks the pure
@@ -27,6 +34,7 @@ import 'notification_scheduler.dart';
 class NotificationRefreshCoordinator {
   const NotificationRefreshCoordinator._();
 
+  static int _refreshGeneration = 0;
   static const wellbeingReminderId = 104;
   static const _wellbeingReminderHour = 20;
 
@@ -67,62 +75,142 @@ class NotificationRefreshCoordinator {
     cycleHistoryLoader,
     Future<CycleBaseline?> Function(String userId)? statedBaselineLoader,
   }) async {
-    // New critical finding (notification cancellation closure, Finding 3)
-    // — every call site that recomputes/reschedules must trust a *fresh*
-    // device zone, not whatever `tz.local` happened to be set to last.
-    // Previously only `main.dart`'s own app-resume handler did this
-    // itself before calling refresh(); the dashboard's contextual-consent
-    // call site and this wave's new Settings-toggle call site did not,
-    // leaving them exposed to exactly the stale-zone bug
-    // `DeviceTimezone`'s own doc comment warns about. Centralizing it
-    // here means every current and future caller gets it uniformly.
-    await NotificationService.instance.refreshLocalTimezone(forceRefresh: true);
+    final generation = ++_refreshGeneration;
+    final service = NotificationService.instance;
+    // Signed-out refreshes only invalidate and clear; they must not start
+    // timezone/plugin initialization or any account-scoped reads.
+    if (userId == null) {
+      await service.cancelAll();
+      return;
+    }
+    final session = service.sessionGeneration;
+    bool current() =>
+        generation == _refreshGeneration &&
+        session == service.sessionGeneration;
+    await service.withWorkGuard(current, () async {
+      await service.initialize();
+      if (!current()) return;
+      if (!await service.finishPendingAccountCleanup() || !current()) return;
+      await service.refreshLocalTimezone(forceRefresh: true);
+      if (!current()) return;
+      final preferences =
+          await (preferenceRepository ?? NotificationRepositoryImpl())
+              .loadPreferences();
+      if (!current()) return;
+      final now = service.activeTimezoneId == null
+          ? AppClock.now()
+          : tz.TZDateTime.from(AppClock.now(), tz.local);
 
-    final preferences =
-        await (preferenceRepository ?? NotificationRepositoryImpl())
-            .loadPreferences();
-    // Fix 6 (regression-baseline reconciliation) — this previously read
-    // the raw wall clock directly, which is exactly what made
-    // notification_multi_day_continuity_test.dart's own expected-id
-    // computation (necessarily also real-clock-based, with no way to
-    // inject a fixed value) racy around a real local-midnight boundary.
-    // AppClock is this codebase's own established test-injection point
-    // for "now" everywhere else; this was the one outlier.
-    final now = AppClock.now();
-
-    // Pregnancy/nifas hardening (2026-10-21, proposed): the synced profile
-    // is read ONCE and shared — the cycle reminder now needs it too (no
-    // "period approaching" while pregnant or in nifas). A failed read is
-    // "unknown" ([_ProfileRead.failed]), never "not pregnant".
-    final profileRead = userId == null
-        ? const _ProfileRead.none()
-        : await _loadProfile(
-            pregnancyRepository ?? PregnancyProfileRepository(),
-            userId,
+      // Local opt-outs take effect before any network read. Each later
+      // platform operation retains this refresh's guard across async waits.
+      if (!(preferences[NotificationType.cycle]?.enabled ?? false)) {
+        await _apply(NotificationScheduler.cycleNotificationId, null);
+      }
+      if (!(preferences[NotificationType.pregnancy]?.enabled ?? false)) {
+        await _apply(NotificationScheduler.pregnancyNotificationId, null);
+        await _apply(NotificationScheduler.nifasNotificationId, null);
+      }
+      if (!(preferences[NotificationType.activeBleeding]?.enabled ?? false)) {
+        await _cancelAllOwnedActiveBleedingReminders(userId: userId, now: now);
+      }
+      if (!current()) return;
+      await _stage(() => _refreshWellbeingDaily(preferences: preferences));
+      await _stage(
+        () =>
+            _refreshPrayers(preferences: preferences, userId: userId, now: now),
+      );
+      if (!current()) return;
+      await Future.wait([
+        _stage(
+          () => _refreshActiveBleeding(
+            preferences: preferences,
+            userId: userId,
+            bleedingRepository:
+                bleedingRepository ?? BleedingEpisodeRepositoryImpl(),
+            now: now,
+          ),
+        ),
+        _stage(() async {
+          final needsProfile =
+              (preferences[NotificationType.cycle]?.enabled ?? false) ||
+              (preferences[NotificationType.pregnancy]?.enabled ?? false);
+          final profileRead = needsProfile
+              ? await _loadProfile(
+                  pregnancyRepository ?? PregnancyProfileRepository(),
+                  userId,
+                )
+              : const _ProfileRead.none();
+          if (!current()) return;
+          await _stage(
+            () => _refreshCycle(
+              preferences: preferences,
+              userId: userId,
+              cycleRepository: cycleRepository ?? CycleTrackingRepositoryImpl(),
+              cycleHistoryLoader: cycleHistoryLoader ?? _loadCycleHistory,
+              statedBaselineLoader: statedBaselineLoader ?? _loadStatedBaseline,
+              profileRead: profileRead,
+              now: now,
+            ),
           );
+          if (!current()) return;
+          await _refreshPregnancyAndNifas(
+            preferences: preferences,
+            userId: userId,
+            profileRead: profileRead,
+            now: now,
+          );
+        }),
+      ]);
+    });
+  }
 
-    await _refreshCycle(
-      preferences: preferences,
-      userId: userId,
-      cycleRepository: cycleRepository ?? CycleTrackingRepositoryImpl(),
-      cycleHistoryLoader: cycleHistoryLoader ?? _loadCycleHistory,
-      statedBaselineLoader: statedBaselineLoader ?? _loadStatedBaseline,
-      profileRead: profileRead,
-      now: now,
-    );
-    await _refreshPregnancyAndNifas(
-      preferences: preferences,
-      userId: userId,
-      profileRead: profileRead,
-      now: now,
-    );
-    await _refreshWellbeingDaily(preferences: preferences);
-    await _refreshActiveBleeding(
-      preferences: preferences,
-      userId: userId,
-      bleedingRepository: bleedingRepository ?? BleedingEpisodeRepositoryImpl(),
-      now: now,
-    );
+  static Future<void> _stage(Future<void> Function() action) async {
+    if (!NotificationService.instance.isWorkCurrent) return;
+    try {
+      await action();
+    } catch (error, stack) {
+      AppErrorReporter.report(
+        error,
+        stack,
+        context: 'NotificationRefreshCoordinator.refresh',
+        feature: 'notifications',
+      );
+    }
+  }
+
+  static Future<void> _refreshPrayers({
+    required Map<NotificationType, NotificationPreference> preferences,
+    required String userId,
+    required DateTime now,
+  }) async {
+    final preference = preferences[NotificationType.prayer];
+    final settings = PrayerLocationController.instance;
+    final plans = preference?.enabled == true
+        ? PrayerReminderScheduler.plan(
+            userId: userId,
+            location: settings.selectedOrNull,
+            now: now,
+            method: settings.method,
+            hanafiAsr: settings.hanafiAsr,
+            leadMinutes: preference!.leadTimeMinutes,
+            ramadanAdjustmentUntil: settings.ramadanAdjustmentUntil,
+          )
+        : const <PlannedNotification>[];
+    final desired = plans.map((p) => p.id).toSet();
+    for (final id in PrayerReminderScheduler.ids) {
+      if (!desired.contains(id)) await NotificationService.instance.cancel(id);
+    }
+    for (final plan in plans) {
+      await NotificationService.instance.scheduleAt(
+        id: plan.id,
+        title: AppLocaleController.instance.isArabic
+            ? plan.titleAr
+            : plan.titleEn,
+        body: AppLocaleController.instance.isArabic ? plan.bodyAr : plan.bodyEn,
+        when: plan.fireAt,
+        payload: plan.payload,
+      );
+    }
   }
 
   /// Commit E — the recurring daily check-in reminder, tied to a real
@@ -140,8 +228,7 @@ class NotificationRefreshCoordinator {
     final activeBleedingPreference =
         preferences[NotificationType.activeBleeding];
     final enabled = activeBleedingPreference?.enabled ?? false;
-    final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
-    final today = BleedingEpisodeRepositoryImpl.localToday(utcOffsetMinutes);
+    final today = calendarDay(now);
 
     if (!enabled || userId == null) {
       // New critical finding (local notification reconciliation closure,
@@ -164,7 +251,10 @@ class NotificationRefreshCoordinator {
     // still-open episode's reminder purely because the read hiccuped.
     // Leaving the refresh as a no-op (whatever was already scheduled
     // stays scheduled) is the honest response to "genuinely unknown."
-    final episodeResult = await bleedingRepository.getOpenEpisode(userId);
+    final episodeResult = await bleedingRepository
+        .getOpenEpisode(userId)
+        .timeout(const Duration(seconds: 10));
+    if (!NotificationService.instance.isWorkCurrent) return;
     if (episodeResult is LoadUnavailable<BleedingEpisode?>) return;
     final episode = episodeResult.dataOrNull;
     if (!ActiveBleedingReminderScheduler.isEligible(episode)) {
@@ -186,7 +276,9 @@ class NotificationRefreshCoordinator {
     if (episodeId == null) return;
 
     final observationsResult = await bleedingRepository
-        .getObservationsForEpisode(episodeId);
+        .getObservationsForEpisode(episodeId)
+        .timeout(const Duration(seconds: 10));
+    if (!NotificationService.instance.isWorkCurrent) return;
     if (observationsResult is LoadUnavailable<List<BleedingObservation>>) {
       return;
     }
@@ -238,16 +330,21 @@ class NotificationRefreshCoordinator {
     // separate bespoke sweeps for each cause, and without depending on
     // `episode.startDate` to bound a guess.
     final pending = await NotificationService.instance
-        .pendingActiveBleedingReminders();
+        .pendingActiveBleedingReminders(throwOnFailure: true);
     final desiredIds = plans.map((p) => p.id).toSet();
     for (final owned in pending) {
-      if (owned.userId != userId || owned.episodeId != episodeId) continue;
-      if (desiredIds.contains(owned.id)) continue;
+      if (owned.userId != userId) continue;
+      if (owned.episodeId == episodeId && desiredIds.contains(owned.id)) {
+        continue;
+      }
       // New integrity finding — a failed cancellation must never be
       // recorded as a successful one; the notification may still be
       // live, and the audit trail must say so honestly, leaving it
       // visible for a later retry rather than a false "cancelled".
       final cancelled = await NotificationService.instance.cancel(owned.id);
+      // Do not expand the window while a stale request remains live. A
+      // later refresh retries cleanup before admitting replacement requests.
+      if (!cancelled) return;
       if (cancelled) {
         await NotificationLogController.instance.removePending(
           'activeBleeding_${owned.id}',
@@ -256,7 +353,7 @@ class NotificationRefreshCoordinator {
           reminderId: owned.id.toString(),
           state: NotificationEventState.cancelled,
           userId: userId,
-          episodeId: episodeId,
+          episodeId: owned.episodeId,
           logicalLocalDate: _parseIsoDate(owned.localDate) ?? today,
           now: now,
         );
@@ -413,6 +510,7 @@ class NotificationRefreshCoordinator {
     final priorEvents = await NotificationEventLogStore.loadForReminder(
       reminderId,
     );
+    if (!NotificationService.instance.isWorkCurrent) return;
     final alreadyRecorded = priorEvents.any((e) => e.state == state);
     if (alreadyRecorded) return;
     await NotificationEventLogStore.record(
@@ -497,15 +595,17 @@ class NotificationRefreshCoordinator {
     // it is rather than planning from history as if not pregnant.
     if (profileRead.failed) return;
 
-    final logs = await cycleRepository.getCycleLogs(
-      limit: CycleCalculationService.historyLogLimit,
-    );
+    final logs = await cycleRepository
+        .getCycleLogs(limit: CycleCalculationService.historyLogLimit)
+        .timeout(const Duration(seconds: 10));
+    if (!NotificationService.instance.isWorkCurrent) return;
     // The same canonical episode history (e.g. periods reported during
     // onboarding) the dashboard predicts from — without it the reminder
     // could be missing, or land on a different date than the app shows.
     final canonicalEpisodes = userId == null || userId == 'local-user'
         ? const <CanonicalEpisodeTiming>[]
-        : await cycleHistoryLoader(userId);
+        : await cycleHistoryLoader(userId).timeout(const Duration(seconds: 10));
+    if (!NotificationService.instance.isWorkCurrent) return;
     if (canonicalEpisodes == null) {
       // Known-incomplete history (an episode was quarantined): the
       // calendar refuses to predict from it, so no reminder may either.
@@ -514,7 +614,9 @@ class NotificationRefreshCoordinator {
     }
     final statedBaseline = userId == null || userId == 'local-user'
         ? null
-        : await statedBaselineLoader(userId);
+        : await statedBaselineLoader(userId)
+              .timeout(const Duration(seconds: 10));
+    if (!NotificationService.instance.isWorkCurrent) return;
     final calculation = const CycleCalculationService().calculate(
       logs,
       asOf: now,
@@ -524,6 +626,8 @@ class NotificationRefreshCoordinator {
     final plan = NotificationScheduler.planCycleReminder(
       calculation: calculation,
       now: now,
+      reminderHour: preferences[NotificationType.cycle]?.preferredHour ?? 9,
+      reminderMinute: preferences[NotificationType.cycle]?.preferredMinute ?? 0,
     );
     await _apply(NotificationScheduler.cycleNotificationId, plan);
   }
@@ -559,12 +663,19 @@ class NotificationRefreshCoordinator {
         : NotificationScheduler.planPregnancyMilestone(
             profile: profile,
             now: now,
+            reminderHour:
+                preferences[NotificationType.pregnancy]?.preferredHour ?? 9,
+            reminderMinute:
+                preferences[NotificationType.pregnancy]?.preferredMinute ?? 0,
           );
     await _apply(NotificationScheduler.pregnancyNotificationId, pregnancyPlan);
 
     final nifasPlan = NotificationScheduler.planNifasCountdown(
       profile: profile,
       now: now,
+      reminderHour: preferences[NotificationType.pregnancy]?.preferredHour ?? 9,
+      reminderMinute:
+          preferences[NotificationType.pregnancy]?.preferredMinute ?? 0,
     );
     await _apply(NotificationScheduler.nifasNotificationId, nifasPlan);
   }
@@ -574,7 +685,11 @@ class NotificationRefreshCoordinator {
     String userId,
   ) async {
     try {
-      return _ProfileRead.loaded(await repository.getForUser(userId));
+      return _ProfileRead.loaded(
+        await repository
+            .getForUser(userId)
+            .timeout(const Duration(seconds: 10)),
+      );
     } catch (error, stack) {
       AppErrorReporter.report(
         error,
@@ -598,12 +713,16 @@ class NotificationRefreshCoordinator {
     final isArabic = AppLocaleController.instance.isArabic;
     await NotificationService.instance.scheduleDaily(
       id: wellbeingReminderId,
-      title: isArabic ? 'كيف حالكِ اليوم؟' : 'How are you feeling today?',
+      title: isArabic
+          ? NotificationScheduler.discreetTitleAr
+          : NotificationScheduler.discreetTitleEn,
       body: isArabic
-          ? 'خذي لحظة لتسجيل حالتكِ النفسية اليوم.'
-          : 'Take a moment to log your wellbeing check-in today.',
-      hour: _wellbeingReminderHour,
-      minute: 0,
+          ? NotificationScheduler.discreetBodyAr
+          : NotificationScheduler.discreetBodyEn,
+      hour:
+          preferences[NotificationType.wellbeing]?.preferredHour ??
+          _wellbeingReminderHour,
+      minute: preferences[NotificationType.wellbeing]?.preferredMinute ?? 0,
     );
   }
 
@@ -628,7 +747,10 @@ class NotificationRefreshCoordinator {
       body: isArabic ? plan.bodyAr : plan.bodyEn,
       when: plan.fireAt,
     );
-    if (outcome != NotificationSchedulingOutcome.accepted) return;
+    if (outcome != NotificationSchedulingOutcome.accepted ||
+        !NotificationService.instance.isWorkCurrent) {
+      return;
+    }
 
     // Pregnancy/nifas hardening (2026-10-21, proposed): the feed entry
     // carries the plan's fireAt and stays hidden until then — it used to

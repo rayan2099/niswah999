@@ -29,13 +29,8 @@ class NotificationPreference extends Equatable {
   final int leadTimeMinutes;
   final List<String> channels;
 
-  /// Closure Blocker 7 — a real, persisted, user-choosable time of day.
-  /// Only meaningful for [NotificationType.activeBleeding] (the daily
-  /// check-in reminder, asked once a day while a real episode is open —
-  /// never a "lead time" before some other event, so [leadTimeMinutes]
-  /// was never the right control for it). Null means "not yet customized
-  /// — use the scheduler's own documented default", never "midnight";
-  /// both are set together or not at all.
+  /// Wall-clock time for non-prayer reminders. Prayer uses event lead time.
+  /// Null uses the scheduler default; hour and minute are supplied together.
   final int? preferredHour;
   final int? preferredMinute;
 
@@ -49,18 +44,38 @@ class NotificationPreference extends Equatable {
   };
 
   factory NotificationPreference.fromJson(Map<String, dynamic> json) {
+    final type = NotificationType.values
+        .where((t) => t.name == json['type'])
+        .firstOrNull;
+    final enabled = json['enabled'];
+    final lead = json['lead_time_minutes'];
+    final hour = json['preferred_hour'];
+    final minute = json['preferred_minute'];
+    final channels = json['channels'];
+    if (type == null ||
+        enabled is! bool ||
+        lead is! int ||
+        lead < 0 ||
+        lead > 120 ||
+        channels is! List ||
+        channels.any((c) => c is! String) ||
+        ((hour == null) != (minute == null)) ||
+        (hour != null &&
+            (hour is! int ||
+                hour < 0 ||
+                hour > 23 ||
+                minute is! int ||
+                minute < 0 ||
+                minute > 59))) {
+      throw const FormatException('Invalid notification preference');
+    }
     return NotificationPreference(
-      type: NotificationType.values.firstWhere(
-        (type) => type.name == (json['type'] as String? ?? 'prayer'),
-        orElse: () => NotificationType.prayer,
-      ),
-      enabled: json['enabled'] as bool? ?? false,
-      leadTimeMinutes: json['lead_time_minutes'] as int? ?? 0,
-      channels: List<String>.from(
-        json['channels'] as List? ?? const <String>[],
-      ),
-      preferredHour: json['preferred_hour'] as int?,
-      preferredMinute: json['preferred_minute'] as int?,
+      type: type,
+      enabled: enabled,
+      leadTimeMinutes: lead,
+      channels: List<String>.from(channels),
+      preferredHour: hour as int?,
+      preferredMinute: minute as int?,
     );
   }
 
