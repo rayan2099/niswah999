@@ -30,10 +30,35 @@ class ActivityInboxController extends ChangeNotifier {
     loading = false;
     unavailable = false;
     notifyListeners();
+    _live = null;
+    _liveAgain = false;
     if (userId != null && repository != null) {
-      _unsubscribe = repository.watch(userId, () => unawaited(refresh()));
+      _unsubscribe = repository.watch(userId, _changed);
       unawaited(refresh());
     }
+  }
+
+  // A bulk read or a burst of activity emits one realtime change per row.
+  // At most one reload runs at a time, followed by one more if anything
+  // changed meanwhile, instead of a full reload per row.
+  Future<void>? _live;
+  bool _liveAgain = false;
+  void _changed() {
+    if (_live != null) {
+      _liveAgain = true;
+      return;
+    }
+    final generation = _generation;
+    late final Future<void> run;
+    run = refresh().whenComplete(() {
+      if (!identical(_live, run) || generation != _generation) return;
+      _live = null;
+      if (_liveAgain) {
+        _liveAgain = false;
+        _changed();
+      }
+    });
+    _live = run;
   }
 
   Future<void> refresh() async {
@@ -69,10 +94,50 @@ class ActivityInboxController extends ChangeNotifier {
     }
   }
 
-  Future<void> markRead({String? id}) async {
+  List<ActivityGroup> get groups => ActivityGroup.of(entries);
+
+  /// Marks [ids] (or everything when null) read immediately in the bell and
+  /// badge, then confirms with the server. A failure restores server state.
+  Future<void> markRead({List<String>? ids}) async {
     final user = _userId, repo = _repository, generation = _generation;
     if (user == null || repo == null) return;
-    await repo.markRead(user, id: id).timeout(const Duration(seconds: 10));
+    final selected = ids?.toSet();
+    final changed = entries
+        .where((e) => !e.read && (selected == null || selected.contains(e.id)))
+        .length;
+    final previous = entries, previousCount = _unreadCount;
+    // Discard any in-flight load that predates this read.
+    _readRevision++;
+    entries = [
+      for (final e in entries)
+        !e.read && (selected == null || selected.contains(e.id))
+            ? ActivityNotification(
+                id: e.id,
+                kind: e.kind,
+                target: e.target,
+                createdAt: e.createdAt,
+                read: true,
+              )
+            : e,
+    ];
+    _unreadCount = selected == null
+        ? 0
+        : (_unreadCount - changed).clamp(0, _unreadCount);
+    notifyListeners();
+    try {
+      await repo
+          .markRead(user, ids: ids?.toList())
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      if (generation == _generation) {
+        _readRevision++;
+        entries = previous;
+        _unreadCount = previousCount;
+        notifyListeners();
+        await refresh();
+      }
+      rethrow;
+    }
     if (generation == _generation) await refresh();
   }
 

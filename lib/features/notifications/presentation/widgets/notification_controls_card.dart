@@ -87,7 +87,8 @@ class _NotificationControlsCardState extends State<NotificationControlsCard> {
             .upsert({
               ...next,
               'user_id': user,
-              'timezone': zone ?? 'UTC',
+              // An unreadable zone must not overwrite the last known one.
+              'timezone': ?zone,
               'locale': AppLocaleController.instance.isArabic ? 'ar' : 'en',
             })
             .timeout(const Duration(seconds: 10));
@@ -115,6 +116,31 @@ class _NotificationControlsCardState extends State<NotificationControlsCard> {
       _error = _t(
         'Could not save these changes. Please try again.',
         'تعذّر حفظ التغييرات. حاولي مجددًا.',
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _enablePhoneAlerts() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final granted = await NotificationService.instance.requestPermission();
+      if (granted) {
+        await AppNotificationSession.instance.refreshRegistration();
+      } else {
+        _error = _t(
+          'Notifications are blocked for Niswah. Allow them in your phone settings.',
+          'التنبيهات محظورة لتطبيق نِسواه. اسمحي بها من إعدادات هاتفكِ.',
+        );
+      }
+    } catch (_) {
+      _error = _t(
+        'Phone alerts could not be turned on. Please try again.',
+        'تعذّر تفعيل تنبيهات الهاتف. حاولي مجددًا.',
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -155,13 +181,21 @@ class _NotificationControlsCardState extends State<NotificationControlsCard> {
               _error!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
-          if (!AppNotificationSession.instance.phoneAlertsConfigured)
+          if (!AppNotificationSession.instance.phoneAlertsConfigured) ...[
             Text(
               _t(
                 'Phone alerts are not active on this device. Activity is still available in the inbox.',
                 'تنبيهات الهاتف غير مفعّلة على هذا الجهاز. يبقى النشاط متاحًا في صندوق التنبيهات.',
               ),
             ),
+            // Messages and comments are on by default, so without this a
+            // person would have to toggle a switch off and on to be asked.
+            if (AppNotificationSession.enabled)
+              TextButton(
+                onPressed: _busy ? null : _enablePhoneAlerts,
+                child: Text(_t('Turn on phone alerts', 'تفعيل تنبيهات الهاتف')),
+              ),
+          ],
           SwitchListTile(
             title: Text(
               _t(

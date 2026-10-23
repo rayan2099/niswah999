@@ -85,6 +85,14 @@ class NotificationService {
   static const _channelDescription =
       'Cycle, pregnancy, nifas, wellbeing, and chat-safety reminders';
 
+  /// Incoming messages and community activity have their own Android channel
+  /// so they can be silenced in system settings without losing reminders.
+  /// The dispatch worker and the manifest default name the same channel.
+  static const activityChannelId = 'niswah_activity';
+  static const _activityChannelName = 'Messages and community';
+  static const _activityChannelDescription =
+      'New private messages and activity on your posts';
+
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
   Future<void>? _initializing;
@@ -246,6 +254,14 @@ class NotificationService {
         importance: Importance.high,
       ),
     );
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        activityChannelId,
+        _activityChannelName,
+        description: _activityChannelDescription,
+        importance: Importance.high,
+      ),
+    );
 
     _initialized = true;
   }
@@ -360,6 +376,7 @@ class NotificationService {
     required String title,
     required String body,
     String? payload,
+    bool activity = false,
   }) {
     final lease = _captureLease();
     return _serialize(() async {
@@ -376,13 +393,16 @@ class NotificationService {
         return;
       }
       if (!await _retryCleanup() || !_isCurrent(lease)) return;
-      if (!NotificationDeliveryPreferences.instance.allows(tz.TZDateTime.from(AppClock.now(),tz.local))) return;
+      if (!NotificationDeliveryPreferences.instance.allows(
+        tz.TZDateTime.from(AppClock.now(), tz.local),
+      ))
+        return;
       try {
         await _plugin.show(
           id: id,
           title: title,
           body: body,
-          notificationDetails: _details(),
+          notificationDetails: activity ? _activityDetails : _details(),
           payload: payload,
         );
         if (!_isCurrent(lease)) await _plugin.cancel(id: id);
@@ -716,6 +736,18 @@ class NotificationService {
       if (_initialized) await _retryCleanup();
     });
   }
+
+  static const _activityDetails = NotificationDetails(
+    android: AndroidNotificationDetails(
+      activityChannelId,
+      _activityChannelName,
+      channelDescription: _activityChannelDescription,
+      importance: Importance.high,
+      priority: Priority.high,
+      visibility: NotificationVisibility.private,
+    ),
+    iOS: DarwinNotificationDetails(),
+  );
 
   NotificationDetails _details() => const NotificationDetails(
     android: AndroidNotificationDetails(
