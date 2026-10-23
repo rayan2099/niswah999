@@ -1,3 +1,6 @@
+import '../../../../core/widgets/app_route_observer.dart';
+import '../../../notifications/data/services/app_notification_session.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
@@ -28,27 +31,84 @@ class ChatDetailScreen extends StatefulWidget {
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
 }
 
-class _ChatDetailScreenState extends State<ChatDetailScreen> {
+class _ChatDetailScreenState extends State<ChatDetailScreen>
+    with WidgetsBindingObserver, RouteAware {
   late final ChatDetailViewModel _viewModel;
+  final _conversationOwner = Object();
+  ModalRoute<dynamic>? _observedRoute;
+  void _publishVisible() {
+    AppNotificationSession.instance.showConversation(
+      widget.conversation.id,
+      _conversationOwner,
+      () =>
+          mounted &&
+          _viewModel.active &&
+          (ModalRoute.of(context)?.isCurrent ?? false),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null && !identical(route, _observedRoute)) {
+      appRouteObserver.unsubscribe(this);
+      _observedRoute = route;
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPush() => _publishVisible();
+  @override
+  void didPopNext() {
+    _publishVisible();
+    _viewModel.loadMessages();
+  }
+
+  @override
+  void didPushNext() =>
+      AppNotificationSession.instance.hideConversation(_conversationOwner);
+  @override
+  void didPop() =>
+      AppNotificationSession.instance.hideConversation(_conversationOwner);
+
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _viewModel = ChatDetailViewModel(
       repository: privateMessagingRepository,
       conversationId: widget.conversation.id,
       currentUserId: widget.currentUserId,
+      isVisible: () => mounted && (ModalRoute.of(context)?.isCurrent ?? false),
     )..loadMessages();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    appRouteObserver.unsubscribe(this);
+    AppNotificationSession.instance.hideConversation(_conversationOwner);
     _inputController.dispose();
     _scrollController.dispose();
     _viewModel.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _viewModel.active = state == AppLifecycleState.resumed;
+    if (_viewModel.active) {
+      _publishVisible();
+    } else {
+      AppNotificationSession.instance.hideConversation(_conversationOwner);
+    }
+    if (_viewModel.active) _viewModel.loadMessages();
   }
 
   void _scrollToBottom() {

@@ -37,6 +37,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## docs/engineering
 
+- [app-wide-notifications.md](../../docs/engineering/app-wide-notifications.md)
 - [notification-reliability.md](../../docs/engineering/notification-reliability.md)
 - [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
 
@@ -123,6 +124,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [staging_acceptance_client.py](../../scripts/lib/staging_acceptance_client.py)
 - [supabase_management_api.py](../../scripts/lib/supabase_management_api.py)
 
+## scripts/notifications
+
+- [activate_dispatch.sql](../../scripts/notifications/activate_dispatch.sql)
+- [check_client_config.py](../../scripts/notifications/check_client_config.py)
+- [test_client_config.py](../../scripts/notifications/test_client_config.py)
+
 ## test
 
 - [accessibility_semantics_test.dart](../../test/accessibility_semantics_test.dart)
@@ -136,6 +143,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [app_integration_test.dart](../../test/app_integration_test.dart)
 - [app_localization_delegates_test.dart](../../test/app_localization_delegates_test.dart)
 - [app_theme_controller_test.dart](../../test/app_theme_controller_test.dart)
+- [app_wide_notification_controller_test.dart](../../test/app_wide_notification_controller_test.dart)
+- [app_wide_notification_navigation_test.dart](../../test/app_wide_notification_navigation_test.dart)
+- [app_wide_notification_scheduling_test.dart](../../test/app_wide_notification_scheduling_test.dart)
+- [app_wide_push_dispatch_test.dart](../../test/app_wide_push_dispatch_test.dart)
 - [auth_gate_test.dart](../../test/auth_gate_test.dart)
 - [auth_onboarding_routing_test.dart](../../test/auth_onboarding_routing_test.dart)
 - [auth_repository_phone_normalization_test.dart](../../test/auth_repository_phone_normalization_test.dart)
@@ -228,6 +239,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [pregnancy_profile_repository_test.dart](../../test/pregnancy_profile_repository_test.dart)
 - [pregnancy_status_parity_test.dart](../../test/pregnancy_status_parity_test.dart)
 - [private_messaging_no_demo_fallback_test.dart](../../test/private_messaging_no_demo_fallback_test.dart)
+- [private_messaging_realtime_test.dart](../../test/private_messaging_realtime_test.dart)
 - [private_messaging_test.dart](../../test/private_messaging_test.dart)
 - [profile_account_settings_test.dart](../../test/profile_account_settings_test.dart)
 - [profile_update_observability_test.dart](../../test/profile_update_observability_test.dart)
@@ -289,6 +301,13 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## test/logging_sync_hardening/support
 
 - [fake_supabase.dart](../../test/logging_sync_hardening/support/fake_supabase.dart)
+
+## test/notification_backend
+
+- [package-lock.json](../../test/notification_backend/package-lock.json)
+- [package.json](../../test/notification_backend/package.json)
+- [schema.test.mjs](../../test/notification_backend/schema.test.mjs)
+- [worker.test.mjs](../../test/notification_backend/worker.test.mjs)
 
 ## test/onboarding_server_hardening
 

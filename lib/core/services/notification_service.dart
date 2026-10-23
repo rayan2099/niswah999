@@ -1,3 +1,5 @@
+import '../preferences/notification_delivery_preferences.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -23,6 +25,9 @@ enum NotificationSchedulingOutcome {
 
   /// Newer settings or an account change invalidated this operation.
   superseded,
+
+  /// Explicit device quiet hours suppressed this reminder.
+  quietHours,
 
   /// A local wall-clock reminder requires a resolved device timezone.
   timezoneUnavailable,
@@ -354,6 +359,7 @@ class NotificationService {
     required int id,
     required String title,
     required String body,
+    String? payload,
   }) {
     final lease = _captureLease();
     return _serialize(() async {
@@ -370,12 +376,14 @@ class NotificationService {
         return;
       }
       if (!await _retryCleanup() || !_isCurrent(lease)) return;
+      if (!NotificationDeliveryPreferences.instance.allows(tz.TZDateTime.from(AppClock.now(),tz.local))) return;
       try {
         await _plugin.show(
           id: id,
           title: title,
           body: body,
           notificationDetails: _details(),
+          payload: payload,
         );
         if (!_isCurrent(lease)) await _plugin.cancel(id: id);
       } catch (error, stack) {
@@ -420,6 +428,16 @@ class NotificationService {
           context: 'NotificationService.scheduleAt',
         );
         return NotificationSchedulingOutcome.uninitialized;
+      }
+      if (!NotificationDeliveryPreferences.instance.allows(
+        tz.TZDateTime.from(when, tz.local),
+      )) {
+        try {
+          await _plugin.cancel(id: id);
+        } catch (_) {
+          return NotificationSchedulingOutcome.failed;
+        }
+        return NotificationSchedulingOutcome.quietHours;
       }
       if (!when.isAfter(AppClock.now())) {
         return NotificationSchedulingOutcome.failed;
@@ -488,6 +506,15 @@ class NotificationService {
       }
       if (_activeTimezoneId == null) {
         return NotificationSchedulingOutcome.timezoneUnavailable;
+      }
+      final clockTime = DateTime(2030, 1, 1, hour, minute);
+      if (!NotificationDeliveryPreferences.instance.allows(clockTime)) {
+        try {
+          await _plugin.cancel(id: id);
+        } catch (_) {
+          return NotificationSchedulingOutcome.failed;
+        }
+        return NotificationSchedulingOutcome.quietHours;
       }
       if (!await _retryCleanup()) return NotificationSchedulingOutcome.failed;
       if (!_isCurrent(lease)) return NotificationSchedulingOutcome.superseded;
@@ -561,6 +588,15 @@ class NotificationService {
   /// one currently signed in is discarded outright rather than being
   /// re-checked against a later, different sign-in — "if wrong user,
   /// cancel/ignore safely" (E7) applies to a stale payload too.
+  /// Receives a validated provider tap; navigation waits for an authenticated
+  /// mounted surface and rechecks the destination's permissions.
+  void enqueueTap(String payload) {
+    _pendingTapPayload = payload;
+    _tapController.add(payload);
+  }
+
+  String? peekPendingTapPayload() => _pendingTapPayload;
+
   String? consumePendingTapPayload() {
     final payload = _pendingTapPayload;
     _pendingTapPayload = null;

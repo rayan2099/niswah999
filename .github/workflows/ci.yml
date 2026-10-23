@@ -96,6 +96,7 @@ jobs:
           python3 scripts/test_assert_test_backend.py
           python3 scripts/test_verify_acceptance_results.py
           python3 scripts/test_select_release_env_secret.py
+          python3 scripts/notifications/test_client_config.py
 
       # The app's pregnancy engine and the SERVER's (the code the AI Edge
       # Functions use to build the pregnancy context) must agree: the same
@@ -103,6 +104,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Notification database security and push worker tests
+        run: |
+          npm ci --prefix test/notification_backend
+          npm test --prefix test/notification_backend
+
       - name: Pregnancy engine parity (app vs server)
         run: node --experimental-strip-types scripts/pregnancy_status_parity.mjs
 

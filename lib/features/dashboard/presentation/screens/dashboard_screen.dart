@@ -1,3 +1,4 @@
+import '../../../notifications/presentation/viewmodels/activity_inbox_controller.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -232,10 +233,10 @@ class DashboardScreen extends StatefulWidget {
   final String? canonicalUserIdOverride;
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
+  State<DashboardScreen> createState() => DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class DashboardScreenState extends State<DashboardScreen> {
   late final CycleTrackingViewModel _viewModel;
   late final PrayerTrackingViewModel _prayerViewModel;
   bool _istihadahMode = false;
@@ -1029,6 +1030,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
     );
   }
+
+  Future<void> openWellbeingCheckIn() => _showWellbeingCheckIn();
 
   Future<void> _showWellbeingCheckIn() async {
     final result = await showModalBottomSheet<_WellbeingCheckInResult>(
@@ -2646,10 +2649,10 @@ class _DashboardHeader extends StatelessWidget {
           ),
           const SizedBox(width: 16),
           AnimatedBuilder(
-            animation: NotificationLogController.instance,
+            animation: Listenable.merge([NotificationLogController.instance,ActivityInboxController.instance]),
             builder: (context, _) {
               final unreadCount =
-                  NotificationLogController.instance.unreadCount;
+                  NotificationLogController.instance.unreadCount + ActivityInboxController.instance.unreadCount;
               return Semantics(
                 button: true,
                 label: unreadCount > 0

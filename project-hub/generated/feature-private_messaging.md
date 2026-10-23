@@ -16,6 +16,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [private_messaging_repository.dart](../../lib/features/private_messaging/data/repositories/private_messaging_repository.dart)
 - [private_conversation.dart](../../lib/features/private_messaging/domain/entities/private_conversation.dart)
 - [private_message.dart](../../lib/features/private_messaging/domain/entities/private_message.dart)
+- [private_messaging_realtime.dart](../../lib/features/private_messaging/domain/repositories/private_messaging_realtime.dart)
 - [private_messaging_repository_base.dart](../../lib/features/private_messaging/domain/repositories/private_messaging_repository_base.dart)
 - [conversation_title.dart](../../lib/features/private_messaging/presentation/conversation_title.dart)
 - [chat_detail_screen.dart](../../lib/features/private_messaging/presentation/screens/chat_detail_screen.dart)
@@ -30,6 +31,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 Filename matches only; inspect imports and behavior to establish actual coverage.
 
 - [private_messaging_no_demo_fallback_test.dart](../../test/private_messaging_no_demo_fallback_test.dart)
+- [private_messaging_realtime_test.dart](../../test/private_messaging_realtime_test.dart)
 - [private_messaging_test.dart](../../test/private_messaging_test.dart)
 
 ## Related features to inspect

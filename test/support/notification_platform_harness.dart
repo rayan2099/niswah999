@@ -1,3 +1,4 @@
+import 'package:niswah/core/preferences/notification_delivery_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -31,6 +32,7 @@ class NotificationPlatformHarness {
     TargetPlatform platform = TargetPlatform.android,
   }) async {
     SharedPreferences.setMockInitialValues({});
+    NotificationDeliveryPreferences.instance.resetInMemory();
     AppClock.now = () => DateTime.utc(2030, 1, 15, 9);
     debugDefaultTargetPlatformOverride = platform;
     if (platform == TargetPlatform.iOS) {
@@ -99,6 +101,7 @@ class NotificationPlatformHarness {
     NotificationLogController.instance.resetInMemory();
     PrayerLocationController.instance.resetInMemory();
     PregnancyStatusController.instance.resetInMemory();
+    NotificationDeliveryPreferences.instance.resetInMemory();
     AppClock.reset();
     debugDefaultTargetPlatformOverride = null;
   }

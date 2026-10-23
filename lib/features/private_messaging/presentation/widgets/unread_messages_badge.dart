@@ -1,3 +1,5 @@
+import '../../domain/repositories/private_messaging_realtime.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../domain/repositories/private_messaging_repository_base.dart';
@@ -16,19 +18,54 @@ class UnreadMessagesBadge extends StatefulWidget {
   State<UnreadMessagesBadge> createState() => _UnreadMessagesBadgeState();
 }
 
-class _UnreadMessagesBadgeState extends State<UnreadMessagesBadge> {
+class _UnreadMessagesBadgeState extends State<UnreadMessagesBadge>
+    with WidgetsBindingObserver {
   int? _unreadCount;
+  int _generation = 0;
+  void Function()? _unsubscribe;
+
+  void _watch() {
+    _unsubscribe?.call();
+    final repo = widget.repository;
+    if (repo is PrivateMessagingRealtime) {
+      _unsubscribe = (repo as PrivateMessagingRealtime).watchChanges(_load);
+    }
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant UnreadMessagesBadge oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.repository, widget.repository)) _watch();
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    _unsubscribe?.call();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _load();
+  }
 
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addObserver(this);
+    _watch();
   }
 
   Future<void> _load() async {
+    final generation = ++_generation;
     try {
       final count = await widget.repository.fetchUnreadCount();
-      if (mounted) setState(() => _unreadCount = count);
+      if (mounted && generation == _generation) {
+        setState(() => _unreadCount = count);
+      }
     } catch (_) {
       // Badge is a nice-to-have; silently ignore load failures.
     }

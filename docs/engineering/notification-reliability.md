@@ -2,6 +2,8 @@
 
 Status: implemented in `fix/notification-reliability`; verification recorded below. Not deployed. This work depends on the prayer-time integrity changes in PR #34. It does not certify OS delivery, medical predictions, or scholarly approval.
 
+Follow-up: [app-wide notifications](app-wide-notifications.md) adds incoming activity, destinations and controls; it supersedes the four-fixed-slot budget below with six fixed slots (61 total). Deployment and verification statuses are recorded separately there.
+
 Navigation: [notifications feature map](../../project-hub/generated/feature-notifications.md), [prayer-time integrity](prayer-time-integrity.md).
 
 ## Findings and changes

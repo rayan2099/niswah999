@@ -1,3 +1,5 @@
+import '../../features/notifications/domain/entities/notification_target.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -20,10 +22,12 @@ class NotificationLogEntry {
     required this.createdAt,
     this.read = false,
     this.fireAt,
+    this.target,
   });
 
   final String id;
   final NotificationType type;
+  final NotificationTarget? target;
   final String titleAr;
   final String bodyAr;
   final String titleEn;
@@ -53,10 +57,12 @@ class NotificationLogEntry {
     createdAt: createdAt,
     read: read ?? this.read,
     fireAt: fireAt,
+    target: target,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    if (target != null) 'target': target!.toJson(),
     'type': type.name,
     'title_ar': titleAr,
     'body_ar': bodyAr,
@@ -69,6 +75,7 @@ class NotificationLogEntry {
 
   factory NotificationLogEntry.fromJson(Map<String, dynamic> json) {
     return NotificationLogEntry(
+      target: NotificationTarget.tryParse(json['target']),
       id: json['id'] as String? ?? '',
       type: NotificationType.values.firstWhere(
         (value) => value.name == (json['type'] as String? ?? ''),

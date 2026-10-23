@@ -14,6 +14,8 @@
              religious-practice data app, that means locally-cached cycle and
              pregnancy data would be silently included in Android's automatic
              cloud backup unless explicitly disabled (release-hardening). -->
+        <!-- Required by Firebase Messaging 17 register/onRegistered (FID) APIs. -->
+        <meta-data android:name="firebase_messaging_installation_id_enabled" android:value="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

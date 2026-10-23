@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**169 existing Markdown documents**, grouped by source folder.
+**170 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -38,6 +38,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## docs/engineering
 
+- [app-wide-notifications.md](../../docs/engineering/app-wide-notifications.md)
 - [notification-reliability.md](../../docs/engineering/notification-reliability.md)
 - [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
 

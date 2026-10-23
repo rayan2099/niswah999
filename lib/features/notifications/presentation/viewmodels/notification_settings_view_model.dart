@@ -1,3 +1,5 @@
+import '../../data/services/app_notification_session.dart';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/network/supabase_client.dart';
@@ -150,6 +152,7 @@ class NotificationSettingsViewModel extends ChangeNotifier {
       if (enabled && !current.enabled) {
         permissionGranted = await _requestPermission();
         if (!isCurrent()) return;
+        await AppNotificationSession.instance.refreshRegistration();
       }
       await _refresh(userId);
     } catch (_) {

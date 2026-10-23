@@ -1,3 +1,5 @@
+import '../../domain/repositories/private_messaging_realtime.dart';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -9,7 +11,8 @@ import '../../domain/entities/private_message.dart';
 ///
 /// RLS on `private_conversations` / `private_messages` guarantees users can
 /// only read and write rows where they are active participants.
-class PrivateMessagingRepository implements PrivateMessagingRepositoryBase {
+class PrivateMessagingRepository
+    implements PrivateMessagingRepositoryBase, PrivateMessagingRealtime {
   final SupabaseClient _client;
 
   PrivateMessagingRepository(this._client);
@@ -158,12 +161,11 @@ class PrivateMessagingRepository implements PrivateMessagingRepositoryBase {
   Future<int> fetchUnreadCount() async {
     try {
       final uid = _currentUserId;
-      final response = await _client
+      return await _client
           .from('private_messages')
-          .select('id')
+          .count(CountOption.exact)
           .eq('is_read', false)
           .neq('sender_id', uid);
-      return (response as List).length;
     } on PostgrestException catch (e) {
       throw PrivateMessagingException(
         'Failed to count unread messages: ${e.message}',
@@ -195,14 +197,46 @@ class PrivateMessagingRepository implements PrivateMessagingRepositoryBase {
     }
   }
 
+  @override
+  void Function() watchConversation(
+    String id,
+    void Function(PrivateMessage) onMessage, {
+    void Function()? onResync,
+  }) => subscribeToMessages(id, onMessage, onResync: onResync);
+
+  @override
+  void Function() watchChanges(void Function() onChange) {
+    final channel = _client
+        .channel('message-changes-${const Uuid().v4()}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'private_messages',
+          callback: (_) => onChange(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'private_conversations',
+          callback: (_) => onChange(),
+        )
+        .subscribe((status, error) {
+          if (status == RealtimeSubscribeStatus.subscribed) onChange();
+        });
+    return () {
+      _client.removeChannel(channel);
+    };
+  }
+
   /// Subscribes to new messages for a conversation via Supabase Realtime.
   /// Returns a function that cancels the subscription.
   void Function() subscribeToMessages(
     String conversationId,
-    void Function(PrivateMessage message) onNewMessage,
-  ) {
+    void Function(PrivateMessage message) onNewMessage, {
+    void Function()? onResync,
+  }) {
     final channel = _client
-        .channel('private-messages-$conversationId')
+        .channel('private-messages-$conversationId-${const Uuid().v4()}')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -215,11 +249,17 @@ class PrivateMessagingRepository implements PrivateMessagingRepositoryBase {
           callback: (payload) {
             final record = payload.newRecord;
             if (record.isNotEmpty) {
-              onNewMessage(PrivateMessage.fromJson(record));
+              try {
+                onNewMessage(PrivateMessage.fromJson(record));
+              } catch (_) {
+                /* Malformed events must not break the stream. */
+              }
             }
           },
         )
-        .subscribe();
+        .subscribe((status, error) {
+          if (status == RealtimeSubscribeStatus.subscribed) onResync?.call();
+        });
     return () async => _client.removeChannel(channel);
   }
 }

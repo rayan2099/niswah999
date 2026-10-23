@@ -1,3 +1,5 @@
+import 'notification_delivery_preferences.dart';
+
 import 'dart:async';
 
 import '../errors/app_error_reporter.dart';
@@ -21,6 +23,7 @@ class LocalPreferenceScope {
     PregnancyStatusController.instance.resetInMemory();
     PrayerLocationController.instance.resetInMemory();
     NotificationLogController.instance.resetInMemory();
+    NotificationDeliveryPreferences.instance.resetInMemory();
     CommunityLanguageController.instance.resetInMemory();
   }
 
@@ -32,6 +35,7 @@ class LocalPreferenceScope {
       'ttc': TtcModeController.instance.load,
       'pregnancy': PregnancyStatusController.instance.load,
       'prayer_location': PrayerLocationController.instance.load,
+      'notification_delivery': NotificationDeliveryPreferences.instance.load,
       'notification_log': NotificationLogController.instance.load,
       'community_language': CommunityLanguageController.instance.load,
     };
