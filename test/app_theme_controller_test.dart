@@ -19,6 +19,12 @@ void main() {
     expect(AppThemeController.instance.themeMode, ThemeMode.system);
   });
 
+  test('with no saved preference the app opens in light mode', () async {
+    SharedPreferences.setMockInitialValues({});
+    await AppThemeController.instance.load();
+    expect(AppThemeController.instance.themeMode, ThemeMode.light);
+  });
+
   test('light and dark themes are distinct and readable', () {
     final light = AppTheme.lightTheme;
     final dark = AppTheme.darkTheme;
