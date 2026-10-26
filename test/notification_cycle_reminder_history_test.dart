@@ -37,9 +37,13 @@ const _pluginChannel = MethodChannel(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final pending = <int, Map<String, dynamic>>{};
+  // The notification plugin rejects fire times before the real wall clock,
+  // so the fake "now" sits a month after the real date, not on a fixed day.
+  final real = DateTime.now();
+  final today = DateTime(real.year, real.month, real.day + 30);
 
   setUp(() async {
-    AppClock.now = () => DateTime(2026, 10, 10, 9);
+    AppClock.now = () => DateTime(today.year, today.month, today.day, 9);
     SharedPreferences.setMockInitialValues({});
     AndroidFlutterLocalNotificationsPlugin.registerWith();
     pending.clear();
@@ -76,16 +80,12 @@ void main() {
     AppClock.reset();
   });
 
-  // Two onboarding-reported periods 28 days apart; the next is due Oct 29.
+  // Two onboarding-reported periods 28 days apart; the next is due in 19 days.
+  DateTime day(int offset) =>
+      DateTime(today.year, today.month, today.day + offset);
   final onboardingHistory = [
-    CanonicalEpisodeTiming(
-      startDate: DateTime(2026, 9, 3),
-      endDate: DateTime(2026, 9, 8),
-    ),
-    CanonicalEpisodeTiming(
-      startDate: DateTime(2026, 10, 1),
-      endDate: DateTime(2026, 10, 6),
-    ),
+    CanonicalEpisodeTiming(startDate: day(-37), endDate: day(-32)),
+    CanonicalEpisodeTiming(startDate: day(-9), endDate: day(-4)),
   ];
 
   test('canonical history alone is enough to plan the reminder', () async {
