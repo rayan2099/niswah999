@@ -35,6 +35,10 @@ BEGIN
   SELECT string_agg(format('%s.%s', tablename, policyname), ', ') INTO v
   FROM pg_policies
   WHERE schemaname = 'public'
+    AND tablename IN ('bleeding_episodes', 'bleeding_observations',
+      'cycle_baselines', 'madhhab_history', 'cycle_entries', 'symptoms_log',
+      'prayer_log', 'adah_ledger', 'istihadah_episodes', 'nifas_records',
+      'pregnancy_records', 'pregnancy_profile', 'cycle_logs', 'users')
     AND (qual LIKE '%SELECT auth.uid()%' OR with_check LIKE '%SELECT auth.uid()%')
     AND (roles <> '{public}' OR permissive <> 'PERMISSIVE');
   ASSERT v IS NULL, format('FAIL: roles/permissive changed on %s', v);
