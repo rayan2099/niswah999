@@ -36,10 +36,12 @@ const _pluginChannel = MethodChannel(
 /// be incomplete.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
   final pending = <int, Map<String, dynamic>>{};
 
   setUp(() async {
-    AppClock.now = () => DateTime(2026, 10, 10, 9);
+    AppClock.now = () => today.add(const Duration(hours: 9));
     SharedPreferences.setMockInitialValues({});
     AndroidFlutterLocalNotificationsPlugin.registerWith();
     pending.clear();
@@ -76,15 +78,18 @@ void main() {
     AppClock.reset();
   });
 
-  // Two onboarding-reported periods 28 days apart; the next is due Oct 29.
+  // Two onboarding-reported periods 28 days apart; the next is due 19 days
+  // from today. Anchored to the real date, not a fixed one: the plugin
+  // rejects a reminder time that is in the past by the wall clock, which
+  // AppClock does not control, so a fixed date stops working once it passes.
   final onboardingHistory = [
     CanonicalEpisodeTiming(
-      startDate: DateTime(2026, 9, 3),
-      endDate: DateTime(2026, 9, 8),
+      startDate: today.subtract(const Duration(days: 37)),
+      endDate: today.subtract(const Duration(days: 32)),
     ),
     CanonicalEpisodeTiming(
-      startDate: DateTime(2026, 10, 1),
-      endDate: DateTime(2026, 10, 6),
+      startDate: today.subtract(const Duration(days: 9)),
+      endDate: today.subtract(const Duration(days: 4)),
     ),
   ];
 
