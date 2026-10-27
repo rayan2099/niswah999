@@ -32,6 +32,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
 - [parity-checklist.md](../../docs/parity-checklist.md)
+- [password-recovery.md](../../docs/password-recovery.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 
@@ -228,6 +229,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [parity_today_logic_test.dart](../../test/parity_today_logic_test.dart)
 - [parity_today_lower_test.dart](../../test/parity_today_lower_test.dart)
 - [parity_today_stepper_consistency_test.dart](../../test/parity_today_stepper_consistency_test.dart)
+- [password_recovery_screen_test.dart](../../test/password_recovery_screen_test.dart)
 - [pdf_text_extractor_test.dart](../../test/pdf_text_extractor_test.dart)
 - [pending_bleeding_operation_store_test.dart](../../test/pending_bleeding_operation_store_test.dart)
 - [pending_operation_userid_threading_test.dart](../../test/pending_operation_userid_threading_test.dart)

@@ -43,6 +43,17 @@ class AuthController extends ChangeNotifier {
 
   bool get isAuthenticated => _isAuthenticated;
 
+  // A recovery link creates a session, but it must not route straight to the
+  // home screen before the user has chosen a new password.
+  bool _passwordRecovery = false;
+  bool get passwordRecovery => _passwordRecovery;
+
+  void completePasswordRecovery() {
+    if (!_passwordRecovery) return;
+    _passwordRecovery = false;
+    notifyListeners();
+  }
+
   // Set by the sign-up flow (sign_in_screen.dart) the moment a brand-new
   // account's session lands *immediately* (no email confirmation
   // required) — never by sign-in. Used only as a UX hint for
@@ -233,6 +244,15 @@ class AuthController extends ChangeNotifier {
 
     _subscription ??= client.auth.onAuthStateChange.listen((state) {
       final signedIn = state.session != null;
+      final wasRecovering = _passwordRecovery;
+      if (state.event == AuthChangeEvent.passwordRecovery && signedIn) {
+        _passwordRecovery = true;
+      } else if (!signedIn ||
+          (state.event == AuthChangeEvent.signedIn &&
+              _authenticatedUserId != null &&
+              state.session?.user.id != _authenticatedUserId)) {
+        _passwordRecovery = false;
+      }
       final wasAuthenticated = _isAuthenticated;
       final accountChanged =
           signedIn &&
@@ -273,6 +293,8 @@ class AuthController extends ChangeNotifier {
       }
       if (signedIn != wasAuthenticated || accountChanged) {
         _isAuthenticated = signedIn;
+        notifyListeners();
+      } else if (wasRecovering != _passwordRecovery) {
         notifyListeners();
       }
       // Only re-check on a genuine sign-in transition (was signed out,
