@@ -178,46 +178,60 @@ class _ClockScenario {
   final DateTime Function() clock;
 }
 
+// With no explicit TZ, the mocked device reports UTC. Use a UTC clock too;
+// otherwise a non-UTC Mac's local clock and the mock disagree by hours.
+// Explicit TZ matrix runs continue exercising native local DateTimes.
+DateTime _scenarioTime(
+  int year,
+  int month,
+  int day, [
+  int hour = 0,
+  int minute = 0,
+  int second = 0,
+]) => Platform.environment['TZ'] == null
+    ? DateTime.utc(year, month, day, hour, minute, second)
+    : DateTime(year, month, day, hour, minute, second);
+
 final _clockScenarios = <_ClockScenario>[
-  _ClockScenario('09:00', () => DateTime(2030, 1, 15, 9)),
+  _ClockScenario('09:00', () => _scenarioTime(2030, 1, 15, 9)),
   _ClockScenario(
     '17:59:59 (last second before lead time)',
-    () => DateTime(2030, 1, 15, 17, 59, 59),
+    () => _scenarioTime(2030, 1, 15, 17, 59, 59),
   ),
   _ClockScenario(
     '18:00:00 (exactly the lead time)',
-    () => DateTime(2030, 1, 15, 18),
+    () => _scenarioTime(2030, 1, 15, 18),
   ),
-  _ClockScenario('20:29:59', () => DateTime(2030, 1, 15, 20, 29, 59)),
+  _ClockScenario('20:29:59', () => _scenarioTime(2030, 1, 15, 20, 29, 59)),
   _ClockScenario(
     '20:59:59 (last second of default catch-up)',
-    () => DateTime(2030, 1, 15, 20, 59, 59),
+    () => _scenarioTime(2030, 1, 15, 20, 59, 59),
   ),
   _ClockScenario(
     '21:00:00 (default catch-up closes)',
-    () => DateTime(2030, 1, 15, 21),
+    () => _scenarioTime(2030, 1, 15, 21),
   ),
   _ClockScenario(
     '21:07 (the time of day CI first failed)',
-    () => DateTime(2030, 1, 15, 21, 7),
+    () => _scenarioTime(2030, 1, 15, 21, 7),
   ),
-  _ClockScenario('23:29:59', () => DateTime(2030, 1, 15, 23, 29, 59)),
+  _ClockScenario('23:29:59', () => _scenarioTime(2030, 1, 15, 23, 29, 59)),
   _ClockScenario(
     '23:30:00 (20:30-lead catch-up closes)',
-    () => DateTime(2030, 1, 15, 23, 30),
+    () => _scenarioTime(2030, 1, 15, 23, 30),
   ),
   _ClockScenario(
     '23:59:59 (last second of the day)',
-    () => DateTime(2030, 1, 15, 23, 59, 59),
+    () => _scenarioTime(2030, 1, 15, 23, 59, 59),
   ),
   _ClockScenario(
     '00:00:00 (first second of next day)',
-    () => DateTime(2030, 1, 16),
+    () => _scenarioTime(2030, 1, 16),
   ),
-  _ClockScenario('00:00:01', () => DateTime(2030, 1, 16, 0, 0, 1)),
+  _ClockScenario('00:00:01', () => _scenarioTime(2030, 1, 16, 0, 0, 1)),
   _ClockScenario(
     '2030-12-31 23:59:59 (year boundary)',
-    () => DateTime(2030, 12, 31, 23, 59, 59),
+    () => _scenarioTime(2030, 12, 31, 23, 59, 59),
   ),
 ];
 
