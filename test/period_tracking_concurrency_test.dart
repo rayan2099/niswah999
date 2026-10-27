@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:niswah/core/storage/local_sensitive_data_cleanup.dart';
@@ -145,4 +143,78 @@ void main() {
       );
     },
   );
+  test('queued clear stays with its starting owner', () async {
+    await PendingBleedingOperationStore.savePending(operation('same-id'));
+    SecureLocalStore.debugUserIdOverride = 'owner-b';
+    await PendingBleedingOperationStore.savePending(operation('same-id'));
+    SecureLocalStore.debugUserIdOverride = 'owner-a';
+    final clearing = PendingBleedingOperationStore.clearPending('same-id');
+    SecureLocalStore.debugUserIdOverride = 'owner-b';
+    await clearing;
+    expect(
+      await PendingBleedingOperationStore.loadPending(userId: 'owner-a'),
+      isEmpty,
+    );
+    expect(
+      (await PendingBleedingOperationStore.loadPending()).single.operationId,
+      'same-id',
+    );
+  });
+
+  test('queued failure update stays with its starting owner', () async {
+    await PendingBleedingOperationStore.savePending(operation('same-id'));
+    SecureLocalStore.debugUserIdOverride = 'owner-b';
+    await PendingBleedingOperationStore.savePending(operation('same-id'));
+    SecureLocalStore.debugUserIdOverride = 'owner-a';
+    final updating = PendingBleedingOperationStore.updatePendingIfQueued(
+      operation('same-id').withFailure(
+        PendingOperationFailureCategory.network,
+        attemptedAt: DateTime.utc(2026, 10, 27),
+      ),
+    );
+    SecureLocalStore.debugUserIdOverride = 'owner-b';
+    expect(await updating, isTrue);
+    expect(
+      (await PendingBleedingOperationStore.loadPending()).single.retryCount,
+      0,
+    );
+    expect(
+      (await PendingBleedingOperationStore.loadPending(userId: 'owner-a'))
+          .single
+          .retryCount,
+      1,
+    );
+  });
+
+  test('queued local deletion stays with its starting owner', () async {
+    final source = LocalCycleTrackingDataSource();
+    await source.upsert(log('same-id'));
+    SecureLocalStore.debugUserIdOverride = 'owner-b';
+    await source.upsert(log('same-id').copyWith(userId: 'owner-b'));
+    SecureLocalStore.debugUserIdOverride = 'owner-a';
+    final deleting = source.delete('same-id');
+    SecureLocalStore.debugUserIdOverride = 'owner-b';
+    await deleting;
+    expect((await source.loadLogs()).single.userId, 'owner-b');
+    SecureLocalStore.debugUserIdOverride = 'owner-a';
+    expect(await source.loadLogs(), isEmpty);
+  });
+
+  test('legacy migration keeps its starting owner across an await', () async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('synthetic_legacy', '["synthetic"]');
+    final migrating = SecureLocalStore.migrateLegacyIfNeeded(
+      legacyKey: 'synthetic_legacy',
+      category: 'synthetic_category',
+      isValid: (_) => true,
+    );
+    SecureLocalStore.debugUserIdOverride = 'owner-b';
+    await migrating;
+    expect(await SecureLocalStore.read('synthetic_category'), isNull);
+    expect(
+      await SecureLocalStore.read('synthetic_category', userId: 'owner-a'),
+      '["synthetic"]',
+    );
+    expect(prefs.getString('synthetic_legacy'), isNull);
+  });
 }

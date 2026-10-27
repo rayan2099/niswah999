@@ -127,6 +127,7 @@ class SecureLocalStore {
   /// migration state that would make a retry see "already migrated" for
   /// data that was never actually verified.
   ///
+  /// [userId] pins migration and rollback to an owner across session changes.
   /// [isValid] performs the deserialize/validate step — callers pass a
   /// check appropriate to their stored JSON shape (e.g. decodes and
   /// confirms it's a `List`). Migration only proceeds past validation.
@@ -134,9 +135,11 @@ class SecureLocalStore {
     required String legacyKey,
     required String category,
     required bool Function(String json) isValid,
+    String? userId,
   }) async {
+    final ownerId = userId ?? currentUserId();
     try {
-      final alreadyMigrated = await read(category);
+      final alreadyMigrated = await read(category, userId: ownerId);
       if (alreadyMigrated != null) return; // idempotent: nothing to do
 
       final prefs = await SharedPreferences.getInstance();
@@ -150,13 +153,13 @@ class SecureLocalStore {
         );
       }
 
-      await write(category, legacy);
+      await write(category, legacy, userId: ownerId);
 
-      final readBack = await read(category);
+      final readBack = await read(category, userId: ownerId);
       if (readBack != legacy) {
         // Verification failed — roll back the partial secure-storage write
         // so a retry starts clean instead of wrongly appearing "migrated".
-        await delete(category);
+        await clearForUser(category, ownerId);
         throw StateError(
           'Migration verification failed for "$category" — read-back did '
           'not match the original data; leaving plaintext copy in place.',
