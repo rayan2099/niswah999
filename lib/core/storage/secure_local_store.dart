@@ -134,9 +134,11 @@ class SecureLocalStore {
     required String legacyKey,
     required String category,
     required bool Function(String json) isValid,
+    String? userId,
   }) async {
+    final owner = userId ?? currentUserId();
     try {
-      final alreadyMigrated = await read(category);
+      final alreadyMigrated = await read(category, userId: owner);
       if (alreadyMigrated != null) return; // idempotent: nothing to do
 
       final prefs = await SharedPreferences.getInstance();
@@ -150,13 +152,13 @@ class SecureLocalStore {
         );
       }
 
-      await write(category, legacy);
+      await write(category, legacy, userId: owner);
 
-      final readBack = await read(category);
+      final readBack = await read(category, userId: owner);
       if (readBack != legacy) {
         // Verification failed — roll back the partial secure-storage write
         // so a retry starts clean instead of wrongly appearing "migrated".
-        await delete(category);
+        await clearForUser(category, owner);
         throw StateError(
           'Migration verification failed for "$category" — read-back did '
           'not match the original data; leaving plaintext copy in place.',
