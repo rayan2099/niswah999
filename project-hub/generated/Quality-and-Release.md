@@ -32,6 +32,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
 - [parity-checklist.md](../../docs/parity-checklist.md)
+- [physical-sign-in-ui-2026-10-27.md](../../docs/physical-sign-in-ui-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 
@@ -249,6 +250,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [rtl_directional_padding_lint_test.dart](../../test/rtl_directional_padding_lint_test.dart)
 - [secure_local_store_test.dart](../../test/secure_local_store_test.dart)
 - [sign_in_consent_gating_test.dart](../../test/sign_in_consent_gating_test.dart)
+- [sign_in_language_selection_test.dart](../../test/sign_in_language_selection_test.dart)
 - [sign_in_rtl_test.dart](../../test/sign_in_rtl_test.dart)
 - [start_bleeding_sheet_test.dart](../../test/start_bleeding_sheet_test.dart)
 - [sync_status_banner_test.dart](../../test/sync_status_banner_test.dart)
