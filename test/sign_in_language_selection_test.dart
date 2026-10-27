@@ -14,7 +14,7 @@ void main() {
     await tester.pumpWidget(
       AnimatedBuilder(
         animation: locale,
-        builder: (_, __) => MaterialApp(
+        builder: (_, _) => MaterialApp(
           builder: (_, child) => Directionality(
             textDirection: locale.textDirection,
             child: child!,
