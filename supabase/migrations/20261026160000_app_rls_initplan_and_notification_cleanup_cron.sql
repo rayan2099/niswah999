@@ -1,4 +1,4 @@
--- App tables: RLS initplan wrap + daily notification cleanup.
+-- App tables: RLS initplan wrap + hourly notification cleanup.
 --
 -- 1. auth_rls_initplan (Supabase performance advisor), for the 35 policies
 --    on non-tracking tables that still call a bare `auth.uid()` (chat,
@@ -22,9 +22,11 @@
 -- 2. Notification cleanup. public.cleanup_notification_activity() (90-day
 --    inbox retention, push-job pruning) was only called by the
 --    notification-dispatch worker, which is not deployed while push is off,
---    so in that state nothing ever pruned the inbox. A daily pg_cron job
---    (03:17 UTC) now calls it. The worker keeps calling it too; the
---    function deletes in bounded batches and is safe to run from both.
+--    so in that state nothing ever pruned the inbox. An hourly pg_cron job
+--    (minute 17) now calls it. Hourly, not daily: each call deletes at most
+--    1000 inbox rows and 1000 push jobs, so a daily run would fall behind
+--    once more than 1000 notifications a day reach the 90-day limit. The
+--    worker keeps calling it too; the bounded batches make that safe.
 --    Skipped where pg_cron is not available (the local test database);
 --    cron.schedule() replaces a job of the same name, so re-running is a
 --    no-op.
@@ -205,8 +207,8 @@ BEGIN
   END IF;
   CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
   PERFORM cron.schedule(
-    'notification-cleanup-daily',
-    '17 3 * * *',
+    'notification-cleanup-hourly',
+    '17 * * * *',
     'select public.cleanup_notification_activity()'
   );
 END $$;
