@@ -31,3 +31,11 @@ Mac disk exhaustion blocks broader compilation: the first journey suite stopped 
 - Existing launch definition and fiqh source registry still require qualified review evidence; older dashboard checkboxes cannot establish current clinical/scholarly approval.
 
 Next: confirm build 4 provenance/backend; user opens the app while USB preview runs; verify only synthetic staging account; execute the physical journeys and record evidence. Review/merge and release the fix separately, then verify the actual processed TestFlight artifact. Free sufficient Mac storage before native build or broad test retry.
+
+## Follow-up verification
+
+After disk capacity recovered to about 8 GB, 165 additional synthetic journey tests passed: auth routing, RTL, onboarding validation/errors, accessibility semantics/text scale, local sync, prediction estimates, madhhab controller/history, iOS permission abstraction, notification account transition/settings races, data-export resilience and network error classification. These use mocked/local dependencies; no physical or live-backend pass is implied. Focused changed-file analysis now reports no issues.
+
+Read-only connected Supabase inspection at 2026-10-27 20:54 Asia/Riyadh: production and staging are ACTIVE_HEALTHY. Production has ai_rate_limit_counters and check_and_increment_ai_rate_limit. Catalog privileges show anon EXECUTE=false and authenticated EXECUTE=true on that function, delete_my_account, retrieve_knowledge_v1 and get_active_kb_snapshot. Thus the CI sentinel's anonymous HTTP401 is inconclusive, not evidence that the function is missing. This inspection supersedes any inference from the older open PR40 deployment description. No RPC was invoked and no live row changed. Staging still has neither cron.job nor notification_private.dispatch_worker(), so the documented automatic dispatch setup remains incomplete.
+
+Production security advisories still include leaked-password protection disabled and mutable can_access_user search_path; anon-executable is_admin/is_conversation_participant require contextual review, not blanket revocation (RLS may depend on them). RLS-enabled tables without policies are not automatically an exposure; some are intentionally RPC/server-only. No advisor-driven production changes were made.
