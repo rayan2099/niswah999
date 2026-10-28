@@ -1,17 +1,23 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show Locale;
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/device_timezone.dart';
 import 'user_scoped_preferences.dart';
 
 /// A resolved location to compute prayer times for: real coordinates plus a
-/// short display label (a preset city name, or "Current location").
+/// short display label (a preset city name, or the city the phone's GPS fix
+/// resolved to).
 class PrayerLocation extends Equatable {
   const PrayerLocation({
     required this.latitude,
     required this.longitude,
     required this.label,
+    this.labelAr,
+    this.fromDevice = false,
     this.timezoneId,
     this.timezoneConfirmed = true,
   });
@@ -19,6 +25,14 @@ class PrayerLocation extends Equatable {
   final double latitude;
   final double longitude;
   final String label;
+
+  /// Arabic name of a GPS-detected city, when the phone's geocoder gave one.
+  final String? labelAr;
+
+  /// True when this came from the phone's GPS rather than a preset, so the
+  /// app keeps it current as the user moves (see
+  /// [PrayerLocationController.refreshDeviceLocationIfAllowed]).
+  final bool fromDevice;
 
   /// IANA zone for the selected place, independent of the phone timezone.
   final String? timezoneId;
@@ -29,6 +43,8 @@ class PrayerLocation extends Equatable {
     latitude,
     longitude,
     label,
+    labelAr,
+    fromDevice,
     timezoneId,
     timezoneConfirmed,
   ];
@@ -59,7 +75,7 @@ const _arabicLabels = {
 /// location") always reads the same way everywhere.
 String prayerLocationLabel(PrayerLocation location, {required bool isArabic}) {
   if (!isArabic) return location.label;
-  return _arabicLabels[location.label] ?? location.label;
+  return location.labelAr ?? _arabicLabels[location.label] ?? location.label;
 }
 
 class PrayerLocationController extends ChangeNotifier {
@@ -70,6 +86,8 @@ class PrayerLocationController extends ChangeNotifier {
   static const _latKey = 'niswah_prayer_location_lat';
   static const _lngKey = 'niswah_prayer_location_lng';
   static const _labelKey = 'niswah_prayer_location_label';
+  static const _labelArKey = 'niswah_prayer_location_label_ar';
+  static const _fromDeviceKey = 'niswah_prayer_location_from_device';
   static const _zoneKey = 'niswah_prayer_location_zone';
   static const _confirmedKey = 'niswah_prayer_zone_confirmed';
   static const _methodKey = 'niswah_prayer_method';
@@ -171,6 +189,8 @@ class PrayerLocationController extends ChangeNotifier {
       _latKey,
       _lngKey,
       _labelKey,
+      _labelArKey,
+      _fromDeviceKey,
       _zoneKey,
       _confirmedKey,
       _methodKey,
@@ -180,6 +200,9 @@ class PrayerLocationController extends ChangeNotifier {
     final lat = preferences.getDouble(UserScopedPreferences.key(_latKey));
     final lng = preferences.getDouble(UserScopedPreferences.key(_lngKey));
     final label = preferences.getString(UserScopedPreferences.key(_labelKey));
+    final labelAr = preferences.getString(
+      UserScopedPreferences.key(_labelArKey),
+    );
     final zone = preferences.getString(UserScopedPreferences.key(_zoneKey));
     method =
         preferences.getString(UserScopedPreferences.key(_methodKey)) ??
@@ -202,6 +225,15 @@ class PrayerLocationController extends ChangeNotifier {
             latitude: lat,
             longitude: lng,
             label: label,
+            labelAr: labelAr,
+            // Older builds saved GPS fixes as "Current location" without
+            // this flag; treat them as device-based so they get a real
+            // city name and timezone on the next refresh.
+            fromDevice:
+                preferences.getBool(
+                  UserScopedPreferences.key(_fromDeviceKey),
+                ) ??
+                label == _legacyDeviceLabel,
             timezoneId: zone ?? presetZone,
             timezoneConfirmed:
                 preferences.getBool(UserScopedPreferences.key(_confirmedKey)) ??
@@ -240,6 +272,18 @@ class PrayerLocationController extends ChangeNotifier {
     await preferences.setString(
       UserScopedPreferences.key(_labelKey),
       location.label,
+    );
+    if (location.labelAr != null) {
+      await preferences.setString(
+        UserScopedPreferences.key(_labelArKey),
+        location.labelAr!,
+      );
+    } else {
+      await preferences.remove(UserScopedPreferences.key(_labelArKey));
+    }
+    await preferences.setBool(
+      UserScopedPreferences.key(_fromDeviceKey),
+      location.fromDevice,
     );
     if (location.timezoneId != null) {
       await preferences.setString(
@@ -284,13 +328,136 @@ class PrayerLocationController extends ChangeNotifier {
         timeLimit: Duration(seconds: 20),
       ),
     );
-    final location = PrayerLocation(
-      latitude: position.latitude,
-      longitude: position.longitude,
-      label: 'Current location',
-      timezoneConfirmed: false,
+    final location = await resolveDeviceLocation(
+      position.latitude,
+      position.longitude,
     );
     await select(location);
     return location;
   }
+
+  /// Keeps a GPS-based location current without asking the user: when the
+  /// saved place came from the phone and location
+  /// permission was already granted, takes a fresh fix and updates the city
+  /// and timezone if she has moved. Never shows a permission prompt and
+  /// never replaces a city she picked by hand. Best-effort: any failure
+  /// leaves the saved location as it was.
+  Future<void> refreshDeviceLocationIfAllowed() async {
+    final current = _selected;
+    if (current == null || !current.fromDevice) return;
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      // A manual pick made while the fix was in flight wins.
+      if (_selected != current) return;
+      final zone = await deviceTimezone();
+      if (current.label != _legacyDeviceLabel &&
+          current.timezoneConfirmed &&
+          current.timezoneId == zone &&
+          Geolocator.distanceBetween(
+                current.latitude,
+                current.longitude,
+                position.latitude,
+                position.longitude,
+              ) <
+              refreshDistanceMeters) {
+        return;
+      }
+      final location = await resolveDeviceLocation(
+        position.latitude,
+        position.longitude,
+      );
+      if (_selected != current) return;
+      await select(location);
+    } catch (error) {
+      debugPrint('PrayerLocationController: background refresh failed: $error');
+    }
+  }
+
+  /// How far she has to move before a background refresh re-resolves the
+  /// city; small enough that crossing into a neighbouring city updates it.
+  static const double refreshDistanceMeters = 3000;
+
+  /// Test seam for the phone's reverse geocoder.
+  @visibleForTesting
+  static Future<List<Placemark>> Function(
+    double latitude,
+    double longitude,
+    Locale locale,
+  )
+  placemarkLookup = _nativePlacemarks;
+
+  /// Test seam for the phone's IANA timezone.
+  @visibleForTesting
+  static Future<String?> Function() deviceTimezone = () =>
+      DeviceTimezone.currentId(forceRefresh: true);
+
+  static Future<List<Placemark>> _nativePlacemarks(
+    double latitude,
+    double longitude,
+    Locale locale,
+  ) =>
+      Geocoding().placemarkFromCoordinates(latitude, longitude, locale: locale);
+
+  /// Turns a GPS fix into a named place: the city from the phone's own
+  /// reverse geocoder (Apple/Google, no key, no extra service), in English
+  /// and Arabic, and the phone's IANA timezone. The phone's zone is used
+  /// because the fix is where the phone is right now, and phones set their
+  /// zone from the network. If the geocoder is unreachable (offline) the
+  /// label stays generic and the next refresh fills it in.
+  @visibleForTesting
+  Future<PrayerLocation> resolveDeviceLocation(
+    double latitude,
+    double longitude,
+  ) async {
+    final english = await _cityName(latitude, longitude, const Locale('en'));
+    final arabic = english == null
+        ? null
+        : await _cityName(latitude, longitude, const Locale('ar'));
+    final zone = await deviceTimezone();
+    return PrayerLocation(
+      latitude: latitude,
+      longitude: longitude,
+      label: english ?? _legacyDeviceLabel,
+      labelAr: arabic,
+      fromDevice: true,
+      timezoneId: zone,
+      timezoneConfirmed: zone != null && zone.isNotEmpty,
+    );
+  }
+
+  static Future<String?> _cityName(
+    double latitude,
+    double longitude,
+    Locale locale,
+  ) async {
+    try {
+      final places = await placemarkLookup(latitude, longitude, locale);
+      for (final place in places) {
+        for (final name in [
+          place.locality,
+          place.subAdministrativeArea,
+          place.administrativeArea,
+        ]) {
+          final trimmed = name?.trim();
+          if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+        }
+      }
+    } catch (error) {
+      debugPrint('PrayerLocationController: reverse geocoding failed: $error');
+    }
+    return null;
+  }
 }
+
+const _legacyDeviceLabel = 'Current location';

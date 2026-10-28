@@ -75,6 +75,9 @@ class _PrayerSettingsSheetState extends State<_PrayerSettingsSheet> {
           latitude: location.latitude,
           longitude: location.longitude,
           label: location.label,
+          labelAr: location.labelAr,
+          // A zone she chose by hand must not be replaced by the next
+          // automatic GPS refresh.
           timezoneId: result,
         ),
       ),
@@ -99,8 +102,8 @@ class _PrayerSettingsSheetState extends State<_PrayerSettingsSheet> {
             const SizedBox(height: 12),
             Text(
               _t(
-                'Confirm your place, timezone and local calculation convention. Refresh GPS after travelling. Calculated times can differ from your local mosque.',
-                'تأكدي من الموقع والمنطقة الزمنية وطريقة الحساب المعتمدة محليًا. حدّثي الموقع بعد السفر. قد تختلف المواقيت المحسوبة عن مسجدكِ.',
+                'With GPS, your city and timezone are detected from your phone and follow you when you travel. You can also pick a city. Check the local calculation method; calculated times can differ from your local mosque.',
+                'عند استخدام الموقع الحالي، تُحدَّد مدينتكِ ومنطقتكِ الزمنية من هاتفكِ وتتحدث تلقائيًا عند السفر. يمكنكِ أيضًا اختيار مدينة. تأكدي من طريقة الحساب المعتمدة محليًا، فقد تختلف المواقيت المحسوبة عن مسجدكِ.',
               ),
             ),
             if (error != null)
