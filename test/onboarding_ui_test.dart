@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geocoding/geocoding.dart' show Placemark;
 import 'package:geolocator/geolocator.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/preferences/madhhab_controller.dart';
@@ -1075,7 +1076,8 @@ void main() {
         expect(
           MadhhabController.instance.state,
           isNot(MadhhabSelectionState.selected),
-          reason: 'a suggestion is shown, but nothing is persisted until '
+          reason:
+              'a suggestion is shown, but nothing is persisted until '
               'she explicitly confirms it',
         );
 
@@ -1146,7 +1148,8 @@ void main() {
             'not be changed.',
           ),
           findsNothing,
-          reason: 'onboarding runs before any bleeding history can exist '
+          reason:
+              'onboarding runs before any bleeding history can exist '
               '-- the light first-interpretation notice would be a false '
               'alarm here',
         );
@@ -1359,6 +1362,18 @@ void main() {
       (tester) async {
         final completer = Completer<Position>();
         GeolocatorPlatform.instance = _HangingGeolocatorPlatform(completer);
+        final originalLookup = PrayerLocationController.placemarkLookup;
+        final originalZone = PrayerLocationController.deviceTimezone;
+        addTearDown(() {
+          PrayerLocationController.placemarkLookup = originalLookup;
+          PrayerLocationController.deviceTimezone = originalZone;
+        });
+        PrayerLocationController.placemarkLookup = (lat, lng, locale) async => [
+          Placemark(
+            locality: locale.languageCode == 'ar' ? 'الخبر' : 'Al Khobar',
+          ),
+        ];
+        PrayerLocationController.deviceTimezone = () async => 'Asia/Riyadh';
         await tester.pumpWidget(
           MaterialApp(
             home: OnboardingScreen(onFinished: () {}, initialStep: 4),
@@ -1377,7 +1392,7 @@ void main() {
         completer.complete(_FakeGeolocatorPlatform._defaultPosition);
         await tester.pump();
         expect(
-          find.text('Location confirmed: Current location'),
+          find.text('Location confirmed: Al Khobar'),
           findsOneWidget,
           reason:
               'success must be visibly confirmed, not just silently '

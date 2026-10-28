@@ -8,7 +8,7 @@ void main() {
   test('theme preference loads, changes, and persists', () async {
     SharedPreferences.setMockInitialValues({'niswah_theme_mode': 'dark'});
     await AppThemeController.instance.load();
-    expect(AppThemeController.instance.themeMode, ThemeMode.dark);
+    expect(AppThemeController.instance.savedThemeMode, ThemeMode.dark);
 
     await AppThemeController.instance.setThemeMode(ThemeMode.light);
 
@@ -16,7 +16,18 @@ void main() {
     expect(preferences.getString('niswah_theme_mode'), 'light');
 
     await AppThemeController.instance.setThemeMode(ThemeMode.system);
-    expect(AppThemeController.instance.themeMode, ThemeMode.system);
+    expect(AppThemeController.instance.savedThemeMode, ThemeMode.system);
+  });
+
+  test('while dark mode is off for launch, a saved dark choice renders light '
+      'and is kept', () async {
+    SharedPreferences.setMockInitialValues({'niswah_theme_mode': 'dark'});
+    await AppThemeController.instance.load();
+    expect(
+      AppThemeController.instance.themeMode,
+      AppThemeController.darkModeAvailable ? ThemeMode.dark : ThemeMode.light,
+    );
+    expect(AppThemeController.instance.savedThemeMode, ThemeMode.dark);
   });
 
   test('with no saved preference the app opens in light mode', () async {

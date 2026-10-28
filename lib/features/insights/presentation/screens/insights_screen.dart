@@ -11,6 +11,9 @@ import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
 import '../../../cycle_tracking/presentation/widgets/predicted_range_text.dart';
+import '../../../wellbeing/data/repositories/wellbeing_repository.dart';
+import '../../../wellbeing/domain/entities/wellbeing_log.dart';
+import '../../../wellbeing/domain/services/wellbeing_period_split.dart';
 
 String _in(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -21,13 +24,17 @@ Color _regularityColor(CycleRegularity regularity) => switch (regularity) {
 };
 
 class InsightsScreen extends StatefulWidget {
-  const InsightsScreen({super.key, this.viewModel});
+  const InsightsScreen({super.key, this.viewModel, this.loadWellbeingLogs});
 
   /// Shared across tabs by [NiswahHomeShell] so a log saved on one tab is
   /// immediately reflected on the others — falls back to a private
   /// instance when unset (e.g. existing tests that mount this screen
   /// standalone).
   final CycleTrackingViewModel? viewModel;
+
+  /// Reads mood check-ins from [from] onwards; defaults to
+  /// [WellbeingRepository.getLogs]. Injectable for tests.
+  final Future<List<WellbeingLog>> Function(DateTime from)? loadWellbeingLogs;
 
   @override
   State<InsightsScreen> createState() => _InsightsScreenState();
@@ -36,6 +43,7 @@ class InsightsScreen extends StatefulWidget {
 class _InsightsScreenState extends State<InsightsScreen> {
   late final CycleTrackingViewModel _viewModel;
   int _trendMonths = 3;
+  int _wellbeingRefresh = 0;
 
   @override
   void initState() {
@@ -60,7 +68,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
           bottom: false,
           child: RefreshIndicator(
             color: AppColors.brandSecondary,
-            onRefresh: _viewModel.loadLogs,
+            onRefresh: () async {
+              setState(() => _wellbeingRefresh++);
+              await _viewModel.loadLogs();
+            },
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
@@ -172,6 +183,16 @@ class _InsightsScreenState extends State<InsightsScreen> {
                               .firstOrNull,
                           mode: CycleLogSheetMode.symptomsOnly,
                         ),
+                      ),
+                      const SizedBox(height: 28),
+                      _WellbeingTrends(
+                        months: _trendMonths,
+                        refreshToken: _wellbeingRefresh,
+                        cycleLogs: _viewModel.logs,
+                        episodes: _viewModel.canonicalEpisodes,
+                        load:
+                            widget.loadWellbeingLogs ??
+                            (from) => WellbeingRepository().getLogs(from: from),
                       ),
                       const SizedBox(height: 28),
                       _RegularityCard(result: calculation),
@@ -996,6 +1017,205 @@ class _InsightCard extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Mood, energy and sleep from the daily check-in, tracked on every day
+/// whether or not there is a period (device run 2026-10-28: check-ins never
+/// reached this screen). The split below says which check-ins fell on a
+/// recorded bleeding day; it is not a fiqh classification.
+class _WellbeingTrends extends StatefulWidget {
+  const _WellbeingTrends({
+    required this.months,
+    required this.refreshToken,
+    required this.cycleLogs,
+    required this.episodes,
+    required this.load,
+  });
+  final int months;
+
+  /// Changes on pull-to-refresh, which reloads (and retries) the check-ins.
+  final int refreshToken;
+  final List<CycleLog> cycleLogs;
+  final List<CanonicalEpisodeTiming> episodes;
+  final Future<List<WellbeingLog>> Function(DateTime from) load;
+
+  @override
+  State<_WellbeingTrends> createState() => _WellbeingTrendsState();
+}
+
+class _WellbeingTrendsState extends State<_WellbeingTrends> {
+  List<WellbeingLog>? _logs;
+  bool _failed = false;
+  int _generation = 0;
+
+  DateTime get _rangeStart =>
+      DateTime(AppClock.now().year, AppClock.now().month - widget.months + 1);
+
+  @override
+  void initState() {
+    super.initState();
+    WellbeingRepository.revision.addListener(_load);
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WellbeingTrends oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.months != widget.months ||
+        oldWidget.refreshToken != widget.refreshToken) {
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    WellbeingRepository.revision.removeListener(_load);
+    super.dispose();
+  }
+
+  /// Only the latest request may write: a slow earlier one (say a 12-month
+  /// range) finishing after a newer one must not replace its results.
+  Future<void> _load() async {
+    final generation = ++_generation;
+    try {
+      final logs = await widget.load(_rangeStart);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _logs = logs;
+        _failed = false;
+      });
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        setState(() => _failed = true);
+      }
+    }
+  }
+
+  static String _avg(double? value) =>
+      value == null ? '—' : value.toStringAsFixed(1);
+
+  Widget _row(String label, WellbeingGroupSummary group) => Padding(
+    padding: const EdgeInsets.only(top: 14),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$label · ${group.count} ${_in('check-ins', 'تسجيلات')}',
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          group.count == 0
+              ? _in('No check-ins yet', 'لا توجد تسجيلات بعد')
+              : '${_in('Mood', 'المزاج')} ${_avg(group.averageMood)}/5 · '
+                    '${_in('Energy', 'الطاقة')} ${_avg(group.averageEnergy)}/5 · '
+                    '${_in('Sleep', 'النوم')} ${_avg(group.averageSleep)}/5',
+          style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final logs = _logs;
+    final split = logs == null
+        ? null
+        : WellbeingPeriodSplit.compute(
+            logs: logs,
+            cycleLogs: widget.cycleLogs,
+            episodes: widget.episodes,
+            today: AppClock.now(),
+          );
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.self_improvement_rounded,
+                color: AppColors.istihadah,
+                size: 21,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _in('Mood & wellbeing', 'الحالة النفسية'),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                _in(
+                  'Last ${widget.months} months',
+                  'آخر ${widget.months} أشهر',
+                ),
+                style: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          if (_failed)
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Text(
+                _in(
+                  "Couldn't load your check-ins. Pull down to try again.",
+                  'تعذّر تحميل تسجيلاتكِ. اسحبي للأسفل للمحاولة مرة أخرى.',
+                ),
+                style: const TextStyle(color: AppColors.error, fontSize: 12),
+              ),
+            )
+          else if (split == null)
+            const Padding(
+              padding: EdgeInsets.only(top: 14),
+              child: LinearProgressIndicator(minHeight: 2),
+            )
+          else if (split.all.count == 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Text(
+                _in(
+                  'Log your mood from Today on any day, with or without a period, to see it here.',
+                  'سجّلي حالتكِ النفسية من الصفحة الرئيسية في أي يوم، مع الدورة أو بدونها، لتظهر هنا.',
+                ),
+                style: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 12,
+                ),
+              ),
+            )
+          else ...[
+            _row(_in('All days', 'كل الأيام'), split.all),
+            _row(_in('Period days', 'أيام الدورة'), split.onPeriodDays),
+            _row(
+              _in('Days without a period', 'أيام بلا دورة'),
+              split.onOtherDays,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              _in(
+                'Averages on a 1–5 scale. Period days are days with bleeding recorded; this is tracking only, not a ruling.',
+                'المتوسطات من 1 إلى 5. أيام الدورة هي الأيام المسجّل فيها نزول دم؛ هذا للتتبّع فقط وليس حكمًا شرعيًا.',
+              ),
+              style: const TextStyle(
+                color: AppColors.textTertiary,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _HistoryCard extends StatelessWidget {

@@ -33,6 +33,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
 - [parity-checklist.md](../../docs/parity-checklist.md)
 - [password-recovery.md](../../docs/password-recovery.md)
+- [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 
@@ -161,6 +162,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [canonical_fiqh_evidence_adapter_test.dart](../../test/canonical_fiqh_evidence_adapter_test.dart)
 - [chat_assistant_test.dart](../../test/chat_assistant_test.dart)
 - [community_board_test.dart](../../test/community_board_test.dart)
+- [community_composer_keyboard_test.dart](../../test/community_composer_keyboard_test.dart)
 - [community_language_gate_test.dart](../../test/community_language_gate_test.dart)
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
@@ -172,6 +174,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [cycle_local_sync_idempotency_test.dart](../../test/cycle_local_sync_idempotency_test.dart)
 - [cycle_log_strict_parsing_test.dart](../../test/cycle_log_strict_parsing_test.dart)
 - [cycle_prediction_estimate_test.dart](../../test/cycle_prediction_estimate_test.dart)
+- [cycle_repository_account_switch_regression_test.dart](../../test/cycle_repository_account_switch_regression_test.dart)
 - [cycle_tracking_controller_test.dart](../../test/cycle_tracking_controller_test.dart)
 - [cycle_tracking_ui_flow_test.dart](../../test/cycle_tracking_ui_flow_test.dart)
 - [dashboard_canonical_degraded_evidence_test.dart](../../test/dashboard_canonical_degraded_evidence_test.dart)
@@ -189,6 +192,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [flutter_test_config.dart](../../test/flutter_test_config.dart)
 - [home_shell_shared_view_model_test.dart](../../test/home_shell_shared_view_model_test.dart)
 - [husband_report_pdf_builder_test.dart](../../test/husband_report_pdf_builder_test.dart)
+- [insights_wellbeing_card_test.dart](../../test/insights_wellbeing_card_test.dart)
 - [legacy_screens_canonical_history_test.dart](../../test/legacy_screens_canonical_history_test.dart)
 - [localization_ui_test.dart](../../test/localization_ui_test.dart)
 - [madhhab_change_confirmation_test.dart](../../test/madhhab_change_confirmation_test.dart)
@@ -233,6 +237,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [pdf_text_extractor_test.dart](../../test/pdf_text_extractor_test.dart)
 - [pending_bleeding_operation_store_test.dart](../../test/pending_bleeding_operation_store_test.dart)
 - [pending_operation_userid_threading_test.dart](../../test/pending_operation_userid_threading_test.dart)
+- [period_tracking_concurrency_test.dart](../../test/period_tracking_concurrency_test.dart)
+- [prayer_location_device_test.dart](../../test/prayer_location_device_test.dart)
 - [prayer_reminder_scheduler_test.dart](../../test/prayer_reminder_scheduler_test.dart)
 - [prayer_time_integrity_test.dart](../../test/prayer_time_integrity_test.dart)
 - [prayer_tracking_test.dart](../../test/prayer_tracking_test.dart)
@@ -251,12 +257,14 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [rtl_directional_padding_lint_test.dart](../../test/rtl_directional_padding_lint_test.dart)
 - [secure_local_store_test.dart](../../test/secure_local_store_test.dart)
 - [sign_in_consent_gating_test.dart](../../test/sign_in_consent_gating_test.dart)
+- [sign_in_google_ios_test.dart](../../test/sign_in_google_ios_test.dart)
 - [sign_in_rtl_test.dart](../../test/sign_in_rtl_test.dart)
 - [start_bleeding_sheet_test.dart](../../test/start_bleeding_sheet_test.dart)
 - [sync_status_banner_test.dart](../../test/sync_status_banner_test.dart)
 - [test_backend_gate_test.dart](../../test/test_backend_gate_test.dart)
 - [user_scoped_preferences_test.dart](../../test/user_scoped_preferences_test.dart)
 - [wellbeing_insights_engine_test.dart](../../test/wellbeing_insights_engine_test.dart)
+- [wellbeing_period_split_test.dart](../../test/wellbeing_period_split_test.dart)
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
 - [widget_test.dart](../../test/widget_test.dart)
 
@@ -356,6 +364,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [resumed_bleeding_fiqh_parity_test.dart](../../test/resumed_bleeding/resumed_bleeding_fiqh_parity_test.dart)
 - [resumed_bleeding_prediction_test.dart](../../test/resumed_bleeding/resumed_bleeding_prediction_test.dart)
 
+## test/review_cases
+
+- [review_case_pack_test.dart](../../test/review_cases/review_case_pack_test.dart)
+
 ## test/round2_hardening
 
 - [fiqh_assessment_round2_test.dart](../../test/round2_hardening/fiqh_assessment_round2_test.dart)
@@ -393,6 +405,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## test/security
 
 - [00_bootstrap_stub_supabase.sql](../../test/security/00_bootstrap_stub_supabase.sql)
+- [app_rls_initplan_and_notification_cleanup_cron.sql](../../test/security/app_rls_initplan_and_notification_cleanup_cron.sql)
+- [revoke_anon_security_definer_execute.sql](../../test/security/revoke_anon_security_definer_execute.sql)
 - [run_sql_checks.sh](../../test/security/run_sql_checks.sh)
 - [tracking_rls_initplan_and_fk_indexes.sql](../../test/security/tracking_rls_initplan_and_fk_indexes.sql)
 - [users_privileged_columns_guard.sql](../../test/security/users_privileged_columns_guard.sql)

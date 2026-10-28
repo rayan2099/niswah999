@@ -1,4 +1,5 @@
 import '../../../notifications/presentation/viewmodels/activity_inbox_controller.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -2649,10 +2650,14 @@ class _DashboardHeader extends StatelessWidget {
           ),
           const SizedBox(width: 16),
           AnimatedBuilder(
-            animation: Listenable.merge([NotificationLogController.instance,ActivityInboxController.instance]),
+            animation: Listenable.merge([
+              NotificationLogController.instance,
+              ActivityInboxController.instance,
+            ]),
             builder: (context, _) {
               final unreadCount =
-                  NotificationLogController.instance.unreadCount + ActivityInboxController.instance.unreadCount;
+                  NotificationLogController.instance.unreadCount +
+                  ActivityInboxController.instance.unreadCount;
               return Semantics(
                 button: true,
                 label: unreadCount > 0
@@ -3837,182 +3842,194 @@ class _WellbeingCheckInSheetState extends State<_WellbeingCheckInSheet> {
     final isArabic = AppLocaleController.instance.isArabic;
     final textDirection = isArabic ? TextDirection.rtl : TextDirection.ltr;
 
+    // The sheet rises with the keyboard and scrolls, so the notes field and
+    // the save button stay reachable while typing (device run 2026-10-28).
     return Directionality(
       textDirection: textDirection,
-      child: SafeArea(
-        top: false,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Stack(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+            ),
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Center(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE5E7EB),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                  ),
-                  PositionedDirectional(
-                    end: 0,
-                    top: -6,
-                    child: Semantics(
-                      container: true,
-                      button: true,
-                      label: _l('Close', 'إغلاق'),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE5E7EB)),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x16000000),
-                              blurRadius: 8,
-                              offset: Offset(0, 3),
-                            ),
-                          ],
+                  Stack(
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE5E7EB),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
                         ),
-                        child: GestureDetector(
-                          // Pops with no value — the sheet's caller
-                          // (_showWellbeingCheckIn) already treats a null
-                          // result as "user backed out, don't save
-                          // anything", the same as tapping the barrier.
-                          onTap: () => Navigator.of(context).pop(),
-                          child: const SizedBox(
-                            width: 40,
-                            height: 40,
-                            child: Icon(
-                              Icons.close_rounded,
-                              color: Color(0xFF9CA3AF),
-                              size: 22,
+                      ),
+                      PositionedDirectional(
+                        end: 0,
+                        top: -6,
+                        child: Semantics(
+                          container: true,
+                          button: true,
+                          label: _l('Close', 'إغلاق'),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFFE5E7EB),
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x16000000),
+                                  blurRadius: 8,
+                                  offset: Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: GestureDetector(
+                              // Pops with no value — the sheet's caller
+                              // (_showWellbeingCheckIn) already treats a null
+                              // result as "user backed out, don't save
+                              // anything", the same as tapping the barrier.
+                              onTap: () => Navigator.of(context).pop(),
+                              child: const SizedBox(
+                                width: 40,
+                                height: 40,
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  color: Color(0xFF9CA3AF),
+                                  size: 22,
+                                ),
+                              ),
                             ),
                           ),
                         ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    _l('Today’s mental check-in', 'تسجيل حالتكِ النفسية اليوم'),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: AppColors.emeraldInk,
+                      fontFamily: AppTypography.serifFamily,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _l(
+                      'This is separate from cycle and bleeding records.',
+                      'هذا التسجيل مستقل عن بيانات الدورة والدم.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 24),
+                  RatingScaleRow(
+                    label: _l('Mood', 'المزاج'),
+                    icon: Icons.sentiment_satisfied_alt_rounded,
+                    iconBuilder: moodRatingIcon,
+                    activeColor: const Color(0xFFFB7185),
+                    value: _mood,
+                    descriptionBuilder: moodRatingDescription,
+                    onChanged: (value) => setState(() => _mood = value),
+                  ),
+                  const SizedBox(height: 20),
+                  RatingScaleRow(
+                    label: _l('Energy', 'الطاقة'),
+                    icon: Icons.bolt_rounded,
+                    activeColor: const Color(0xFFF59E0B),
+                    value: _energy,
+                    descriptionBuilder: energyRatingDescription,
+                    onChanged: (value) => setState(() => _energy = value),
+                  ),
+                  const SizedBox(height: 20),
+                  RatingScaleRow(
+                    label: _l('Sleep', 'النوم'),
+                    icon: Icons.bedtime_outlined,
+                    activeColor: const Color(0xFF0D9488),
+                    value: _sleep,
+                    descriptionBuilder: sleepRatingDescription,
+                    onChanged: (value) => setState(() => _sleep = value),
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    _l('Notes', 'ملاحظات'),
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: AppColors.emeraldInk,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _notesController,
+                    minLines: 3,
+                    maxLines: 5,
+                    decoration: InputDecoration(
+                      hintText: _l(
+                        'Anything you want to remember about today…',
+                        'أي شيء تريدين تذكره عن يومكِ...',
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xFFF9FAFB),
+                      contentPadding: const EdgeInsets.all(14),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: Color(0xFFF1F2F4)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: Color(0xFFF1F2F4)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: AppColors.tahara),
+                      ),
+                    ),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 28),
+                  FilledButton.icon(
+                    onPressed: () {
+                      final notes = _notesController.text.trim();
+                      Navigator.of(context).pop(
+                        _WellbeingCheckInResult(
+                          mood: _mood,
+                          energy: _energy,
+                          sleep: _sleep,
+                          notes: notes.isEmpty ? null : notes,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.check_rounded),
+                    label: Text(_l('Save check-in', 'حفظ الحالة')),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(54),
+                      backgroundColor: AppColors.emeraldInk,
+                      elevation: 2,
+                      shadowColor: AppColors.emeraldInk.withOpacity(0.2),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
-              Text(
-                _l('Today’s mental check-in', 'تسجيل حالتكِ النفسية اليوم'),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: AppColors.emeraldInk,
-                  fontFamily: AppTypography.serifFamily,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _l(
-                  'This is separate from cycle and bleeding records.',
-                  'هذا التسجيل مستقل عن بيانات الدورة والدم.',
-                ),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 24),
-              RatingScaleRow(
-                label: _l('Mood', 'المزاج'),
-                icon: Icons.sentiment_satisfied_alt_rounded,
-                iconBuilder: moodRatingIcon,
-                activeColor: const Color(0xFFFB7185),
-                value: _mood,
-                descriptionBuilder: moodRatingDescription,
-                onChanged: (value) => setState(() => _mood = value),
-              ),
-              const SizedBox(height: 20),
-              RatingScaleRow(
-                label: _l('Energy', 'الطاقة'),
-                icon: Icons.bolt_rounded,
-                activeColor: const Color(0xFFF59E0B),
-                value: _energy,
-                descriptionBuilder: energyRatingDescription,
-                onChanged: (value) => setState(() => _energy = value),
-              ),
-              const SizedBox(height: 20),
-              RatingScaleRow(
-                label: _l('Sleep', 'النوم'),
-                icon: Icons.bedtime_outlined,
-                activeColor: const Color(0xFF0D9488),
-                value: _sleep,
-                descriptionBuilder: sleepRatingDescription,
-                onChanged: (value) => setState(() => _sleep = value),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                _l('Notes', 'ملاحظات'),
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AppColors.emeraldInk,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _notesController,
-                minLines: 3,
-                maxLines: 5,
-                decoration: InputDecoration(
-                  hintText: _l(
-                    'Anything you want to remember about today…',
-                    'أي شيء تريدين تذكره عن يومكِ...',
-                  ),
-                  filled: true,
-                  fillColor: const Color(0xFFF9FAFB),
-                  contentPadding: const EdgeInsets.all(14),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(color: Color(0xFFF1F2F4)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(color: Color(0xFFF1F2F4)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(color: AppColors.tahara),
-                  ),
-                ),
-                style: const TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 28),
-              FilledButton.icon(
-                onPressed: () {
-                  final notes = _notesController.text.trim();
-                  Navigator.of(context).pop(
-                    _WellbeingCheckInResult(
-                      mood: _mood,
-                      energy: _energy,
-                      sleep: _sleep,
-                      notes: notes.isEmpty ? null : notes,
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.check_rounded),
-                label: Text(_l('Save check-in', 'حفظ الحالة')),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(54),
-                  backgroundColor: AppColors.emeraldInk,
-                  elevation: 2,
-                  shadowColor: AppColors.emeraldInk.withOpacity(0.2),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

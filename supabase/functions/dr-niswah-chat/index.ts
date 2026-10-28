@@ -26,6 +26,7 @@ import {
   limiterUnavailableResponse,
   rateLimitedResponse,
 } from '../_shared/rate_limit.ts';
+import { detectSmallTalk, smallTalkReply } from '../_shared/small_talk.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -129,7 +130,7 @@ function detectRedFlags(message: string): RedFlagCategory[] {
 }
 
 function detectLanguage(text: string): 'ar' | 'en' {
-  return /[\u0600-\u06FF]/.test(text) ? 'ar' : 'en';
+  return /[\u{0600}-\u{06FF}]/u.test(text) ? 'ar' : 'en';
 }
 
 Deno.serve(async (req) => {
@@ -227,6 +228,42 @@ Deno.serve(async (req) => {
         urgent,
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+
+    // "شكرا", "hi", "تمام": a short social message gets a fixed friendly
+    // reply instead of the no-knowledge refusal. Never on a red-flag message.
+    const smallTalk = urgent ? null : detectSmallTalk(content);
+    if (smallTalk) {
+      const finalReply = smallTalkReply(smallTalk, 'dr_niswah', language);
+      let assistantMessageId: string | null = null;
+      try {
+        const { data: saved } = await userClient
+          .from('chat_messages')
+          .insert({
+            thread_id: threadId,
+            user_id: userId,
+            role: 'assistant',
+            content: finalReply,
+            metadata: { source: 'small_talk', urgent: false },
+          })
+          .select()
+          .single();
+        assistantMessageId = saved?.id ?? null;
+      } catch (error) {
+        console.error('dr-niswah-chat: small-talk assistant message insert failed', {
+          userId, threadId, error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          reply: finalReply,
+          urgent: false,
+          messageId: assistantMessageId,
+          citations: [],
+          knowledgeGrounded: false,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
     }
 
     const [userContext, safetyHits, healthHits] = await Promise.all([

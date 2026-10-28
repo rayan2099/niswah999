@@ -411,13 +411,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 30),
-                      _SectionTitle(_pr('Appearance', 'المظهر')),
-                      const SizedBox(height: 10),
-                      _ThemeModeRow(
-                        value: AppThemeController.instance.themeMode,
-                        onChanged: AppThemeController.instance.setThemeMode,
-                      ),
+                      if (AppThemeController.darkModeAvailable) ...[
+                        const SizedBox(height: 30),
+                        _SectionTitle(_pr('Appearance', 'المظهر')),
+                        const SizedBox(height: 10),
+                        _ThemeModeRow(
+                          value: AppThemeController.instance.themeMode,
+                          onChanged: AppThemeController.instance.setThemeMode,
+                        ),
+                      ],
                       const SizedBox(height: 30),
                       _SectionTitle(_pr('Language', 'اللغة')),
                       const SizedBox(height: 10),

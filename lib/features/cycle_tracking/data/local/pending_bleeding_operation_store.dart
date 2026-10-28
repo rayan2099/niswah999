@@ -273,21 +273,26 @@ class PendingBleedingOperationStore {
   /// that genuinely want "current session" semantics, such as
   /// `reconcilePendingOperations`, which always operates on whoever is
   /// signed in at the moment it runs by design.
+  // Capture the ambient owner before waiting for the mutation queue.
+  // Every read and write in this operation must retain that same owner.
   static Future<void> savePending(
     PendingBleedingOperation operation, {
     String? userId,
-  }) => SecureLocalStore.serialized(_category, () async {
-    final existing = await loadPending(userId: userId);
-    final updated = <String, PendingBleedingOperation>{
-      for (final op in existing) op.operationId: op,
-    };
-    updated[operation.operationId] = operation;
-    await SecureLocalStore.write(
-      _category,
-      jsonEncode(updated.values.map((op) => op.toJson()).toList()),
-      userId: userId,
-    );
-  });
+  }) {
+    final ownerId = userId ?? SecureLocalStore.currentUserId();
+    return SecureLocalStore.serialized(_category, () async {
+      final existing = await loadPending(userId: ownerId);
+      final updated = <String, PendingBleedingOperation>{
+        for (final op in existing) op.operationId: op,
+      };
+      updated[operation.operationId] = operation;
+      await SecureLocalStore.write(
+        _category,
+        jsonEncode(updated.values.map((op) => op.toJson()).toList()),
+        userId: ownerId,
+      );
+    });
+  }
 
   /// Stores [operation] (an updated failure record) only if an operation
   /// with its id is still queued. A replay that failed must not put back
@@ -297,25 +302,29 @@ class PendingBleedingOperationStore {
   static Future<bool> updatePendingIfQueued(
     PendingBleedingOperation operation, {
     String? userId,
-  }) => SecureLocalStore.serialized(_category, () async {
-    final existing = await loadPending(userId: userId);
-    if (!existing.any((op) => op.operationId == operation.operationId)) {
-      return false;
-    }
-    await SecureLocalStore.write(
-      _category,
-      jsonEncode(
-        existing
-            .map(
-              (op) => op.operationId == operation.operationId ? operation : op,
-            )
-            .map((op) => op.toJson())
-            .toList(),
-      ),
-      userId: userId,
-    );
-    return true;
-  });
+  }) {
+    final ownerId = userId ?? SecureLocalStore.currentUserId();
+    return SecureLocalStore.serialized(_category, () async {
+      final existing = await loadPending(userId: ownerId);
+      if (!existing.any((op) => op.operationId == operation.operationId)) {
+        return false;
+      }
+      await SecureLocalStore.write(
+        _category,
+        jsonEncode(
+          existing
+              .map(
+                (op) =>
+                    op.operationId == operation.operationId ? operation : op,
+              )
+              .map((op) => op.toJson())
+              .toList(),
+        ),
+        userId: ownerId,
+      );
+      return true;
+    });
+  }
 
   /// The one pending operation of [type], if any — onboarding's
   /// completion is a single logical action per account, so "is there
@@ -342,18 +351,20 @@ class PendingBleedingOperationStore {
   /// must target the bucket the operation was actually saved into, not
   /// whoever happens to be signed in when the matching RPC call finally
   /// resolves.
-  static Future<void> clearPending(String operationId, {String? userId}) =>
-      SecureLocalStore.serialized(_category, () async {
-        final existing = await loadPending(userId: userId);
-        final remaining = existing
-            .where((op) => op.operationId != operationId)
-            .toList();
-        await SecureLocalStore.write(
-          _category,
-          jsonEncode(remaining.map((op) => op.toJson()).toList()),
-          userId: userId,
-        );
-      });
+  static Future<void> clearPending(String operationId, {String? userId}) {
+    final ownerId = userId ?? SecureLocalStore.currentUserId();
+    return SecureLocalStore.serialized(_category, () async {
+      final existing = await loadPending(userId: ownerId);
+      final remaining = existing
+          .where((op) => op.operationId != operationId)
+          .toList();
+      await SecureLocalStore.write(
+        _category,
+        jsonEncode(remaining.map((op) => op.toJson()).toList()),
+        userId: ownerId,
+      );
+    });
+  }
 
   /// Closure Blocker 11 — every failure mode below is quarantined, never
   /// thrown: a `jsonDecode` failure (malformed outer JSON), a top-level

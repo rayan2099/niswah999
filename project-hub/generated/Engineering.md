@@ -131,6 +131,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [pregnancy_status.test.ts](../../supabase/functions/_shared/pregnancy_status.test.ts)
 - [pregnancy_status.ts](../../supabase/functions/_shared/pregnancy_status.ts)
 - [rate_limit.ts](../../supabase/functions/_shared/rate_limit.ts)
+- [small_talk.test.ts](../../supabase/functions/_shared/small_talk.test.ts)
+- [small_talk.ts](../../supabase/functions/_shared/small_talk.ts)
 
 ## supabase/functions/ai-assistant-chat
 
@@ -181,3 +183,5 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261021100000_onboarding_server_hardening.sql](../../supabase/migrations/20261021100000_onboarding_server_hardening.sql)
 - [20261021110000_tracking_rls_initplan_and_fk_indexes.sql](../../supabase/migrations/20261021110000_tracking_rls_initplan_and_fk_indexes.sql)
 - [20261022084701_app_wide_notifications.sql](../../supabase/migrations/20261022084701_app_wide_notifications.sql)
+- [20261026090000_revoke_anon_security_definer_execute.sql](../../supabase/migrations/20261026090000_revoke_anon_security_definer_execute.sql)
+- [20261026160000_app_rls_initplan_and_notification_cleanup_cron.sql](../../supabase/migrations/20261026160000_app_rls_initplan_and_notification_cleanup_cron.sql)

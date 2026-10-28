@@ -22,6 +22,7 @@ import {
   normalizeClientFiqhState,
   STATE_UNRESOLVED_AR,
 } from '../_shared/fiqh_state_guard.ts';
+import { detectSmallTalk, smallTalkReply } from '../_shared/small_talk.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,7 +37,7 @@ const NO_ELIGIBLE_KB_AR =
   'لا توجد في قاعدة المعرفة المعتمدة حاليًا مادة كافية لهذه الحالة ضمن مذهبك، لذلك لن أقدّم حكمًا آليًا. يُرجى سؤال جهة إفتاء أو عالِمة مؤهلة.';
 
 function detectLanguage(text: string): 'ar' | 'en' {
-  return /[\u0600-\u06FF]/.test(text) ? 'ar' : 'en';
+  return /[\u{0600}-\u{06FF}]/u.test(text) ? 'ar' : 'en';
 }
 
 function buildSystemInstruction(madhhab: string): string {
@@ -94,6 +95,16 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: `question exceeds ${MAX_QUESTION_LENGTH} characters.` }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // "شكرا", "السلام عليكم": a short social message gets a fixed friendly
+    // reply, before the madhhab and evidence gates that would refuse it.
+    const smallTalk = detectSmallTalk(question);
+    if (smallTalk) {
+      return new Response(
+        JSON.stringify({ text: smallTalkReply(smallTalk, 'fiqh_advisor', detectLanguage(question)), citations: [] }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
     }
 
     const madhhabState =

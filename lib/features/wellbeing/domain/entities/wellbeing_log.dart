@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+
 import '../../../../core/utils/db_timestamp.dart';
 
 /// One day's mood/energy/sleep check-in. Maps 1:1 to the `wellbeing_logs`

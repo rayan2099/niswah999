@@ -11,8 +11,19 @@ class AppThemeController extends ChangeNotifier {
   // phone in system dark mode still opens the app in light mode.
   static const defaultMode = ThemeMode.light;
 
+  /// Off for launch: many screens still hard-code light colors, so dark mode
+  /// was hard to read (device run 2026-10-28, A23). While off, the app is
+  /// always light and Profile hides the choice; a saved choice is kept, so
+  /// turning this back on restores it.
+  static const darkModeAvailable = false;
+
   ThemeMode _themeMode = defaultMode;
-  ThemeMode get themeMode => _themeMode;
+
+  /// The mode the app renders with.
+  ThemeMode get themeMode => darkModeAvailable ? _themeMode : ThemeMode.light;
+
+  /// The mode she last picked, even while [darkModeAvailable] is off.
+  ThemeMode get savedThemeMode => _themeMode;
 
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();

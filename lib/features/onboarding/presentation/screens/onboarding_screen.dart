@@ -1319,11 +1319,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _locationErrorMessage = null;
     });
     try {
-      await PrayerLocationController.instance.useDeviceLocation();
+      final location = await PrayerLocationController.instance
+          .useDeviceLocation();
       if (!mounted) return;
       setState(() {
         _locationStatus = _LocationStatus.selected;
-        _confirmedLocationLabel = _tr('Current location', 'الموقع الحالي');
+        _confirmedLocationLabel = prayerLocationLabel(
+          location,
+          isArabic: _arabic,
+        );
       });
       await Future.delayed(const Duration(milliseconds: 700));
       if (mounted) _next();
