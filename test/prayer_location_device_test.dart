@@ -1,4 +1,3 @@
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:niswah/core/preferences/prayer_location_controller.dart';
@@ -127,4 +126,19 @@ void main() {
       expect(lookups, 0);
     },
   );
+
+  test('an older "Current location" whose zone she confirmed by hand stays '
+      'manual', () async {
+    SharedPreferences.setMockInitialValues({
+      'niswah_prayer_location_lat': 26.2,
+      'niswah_prayer_location_lng': 50.2,
+      'niswah_prayer_location_label': 'Current location',
+      'niswah_prayer_location_zone': 'Asia/Bahrain',
+      'niswah_prayer_zone_confirmed': true,
+    });
+    await controller.load();
+
+    expect(controller.selectedOrNull!.fromDevice, isFalse);
+    expect(controller.selectedOrNull!.timezoneId, 'Asia/Bahrain');
+  });
 }

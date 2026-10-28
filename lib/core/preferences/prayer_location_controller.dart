@@ -227,13 +227,18 @@ class PrayerLocationController extends ChangeNotifier {
             label: label,
             labelAr: labelAr,
             // Older builds saved GPS fixes as "Current location" without
-            // this flag; treat them as device-based so they get a real
-            // city name and timezone on the next refresh.
+            // this flag. An unconfirmed one is treated as device-based so it
+            // gets a real city and zone on the next refresh; one whose zone
+            // she confirmed by hand keeps that choice.
             fromDevice:
                 preferences.getBool(
                   UserScopedPreferences.key(_fromDeviceKey),
                 ) ??
-                label == _legacyDeviceLabel,
+                (label == _legacyDeviceLabel &&
+                    preferences.getBool(
+                          UserScopedPreferences.key(_confirmedKey),
+                        ) !=
+                        true),
             timezoneId: zone ?? presetZone,
             timezoneConfirmed:
                 preferences.getBool(UserScopedPreferences.key(_confirmedKey)) ??
@@ -361,6 +366,9 @@ class PrayerLocationController extends ChangeNotifier {
       // A manual pick made while the fix was in flight wins.
       if (_selected != current) return;
       final zone = await deviceTimezone();
+      // Without the phone's zone the refresh would save an unusable,
+      // unconfirmed location over a working one; keep what is saved.
+      if (zone == null || zone.isEmpty) return;
       if (current.label != _legacyDeviceLabel &&
           current.timezoneConfirmed &&
           current.timezoneId == zone &&
