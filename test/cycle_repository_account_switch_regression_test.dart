@@ -23,6 +23,23 @@ class PausedLocalSource extends LocalCycleTrackingDataSource {
       true;
 }
 
+class PausedReadSource extends LocalCycleTrackingDataSource {
+  final entered = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<List<CycleLog>> loadLogs({String? userId}) async {
+    entered.complete();
+    await release.future;
+    return [CycleLog(
+      id: 'private-entry-a',
+      userId: 'owner-a',
+      date: DateTime(2026, 10, 1),
+      flow: FlowLevel.light,
+    )];
+  }
+}
+
 void main() {
   test('switching accounts during local save never uploads the old record as the new account', () async {
     final fake = FakeSupabase((_, __) async => jsonResponse({}));
@@ -73,6 +90,26 @@ void main() {
     ));
     expect(status, SyncStatus.pending);
     expect(requests, 0);
+  });
+
+  test('account switch during local read never returns the previous account data', () async {
+    final fake = FakeSupabase((_, __) async => jsonResponse({}));
+    await fake.signIn('owner-a');
+    final local = PausedReadSource();
+    final repository = CycleTrackingRepositoryImpl(
+      client: fake.client,
+      localDataSource: local,
+    );
+    final read = repository.getCycleLogs();
+    await local.entered.future;
+    await fake.signIn('owner-b');
+    local.release.complete();
+    try {
+      final result = await read;
+      expect(result.where((entry) => entry.userId == 'owner-a'), isEmpty);
+    } on StateError {
+      // A rejected stale read is an acceptable fail-closed result.
+    }
   });
 
 }
