@@ -24,14 +24,18 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
     DateTime? to,
     int limit = 200,
   }) async {
-    final localLogs = await _localDataSource.loadLogs();
     final client = _client;
-    if (client == null) {
-      return localLogs;
+    final session = client?.auth.currentSession;
+    final owner = session?.user.id;
+    void requireOriginalSession() {
+      if (client != null && client.auth.currentSession?.user.id != owner) {
+        throw StateError('Account changed during cycle history read.');
+      }
     }
 
-    final sessionUser = client.auth.currentUser;
-    if (sessionUser == null) {
+    final localLogs = await _localDataSource.loadLogs();
+    requireOriginalSession();
+    if (client == null || session == null) {
       return localLogs;
     }
 
@@ -39,7 +43,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       var query = client
           .from('cycle_entries')
           .select()
-          .eq('user_id', sessionUser.id);
+          .eq('user_id', session.user.id);
 
       if (from != null) {
         query = query.filter(
@@ -56,7 +60,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         );
       }
 
-      final response = await query.order('date', ascending: false).limit(limit);
+      final response = await query
+          .order('date', ascending: false)
+          .limit(limit)
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
+      requireOriginalSession();
       final remote = _parseCycleEntries(response as List<dynamic>);
 
       final merged = _mergeLocalAndRemote(localLogs, remote);
@@ -64,6 +72,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         ..sort((a, b) => b.date.compareTo(a.date));
       return ordered;
     } on PostgrestException catch (error, stack) {
+      requireOriginalSession();
       // Local save is authoritative for the UI (see saveCycleLog below) —
       // a remote read failure here must never make an already-saved local
       // log disappear from the caller. This used to rethrow as a
@@ -79,6 +88,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       );
       return localLogs;
     } catch (error, stack) {
+      requireOriginalSession();
       AppErrorReporter.report(
         error,
         stack,
