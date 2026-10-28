@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -501,55 +502,64 @@ class _SignInContent extends StatelessWidget {
           ),
         ],
       ),
-      const SizedBox(height: 18),
-      // "or" divider
-      Row(
-        children: [
-          const Expanded(child: Divider(color: Color(0xFFE5E7EB))),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(
-              _tr('or', 'أو'),
+      // App Store guideline 4.8: an app offering a third-party login must
+      // also offer an equivalent privacy-focused one (Sign in with Apple).
+      // Until that exists, iOS shows email and mobile sign-in only.
+      if (showGoogleSignIn) ...[
+        const SizedBox(height: 18),
+        // "or" divider
+        Row(
+          children: [
+            const Expanded(child: Divider(color: Color(0xFFE5E7EB))),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                _tr('or', 'أو'),
+                style: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+            const Expanded(child: Divider(color: Color(0xFFE5E7EB))),
+          ],
+        ),
+        const SizedBox(height: 18),
+        // Google button
+        SizedBox(
+          height: 54,
+          child: OutlinedButton.icon(
+            onPressed: onGoogle,
+            icon: const Icon(
+              Icons.g_mobiledata_rounded,
+              size: 26,
+              color: Color(0xFF4285F4),
+            ),
+            label: Text(
+              _tr('Continue with Google', 'المتابعة مع Google'),
               style: const TextStyle(
-                color: AppColors.textTertiary,
-                fontSize: 11,
+                color: Color(0xFF374151),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              backgroundColor: Colors.white,
+              side: const BorderSide(color: Color(0xFFE5E7EB)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
           ),
-          const Expanded(child: Divider(color: Color(0xFFE5E7EB))),
-        ],
-      ),
-      const SizedBox(height: 18),
-      // Google button
-      SizedBox(
-        height: 54,
-        child: OutlinedButton.icon(
-          onPressed: onGoogle,
-          icon: const Icon(
-            Icons.g_mobiledata_rounded,
-            size: 26,
-            color: Color(0xFF4285F4),
-          ),
-          label: Text(
-            _tr('Continue with Google', 'المتابعة مع Google'),
-            style: const TextStyle(
-              color: Color(0xFF374151),
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          style: OutlinedButton.styleFrom(
-            backgroundColor: Colors.white,
-            side: const BorderSide(color: Color(0xFFE5E7EB)),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
         ),
-      ),
+      ],
     ],
   );
 }
+
+/// Whether "Continue with Google" is offered on this platform (see the
+/// guideline 4.8 note where the button is built).
+bool get showGoogleSignIn => defaultTargetPlatform != TargetPlatform.iOS;
 
 class _FeatureTile extends StatelessWidget {
   const _FeatureTile({
