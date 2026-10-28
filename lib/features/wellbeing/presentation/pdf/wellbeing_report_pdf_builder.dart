@@ -1,11 +1,14 @@
 import 'dart:typed_data';
 
+import '../../domain/services/wellbeing_period_split.dart';
+
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../domain/services/wellbeing_insights_engine.dart';
+import '../../domain/services/wellbeing_period_split.dart';
 
 /// Renders "تقرير الحالة النفسية" as a real PDF from real
 /// [WellbeingInsights] — no mock data, no fixed report text. Every section
@@ -90,6 +93,7 @@ class WellbeingReportPdfBuilder {
     required DateTime periodStart,
     required DateTime generatedAt,
     List<NotedEntry> notes = const [],
+    WellbeingPeriodSplit? periodSplit,
   }) async {
     final regularData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
     final boldData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
@@ -113,7 +117,8 @@ class WellbeingReportPdfBuilder {
         header: (context) =>
             _header(isArabic, periodStart, generatedAt, semiBold),
         footer: (context) => _footer(isArabic),
-        build: (context) => _body(isArabic, insights, notes, semiBold),
+        build: (context) =>
+            _body(isArabic, insights, notes, semiBold, periodSplit),
       ),
     );
 
@@ -218,11 +223,29 @@ class WellbeingReportPdfBuilder {
     ),
   );
 
+  /// Device run 2026-10-28: mood is tracked on every day, with or without a
+  /// period, and the report says which check-ins fell on bleeding days.
+  static String _periodSplitText(bool isArabic, WellbeingPeriodSplit split) {
+    String avg(double? value) => value == null ? '—' : value.toStringAsFixed(1);
+    final period = split.onPeriodDays;
+    final other = split.onOtherDays;
+    return isArabic
+        ? 'تُسجَّل الحالة النفسية في كل الأيام، مع الدورة أو بدونها. هذا الشهر: '
+              '${period.count} تسجيل في أيام الدورة (متوسط المزاج ${avg(period.averageMood)}/5)، '
+              'و${other.count} في أيام بلا دورة (متوسط المزاج ${avg(other.averageMood)}/5). '
+              'أيام الدورة هي الأيام المسجّل فيها نزول دم، وليست حكمًا شرعيًا.'
+        : 'Mood is tracked on every day, with or without a period. This month: '
+              '${period.count} check-ins on period days (average mood ${avg(period.averageMood)}/5) '
+              'and ${other.count} on days without a period (average mood ${avg(other.averageMood)}/5). '
+              'Period days are days with bleeding recorded, not a religious ruling.';
+  }
+
   static List<pw.Widget> _body(
     bool isArabic,
     WellbeingInsights insights,
     List<NotedEntry> notes,
     pw.Font semiBold,
+    WellbeingPeriodSplit? periodSplit,
   ) {
     final widgets = <pw.Widget>[
       _card(
@@ -255,11 +278,24 @@ class WellbeingReportPdfBuilder {
           ],
         ),
       ),
+      if (periodSplit != null && periodSplit.all.count > 0)
+        _card(
+          child: pw.Text(
+            _periodSplitText(isArabic, periodSplit),
+            style: pw.TextStyle(
+              color: PdfColor.fromHex(_textSecondary),
+              fontSize: 9,
+              lineSpacing: 2,
+            ),
+          ),
+        ),
     ];
 
     if (notes.isNotEmpty) {
       widgets
-        ..add(_sectionLabel(isArabic ? 'ملاحظات مسجّلة' : 'Logged notes', semiBold))
+        ..add(
+          _sectionLabel(isArabic ? 'ملاحظات مسجّلة' : 'Logged notes', semiBold),
+        )
         ..add(_notesSection(notes, isArabic));
     }
 

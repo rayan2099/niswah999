@@ -110,8 +110,7 @@ class WellbeingInsightsEngine {
         : current.map((l) => l.mood).reduce((a, b) => a + b) / current.length;
     final averageMoodPrevious = previous.isEmpty
         ? null
-        : previous.map((l) => l.mood).reduce((a, b) => a + b) /
-              previous.length;
+        : previous.map((l) => l.mood).reduce((a, b) => a + b) / previous.length;
 
     MoodTrendDirection? trendDirection;
     if (current.length >= minEntriesForTrendDirection) {
@@ -127,7 +126,13 @@ class WellbeingInsightsEngine {
       final delta = secondAvg - firstAvg;
 
       final variance =
-          current.map((l) => (l.mood - averageMoodCurrent!) * (l.mood - averageMoodCurrent)).reduce((a, b) => a + b) /
+          current
+              .map(
+                (l) =>
+                    (l.mood - averageMoodCurrent!) *
+                    (l.mood - averageMoodCurrent),
+              )
+              .reduce((a, b) => a + b) /
           current.length;
 
       if (variance >= 1.4) {
