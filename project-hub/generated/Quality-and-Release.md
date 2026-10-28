@@ -32,6 +32,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
 - [parity-checklist.md](../../docs/parity-checklist.md)
+- [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 
@@ -171,6 +172,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [cycle_local_sync_idempotency_test.dart](../../test/cycle_local_sync_idempotency_test.dart)
 - [cycle_log_strict_parsing_test.dart](../../test/cycle_log_strict_parsing_test.dart)
 - [cycle_prediction_estimate_test.dart](../../test/cycle_prediction_estimate_test.dart)
+- [cycle_repository_account_switch_regression_test.dart](../../test/cycle_repository_account_switch_regression_test.dart)
 - [cycle_tracking_controller_test.dart](../../test/cycle_tracking_controller_test.dart)
 - [cycle_tracking_ui_flow_test.dart](../../test/cycle_tracking_ui_flow_test.dart)
 - [dashboard_canonical_degraded_evidence_test.dart](../../test/dashboard_canonical_degraded_evidence_test.dart)
@@ -231,6 +233,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [pdf_text_extractor_test.dart](../../test/pdf_text_extractor_test.dart)
 - [pending_bleeding_operation_store_test.dart](../../test/pending_bleeding_operation_store_test.dart)
 - [pending_operation_userid_threading_test.dart](../../test/pending_operation_userid_threading_test.dart)
+- [period_tracking_concurrency_test.dart](../../test/period_tracking_concurrency_test.dart)
 - [prayer_reminder_scheduler_test.dart](../../test/prayer_reminder_scheduler_test.dart)
 - [prayer_time_integrity_test.dart](../../test/prayer_time_integrity_test.dart)
 - [prayer_tracking_test.dart](../../test/prayer_tracking_test.dart)
