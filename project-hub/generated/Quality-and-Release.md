@@ -249,6 +249,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [rtl_directional_padding_lint_test.dart](../../test/rtl_directional_padding_lint_test.dart)
 - [secure_local_store_test.dart](../../test/secure_local_store_test.dart)
 - [sign_in_consent_gating_test.dart](../../test/sign_in_consent_gating_test.dart)
+- [sign_in_google_ios_test.dart](../../test/sign_in_google_ios_test.dart)
 - [sign_in_rtl_test.dart](../../test/sign_in_rtl_test.dart)
 - [start_bleeding_sheet_test.dart](../../test/start_bleeding_sheet_test.dart)
 - [sync_status_banner_test.dart](../../test/sync_status_banner_test.dart)
