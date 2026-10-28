@@ -131,6 +131,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [pregnancy_status.test.ts](../../supabase/functions/_shared/pregnancy_status.test.ts)
 - [pregnancy_status.ts](../../supabase/functions/_shared/pregnancy_status.ts)
 - [rate_limit.ts](../../supabase/functions/_shared/rate_limit.ts)
+- [small_talk.test.ts](../../supabase/functions/_shared/small_talk.test.ts)
+- [small_talk.ts](../../supabase/functions/_shared/small_talk.ts)
 
 ## supabase/functions/ai-assistant-chat
 
