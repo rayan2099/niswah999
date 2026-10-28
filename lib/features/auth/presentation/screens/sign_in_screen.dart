@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/data/countries.dart';
 import '../../../../core/errors/network_failure.dart';
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/network/supabase_client.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../../core/widgets/niswah_logo.dart';
@@ -658,9 +662,11 @@ class _AuthSheet extends StatefulWidget {
 }
 
 class _AuthSheetState extends State<_AuthSheet> {
+  StreamSubscription<AuthState>? _recoverySubscription;
   bool _isSignUp = false;
   bool _obscure = true;
   bool _loading = false;
+  bool _resetRequested = false;
   String? _error;
   late Country _country;
 
@@ -687,10 +693,16 @@ class _AuthSheetState extends State<_AuthSheet> {
   void initState() {
     super.initState();
     _country = kCountries.first;
+    _recoverySubscription = NiswahSupabase.clientOrNull?.auth.onAuthStateChange.listen((state) {
+      if (state.event == AuthChangeEvent.passwordRecovery && mounted) {
+        Navigator.of(context).pop();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _recoverySubscription?.cancel();
     _nameController.dispose();
     _identifierController.dispose();
     _passwordController.dispose();
@@ -769,6 +781,24 @@ class _AuthSheetState extends State<_AuthSheet> {
           _loading = false;
         });
       }
+    }
+  }
+
+  Future<void> _requestPasswordReset() async {
+    final email = _identifierController.text.trim();
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      setState(() => _error = _tr('Enter a valid email address first.', 'أدخلي بريدًا إلكترونيًا صحيحًا أولاً.'));
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await AuthRepositoryImpl().resetPasswordForEmail(email: email);
+      if (mounted) setState(() { _loading = false; _resetRequested = true; });
+    } catch (_) {
+      if (mounted) setState(() {
+        _loading = false;
+        _error = _tr('Could not send the reset request. Please try again.', 'تعذّر إرسال طلب إعادة التعيين. حاولي مرة أخرى.');
+      });
     }
   }
 
@@ -893,12 +923,22 @@ class _AuthSheetState extends State<_AuthSheet> {
             ..._otpStepChildren()
           else if (_awaitingEmailConfirmation)
             ..._emailConfirmationStepChildren()
+          else if (_resetRequested)
+            ..._resetRequestedChildren()
           else
             ..._credentialsStepChildren(),
         ],
       ),
     ),
   );
+
+  List<Widget> _resetRequestedChildren() => [
+    Text(_tr('Check your email', 'تحققي من بريدك الإلكتروني'), textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+    const SizedBox(height: 12),
+    Text(_tr('If an account exists for this email, a reset link will be sent. Open it on this device.', 'إذا كان البريد مرتبطًا بحساب، سنرسل رابط إعادة التعيين. افتحي الرابط على هذا الجهاز.'), textAlign: TextAlign.center),
+    const SizedBox(height: 12),
+    TextButton(onPressed: () => setState(() => _resetRequested = false), child: Text(_tr('Back to sign in', 'العودة لتسجيل الدخول'))),
+  ];
 
   List<Widget> _otpStepChildren() => [
     Text(
@@ -1179,6 +1219,15 @@ class _AuthSheetState extends State<_AuthSheet> {
         ),
       ),
     ),
+    if (!widget.isPhone && !_isSignUp)
+      Align(
+        alignment: AlignmentDirectional.centerEnd,
+        child: TextButton(
+          key: const Key('forgot_password_button'),
+          onPressed: _loading ? null : _requestPasswordReset,
+          child: Text(_tr('Forgot password?', 'نسيتِ كلمة المرور؟')),
+        ),
+      ),
     if (_error != null) ...[
       const SizedBox(height: 12),
       Text(

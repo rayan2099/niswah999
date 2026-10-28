@@ -40,6 +40,7 @@ import 'features/ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
 import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/presentation/screens/profile_screen.dart';
 import 'features/auth/presentation/screens/sign_in_screen.dart';
+import 'features/auth/presentation/screens/password_recovery_screen.dart';
 import 'features/community/presentation/screens/community_board_screen.dart';
 import 'features/community/presentation/widgets/community_language_gate.dart';
 import 'features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
@@ -545,6 +546,9 @@ class NiswahApp extends StatelessWidget {
     }
 
     final auth = AuthController.instance;
+    if (auth.passwordRecovery && auth.isAuthenticated) {
+      return const PasswordRecoveryScreen();
+    }
     if (!auth.isAuthenticated) {
       return const SignInScreen();
     }
