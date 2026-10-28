@@ -176,39 +176,42 @@ class _LanguageToggle extends StatelessWidget {
   const _LanguageToggle();
 
   @override
-  Widget build(BuildContext context) {
-    final isArabic = AppLocaleController.instance.isArabic;
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: const Color(0xFFFCE7EB)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _segment(
-            label: 'EN',
-            selected: !isArabic,
-            onTap: () => AppLocaleController.instance.setArabic(false),
-          ),
-          _segment(
-            label: 'ع',
-            selected: isArabic,
-            onTap: () => AppLocaleController.instance.setArabic(true),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: AppLocaleController.instance,
+    builder: (context, _) {
+      final isArabic = AppLocaleController.instance.isArabic;
+      return Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(99),
+          border: Border.all(color: const Color(0xFFFCE7EB)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _segment(
+              label: 'EN',
+              selected: !isArabic,
+              onTap: () => AppLocaleController.instance.setArabic(false),
+            ),
+            _segment(
+              label: 'ع',
+              selected: isArabic,
+              onTap: () => AppLocaleController.instance.setArabic(true),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 
   Widget _segment({
     required String label,
@@ -587,8 +590,7 @@ class _FeatureTile extends StatelessWidget {
           Flexible(
             child: Text(
               label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              softWrap: true,
               style: const TextStyle(
                 color: Color(0xFF374151),
                 fontSize: 11.5,
