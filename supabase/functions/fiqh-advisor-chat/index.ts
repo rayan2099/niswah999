@@ -22,6 +22,7 @@ import {
   normalizeClientFiqhState,
   STATE_UNRESOLVED_AR,
 } from '../_shared/fiqh_state_guard.ts';
+import { detectSmallTalk, smallTalkReply } from '../_shared/small_talk.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -94,6 +95,16 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: `question exceeds ${MAX_QUESTION_LENGTH} characters.` }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // "شكرا", "السلام عليكم": a short social message gets a fixed friendly
+    // reply, before the madhhab and evidence gates that would refuse it.
+    const smallTalk = detectSmallTalk(question);
+    if (smallTalk) {
+      return new Response(
+        JSON.stringify({ text: smallTalkReply(smallTalk, 'fiqh_advisor', detectLanguage(question)), citations: [] }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
     }
 
     const madhhabState =
