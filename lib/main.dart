@@ -227,6 +227,7 @@ Future<void> _runApp() async {
   await MaritalStatusController.instance.load();
   await MadhhabController.instance.load();
   await PrayerLocationController.instance.load();
+  unawaited(PrayerLocationController.instance.refreshDeviceLocationIfAllowed());
   await NotificationLogController.instance.load();
   await NotificationService.instance.initialize();
   unawaited(AppNotificationSession.instance.start(NiswahSupabase.client));
@@ -729,6 +730,11 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
       // already sees the real current zone, never a stale one.
       DeviceTimezone.invalidateCache();
       unawaited(_refreshNotifications());
+      // A GPS-based prayer location follows her to a new city (and zone)
+      // without her opening settings; a hand-picked city is left alone.
+      unawaited(
+        PrayerLocationController.instance.refreshDeviceLocationIfAllowed(),
+      );
       // App-resume retry trigger — see the app-start trigger in initState
       // for why this exists and what it does/doesn't guarantee.
       unawaited(_cycleViewModel.retryPendingSync());
