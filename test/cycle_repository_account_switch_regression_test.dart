@@ -52,4 +52,27 @@ void main() {
     }
     expect(uploads.where((row) => row['user_id'] == 'owner-b'), isEmpty);
   });
+  test('signed-out save remains pending rather than claiming a server sync', () async {
+    final fake = FakeSupabase((_, __) async => jsonResponse({}));
+    var requests = 0;
+    fake.onTable = (request) async {
+      requests++;
+      return jsonResponse([]);
+    };
+    final local = PausedLocalSource();
+    local.release.complete();
+    final repository = CycleTrackingRepositoryImpl(
+      client: fake.client,
+      localDataSource: local,
+    );
+    final status = await repository.saveCycleLog(CycleLog(
+      id: 'offline-entry',
+      userId: 'owner-a',
+      date: DateTime(2026, 10, 1),
+      flow: FlowLevel.light,
+    ));
+    expect(status, SyncStatus.pending);
+    expect(requests, 0);
+  });
+
 }
