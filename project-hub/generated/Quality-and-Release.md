@@ -161,6 +161,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [canonical_fiqh_evidence_adapter_test.dart](../../test/canonical_fiqh_evidence_adapter_test.dart)
 - [chat_assistant_test.dart](../../test/chat_assistant_test.dart)
 - [community_board_test.dart](../../test/community_board_test.dart)
+- [community_composer_keyboard_test.dart](../../test/community_composer_keyboard_test.dart)
 - [community_language_gate_test.dart](../../test/community_language_gate_test.dart)
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
