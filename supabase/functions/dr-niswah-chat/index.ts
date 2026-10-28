@@ -129,7 +129,7 @@ function detectRedFlags(message: string): RedFlagCategory[] {
 }
 
 function detectLanguage(text: string): 'ar' | 'en' {
-  return /[\u0600-\u06FF]/.test(text) ? 'ar' : 'en';
+  return /[\u{0600}-\u{06FF}]/u.test(text) ? 'ar' : 'en';
 }
 
 Deno.serve(async (req) => {

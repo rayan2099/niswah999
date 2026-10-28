@@ -181,3 +181,4 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261021100000_onboarding_server_hardening.sql](../../supabase/migrations/20261021100000_onboarding_server_hardening.sql)
 - [20261021110000_tracking_rls_initplan_and_fk_indexes.sql](../../supabase/migrations/20261021110000_tracking_rls_initplan_and_fk_indexes.sql)
 - [20261022084701_app_wide_notifications.sql](../../supabase/migrations/20261022084701_app_wide_notifications.sql)
+- [20261026090000_revoke_anon_security_definer_execute.sql](../../supabase/migrations/20261026090000_revoke_anon_security_definer_execute.sql)

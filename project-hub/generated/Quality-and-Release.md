@@ -391,6 +391,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## test/security
 
 - [00_bootstrap_stub_supabase.sql](../../test/security/00_bootstrap_stub_supabase.sql)
+- [revoke_anon_security_definer_execute.sql](../../test/security/revoke_anon_security_definer_execute.sql)
 - [run_sql_checks.sh](../../test/security/run_sql_checks.sh)
 - [tracking_rls_initplan_and_fk_indexes.sql](../../test/security/tracking_rls_initplan_and_fk_indexes.sql)
 - [users_privileged_columns_guard.sql](../../test/security/users_privileged_columns_guard.sql)
