@@ -36,7 +36,7 @@ const NO_ELIGIBLE_KB_AR =
   'لا توجد في قاعدة المعرفة المعتمدة حاليًا مادة كافية لهذه الحالة ضمن مذهبك، لذلك لن أقدّم حكمًا آليًا. يُرجى سؤال جهة إفتاء أو عالِمة مؤهلة.';
 
 function detectLanguage(text: string): 'ar' | 'en' {
-  return /[\u0600-\u06FF]/.test(text) ? 'ar' : 'en';
+  return /[\u{0600}-\u{06FF}]/u.test(text) ? 'ar' : 'en';
 }
 
 function buildSystemInstruction(madhhab: string): string {

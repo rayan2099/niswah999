@@ -164,7 +164,7 @@ const ALLOWED_MADHHABS = new Set(['hanafi', 'maliki', 'shafii', 'hanbali']);
 export function sanitizeForPrompt(raw: string, maxChars = 500): string {
   const oneLine = raw
     // deno-lint-ignore no-control-regex
-    .replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ')
+    .replace(/[\x00-\x1f\x7f\p{Zl}\p{Zp}]+/gu, ' ')
     .replace(/\[\s*(END\s+)?(CONTEXT|KNOWLEDGE)[^\]]*\]/gi, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();

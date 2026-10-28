@@ -18,6 +18,7 @@ import {
   fiqhUncertaintyFor,
   formatContextBlock,
   mergeNotesSources,
+  sanitizeForPrompt,
   type UserAiContext,
 } from './ai_user_context.ts';
 
@@ -313,4 +314,12 @@ Deno.test('fiqhUncertaintyFor — only a settled client classification carries n
   }
   assertEquals(fiqhUncertaintyFor(null).includes('not supplied'), true);
   assertEquals(fiqhUncertaintyFor(undefined).includes('not supplied'), true);
+});
+
+Deno.test('sanitizeForPrompt — collapses control and line/paragraph separators to one line', () => {
+  const ls = String.fromCharCode(0x2028);
+  const ps = String.fromCharCode(0x2029);
+  const raw = `a\u0000b\nc${ls}d${ps}e\u007ff\tg`;
+  assertEquals(sanitizeForPrompt(raw), 'a b c d e f g');
+  assertEquals(sanitizeForPrompt('صداع 🙂 é'), 'صداع 🙂 é');
 });
