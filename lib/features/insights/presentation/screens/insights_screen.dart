@@ -43,6 +43,7 @@ class InsightsScreen extends StatefulWidget {
 class _InsightsScreenState extends State<InsightsScreen> {
   late final CycleTrackingViewModel _viewModel;
   int _trendMonths = 3;
+  int _wellbeingRefresh = 0;
 
   @override
   void initState() {
@@ -67,7 +68,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
           bottom: false,
           child: RefreshIndicator(
             color: AppColors.brandSecondary,
-            onRefresh: _viewModel.loadLogs,
+            onRefresh: () async {
+              setState(() => _wellbeingRefresh++);
+              await _viewModel.loadLogs();
+            },
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
@@ -183,6 +187,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       const SizedBox(height: 28),
                       _WellbeingTrends(
                         months: _trendMonths,
+                        refreshToken: _wellbeingRefresh,
                         cycleLogs: _viewModel.logs,
                         episodes: _viewModel.canonicalEpisodes,
                         load:
@@ -1021,11 +1026,15 @@ class _InsightCard extends StatelessWidget {
 class _WellbeingTrends extends StatefulWidget {
   const _WellbeingTrends({
     required this.months,
+    required this.refreshToken,
     required this.cycleLogs,
     required this.episodes,
     required this.load,
   });
   final int months;
+
+  /// Changes on pull-to-refresh, which reloads (and retries) the check-ins.
+  final int refreshToken;
   final List<CycleLog> cycleLogs;
   final List<CanonicalEpisodeTiming> episodes;
   final Future<List<WellbeingLog>> Function(DateTime from) load;
@@ -1037,6 +1046,7 @@ class _WellbeingTrends extends StatefulWidget {
 class _WellbeingTrendsState extends State<_WellbeingTrends> {
   List<WellbeingLog>? _logs;
   bool _failed = false;
+  int _generation = 0;
 
   DateTime get _rangeStart =>
       DateTime(AppClock.now().year, AppClock.now().month - widget.months + 1);
@@ -1044,25 +1054,40 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
   @override
   void initState() {
     super.initState();
+    WellbeingRepository.revision.addListener(_load);
     _load();
   }
 
   @override
   void didUpdateWidget(covariant _WellbeingTrends oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.months != widget.months) _load();
+    if (oldWidget.months != widget.months ||
+        oldWidget.refreshToken != widget.refreshToken) {
+      _load();
+    }
   }
 
+  @override
+  void dispose() {
+    WellbeingRepository.revision.removeListener(_load);
+    super.dispose();
+  }
+
+  /// Only the latest request may write: a slow earlier one (say a 12-month
+  /// range) finishing after a newer one must not replace its results.
   Future<void> _load() async {
+    final generation = ++_generation;
     try {
       final logs = await widget.load(_rangeStart);
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _logs = logs;
         _failed = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      if (mounted && generation == _generation) {
+        setState(() => _failed = true);
+      }
     }
   }
 

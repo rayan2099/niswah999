@@ -8,7 +8,6 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../domain/services/wellbeing_insights_engine.dart';
-import '../../domain/services/wellbeing_period_split.dart';
 
 /// Renders "تقرير الحالة النفسية" as a real PDF from real
 /// [WellbeingInsights] — no mock data, no fixed report text. Every section
