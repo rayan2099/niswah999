@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../errors/app_error_reporter.dart';
@@ -49,9 +50,39 @@ class AuthController extends ChangeNotifier {
   bool get passwordRecovery => _passwordRecovery;
 
   void completePasswordRecovery() {
+    unawaited(_rememberPendingRecovery(null));
     if (!_passwordRecovery) return;
     _passwordRecovery = false;
     notifyListeners();
+  }
+
+  // The recovery session is persisted by supabase_flutter, so if the app is
+  // killed before the new password is saved, the next launch would restore
+  // the session and skip straight past the reset form. The user id of an
+  // unfinished recovery is remembered so init() can resume it.
+  static const _pendingRecoveryKey = 'niswah_password_recovery_pending_user';
+
+  Future<void> _rememberPendingRecovery(String? userId) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (userId == null) {
+        await preferences.remove(_pendingRecoveryKey);
+      } else {
+        await preferences.setString(_pendingRecoveryKey, userId);
+      }
+    } catch (_) {
+      // Best-effort: without it a killed app just skips the reset form.
+    }
+  }
+
+  Future<void> _resumePendingRecovery(String userId) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (preferences.getString(_pendingRecoveryKey) != userId) return;
+      if (_authenticatedUserId != userId || _passwordRecovery) return;
+      _passwordRecovery = true;
+      notifyListeners();
+    } catch (_) {}
   }
 
   // Set by the sign-up flow (sign_in_screen.dart) the moment a brand-new
@@ -240,6 +271,7 @@ class AuthController extends ChangeNotifier {
     _authenticatedUserId = client.auth.currentUser?.id;
     if (_isAuthenticated) {
       unawaited(refreshOnboardingStatus());
+      unawaited(_resumePendingRecovery(_authenticatedUserId!));
     }
 
     _subscription ??= client.auth.onAuthStateChange.listen((state) {
@@ -247,11 +279,13 @@ class AuthController extends ChangeNotifier {
       final wasRecovering = _passwordRecovery;
       if (state.event == AuthChangeEvent.passwordRecovery && signedIn) {
         _passwordRecovery = true;
+        unawaited(_rememberPendingRecovery(state.session!.user.id));
       } else if (!signedIn ||
           (state.event == AuthChangeEvent.signedIn &&
               _authenticatedUserId != null &&
               state.session?.user.id != _authenticatedUserId)) {
         _passwordRecovery = false;
+        unawaited(_rememberPendingRecovery(null));
       }
       final wasAuthenticated = _isAuthenticated;
       final accountChanged =

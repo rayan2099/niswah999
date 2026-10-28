@@ -27,6 +27,17 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   String tr(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
   @override
+  void initState() {
+    super.initState();
+    // A recovery link can arrive while another screen is pushed on top of
+    // home; swapping the root's home only replaces the bottom route, so
+    // clear everything above this form.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+    });
+  }
+
+  @override
   void dispose() {
     _password.dispose();
     _confirm.dispose();

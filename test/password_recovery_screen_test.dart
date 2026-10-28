@@ -44,4 +44,34 @@ void main() {
     expect(completed, isFalse);
     expect(find.textContaining('تعذّر تحديث'), findsOneWidget);
   });
+
+  testWidgets('clears screens pushed above home when recovery starts', (tester) async {
+    final recovering = ValueNotifier(false);
+    await tester.pumpWidget(ValueListenableBuilder<bool>(
+      valueListenable: recovering,
+      builder: (context, value, _) => MaterialApp(
+        home: value
+            ? PasswordRecoveryScreen(updatePassword: (_) async {})
+            : Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const Scaffold(body: Text('chat')),
+                    ),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('chat'), findsOneWidget);
+
+    recovering.value = true;
+    await tester.pumpAndSettle();
+
+    expect(find.text('chat'), findsNothing);
+    expect(find.byKey(const Key('save_new_password')), findsOneWidget);
+  });
 }
