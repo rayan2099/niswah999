@@ -9,6 +9,7 @@ import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../data/repositories/wellbeing_repository.dart';
 import '../../domain/services/wellbeing_insights_engine.dart';
+import '../../domain/services/wellbeing_period_split.dart';
 import '../pdf/wellbeing_report_pdf_builder.dart';
 
 String _t(String en, String ar) => AppLocaleController.instance.text(en, ar);
@@ -93,6 +94,11 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
       isArabic: isArabic,
       insights: insights,
       notes: notes,
+      periodSplit: WellbeingPeriodSplit.compute(
+        logs: currentLogs,
+        cycleLogs: cycleLogs,
+        today: now,
+      ),
       periodStart: currentStart,
       generatedAt: now,
     );

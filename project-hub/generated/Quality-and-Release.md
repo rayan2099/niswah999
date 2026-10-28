@@ -191,6 +191,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [flutter_test_config.dart](../../test/flutter_test_config.dart)
 - [home_shell_shared_view_model_test.dart](../../test/home_shell_shared_view_model_test.dart)
 - [husband_report_pdf_builder_test.dart](../../test/husband_report_pdf_builder_test.dart)
+- [insights_wellbeing_card_test.dart](../../test/insights_wellbeing_card_test.dart)
 - [legacy_screens_canonical_history_test.dart](../../test/legacy_screens_canonical_history_test.dart)
 - [localization_ui_test.dart](../../test/localization_ui_test.dart)
 - [madhhab_change_confirmation_test.dart](../../test/madhhab_change_confirmation_test.dart)
@@ -260,6 +261,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [test_backend_gate_test.dart](../../test/test_backend_gate_test.dart)
 - [user_scoped_preferences_test.dart](../../test/user_scoped_preferences_test.dart)
 - [wellbeing_insights_engine_test.dart](../../test/wellbeing_insights_engine_test.dart)
+- [wellbeing_period_split_test.dart](../../test/wellbeing_period_split_test.dart)
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
 - [widget_test.dart](../../test/widget_test.dart)
 

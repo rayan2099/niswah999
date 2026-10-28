@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import 'package:niswah/features/wellbeing/domain/entities/wellbeing_log.dart';
 import 'package:niswah/features/wellbeing/domain/services/wellbeing_insights_engine.dart';
+import 'package:niswah/features/wellbeing/domain/services/wellbeing_period_split.dart';
 import 'package:niswah/features/wellbeing/presentation/pdf/wellbeing_report_pdf_builder.dart';
 
 WellbeingLog _log(
@@ -48,31 +49,31 @@ void main() {
     expect(bytesEn.isNotEmpty, isTrue);
   });
 
-  test('renders the full report with charts, sleep pattern, and escalation', () async {
-    final logs = [
-      for (var i = 0; i < 5; i++) _log(i + 1, mood: 2, sleep: 1),
-      for (var i = 5; i < 12; i++) _log(i + 1, mood: 4, sleep: 4),
-    ];
-    final previous = List.generate(
-      6,
-      (i) => _log(i + 1, month: 7, mood: 3),
-    );
+  test(
+    'renders the full report with charts, sleep pattern, and escalation',
+    () async {
+      final logs = [
+        for (var i = 0; i < 5; i++) _log(i + 1, mood: 2, sleep: 1),
+        for (var i = 5; i < 12; i++) _log(i + 1, mood: 4, sleep: 4),
+      ];
+      final previous = List.generate(6, (i) => _log(i + 1, month: 7, mood: 3));
 
-    final insights = WellbeingInsightsEngine.analyze(
-      currentPeriodLogs: logs,
-      previousPeriodLogs: previous,
-      daysElapsedInPeriod: 12,
-    );
+      final insights = WellbeingInsightsEngine.analyze(
+        currentPeriodLogs: logs,
+        previousPeriodLogs: previous,
+        daysElapsedInPeriod: 12,
+      );
 
-    final bytes = await WellbeingReportPdfBuilder.build(
-      isArabic: true,
-      insights: insights,
-      periodStart: DateTime(2026, 8, 1),
-      generatedAt: DateTime(2026, 8, 25),
-    );
+      final bytes = await WellbeingReportPdfBuilder.build(
+        isArabic: true,
+        insights: insights,
+        periodStart: DateTime(2026, 8, 1),
+        generatedAt: DateTime(2026, 8, 25),
+      );
 
-    expect(bytes.isNotEmpty, isTrue);
-  });
+      expect(bytes.isNotEmpty, isTrue);
+    },
+  );
 
   test('renders the escalation card when mood is sustained-low', () async {
     final logs = List.generate(10, (i) => _log(i + 1, mood: 1));
@@ -112,5 +113,28 @@ void main() {
     );
 
     expect(bytes.isNotEmpty, isTrue);
+  });
+
+  test('renders the period / no-period split note in both languages', () async {
+    final logs = List.generate(6, (i) => _log(i + 1, mood: 3));
+    final insights = WellbeingInsightsEngine.analyze(
+      currentPeriodLogs: logs,
+      previousPeriodLogs: const [],
+      daysElapsedInPeriod: 12,
+    );
+    final split = WellbeingPeriodSplit.compute(
+      logs: logs,
+      today: DateTime(2026, 8, 25),
+    );
+    for (final isArabic in [true, false]) {
+      final bytes = await WellbeingReportPdfBuilder.build(
+        isArabic: isArabic,
+        insights: insights,
+        periodStart: DateTime(2026, 8, 1),
+        generatedAt: DateTime(2026, 8, 25),
+        periodSplit: split,
+      );
+      expect(bytes.isNotEmpty, isTrue);
+    }
   });
 }

@@ -20,6 +20,7 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 
 - [insights_ar_390x844.png](../../test/goldens/insights_ar_390x844.png)
 - [insights_en_390x844.png](../../test/goldens/insights_en_390x844.png)
+- [insights_wellbeing_card_test.dart](../../test/insights_wellbeing_card_test.dart)
 - [parity_insights_test.dart](../../test/parity_insights_test.dart)
 - [doctor_report_insights_engine_test.dart](../../test/services/doctor_report_insights_engine_test.dart)
 - [fiqh_report_insights_engine_test.dart](../../test/services/fiqh_report_insights_engine_test.dart)

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/failures.dart';
@@ -21,6 +22,10 @@ class WellbeingRepository {
   final SupabaseClient? _client;
 
   static const String _tableName = 'wellbeing_logs';
+
+  /// Bumped after every saved check-in so screens that show check-ins
+  /// (Insights) reload instead of keeping what they fetched earlier.
+  static final ValueNotifier<int> revision = ValueNotifier(0);
 
   String _dateOnly(DateTime date) => date.toIso8601String().substring(0, 10);
 
@@ -54,6 +59,7 @@ class WellbeingRepository {
       await client
           .from(_tableName)
           .upsert(payload, onConflict: 'user_id,log_date');
+      revision.value++;
     } on PostgrestException catch (error) {
       throw NetworkFailure(error.message);
     }
