@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:niswah/core/preferences/prayer_location_controller.dart';
+import 'package:niswah/core/storage/secure_local_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -141,4 +142,18 @@ void main() {
     expect(controller.selectedOrNull!.fromDevice, isFalse);
     expect(controller.selectedOrNull!.timezoneId, 'Asia/Bahrain');
   });
+  test('an account switch while a location selection is pending does not persist into the next account', () async {
+    SecureLocalStore.debugUserIdOverride = 'owner-a';
+    try {
+      final saving = controller.select(PrayerLocationController.presets.first);
+      SecureLocalStore.debugUserIdOverride = 'owner-b';
+      await saving;
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getDouble('niswah_prayer_location_lat__owner-b'), isNull);
+      expect(prefs.getString('niswah_prayer_location_label__owner-b'), isNull);
+    } finally {
+      SecureLocalStore.debugUserIdOverride = null;
+    }
+  });
+
 }
