@@ -157,4 +157,20 @@ void main() {
     }
   });
 
+  test('overlapping selections persist a consistent location', () async {
+    final first = PrayerLocationController.presets.first;
+    final second = PrayerLocationController.presets.last;
+    await Future.wait([controller.select(first), controller.select(second)]);
+    final prefs = await SharedPreferences.getInstance();
+    final label = prefs.getString('niswah_prayer_location_label');
+    final lat = prefs.getDouble('niswah_prayer_location_lat');
+    final lng = prefs.getDouble('niswah_prayer_location_lng');
+    final zone = prefs.getString('niswah_prayer_location_zone');
+    expect(
+      (label == first.label && lat == first.latitude && lng == first.longitude && zone == first.timezoneId) ||
+      (label == second.label && lat == second.latitude && lng == second.longitude && zone == second.timezoneId),
+      isTrue,
+    );
+  });
+
 }
