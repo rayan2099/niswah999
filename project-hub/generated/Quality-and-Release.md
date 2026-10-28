@@ -172,6 +172,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [cycle_local_sync_idempotency_test.dart](../../test/cycle_local_sync_idempotency_test.dart)
 - [cycle_log_strict_parsing_test.dart](../../test/cycle_log_strict_parsing_test.dart)
 - [cycle_prediction_estimate_test.dart](../../test/cycle_prediction_estimate_test.dart)
+- [cycle_repository_account_switch_regression_test.dart](../../test/cycle_repository_account_switch_regression_test.dart)
 - [cycle_tracking_controller_test.dart](../../test/cycle_tracking_controller_test.dart)
 - [cycle_tracking_ui_flow_test.dart](../../test/cycle_tracking_ui_flow_test.dart)
 - [dashboard_canonical_degraded_evidence_test.dart](../../test/dashboard_canonical_degraded_evidence_test.dart)
