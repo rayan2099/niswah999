@@ -269,7 +269,9 @@ class PrayerLocationController extends ChangeNotifier {
     final owner = SecureLocalStore.currentUserId();
     final keys = {for (final key in [_latKey, _lngKey, _labelKey, _labelArKey, _fromDeviceKey, _zoneKey, _confirmedKey]) key: UserScopedPreferences.key(key)};
     final preferences = await SharedPreferences.getInstance();
-    if (SecureLocalStore.currentUserId() != owner) return;
+    if (SecureLocalStore.currentUserId() != owner) {
+      throw StateError('Account changed during location save.');
+    }
     await preferences.setDouble(
       keys[_latKey]!,
       location.latitude,
@@ -306,7 +308,9 @@ class PrayerLocationController extends ChangeNotifier {
       keys[_confirmedKey]!,
       location.timezoneConfirmed,
     );
-    if (SecureLocalStore.currentUserId() != owner) return;
+    if (SecureLocalStore.currentUserId() != owner) {
+      throw StateError('Account changed during location save.');
+    }
     _selected = location;
     notifyListeners();
   }
