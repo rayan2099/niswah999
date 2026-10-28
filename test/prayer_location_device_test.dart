@@ -151,6 +151,7 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getDouble('niswah_prayer_location_lat__owner-b'), isNull);
       expect(prefs.getString('niswah_prayer_location_label__owner-b'), isNull);
+      expect(controller.selectedOrNull, isNull);
     } finally {
       SecureLocalStore.debugUserIdOverride = null;
     }
