@@ -268,6 +268,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
 - [widget_test.dart](../../test/widget_test.dart)
 
+## test/account_isolation
+
+- [entry_draft_after_session_end_test.dart](../../test/account_isolation/entry_draft_after_session_end_test.dart)
+
 ## test/fiqh_hardening
 
 - [ai_client_fiqh_state_test.dart](../../test/fiqh_hardening/ai_client_fiqh_state_test.dart)

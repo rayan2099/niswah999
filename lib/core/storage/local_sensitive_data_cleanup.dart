@@ -1,4 +1,5 @@
 import '../../features/cycle_tracking/data/datasources/local_cycle_tracking_data_source.dart';
+import '../../features/cycle_tracking/data/local/cycle_log_draft_store.dart';
 import '../../features/cycle_tracking/data/local/pending_bleeding_operation_store.dart';
 import '../../features/prayer_tracking/data/datasources/local_prayer_tracking_data_source.dart';
 import 'secure_local_store.dart';
@@ -22,6 +23,8 @@ localSensitiveDataCleanupTasks = {
   'cycle_tracking_pending_bleeding_operations':
       PendingBleedingOperationStore.clearForUser,
   'prayer_tracking': LocalPrayerTrackingDataSource.clearForUser,
+  // NJ-013: an unsaved day-log entry kept when her session ended.
+  CycleLogDraftStore.category: CycleLogDraftStore.clearForUser,
 };
 
 /// Deletes every registered sensitive local data category for [userId],
