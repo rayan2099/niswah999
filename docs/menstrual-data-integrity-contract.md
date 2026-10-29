@@ -2183,9 +2183,19 @@ only after the server confirms.
 Tests: `test/security/bleeding_episode_corrections.sql` (11 sections) and
 `test/period_tracking/episode_edit_test.dart` (14 tests).
 
+Single-entry delete (PT-055,
+`20261029120000_bleeding_observation_removal.sql`): `remove_observation`
+archives one day's entry with its whole correction chain, tombstones its
+operations and records a `remove_observation` revision; `restore_observation`
+puts back the same ids unless a newer entry now covers that day. The
+period's start entry and an ended period's closing entry are refused
+(NW423); they change only through the period editor, so a period never loses
+its start or its recorded end. Tests:
+`test/security/bleeding_observation_removal.sql` (8 sections) and
+`test/period_tracking/observation_remove_test.dart`.
+
 ### Known gaps
 
-- There is no single-observation delete (PT-055), and no split or merge
-  (PT-045, PT-046).
+- There is no split or merge (PT-045, PT-046).
 - There is no "recently removed" screen yet; the restore path is the Undo
   snackbar.

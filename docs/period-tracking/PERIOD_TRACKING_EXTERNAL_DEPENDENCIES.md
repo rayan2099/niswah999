@@ -55,12 +55,15 @@ A read-only check confirmed all 13 functions match the tested copy (md5), and
 the rolled-back behavior script (`02_verify_staging_rolled_back.sql` in the
 project files) returned ALL PASSED, leaving no test accounts or rows. The
 follow-up `20261029110000_bleeding_local_today_search_path.sql` (advisor lint
-0011) is not yet applied to staging.
+0011) is not yet applied to staging. Nor is
+`20261029120000_bleeding_observation_removal.sql` (PT-055, single-entry
+delete), which also replaces `bleeding_archive_observations` with a version
+that archives a correction chain tip-first.
 
 Production: not applied. Until it is, the "Edit this period" actions fail on
 the server there: she sees a "not saved" message and nothing changes. The new
-UI therefore must not ship in a production build until both migrations are on
-the production backend. Production needs its own approval.
+UI therefore must not ship in a production build until all three migrations
+are on the production backend. The same holds for "Delete this entry". Production needs its own approval.
 
 Order: staging, then a device check, then production. rayan runs the SQL in
 the dashboard.

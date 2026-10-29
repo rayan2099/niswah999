@@ -11,13 +11,13 @@ report summarizes it and must not contradict it.
 
 | Status | Count |
 | --- | --- |
-| VERIFIED | 48 |
+| VERIFIED | 49 |
 | IMPLEMENTED — UNVERIFIED | 85 |
-| IMPLEMENTATION REQUIRED | 34 |
+| IMPLEMENTATION REQUIRED | 33 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 33 |
 | NOT ASSESSED | 0 |
 
-These counts do not mean that 48 cases work on a phone today. See "What
+These counts do not mean that 49 cases work on a phone today. See "What
 VERIFIED means" below.
 
 ## What VERIFIED means here
@@ -35,7 +35,10 @@ It does not mean:
   `20261029100000_bleeding_episode_corrections.sql`. On 2026-10-29 that
   migration was also applied to staging and the same behavior checks passed
   there (rolled back, synthetic accounts). It is not on production, and no
-  case has been run in the app against staging yet.
+  case has been run in the app against staging yet. PT-055 (deleting one
+  day's entry) needs the follow-up migration
+  `20261029120000_bleeding_observation_removal.sql`, verified on scratch
+  Postgres only; it is not on staging or production yet.
 
 CI passing is not a claim that all 200 cases are covered.
 
@@ -43,9 +46,9 @@ CI passing is not a claim that all 200 cases are covered.
 
 | Check | Result |
 | --- | --- |
-| `flutter test` (every test file without golden comparisons) | 1,620 passed, 7 skipped, 0 failed (final run on the committed code) |
-| `test/period_tracking/` (episode edits, PT-079, PT-112) plus the correction, sync-hardening and round-2 suites | All passed |
-| `test/security/run_sql_checks.sh` (scratch Postgres, synthetic users) | 5 of 5 files passed, including `bleeding_episode_corrections.sql` (11 sections) |
+| `flutter test` (every test file without golden comparisons) | 1,632 passed, 7 skipped, 0 failed (final run on the committed code) |
+| `test/period_tracking/` (episode edits, single-entry delete, PT-079, PT-112) plus the correction, sync-hardening and round-2 suites | All passed |
+| `test/security/run_sql_checks.sh` (scratch Postgres, synthetic users) | 6 of 6 files passed, including `bleeding_episode_corrections.sql` (11 sections) and `bleeding_observation_removal.sql` (8 sections) |
 | Staging (`ovgvevzrcefloitgcsia`), 2026-10-29 | Migration applied by rayan; 13 of 13 functions match the tested copy (md5); rolled-back behavior script ALL PASSED; 0 test rows left |
 | `flutter analyze` on the changed code | No issues |
 | `python3 scripts/period_tracking_register.py --check` | Register and CSV in sync |
@@ -57,6 +60,7 @@ CI passing is not a claim that all 200 cases are covered.
 | PT-027 | An accidental end could not be undone | Undo on "Period ended."; "I'm still bleeding" in the editor; a queued replay of the undone end is dropped (NW410) |
 | PT-051, PT-052 | A period's start or end could not be corrected | Editor on Calendar; the server previews removed entries (NW422) before applying; history archived, never rewritten |
 | PT-054 | (no path) | Overlaps refused server-side, explained in her words |
+| PT-055 | No way to delete a single day's entry | "Delete this entry" on a day, with confirmation and Undo; the entry and its corrections are archived, never rewritten; the period's start and an ended period's end are protected (NW423) |
 | PT-056, PT-057 | A period could not be removed or put back | Remove with confirmation, then Undo restores the same ids |
 | PT-060, PT-148 | (no path for episode edits) | A revision token refuses stale edits from another device (NW409) |
 | PT-079 | Insights said "Insufficient data" | «لا تتوفر بيانات كافية للتوقع» / "Not enough data for a prediction", with no date |
@@ -68,7 +72,6 @@ CI passing is not a claim that all 200 cases are covered.
 
 | Case | Priority | Gap |
 | --- | --- | --- |
-| PT-055 | P1 | No way to delete a single day's entry |
 | PT-002 | P2 | Onboarding "stopped, not sure when" drops the known start |
 | PT-003 | P2 | An approximate date is stored as if exact |
 | PT-045, PT-046 | P2 | No split or merge of periods |

@@ -63,7 +63,9 @@ class RemovedEpisode {
 
 /// Client for the episode correction RPCs added by
 /// `supabase/migrations/20261029100000_bleeding_episode_corrections.sql`
-/// (cases PT-027, PT-051..PT-057, PT-060, PT-148).
+/// (cases PT-027, PT-051..PT-057, PT-060, PT-148) and the single-entry
+/// removal RPCs of `20261029120000_bleeding_observation_removal.sql`
+/// (PT-055).
 ///
 /// Each call takes a client operation id generated once per user action
 /// and reused on retry (the RPC returns the original result for a repeat),
@@ -183,6 +185,40 @@ class EpisodeCorrectionRepository {
     params: {
       'p_client_operation_id': clientOperationId,
       'p_episode_id': episodeId,
+    },
+  );
+
+  /// Takes one day's entry out of her history (PT-055), with its whole
+  /// correction chain; undone with [restoreObservation] using the returned
+  /// revision id. The server refuses (rejected) the start entry of a period
+  /// and the end entry of an ended one.
+  Future<EpisodeEditResult> removeObservation({
+    required String clientOperationId,
+    required String episodeId,
+    required String observationId,
+    required String? revisionToken,
+  }) => _run(
+    'remove_observation',
+    episodeId: episodeId,
+    params: {
+      'p_client_operation_id': clientOperationId,
+      'p_observation_id': observationId,
+      'p_expected_updated_at': revisionToken,
+    },
+  );
+
+  /// Puts back the entry removed by the `remove_observation` revision
+  /// [removalRevisionId]; refused when a newer entry now covers that day.
+  Future<EpisodeEditResult> restoreObservation({
+    required String clientOperationId,
+    required String episodeId,
+    required String removalRevisionId,
+  }) => _run(
+    'restore_observation',
+    episodeId: episodeId,
+    params: {
+      'p_client_operation_id': clientOperationId,
+      'p_removal_revision_id': removalRevisionId,
     },
   );
 
@@ -333,7 +369,8 @@ class EpisodeCorrectionRepository {
         return const EpisodeEditResult(EpisodeEditStatus.changedElsewhere);
     }
     if (BleedingEpisodeRepositoryImpl.isPermanentRejectionCode(error.code) ||
-        error.code == 'NW410') {
+        error.code == 'NW410' ||
+        error.code == 'NW423') {
       return EpisodeEditResult(
         EpisodeEditStatus.rejected,
         serverMessage: error.message,

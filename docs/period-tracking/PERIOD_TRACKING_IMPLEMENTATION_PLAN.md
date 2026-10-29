@@ -39,7 +39,7 @@ unsafe (for example, predictions must never create qadha debt, PT-112).
 | Account deletion cascades to the archive, revisions and tombstones | PT-156 | Done (SQL section 10) |
 | "Ended, end unknown" from onboarding keeps the known start | PT-002 | Next. Needs an end-precision state, not a fake end date |
 | Approximate-date precision | PT-003 | Needs a schema value and a prediction policy (exclude it from learning, widen the range) |
-| Delete a single observation | PT-055 | Design: archive plus revision, as for episodes. Must not leave a period without its start |
+| Delete a single observation (migration `20261029120000_bleeding_observation_removal.sql`, "Delete this entry" in the day sheet) | PT-055 | Done in code; SQL and widget tests pass. Start and closing entries are protected. Not yet on staging or production |
 | Split and merge episodes | PT-045, PT-046 | After PT-055, reusing the same revision model |
 | Structural "no qadha from predictions" test | PT-112 | Done (`test/period_tracking/no_qadha_from_predictions_test.dart`) |
 
