@@ -537,10 +537,28 @@ class CycleCalculationService {
     List<CanonicalEpisodeTiming> canonicalEpisodes = const [],
     CycleBaseline? statedBaseline,
   }) {
-    final sorted = [...logs]..sort((a, b) => a.date.compareTo(b.date));
+    // A historical calculation may only use timing known by that civil day.
+    // Keep stored history intact; future observations and ends are excluded
+    // only from this derived view (PR #26 reconciliation).
+    final today = calendarDay(asOf ?? AppClock.now());
+    final sorted =
+        logs.where((log) => !calendarDay(log.date).isAfter(today)).toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
     final episodes = _mergeCanonical(
       _detectEpisodes(sorted),
-      canonicalEpisodes,
+      canonicalEpisodes
+          .where((episode) => !calendarDay(episode.startDate).isAfter(today))
+          .map(
+            (episode) => CanonicalEpisodeTiming(
+              startDate: episode.startDate,
+              endDate:
+                  episode.endDate != null &&
+                      calendarDay(episode.endDate!).isAfter(today)
+                  ? null
+                  : episode.endDate,
+            ),
+          )
+          .toList(),
     );
     final starts = episodes.starts;
     final periodLengths = episodes.periodLengths;
@@ -595,8 +613,7 @@ class CycleCalculationService {
       );
     }
 
-    final currentDay =
-        calendarDaysBetween(starts.last, asOf ?? AppClock.now()) + 1;
+    final currentDay = calendarDaysBetween(starts.last, today) + 1;
     // Forward predictions learn only from the prediction-only view; the
     // factual fields below (and so the fiqh engine) keep every interval.
     final prediction = predictFromIntervals(
