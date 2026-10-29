@@ -24,7 +24,7 @@ localSensitiveDataCleanupTasks = {
       PendingBleedingOperationStore.clearForUser,
   'prayer_tracking': LocalPrayerTrackingDataSource.clearForUser,
   // NJ-013: an unsaved day-log entry kept when her session ended.
-  CycleLogDraftStore.category: CycleLogDraftStore.clearForUser,
+  CycleLogDraftStore.category: CycleLogDraftStore.clearForDeletedUser,
 };
 
 /// Deletes every registered sensitive local data category for [userId],

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
 import 'package:niswah/core/preferences/madhhab_controller.dart';
 import 'package:niswah/core/storage/secure_local_store.dart';
+import 'package:niswah/core/storage/local_sensitive_data_cleanup.dart';
 import 'package:niswah/features/cycle_tracking/data/local/cycle_log_draft_store.dart';
 import 'package:niswah/features/cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/madhhab_rule_evaluator.dart'
@@ -73,6 +74,78 @@ void main() {
     navigatorKey.currentState!.popUntil((route) => route.isFirst);
     await tester.pumpAndSettle();
   }
+
+  testWidgets(
+    'account deletion followed by sign-out cannot recreate the draft',
+    (tester) async {
+      await openSheet(tester, day);
+      await typeNotes(tester, 'private deleted notes');
+      // Match performAccountDeletion: cleanup first, then local sign-out.
+      await cleanUpLocalSensitiveDataForDeletedAccount('account-a');
+      SecureLocalStore.debugUserIdOverride = 'account-b';
+      await closeSheet(tester);
+      expect(await CycleLogDraftStore.read('account-a'), isNull);
+      final raw = await SecureLocalStore.read(
+        CycleLogDraftStore.category,
+        userId: 'account-a',
+      );
+      expect(raw, isNot(contains('private deleted notes')));
+    },
+  );
+
+  test(
+    'queued writes and later discard cannot reopen a deleted draft slot',
+    () async {
+      final draft = CycleLogDraft(
+        formKey: 'synthetic',
+        values: {'notes': 'private notes'},
+        savedAt: DateTime.utc(2026, 10, 30),
+      );
+      final before = CycleLogDraftStore.write('account-a', draft);
+      final deletion = CycleLogDraftStore.clearForDeletedUser('account-a');
+      final after = CycleLogDraftStore.write('account-a', draft);
+      await Future.wait([before, deletion, after]);
+      await CycleLogDraftStore.clearForUser('account-a');
+      await CycleLogDraftStore.write('account-a', draft);
+      expect(await CycleLogDraftStore.read('account-a'), isNull);
+      await CycleLogDraftStore.write('account-b', draft);
+      expect(
+        (await CycleLogDraftStore.read('account-b'))?.values,
+        draft.values,
+      );
+    },
+  );
+
+  test(
+    'deletion fence is durable storage state rather than an in-memory flag',
+    () async {
+      await CycleLogDraftStore.clearForDeletedUser('account-a');
+      final persisted = await SecureLocalStore.read(
+        CycleLogDraftStore.category,
+        userId: 'account-a',
+      );
+      // A new platform store containing only persisted state models restart.
+      resetSecureLocalStoreForTest({
+        '${CycleLogDraftStore.category}__account-a': persisted!,
+      });
+      await CycleLogDraftStore.write(
+        'account-a',
+        CycleLogDraft(
+          formKey: 'synthetic',
+          values: {'notes': 'late private notes'},
+          savedAt: DateTime.utc(2026, 10, 30),
+        ),
+      );
+      expect(await CycleLogDraftStore.read('account-a'), isNull);
+      expect(
+        await SecureLocalStore.read(
+          CycleLogDraftStore.category,
+          userId: 'account-a',
+        ),
+        persisted,
+      );
+    },
+  );
 
   testWidgets('session ends: kept for her account, offered back, restored', (
     tester,
