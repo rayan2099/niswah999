@@ -28,7 +28,13 @@
 #                         proves the table is there to be denied access to.
 #   - Function missing -> HTTP 404, code PGRST202 ("could not find the
 #                         function ... in the schema cache")
-#   - Function exists   -> HTTP 403, code 28000 ("Not authenticated") —
+#   - Function exists   -> HTTP 401, code 42501 ("permission denied for
+#                         function ...") since migration 20261026090000
+#                         revoked anon EXECUTE (applied to prod
+#                         2026-10-26; the check reported INCONCLUSIVE from
+#                         then on). Like the table case, the denial proves
+#                         the function exists, and nothing runs.
+#   - Function exists, before that revoke -> HTTP 403, code 28000 ("Not authenticated") —
 #                         the function's own first check (auth.uid() IS
 #                         NULL) rejects the anonymous caller before doing
 #                         anything else, confirmed by live testing to
@@ -106,6 +112,9 @@ except Exception:
   if [[ "$http_code" == "404" && "$code" == "PGRST202" ]]; then
     echo "FUNCTION ${FUNCTION_NAME}: MISSING (HTTP 404, PGRST202 - not in schema cache)"
     return 1
+  elif [[ "$http_code" == "401" && "$code" == "42501" ]]; then
+    echo "FUNCTION ${FUNCTION_NAME}: PRESENT (HTTP 401, 42501 - exists, anon has no EXECUTE, non-mutating)"
+    return 0
   elif [[ "$http_code" == "403" && "$code" == "28000" ]]; then
     echo "FUNCTION ${FUNCTION_NAME}: PRESENT (HTTP 403, 28000 - exists, anon correctly rejected pre-auth, non-mutating)"
     return 0
