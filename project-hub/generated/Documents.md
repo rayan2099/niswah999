@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**176 existing Markdown documents**, grouped by source folder.
+**177 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -23,6 +23,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## docs
 
+- [NISWAH_APP_WIDE_300_ACCEPTANCE_JOURNEYS.md](../../docs/NISWAH_APP_WIDE_300_ACCEPTANCE_JOURNEYS.md)
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
