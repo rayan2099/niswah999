@@ -42,6 +42,21 @@ class AuthFailure extends Failure {
   });
 }
 
+/// Auth refused to send another email yet (NJ-006, NJ-065). Nothing was
+/// sent by this request; [retryAfterSeconds] is Auth's own wait, when it
+/// gave one.
+class EmailRateLimitedFailure extends AuthFailure {
+  const EmailRateLimitedFailure(
+    super.message, {
+    this.retryAfterSeconds,
+    super.cause,
+    super.stackTrace,
+    super.context,
+  });
+
+  final int? retryAfterSeconds;
+}
+
 class NetworkFailure extends Failure {
   const NetworkFailure(
     super.message, {
