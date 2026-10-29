@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**172 existing Markdown documents**, grouped by source folder.
+**173 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -29,6 +29,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
+- [launch-audit-2026-10-29.md](../../docs/launch-audit-2026-10-29.md)
 - [menstrual-data-integrity-contract.md](../../docs/menstrual-data-integrity-contract.md)
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)

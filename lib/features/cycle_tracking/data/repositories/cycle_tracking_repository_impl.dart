@@ -102,27 +102,34 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   @override
   Future<CycleLog?> getCycleLogById(String id) async {
     final client = _client;
-    if (client == null) {
-      return _localDataSource.getById(id);
+    final session = client?.auth.currentSession;
+    final owner = session?.user.id;
+    void requireOriginalSession() {
+      if (client != null && client.auth.currentSession?.user.id != owner) {
+        throw StateError('Account changed during cycle entry read.');
+      }
     }
 
-    final sessionUser = client.auth.currentUser;
-    if (sessionUser == null) {
+    Future<CycleLog?> readLocal() async {
+      requireOriginalSession();
       final local = await _localDataSource.getById(id);
+      requireOriginalSession();
       return local;
     }
+
+    if (client == null || session == null) return readLocal();
 
     try {
       final response = await client
           .from('cycle_entries')
           .select()
           .eq('id', id)
-          .eq('user_id', sessionUser.id)
-          .maybeSingle();
+          .eq('user_id', session.user.id)
+          .maybeSingle()
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
+      requireOriginalSession();
 
-      if (response == null) {
-        return await _localDataSource.getById(id);
-      }
+      if (response == null) return readLocal();
       try {
         return CycleLog.fromJson(response);
       } on CycleLogParseException catch (error, stack) {
@@ -133,9 +140,10 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
           feature: 'cycle_tracking',
           recordId: id,
         );
-        return await _localDataSource.getById(id);
+        return readLocal();
       }
     } on PostgrestException catch (error) {
+      requireOriginalSession();
       throw NetworkFailure(error.message);
     }
   }
