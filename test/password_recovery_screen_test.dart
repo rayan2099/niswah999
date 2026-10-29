@@ -74,4 +74,13 @@ void main() {
     expect(find.text('chat'), findsNothing);
     expect(find.byKey(const Key('save_new_password')), findsOneWidget);
   });
+
+  testWidgets('NJ-074: names the account whose password it changes', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: PasswordRecoveryScreen(
+      updatePassword: (_) async {},
+      accountEmail: 'account-b@example.com',
+    )));
+    expect(find.byKey(const Key('recovery_account_email')), findsOneWidget);
+    expect(find.text('account-b@example.com'), findsOneWidget);
+  });
 }

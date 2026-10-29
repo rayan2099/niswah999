@@ -44,6 +44,10 @@ class AuthController extends ChangeNotifier {
 
   bool get isAuthenticated => _isAuthenticated;
 
+  /// The signed-in account, or null when signed out.
+  String? get authenticatedUserId =>
+      _isAuthenticated ? _authenticatedUserId : null;
+
   // A recovery link creates a session, but it must not route straight to the
   // home screen before the user has chosen a new password.
   bool _passwordRecovery = false;
