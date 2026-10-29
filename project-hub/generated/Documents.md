@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**172 existing Markdown documents**, grouped by source folder.
+**173 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -37,6 +37,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
+- [tracking-asof-reconciliation-2026-10-30.md](../../docs/tracking-asof-reconciliation-2026-10-30.md)
 
 ## docs/engineering
 

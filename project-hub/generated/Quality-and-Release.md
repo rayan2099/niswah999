@@ -36,6 +36,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
+- [tracking-asof-reconciliation-2026-10-30.md](../../docs/tracking-asof-reconciliation-2026-10-30.md)
 
 ## docs/engineering
 
@@ -167,6 +168,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
 - [correction_sheet_test.dart](../../test/correction_sheet_test.dart)
+- [cycle_calculation_asof_boundary_test.dart](../../test/cycle_calculation_asof_boundary_test.dart)
 - [cycle_calculation_canonical_episodes_test.dart](../../test/cycle_calculation_canonical_episodes_test.dart)
 - [cycle_calculation_service_test.dart](../../test/cycle_calculation_service_test.dart)
 - [cycle_calendar_legacy_provenance_test.dart](../../test/cycle_calendar_legacy_provenance_test.dart)
