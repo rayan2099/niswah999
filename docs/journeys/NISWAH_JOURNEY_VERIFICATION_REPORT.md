@@ -47,7 +47,7 @@ signed Android run, and none has been recorded.
 Closed in open branches (automated evidence only): NJ-069 confirmation
 auto-advance (PR #63); NJ-074 recovery names the account and refuses a save
 after an account change, and NJ-232 export discarded on an account switch
-including A→B→A (branch `fix/account-route-boundary`). Screens, sheets and
+including A→B→A (draft PR #65). Screens, sheets and
 dialogs opened over home now close on sign-out or account switch.
 
 ## Sign-up email confirmation (NJ-003..NJ-006, NJ-061, NJ-062, NJ-065, NJ-066)

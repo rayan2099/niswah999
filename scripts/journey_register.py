@@ -250,10 +250,10 @@ NJ-067|IN|IU|N|-|NR|NR|-|M|-|AUTHCTL|-|Token validity handled by Auth; app messa
 NJ-068|IN|IU|N|-|NR|NR|-|M|-|MAIN|-|Malformed link handling and token redaction in diagnostics not tested.
 NJ-069|IN|IU|P|-|NR|NR|-|M|-|SIGNIN AUTHCTL|{signup} (sign-in event closes the waiting sheet once; refresh and repeats ignored)|Draft PR #63; device run with a real link pending.
 NJ-070|IN|IU|P|-|NR|NR|-|M|-|SIGNIN|{signup} ("I've confirmed: sign in" route)|Open PR feat/signup-email-guidance.
-NJ-071|IN|IU|PP|-|NR|NR|-|C|PT-153|TRACK|{acct}; {boundary} (screens over home close on sign-out or switch)|Same-user-ID-again (A→B→A) delayed tracking response not fully tested; see PR #62 and branch fix/account-route-boundary.
+NJ-071|IN|IU|PP|-|NR|NR|-|C|PT-153|TRACK|{acct}; {boundary} (screens over home close on sign-out or switch)|Same-user-ID-again (A→B→A) delayed tracking response not fully tested; see PR #62 and draft PR #65.
 NJ-072|IN|IU|P|-|NR|NR|-|C|PT-152|PBOS|{acct} (signed-out save stays pending); {thread}|Device run pending.
 NJ-073|IN|IU|N|-|NR|NR|-|M|-|AUTHCTL|-|Session invalidation policy after reset elsewhere not documented.
-NJ-074|IN|IU|P|-|NR|NR|-|H|-|RECOVERY AUTHCTL|{recovery} (names the account being changed); {boundary}|Branch fix/account-route-boundary: save refused if the session changed account after the form opened. Device run pending.
+NJ-074|IN|IU|P|-|NR|NR|-|H|-|RECOVERY AUTHCTL|{recovery} (names the account being changed); {boundary}|Draft PR #65: save refused if the session changed account after the form opened. Device run pending.
 NJ-075|NONE|BX|N|-|-|-|-|L|-|-|-|No biometric lock in the app; scope decision needed.
 NJ-076|IN|IU|PP|-|NR|NR|-|H|-|AUTHCTL|{authctl}|Resume revalidation not asserted.
 NJ-077|IN|IU|N|-|NR|NR|-|M|-|AUTHCTL|-|Duplicate callback handling not tested.
@@ -411,7 +411,7 @@ NJ-228|IN|IU|PP|-|NR|NR|-|M|-|SIGNIN|{signup} (address forced left-to-right)|Par
 NJ-229|IN|IU|PP|-|-|-|-|L|-|LOCALE|test/app_localization_delegates_test.dart|Partly covered.
 NJ-230|IN|IU|P|-|NR|NR|-|M|PT-178|TRACK|{discard}|Device run pending.
 NJ-231|IN|IU|PP|-|NR|NR|-|M|-|EXPORT|{export}|Many-years size not tested.
-NJ-232|IN|IU|P|-|-|-|-|H|-|EXPORT|{boundary} (switch mid-export discards it, also A→B→A)|Branch fix/account-route-boundary; device run pending.
+NJ-232|IN|IU|P|-|-|-|-|H|-|EXPORT|{boundary} (switch mid-export discards it, also A→B→A)|Draft PR #65; device run pending.
 NJ-233|IN|IU|P|-|-|-|-|M|-|EXPORT|{export} (failed sections listed)|Device run pending.
 NJ-234|IN|NA|N|-|-|-|-|L|-|EXPORT|-|Not assessed.
 NJ-235|IN|IU|PP|-|-|-|-|H|-|MAIN|{sentry}|Redaction partly covered.
