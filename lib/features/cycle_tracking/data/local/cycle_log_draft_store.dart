@@ -59,14 +59,40 @@ abstract final class CycleLogDraftStore {
     }
   }
 
-  static Future<void> write(String userId, CycleLogDraft draft) =>
-      SecureLocalStore.write(
-        category,
-        jsonEncode(draft.toJson()),
-        userId: userId,
-      );
+  // The deletion marker replaces the health payload in the same encrypted
+  // account slot. It survives app restart and contains no form values.
+  static const _deleted = '{"account_deleted":true}';
 
-  /// Also registered as an account-deletion cleanup task.
+  static String _queueKey(String userId) => '$category|$userId';
+
+  static Future<void> write(String userId, CycleLogDraft draft) =>
+      SecureLocalStore.serialized(_queueKey(userId), () async {
+        if (await SecureLocalStore.read(category, userId: userId) == _deleted) {
+          return;
+        }
+        await SecureLocalStore.write(
+          category,
+          jsonEncode(draft.toJson()),
+          userId: userId,
+        );
+      });
+
+  /// Ordinary discard/save cleanup must not remove a deletion fence.
   static Future<void> clearForUser(String userId) =>
-      SecureLocalStore.clearForUser(category, userId);
+      SecureLocalStore.serialized(_queueKey(userId), () async {
+        if (await SecureLocalStore.read(category, userId: userId) == _deleted) {
+          return;
+        }
+        await SecureLocalStore.clearForUser(category, userId);
+      });
+
+  /// Used only after confirmed account deletion. Cleanup runs before local
+  /// sign-out; disposing the sheet on that sign-out may enqueue a late
+  /// draft write. Serialize with writes and retain a durable fence so
+  /// neither that write nor a later callback can restore deleted content.
+  static Future<void> clearForDeletedUser(String userId) =>
+      SecureLocalStore.serialized(
+        _queueKey(userId),
+        () => SecureLocalStore.write(category, _deleted, userId: userId),
+      );
 }
