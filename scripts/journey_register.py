@@ -107,6 +107,8 @@ T = {
     "delres": "test/account_deletion_resilience_test.dart",
     "delops": "test/logging_sync_hardening/account_deletion_pending_ops_test.dart",
     "export": "test/data_export_resilience_test.dart",
+    "boundary": "test/account_isolation/account_boundary_test.dart",
+    "community": "test/launch_scope_community_test.dart",
     "onbui": "test/onboarding_ui_test.dart",
     "onbans": "test/onboarding_server_hardening/onboarding_answers_test.dart",
     "onbsql": "test/onboarding_server_hardening/sql/02_onboarding_rpc_duplicates_and_overlaps.sql",
@@ -190,7 +192,7 @@ NJ-009|IN|IU|P|-|NR|NR|-|H|-|MAIN AUTHCTL ONB|{routing} (confirmed user resumes 
 NJ-010|IN|IR|N|-|NR|NR|-|M|-|SIGNIN AUTHREPO|-|Auth's raw English message is shown; no explanation of temporary limits in Arabic.
 NJ-011|IN|IU|P|PP|NR|NR|-|H|-|RECOVERY|{recovery} (updates once and finishes)|Real reset email and link on device not yet run.
 NJ-012|IN|IU|PP|-|NR|NR|-|M|-|RECOVERY|{recovery} (server rejection does not finish)|Expired/reused link UX needs a device run.
-NJ-013|IN|IR|N|-|NR|NR|-|H|-|AUTHCTL TRACK|-|No defined recovery of an in-progress entry after session expiry.
+NJ-013|IN|IR|PP|-|NR|NR|-|H|-|AUTHCTL TRACK|{boundary} (open entry sheets close when the session ends)|Account content is protected; recovering the unsaved input after signing back in is not built.
 NJ-014|IN|IU|P|-|NR|NR|-|C|PT-152 PT-153|AUTHCTL STORE NOTIF|{acct}; {prefs}; {notifacct}; {chatacct}|AI context and drafts on switch not covered by one test; device A→B run pending (gate A15).
 NJ-015|IN|IU|PP|-|NR|NR|-|H|PT-001|ONB|{onbans}; {onbui}|Dashboard consistency after onboarding not asserted end to end.
 NJ-016|IN|IU|PP|-|NR|NR|-|H|PT-004|ONB CALC|{onbans}|No-history path saves nothing invented; prediction "unavailable" proven in {nodata}.
@@ -246,12 +248,12 @@ NJ-065|IN|IU|P|-|NR|NR|-|M|-|SIGNIN|{signup} (cooldown; one request per tap wind
 NJ-066|IN|IU|P|-|NR|NR|-|M|-|SIGNIN|{signup} (no delivery-time promise)|Open PR feat/signup-email-guidance.
 NJ-067|IN|IU|N|-|NR|NR|-|M|-|AUTHCTL|-|Token validity handled by Auth; app message for a stale link not tested.
 NJ-068|IN|IU|N|-|NR|NR|-|M|-|MAIN|-|Malformed link handling and token redaction in diagnostics not tested.
-NJ-069|IN|IR|N|-|NR|NR|-|M|-|SIGNIN AUTHCTL|-|Waiting screen does not react when the session arrives via the link; she must sign in manually.
+NJ-069|IN|IU|P|-|NR|NR|-|M|-|SIGNIN AUTHCTL|{signup} (sign-in event closes the waiting sheet once; refresh and repeats ignored)|Draft PR #63; device run with a real link pending.
 NJ-070|IN|IU|P|-|NR|NR|-|M|-|SIGNIN|{signup} ("I've confirmed: sign in" route)|Open PR feat/signup-email-guidance.
-NJ-071|IN|IU|PP|-|NR|NR|-|C|PT-153|TRACK|{acct}|Same-user-ID-again (A→B→A) delayed response not explicitly tested; see open PR #62.
+NJ-071|IN|IU|PP|-|NR|NR|-|C|PT-153|TRACK|{acct}; {boundary} (screens over home close on sign-out or switch)|Same-user-ID-again (A→B→A) delayed tracking response not fully tested; see PR #62 and branch fix/account-route-boundary.
 NJ-072|IN|IU|P|-|NR|NR|-|C|PT-152|PBOS|{acct} (signed-out save stays pending); {thread}|Device run pending.
 NJ-073|IN|IU|N|-|NR|NR|-|M|-|AUTHCTL|-|Session invalidation policy after reset elsewhere not documented.
-NJ-074|IN|IR|N|-|NR|NR|-|H|-|RECOVERY AUTHCTL|-|Recovery link while another account is signed in is not handled explicitly.
+NJ-074|IN|IU|P|-|NR|NR|-|H|-|RECOVERY AUTHCTL|{recovery} (names the account being changed); {boundary}|Branch fix/account-route-boundary: save refused if the session changed account after the form opened. Device run pending.
 NJ-075|NONE|BX|N|-|-|-|-|L|-|-|-|No biometric lock in the app; scope decision needed.
 NJ-076|IN|IU|PP|-|NR|NR|-|H|-|AUTHCTL|{authctl}|Resume revalidation not asserted.
 NJ-077|IN|IU|N|-|NR|NR|-|M|-|AUTHCTL|-|Duplicate callback handling not tested.
@@ -359,15 +361,15 @@ NJ-178|IN|NA|N|-|-|-|-|L|-|AI|-|AI mutations do not exist.
 NJ-179|IN|BX|N|-|-|-|BX|M|-|AI|-|Chat retention policy undecided (gate 2 item 6).
 NJ-180|IN|IU|PP|-|-|-|BX|M|-|AI|{aicite}|Specialist review pending.
 NJ-181|COND|IU|PP|-|NR|NR|-|M|-|MSG|{msg}; {msgrt}|Messaging scope to confirm.
-NJ-182|COND|IU|PP|PP|NR|NR|-|C|-|MSG|{chatacct}|Membership enforced by RLS (is_conversation_participant).
-NJ-183|COND|IR|N|-|-|-|-|C|-|COMM MSG|-|No block feature. App Store guideline 1.2 requires block for user-generated content.
-NJ-184|COND|IR|N|-|-|-|-|C|-|COMM|-|No report feature. App Store guideline 1.2 requires reporting.
+NJ-182|COND|IU|PP|PP|NR|NR|-|C|-|MSG|{chatacct}; {boundary} (open chat closes on account change)|Membership enforced by RLS (is_conversation_participant). Hidden for launch in draft PR #64 pending scope decision.
+NJ-183|COND|IR|N|-|-|-|-|C|-|COMM MSG|-|No block feature (App Store 1.2). Draft PR #64 hides community from release builds; decision pending.
+NJ-184|COND|IR|N|-|-|-|-|C|-|COMM|-|No report feature (App Store 1.2). Draft PR #64 hides community from release builds; decision pending.
 NJ-185|COND|IR|N|-|-|-|-|M|-|MSG|-|Depends on block.
 NJ-186|COND|NA|N|-|-|-|-|L|-|MSG|-|Not assessed.
 NJ-187|COND|NA|N|-|-|-|-|L|-|COMM|-|Text-only community; attachments not found.
 NJ-188|COND|NA|N|-|-|-|-|L|-|-|-|No attachments found.
 NJ-189|COND|NA|N|-|-|-|-|M|-|-|-|No moderator tooling found in the app.
-NJ-190|COND|BX|-|-|-|-|-|H|-|COMM|-|Community ships today; scope decision needed (keep with moderation, or hide).
+NJ-190|COND|BX|P|-|NR|NR|-|H|-|COMM|{community} (release default hides tab, rows, alerts, showcase card)|Draft PR #64 implements "hide"; rayan's scope decision pending.
 NJ-191|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
 NJ-192|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
 NJ-193|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
@@ -409,7 +411,7 @@ NJ-228|IN|IU|PP|-|NR|NR|-|M|-|SIGNIN|{signup} (address forced left-to-right)|Par
 NJ-229|IN|IU|PP|-|-|-|-|L|-|LOCALE|test/app_localization_delegates_test.dart|Partly covered.
 NJ-230|IN|IU|P|-|NR|NR|-|M|PT-178|TRACK|{discard}|Device run pending.
 NJ-231|IN|IU|PP|-|NR|NR|-|M|-|EXPORT|{export}|Many-years size not tested.
-NJ-232|IN|IR|N|-|-|-|-|H|-|EXPORT|-|No account check on a running export.
+NJ-232|IN|IU|P|-|-|-|-|H|-|EXPORT|{boundary} (switch mid-export discards it, also A→B→A)|Branch fix/account-route-boundary; device run pending.
 NJ-233|IN|IU|P|-|-|-|-|M|-|EXPORT|{export} (failed sections listed)|Device run pending.
 NJ-234|IN|NA|N|-|-|-|-|L|-|EXPORT|-|Not assessed.
 NJ-235|IN|IU|PP|-|-|-|-|H|-|MAIN|{sentry}|Redaction partly covered.
