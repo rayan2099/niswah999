@@ -41,7 +41,7 @@ CI passing is not a claim that all 200 cases are covered.
 
 | Check | Result |
 | --- | --- |
-| `flutter test` (every test file without golden comparisons) | 1,612 passed, 7 skipped, 0 failed before the last three changes. A re-run with them is recorded in the PR |
+| `flutter test` (every test file without golden comparisons) | 1,620 passed, 7 skipped, 0 failed (final run on the committed code) |
 | `test/period_tracking/` (episode edits, PT-079, PT-112) plus the correction, sync-hardening and round-2 suites | All passed |
 | `test/security/run_sql_checks.sh` (scratch Postgres, synthetic users) | 5 of 5 files passed, including `bleeding_episode_corrections.sql` (11 sections) |
 | `flutter analyze` on the changed code | No issues |
