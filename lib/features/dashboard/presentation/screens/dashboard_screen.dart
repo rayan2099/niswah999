@@ -58,6 +58,15 @@ import '../../../wellbeing/data/repositories/wellbeing_repository.dart';
 String _l(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
 
+/// PT-002: shown instead of any ruling while her last period's end is
+/// unknown.
+String get _endUnknownMessage => _l(
+  'Your last period\'s end date isn\'t recorded, so your Fiqh state can\'t be '
+      'worked out. Add it with "Edit this period" on the Calendar.',
+  'تاريخ انتهاء آخر حيض غير مسجَّل، لذلك لا يمكن تحديد حالتكِ الفقهية. '
+      'أضيفيه من "تعديل هذا الحيض" في التقويم.',
+);
+
 String _stateLabel(_FiqhState state) => switch (state) {
   _FiqhState.tahara => _l('Tahara', 'طهارة'),
   _FiqhState.haid => _l('Haid', 'حيض'),
@@ -70,6 +79,7 @@ String _stateLabel(_FiqhState state) => switch (state) {
     'يلزم اختيار المذهب',
   ),
   _FiqhState.evidenceUnresolved => _l('Unable to verify', 'تعذر التحقق'),
+  _FiqhState.lastEndUnknown => _l('End date needed', 'يلزم تاريخ الانتهاء'),
   _FiqhState.insufficientHistory => _l(
     'Not enough history yet',
     'لا يوجد سجل كافٍ بعد',
@@ -683,6 +693,8 @@ class DashboardScreenState extends State<DashboardScreen> {
                   _FiqhState.evidenceUnresolved,
                 CanonicalFiqhVerdict.insufficientHistory =>
                   _FiqhState.insufficientHistory,
+                CanonicalFiqhVerdict.lastEndUnknown =>
+                  _FiqhState.lastEndUnknown,
                 CanonicalFiqhVerdict.evaluated =>
                   _istihadahMode && mappedState != _FiqhState.madhhabUnresolved
                       ? _FiqhState.istihadah
@@ -3003,6 +3015,7 @@ class _CycleOverview extends StatelessWidget {
         "We couldn't verify your tracking data right now.",
         'تعذر التحقق من بيانات تتبعكِ الآن.',
       ),
+      _FiqhState.lastEndUnknown => _endUnknownMessage,
       _FiqhState.insufficientHistory => _l(
         'Your entry is saved. More history is needed before Niswah can work out your prayer status.',
         'تم حفظ ما سجّلتِه. يلزم سجل أطول قبل أن يتمكن نسواه من تحديد حالة صلاتكِ.',
@@ -4089,9 +4102,11 @@ class _PrayerStatusCard extends StatelessWidget {
     final insufficientHistory = fiqhState == _FiqhState.insufficientHistory;
     final madhhabUnresolved = fiqhState == _FiqhState.madhhabUnresolved;
     final needsAdvisory = fiqhState == _FiqhState.needsAdvisory;
+    final endUnknown = fiqhState == _FiqhState.lastEndUnknown;
     final unresolved =
         nifasActive ||
         fiqhState == _FiqhState.evidenceUnresolved ||
+        endUnknown ||
         insufficientHistory ||
         madhhabUnresolved ||
         needsAdvisory;
@@ -4103,6 +4118,8 @@ class _PrayerStatusCard extends StatelessWidget {
         ? _stateLabel(_FiqhState.madhhabUnresolved)
         : needsAdvisory
         ? _l('Please consult a trusted source', 'يُنصح باستشارة مصدر موثوق')
+        : endUnknown
+        ? _stateLabel(_FiqhState.lastEndUnknown)
         : unresolved
         ? _l('Unable to verify', 'تعذر التحقق')
         : lifted
@@ -4128,6 +4145,8 @@ class _PrayerStatusCard extends StatelessWidget {
             "This bleeding pattern needs a case-specific review, so Niswah can't confirm your prayer status — please ask a trusted scholar.",
             'نمط هذا النزيف يحتاج إلى مراجعة خاصة بالحالة، لذلك لا يمكن لنسواه تأكيد حكم صلاتكِ — يُرجى سؤال أهل العلم الموثوقين.',
           )
+        : endUnknown
+        ? _endUnknownMessage
         : unresolved
         ? _l(
             "We couldn't verify your tracking data — your prayer obligation can't be confirmed right now.",
@@ -4612,6 +4631,7 @@ class _FiqhStateBanner extends StatelessWidget {
                 "We couldn't verify your tracking data right now — your Fiqh state can't be confirmed.",
                 'تعذر التحقق من بيانات تتبعكِ الآن — لا يمكن تأكيد حالتكِ الفقهية.',
               ),
+              _FiqhState.lastEndUnknown => _endUnknownMessage,
               _FiqhState.insufficientHistory => _l(
                 "Your entry is saved. There isn't enough recorded history yet to work out your Fiqh state — keep logging, and ask a trusted scholar if you need guidance today.",
                 'تم حفظ ما سجّلتِه. لا يوجد سجل كافٍ بعد لتحديد حالتكِ الفقهية — واصلي التسجيل، واسألي أهل العلم الموثوقين إن احتجتِ إلى إرشاد اليوم.',
@@ -5234,6 +5254,14 @@ enum _FiqhState {
     'Not enough history yet',
     Color(0xFF6B7280),
     "There isn't enough recorded history yet to work out your Fiqh state.",
+  ),
+
+  // PT-002: her last period ended on a day she does not know. Not a
+  // ruling and not a data failure: the end is simply missing.
+  lastEndUnknown(
+    'End date needed',
+    Color(0xFF6B7280),
+    "Your last period's end date isn't recorded, so your Fiqh state can't be worked out.",
   );
 
   const _FiqhState(this.label, this.color, this.message);

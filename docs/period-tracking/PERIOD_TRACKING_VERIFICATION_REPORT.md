@@ -11,13 +11,13 @@ report summarizes it and must not contradict it.
 
 | Status | Count |
 | --- | --- |
-| VERIFIED | 49 |
+| VERIFIED | 50 |
 | IMPLEMENTED — UNVERIFIED | 85 |
-| IMPLEMENTATION REQUIRED | 33 |
+| IMPLEMENTATION REQUIRED | 32 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 33 |
 | NOT ASSESSED | 0 |
 
-These counts do not mean that 49 cases work on a phone today. See "What
+These counts do not mean that 50 cases work on a phone today. See "What
 VERIFIED means" below.
 
 ## What VERIFIED means here
@@ -38,7 +38,8 @@ It does not mean:
   case has been run in the app against staging yet. PT-055 (deleting one
   day's entry) needs the follow-up migration
   `20261029120000_bleeding_observation_removal.sql`, verified on scratch
-  Postgres only; it is not on staging or production yet.
+  Postgres only; it is not on staging or production yet. The same holds
+  for PT-002 and `20261029130000_bleeding_episode_end_unknown.sql`.
 
 CI passing is not a claim that all 200 cases are covered.
 
@@ -46,9 +47,9 @@ CI passing is not a claim that all 200 cases are covered.
 
 | Check | Result |
 | --- | --- |
-| `flutter test` (every test file without golden comparisons) | 1,632 passed, 7 skipped, 0 failed (final run on the committed code) |
+| `flutter test` (every test file without golden comparisons) | 1,640 passed, 7 skipped, 0 failed (final run on the committed code) |
 | `test/period_tracking/` (episode edits, single-entry delete, PT-079, PT-112) plus the correction, sync-hardening and round-2 suites | All passed |
-| `test/security/run_sql_checks.sh` (scratch Postgres, synthetic users) | 6 of 6 files passed, including `bleeding_episode_corrections.sql` (11 sections) and `bleeding_observation_removal.sql` (8 sections) |
+| `test/security/run_sql_checks.sh` (scratch Postgres, synthetic users) | 7 of 7 files passed, including `bleeding_episode_corrections.sql` (11 sections), `bleeding_observation_removal.sql` (8 sections) and `bleeding_episode_end_unknown.sql` (7 sections). `test/onboarding_server_hardening/sql/` 02-04 also pass. `test/logging_sync_hardening/sql/canonical_rpc_regression.sql` was not run: it needs its own bootstrap, which is out of date, and it fails the same way with or without this branch's migrations |
 | Staging (`ovgvevzrcefloitgcsia`), 2026-10-29 | Migration applied by rayan; 13 of 13 functions match the tested copy (md5); rolled-back behavior script ALL PASSED; 0 test rows left |
 | `flutter analyze` on the changed code | No issues |
 | `python3 scripts/period_tracking_register.py --check` | Register and CSV in sync |
@@ -60,6 +61,7 @@ CI passing is not a claim that all 200 cases are covered.
 | PT-027 | An accidental end could not be undone | Undo on "Period ended."; "I'm still bleeding" in the editor; a queued replay of the undone end is dropped (NW410) |
 | PT-051, PT-052 | A period's start or end could not be corrected | Editor on Calendar; the server previews removed entries (NW422) before applying; history archived, never rewritten |
 | PT-054 | (no path) | Overlaps refused server-side, explained in her words |
+| PT-002 | Onboarding "stopped, not sure when" dropped the known start | Saved as an ended period with an unknown end; no end invented; predictions use only its start; no fiqh ruling until she adds the end (rayan's decision) |
 | PT-055 | No way to delete a single day's entry | "Delete this entry" on a day, with confirmation and Undo; the entry and its corrections are archived, never rewritten; the period's start and an ended period's end are protected (NW423) |
 | PT-056, PT-057 | A period could not be removed or put back | Remove with confirmation, then Undo restores the same ids |
 | PT-060, PT-148 | (no path for episode edits) | A revision token refuses stale edits from another device (NW409) |
@@ -72,7 +74,6 @@ CI passing is not a claim that all 200 cases are covered.
 
 | Case | Priority | Gap |
 | --- | --- | --- |
-| PT-002 | P2 | Onboarding "stopped, not sure when" drops the known start |
 | PT-003 | P2 | An approximate date is stored as if exact |
 | PT-045, PT-046 | P2 | No split or merge of periods |
 | PT-015, PT-017 | P2/P3 | No time or part-of-day capture |

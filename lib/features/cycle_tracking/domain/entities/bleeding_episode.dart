@@ -155,12 +155,19 @@ class BleedingEpisode extends Equatable {
     this.endDate,
     this.endPrecision,
     this.endSource,
+    this.endUnknown = false,
     this.clientOperationId,
     this.endClientOperationId,
     this.revisionToken,
   }) : assert(
-         (lifecycleStatus == LifecycleStatus.ended) == (endDate != null),
-         'endDate must be set if and only if lifecycleStatus is ended',
+         (lifecycleStatus == LifecycleStatus.ended) ==
+             (endDate != null || endUnknown),
+         'an ended episode has an endDate or an unknown end; an open one has '
+         'neither',
+       ),
+       assert(
+         !endUnknown || (endDate == null && endPrecision == null),
+         'an unknown end has no date and no precision',
        ),
        assert(
          (lifecycleStatus == LifecycleStatus.open) ==
@@ -179,6 +186,13 @@ class BleedingEpisode extends Equatable {
   final DateTime? endDate;
   final ObservationPrecision? endPrecision;
   final ObservationSource? endSource;
+
+  /// PT-002: she said it has stopped but not when. The episode is ended,
+  /// [endDate] is null and nothing about the end is invented (stored as
+  /// `end_precision = 'unknown'`). Its start is a real fact; its length
+  /// is not known, so it must never be read as "still ongoing" or given a
+  /// duration.
+  final bool endUnknown;
 
   /// The idempotency key the "start" operation was created under — see
   /// `start_bleeding_episode`'s own doc comment.
@@ -209,6 +223,7 @@ class BleedingEpisode extends Equatable {
     'start_source': startSource.value,
     if (endDate != null) 'end_date': _dateOnly(endDate!),
     if (endPrecision != null) 'end_precision': endPrecision!.value,
+    if (endUnknown) 'end_precision': 'unknown',
     if (endSource != null) 'end_source': endSource!.value,
     if (clientOperationId != null) 'client_operation_id': clientOperationId,
     if (endClientOperationId != null)
@@ -231,6 +246,11 @@ class BleedingEpisode extends Equatable {
       throw BleedingEpisodeParseException('end_date', rawEnd);
     }
 
+    final endUnknown = json['end_precision'] == 'unknown';
+    if (endUnknown && rawEnd != null) {
+      throw BleedingEpisodeParseException('end_precision', 'unknown');
+    }
+
     return BleedingEpisode(
       id: json['id'] as String?,
       userId: json['user_id'] as String? ?? '',
@@ -248,12 +268,13 @@ class BleedingEpisode extends Equatable {
       ),
       startSource: ObservationSource.parse(json['start_source'] as String?),
       endDate: endDate,
-      endPrecision: json['end_precision'] == null
+      endPrecision: json['end_precision'] == null || endUnknown
           ? null
           : ObservationPrecision.parse(json['end_precision'] as String?),
       endSource: json['end_source'] == null
           ? null
           : ObservationSource.parse(json['end_source'] as String?),
+      endUnknown: endUnknown,
       clientOperationId: json['client_operation_id'] as String?,
       endClientOperationId: json['end_client_operation_id'] as String?,
       revisionToken: json['updated_at'] as String?,
@@ -272,6 +293,7 @@ class BleedingEpisode extends Equatable {
     endDate,
     endPrecision,
     endSource,
+    endUnknown,
     clientOperationId,
     endClientOperationId,
     revisionToken,

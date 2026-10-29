@@ -37,7 +37,7 @@ unsafe (for example, predictions must never create qadha debt, PT-112).
 | Episode corrections: move start/end, undo an end, remove and restore a period (migration `20261029100000_bleeding_episode_corrections.sql`, `EpisodeCorrectionRepository`, `episode_edit_sheet.dart`) | PT-027, PT-051..PT-057, PT-060, PT-148 | Done in code; SQL and widget tests pass. Applied and verified on staging 2026-10-29; not on production |
 | A queued operation the user has since undone is dropped (NW410), never replayed | PT-027, PT-145 | Done |
 | Account deletion cascades to the archive, revisions and tombstones | PT-156 | Done (SQL section 10) |
-| "Ended, end unknown" from onboarding keeps the known start | PT-002 | Next. Needs an end-precision state, not a fake end date |
+| "Ended, end unknown" from onboarding keeps the known start (migration `20261029130000_bleeding_episode_end_unknown.sql`) | PT-002 | Done in code; SQL, widget and unit tests pass. rayan chose "ended, end marked unknown" on 2026-10-29. Not yet on staging or production |
 | Approximate-date precision | PT-003 | Needs a schema value and a prediction policy (exclude it from learning, widen the range) |
 | Delete a single observation (migration `20261029120000_bleeding_observation_removal.sql`, "Delete this entry" in the day sheet) | PT-055 | Done in code; SQL and widget tests pass. Start and closing entries are protected. Not yet on staging or production |
 | Split and merge episodes | PT-045, PT-046 | After PT-055, reusing the same revision model |

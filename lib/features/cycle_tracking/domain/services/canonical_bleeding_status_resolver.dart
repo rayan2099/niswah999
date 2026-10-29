@@ -136,10 +136,7 @@ class CanonicalBleedingStatusResolver {
     final completedCount = episodes
         .where((e) => e.lifecycleStatus == LifecycleStatus.ended)
         .length;
-    final timings = [
-      for (final e in episodes)
-        CanonicalEpisodeTiming(startDate: e.startDate, endDate: e.endDate),
-    ];
+    final timings = [for (final e in episodes) CanonicalEpisodeTiming.of(e)];
 
     if (openEpisode != null) {
       // Calendar days, never `Duration.inDays` between local midnights:

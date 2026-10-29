@@ -809,6 +809,7 @@ class BleedingEpisodeRepositoryImpl {
             'p_end_date': _dateOnly(episode.endDate!),
           if (episode.endPrecision != null)
             'p_end_precision': episode.endPrecision!.value,
+          if (episode.endUnknown) 'p_end_precision': 'unknown',
         },
         if (baseline != null) ...{
           if (baseline.usualBleedingDurationDays != null)
@@ -1164,7 +1165,10 @@ class BleedingEpisodeRepositoryImpl {
                       endDate: episodeJson['endDate'] == null
                           ? null
                           : DateTime.parse(episodeJson['endDate'] as String),
-                      endPrecision: episodeJson['endPrecision'] == null
+                      endUnknown: episodeJson['endPrecision'] == 'unknown',
+                      endPrecision:
+                          episodeJson['endPrecision'] == null ||
+                              episodeJson['endPrecision'] == 'unknown'
                           ? null
                           : ObservationPrecision.parse(
                               episodeJson['endPrecision'] as String?,

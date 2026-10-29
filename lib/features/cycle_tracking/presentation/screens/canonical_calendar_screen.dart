@@ -476,8 +476,14 @@ class _CanonicalMonthGrid extends StatelessWidget {
                     (e) =>
                         !dayKey.isBefore(DateUtils.dateOnly(e.startDate)) &&
                         !dayKey.isAfter(DateUtils.dateOnly(today)) &&
-                        (e.endDate == null ||
-                            !dayKey.isAfter(DateUtils.dateOnly(e.endDate!))),
+                        // An unknown end (PT-002) covers only its start
+                        // day; it is never shown as running to today.
+                        (e.endUnknown
+                            ? !dayKey.isAfter(DateUtils.dateOnly(e.startDate))
+                            : e.endDate == null ||
+                                  !dayKey.isAfter(
+                                    DateUtils.dateOnly(e.endDate!),
+                                  )),
                   )
                   .firstOrNull;
 
@@ -603,11 +609,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
       const [],
       asOf: today,
       canonicalEpisodes: [
-        for (final episode in episodes)
-          CanonicalEpisodeTiming(
-            startDate: episode.startDate,
-            endDate: episode.endDate,
-          ),
+        for (final episode in episodes) CanonicalEpisodeTiming.of(episode),
       ],
       statedBaseline: statedBaseline,
     );

@@ -2194,6 +2194,17 @@ its start or its recorded end. Tests:
 `test/security/bleeding_observation_removal.sql` (8 sections) and
 `test/period_tracking/observation_remove_test.dart`.
 
+Unknown end (PT-002, `20261029130000_bleeding_episode_end_unknown.sql`): an
+ended episode may have `end_precision = 'unknown'` with no `end_date`,
+`end_time` or closing observation. It records "it has stopped, I don't know
+when" and nothing else. Overlap rules treat its start day as its last known
+day; `correct_episode_end` gives it a real end. Clients read it as
+`BleedingEpisode.endUnknown`: its start is a cycle start, it has no length,
+it is never "ongoing", and while it is the most recent period no fiqh
+ruling is shown (`CanonicalFiqhVerdict.lastEndUnknown`). Tests:
+`test/security/bleeding_episode_end_unknown.sql` (7 sections) and
+`test/period_tracking/end_unknown_test.dart`.
+
 ### Known gaps
 
 - There is no split or merge (PT-045, PT-046).

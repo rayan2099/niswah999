@@ -351,6 +351,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## test/period_tracking
 
+- [end_unknown_test.dart](../../test/period_tracking/end_unknown_test.dart)
 - [episode_edit_test.dart](../../test/period_tracking/episode_edit_test.dart)
 - [no_qadha_from_predictions_test.dart](../../test/period_tracking/no_qadha_from_predictions_test.dart)
 - [observation_remove_test.dart](../../test/period_tracking/observation_remove_test.dart)
@@ -423,6 +424,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [00_bootstrap_stub_supabase.sql](../../test/security/00_bootstrap_stub_supabase.sql)
 - [app_rls_initplan_and_notification_cleanup_cron.sql](../../test/security/app_rls_initplan_and_notification_cleanup_cron.sql)
 - [bleeding_episode_corrections.sql](../../test/security/bleeding_episode_corrections.sql)
+- [bleeding_episode_end_unknown.sql](../../test/security/bleeding_episode_end_unknown.sql)
 - [bleeding_observation_removal.sql](../../test/security/bleeding_observation_removal.sql)
 - [revoke_anon_security_definer_execute.sql](../../test/security/revoke_anon_security_definer_execute.sql)
 - [run_sql_checks.sh](../../test/security/run_sql_checks.sh)

@@ -502,7 +502,15 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  _ended
+                  key: const Key('episode-edit-summary'),
+                  _episode.endUnknown
+                      ? _t(
+                          'Started ${episodeDateLabel(_episode.startDate)} · '
+                              'end date not recorded',
+                          'بدأ ${episodeDateLabel(_episode.startDate)} · '
+                              'تاريخ الانتهاء غير مسجَّل',
+                        )
+                      : _ended
                       ? _t(
                           'Started ${episodeDateLabel(_episode.startDate)} · '
                               'no bleeding from ${episodeDateLabel(_episode.endDate!)}',
@@ -557,7 +565,9 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
       _ActionTile(
         key: const Key('episode-edit-end'),
         icon: Icons.last_page_rounded,
-        title: _t('Change end date', 'تغيير تاريخ النهاية'),
+        title: _episode.endUnknown
+            ? _t('Add end date', 'إضافة تاريخ النهاية')
+            : _t('Change end date', 'تغيير تاريخ النهاية'),
         enabled: !_saving,
         onTap: () => _pickDate(_Mode.end),
       ),

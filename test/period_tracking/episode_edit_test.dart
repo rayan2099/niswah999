@@ -598,6 +598,36 @@ void main() {
       );
       expect(direction.textDirection, TextDirection.rtl);
     });
+
+    testWidgets('PT-002: a period whose end is unknown says so and lets her '
+        'add the end, never inventing one', (tester) async {
+      final unknownEnd = BleedingEpisode(
+        id: _episodeId,
+        userId: _user,
+        lifecycleStatus: LifecycleStatus.ended,
+        startDate: DateTime(2026, 10, 10),
+        startPrecision: ObservationPrecision.dateOnly,
+        startSource: ObservationSource.userReportedHistorical,
+        endSource: ObservationSource.userReportedHistorical,
+        endUnknown: true,
+        revisionToken: '2026-10-20T10:00:00.123456+00:00',
+      );
+      final corrections = await pumpSheet(tester, episode: unknownEnd);
+      expect(
+        find.text('Started 10 October 2026 · end date not recorded'),
+        findsOneWidget,
+      );
+      expect(find.text('Add end date'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('episode-edit-end')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('17'));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('episode-edit-save')));
+      await tester.pumpAndSettle();
+      expect(corrections.calls, ['end:2026-10-17:false']);
+    });
   });
 }
 
