@@ -17,6 +17,10 @@ class AuthRepositoryImpl implements AuthRepository {
   AuthRepositoryImpl({SupabaseClient? client})
     : _client = client ?? NiswahSupabase.client;
 
+  /// Session changes, including one created by opening a confirmation
+  /// link while "Check your email" is showing (NJ-069).
+  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+
   /// Custom URL scheme (registered in Info.plist / AndroidManifest.xml) that
   /// email confirmation and password-reset links redirect back into —
   /// without this, Supabase falls back to its dashboard Site URL (the web

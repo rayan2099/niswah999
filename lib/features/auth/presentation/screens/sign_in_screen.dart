@@ -699,6 +699,10 @@ class _AuthSheetState extends State<_AuthSheet> {
   bool _awaitingEmailConfirmation = false;
   String? _pendingEmail;
 
+  // Set once a session change has closed this sheet, so a repeated auth
+  // event can never pop a second route.
+  bool _closedBySession = false;
+
   final _nameController = TextEditingController();
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -710,9 +714,23 @@ class _AuthSheetState extends State<_AuthSheet> {
     _country = kCountries.first;
     // Keeps the typo suggestion under the email field current.
     _identifierController.addListener(_onIdentifierChanged);
-    _recoverySubscription = NiswahSupabase.clientOrNull?.auth.onAuthStateChange.listen((state) {
-      if (state.event == AuthChangeEvent.passwordRecovery && mounted) {
+    final authStates = widget.repositoryOverride != null
+        ? widget.repositoryOverride!.authStateChanges
+        : NiswahSupabase.clientOrNull?.auth.onAuthStateChange;
+    _recoverySubscription = authStates?.listen((state) {
+      if (!mounted || _closedBySession) return;
+      if (state.event == AuthChangeEvent.passwordRecovery) {
+        _closedBySession = true;
         Navigator.of(context).pop();
+      } else if (_awaitingEmailConfirmation &&
+          state.session != null &&
+          state.event == AuthChangeEvent.signedIn) {
+        // NJ-069: she opened the confirmation link while this screen was
+        // up. The session is already hers, so advance once instead of
+        // asking her to sign in again.
+        _closedBySession = true;
+        AuthController.instance.markSignedUp();
+        Navigator.pop(context, true);
       }
     });
   }

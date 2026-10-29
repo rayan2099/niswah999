@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/errors/failures.dart';
@@ -24,6 +26,11 @@ class _FakeAuth extends AuthRepositoryImpl {
           authOptions: const AuthClientOptions(autoRefreshToken: false),
         ),
       );
+
+  final authStates = StreamController<AuthState>.broadcast();
+
+  @override
+  Stream<AuthState> get authStateChanges => authStates.stream;
 
   final signUps = <String>[];
   final resends = <String>[];
@@ -278,6 +285,47 @@ void main() {
         '  Sara@Example.com ',
         reason: 'what she typed, ready to correct',
       );
+    });
+
+    testWidgets('NJ-069: opening the confirmation link while "Check your '
+        'email" is up advances once', (tester) async {
+      final auth = await openSignUp(tester);
+      await tester.enterText(
+        find.byKey(const Key('auth_email_field')),
+        'sara@example.com',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Password'),
+        'a-strong-password',
+      );
+      await tester.ensureVisible(find.text('Create Account'));
+      await tester.tap(find.text('Create Account'));
+      await tester.pump();
+      expect(find.byType(EmailConfirmationPending), findsOneWidget);
+
+      final session = Session(
+        accessToken: 'synthetic',
+        tokenType: 'bearer',
+        user: User(
+          id: 'synthetic-user',
+          appMetadata: const {},
+          userMetadata: const {},
+          aud: 'authenticated',
+          createdAt: '2026-10-29T00:00:00Z',
+        ),
+      );
+      // A token refresh before the link is opened changes nothing.
+      auth.authStates.add(AuthState(AuthChangeEvent.tokenRefreshed, session));
+      await tester.pumpAndSettle();
+      expect(find.byType(EmailConfirmationPending), findsOneWidget);
+
+      auth.authStates
+        ..add(AuthState(AuthChangeEvent.signedIn, session))
+        ..add(AuthState(AuthChangeEvent.signedIn, session));
+      await tester.pumpAndSettle();
+      expect(find.byType(EmailConfirmationPending), findsNothing);
+      // Only the sheet closed: the screen under it is still there.
+      expect(find.byKey(const Key('consent_checkbox')), findsOneWidget);
     });
 
     testWidgets('an address with no domain is refused before any request', (
