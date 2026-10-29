@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/auth/auth_controller.dart';
+import '../../../../core/config/launch_features.dart';
 import '../../../../core/data/countries.dart';
 import '../../../../core/errors/network_failure.dart';
 import '../../../../core/localization/app_locale_controller.dart';
@@ -351,20 +352,29 @@ class _SignInContent extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
+                // Community is not advertised while it is hidden for launch.
                 Expanded(
-                  child: _FeatureTile(
-                    icon: Icons.groups_rounded,
-                    iconColor: const Color(0xFFA855F7),
-                    label: _tr('Women community', 'مجتمع نسائي'),
-                  ),
+                  child: LaunchFeatures.community
+                      ? _FeatureTile(
+                          icon: Icons.groups_rounded,
+                          iconColor: const Color(0xFFA855F7),
+                          label: _tr('Women community', 'مجتمع نسائي'),
+                        )
+                      : _FeatureTile(
+                          icon: Icons.description_outlined,
+                          iconColor: const Color(0xFF64748B),
+                          label: _tr('PDF reports', 'تقارير PDF'),
+                        ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _FeatureTile(
-                    icon: Icons.description_outlined,
-                    iconColor: const Color(0xFF64748B),
-                    label: _tr('PDF reports', 'تقارير PDF'),
-                  ),
+                  child: LaunchFeatures.community
+                      ? _FeatureTile(
+                          icon: Icons.description_outlined,
+                          iconColor: const Color(0xFF64748B),
+                          label: _tr('PDF reports', 'تقارير PDF'),
+                        )
+                      : const SizedBox.shrink(),
                 ),
               ],
             ),

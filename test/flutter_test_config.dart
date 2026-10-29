@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
+import 'package:niswah/core/config/launch_features.dart';
 
 /// Runs once per test file, before that file's `main()` executes — gives
 /// every test file a fresh in-memory `flutter_secure_storage` backing
@@ -17,5 +18,8 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 /// (test/support/secure_storage_test_support.dart) in their own `setUp()`.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   FlutterSecureStoragePlatform.instance = TestFlutterSecureStoragePlatform({});
+  // The community code keeps its own tests while it is hidden from release
+  // builds; test/launch_scope_community_test.dart covers the hidden state.
+  LaunchFeatures.debugCommunityOverride = true;
   await testMain();
 }

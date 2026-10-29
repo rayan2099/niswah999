@@ -2483,7 +2483,7 @@ class _Welcome extends StatelessWidget {
         child: GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: kAppFeatures.length,
+          itemCount: launchAppFeatures.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: 8,
@@ -2491,7 +2491,7 @@ class _Welcome extends StatelessWidget {
             childAspectRatio: 3.1,
           ),
           itemBuilder: (_, i) {
-            final feature = kAppFeatures[i];
+            final feature = launchAppFeatures[i];
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 9),
               decoration: BoxDecoration(

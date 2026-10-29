@@ -11,7 +11,11 @@ class FloatingNavBar extends StatelessWidget {
     this.onFABPressed,
     this.dark = false,
     this.showFab = true,
-  }) : assert(items.length == 5, 'The floating navigation uses five tabs.');
+  }) : assert(
+         items.length == 5 || items.length == 4,
+         'The floating navigation uses five tabs, or four while a tab is '
+         'hidden for launch scope.',
+       );
 
   final int selectedIndex;
   final ValueChanged<int> onItemTapped;
@@ -24,6 +28,14 @@ class FloatingNavBar extends StatelessWidget {
   static const double _fabSize = 56;
 
   static const _rtlItemCenters = <double>[0.908, 0.774, 0.641, 0.292, 0.125];
+
+  /// Four tabs sit two on each side of a centered assistant button.
+  static const _rtlItemCentersFour = <double>[0.875, 0.68, 0.32, 0.125];
+
+  List<double> get _centers =>
+      items.length == 4 ? _rtlItemCentersFour : _rtlItemCenters;
+
+  double get _rtlFabCenter => items.length == 4 ? 0.5 : 0.466;
 
   @override
   Widget build(BuildContext context) {
@@ -75,8 +87,8 @@ class FloatingNavBar extends StatelessWidget {
                                     constraints.maxWidth *
                                         (showFab
                                             ? (rtl
-                                                  ? _rtlItemCenters[index]
-                                                  : 1 - _rtlItemCenters[index])
+                                                  ? _centers[index]
+                                                  : 1 - _centers[index])
                                             : (rtl
                                                   ? 1 -
                                                         ((index + 0.5) /
@@ -103,8 +115,8 @@ class FloatingNavBar extends StatelessWidget {
                 left:
                     barConstraints.maxWidth *
                         (Directionality.of(context) == TextDirection.rtl
-                            ? 0.466
-                            : 0.534) -
+                            ? _rtlFabCenter
+                            : 1 - _rtlFabCenter) -
                     _fabSize / 2,
                 child: Semantics(
                   button: true,

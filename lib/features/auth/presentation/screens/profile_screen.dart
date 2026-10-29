@@ -10,6 +10,7 @@ import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/preferences/ttc_mode_controller.dart';
+import '../../../../core/config/launch_features.dart';
 import '../../../../core/preferences/community_language_controller.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
 import '../../../../core/preferences/prayer_location_controller.dart';
@@ -134,19 +135,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const SizedBox(height: 24),
                       // Community actions are surfaced at the top so new
                       // messages and invitations are immediately visible.
-                      _SectionTitle(_pr('Community', 'المجتمع')),
+                      // While community is hidden for launch
+                      // ([LaunchFeatures]) only the invitation stays.
+                      _SectionTitle(
+                        LaunchFeatures.community
+                            ? _pr('Community', 'المجتمع')
+                            : _pr('Share Niswah', 'شاركي نسواه'),
+                      ),
                       const SizedBox(height: 10),
                       _SettingsGroup(
                         children: [
-                          _ActionRow(
-                            icon: Icons.chat_bubble_outline_rounded,
-                            title: _pr('Messages', 'الرسائل'),
-                            onTap: _openPrivateMessages,
-                            trailing: UnreadMessagesBadge(
-                              key: ValueKey(_badgeRefresh),
-                              repository: _messagingRepository,
+                          if (LaunchFeatures.community)
+                            _ActionRow(
+                              icon: Icons.chat_bubble_outline_rounded,
+                              title: _pr('Messages', 'الرسائل'),
+                              onTap: _openPrivateMessages,
+                              trailing: UnreadMessagesBadge(
+                                key: ValueKey(_badgeRefresh),
+                                repository: _messagingRepository,
+                              ),
                             ),
-                          ),
                           _ActionRow(
                             icon: Icons.share_outlined,
                             title: _pr('Invite a Friend', 'دعوة صديقة'),
@@ -310,10 +318,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           source: 'settings_direct',
                         ),
                       ),
-                      const SizedBox(height: 30),
-                      _SectionTitle(_pr('Community language', 'لغة المجتمع')),
-                      const SizedBox(height: 10),
-                      _CommunityLanguageRow(),
+                      if (LaunchFeatures.community) ...[
+                        const SizedBox(height: 30),
+                        _SectionTitle(_pr('Community language', 'لغة المجتمع')),
+                        const SizedBox(height: 10),
+                        _CommunityLanguageRow(),
+                      ],
                       const SizedBox(height: 30),
                       _SectionTitle(
                         _pr('Privacy Settings', 'إعدادات الخصوصية'),

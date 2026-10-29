@@ -17,6 +17,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'core/auth/auth_controller.dart';
 import 'core/config/acceptance_gate.dart';
 import 'core/config/app_environment.dart';
+import 'core/config/launch_features.dart';
 import 'core/config/build_info.dart';
 import 'core/config/test_backend_gate.dart';
 import 'core/errors/app_error_reporter.dart';
@@ -679,6 +680,7 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex.clamp(0, 4);
+    if (_selectedIndex == 3 && !LaunchFeatures.community) _selectedIndex = 0;
     // Not loaded here: DashboardScreen is always mounted in the
     // IndexedStack (whatever the initial tab) and loads this shared
     // instance in its own initState. Loading it here as well ran every
@@ -785,7 +787,11 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     _NavPage(
       title: 'Community',
       icon: Icons.groups_rounded,
-      screen: CommunityBoardScreen(),
+      // Index 3 stays reserved so the other tabs keep their indices; while
+      // community is hidden nothing is mounted there and nothing loads.
+      screen: LaunchFeatures.community
+          ? CommunityBoardScreen()
+          : const SizedBox.shrink(),
     ),
     _NavPage(
       title: 'Profile',
@@ -848,11 +854,12 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
             icon: Icons.bar_chart_outlined,
             label: ar ? 'الرؤى' : 'Insights',
           ),
-          FloatingNavItem(
-            targetIndex: 3,
-            icon: Icons.groups_outlined,
-            label: ar ? 'المجتمع' : 'Community',
-          ),
+          if (LaunchFeatures.community)
+            FloatingNavItem(
+              targetIndex: 3,
+              icon: Icons.groups_outlined,
+              label: ar ? 'المجتمع' : 'Community',
+            ),
           FloatingNavItem(
             targetIndex: 4,
             icon: Icons.person_outline_rounded,

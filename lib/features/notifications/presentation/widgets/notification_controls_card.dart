@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/config/launch_features.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/notification_delivery_preferences.dart';
@@ -169,10 +170,12 @@ class _NotificationControlsCardState extends State<NotificationControlsCard> {
       child: Column(
         children: [
           Text(
-            _t(
-              'Messages, community & quiet hours',
-              'الرسائل والمجتمع وساعات الهدوء',
-            ),
+            LaunchFeatures.community
+                ? _t(
+                    'Messages, community & quiet hours',
+                    'الرسائل والمجتمع وساعات الهدوء',
+                  )
+                : _t('Quiet hours', 'ساعات الهدوء'),
             style: Theme.of(context).textTheme.titleMedium,
           ),
           if (_busy) const LinearProgressIndicator(),
@@ -196,28 +199,31 @@ class _NotificationControlsCardState extends State<NotificationControlsCard> {
                 child: Text(_t('Turn on phone alerts', 'تفعيل تنبيهات الهاتف')),
               ),
           ],
-          SwitchListTile(
-            title: Text(
-              _t(
-                'Phone alerts for new messages',
-                'تنبيهات الهاتف للرسائل الجديدة',
+          // Community alerts are hidden with community ([LaunchFeatures]).
+          if (LaunchFeatures.community) ...[
+            SwitchListTile(
+              title: Text(
+                _t(
+                  'Phone alerts for new messages',
+                  'تنبيهات الهاتف للرسائل الجديدة',
+                ),
               ),
+              value: _prefs.messages,
+              onChanged: _busy ? null : (v) => _change({'messages': v}),
             ),
-            value: _prefs.messages,
-            onChanged: _busy ? null : (v) => _change({'messages': v}),
-          ),
-          SwitchListTile(
-            title: Text(_t('Comments on my posts', 'التعليقات على منشوراتي')),
-            value: _prefs.comments,
-            onChanged: _busy ? null : (v) => _change({'comments': v}),
-          ),
-          SwitchListTile(
-            title: Text(
-              _t('Grouped likes on my posts', 'إعجابات مجمّعة على منشوراتي'),
+            SwitchListTile(
+              title: Text(_t('Comments on my posts', 'التعليقات على منشوراتي')),
+              value: _prefs.comments,
+              onChanged: _busy ? null : (v) => _change({'comments': v}),
             ),
-            value: _prefs.likes,
-            onChanged: _busy ? null : (v) => _change({'likes': v}),
-          ),
+            SwitchListTile(
+              title: Text(
+                _t('Grouped likes on my posts', 'إعجابات مجمّعة على منشوراتي'),
+              ),
+              value: _prefs.likes,
+              onChanged: _busy ? null : (v) => _change({'likes': v}),
+            ),
+          ],
           SwitchListTile(
             title: Text(_t('Quiet hours', 'ساعات الهدوء')),
             value: _prefs.quietEnabled,

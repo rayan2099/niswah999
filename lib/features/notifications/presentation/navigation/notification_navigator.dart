@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/config/launch_features.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
@@ -39,6 +40,13 @@ class NotificationNavigator {
         client?.auth.currentUser?.id == target.userId;
     if (client == null || !current()) return;
     try {
+      // A community notification can still be in her feed while community
+      // is hidden for launch; it opens nothing and says it is unavailable.
+      if (!LaunchFeatures.community &&
+          (target.destination == NotificationDestination.conversation ||
+              target.destination == NotificationDestination.post)) {
+        throw StateError('Unavailable');
+      }
       if ({
         NotificationDestination.conversation,
         NotificationDestination.post,

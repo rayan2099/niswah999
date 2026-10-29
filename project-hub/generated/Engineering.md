@@ -31,6 +31,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [acceptance_gate.dart](../../lib/core/config/acceptance_gate.dart)
 - [app_environment.dart](../../lib/core/config/app_environment.dart)
 - [build_info.dart](../../lib/core/config/build_info.dart)
+- [launch_features.dart](../../lib/core/config/launch_features.dart)
 - [test_backend_gate.dart](../../lib/core/config/test_backend_gate.dart)
 
 ## lib/core/data

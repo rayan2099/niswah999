@@ -193,6 +193,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [home_shell_shared_view_model_test.dart](../../test/home_shell_shared_view_model_test.dart)
 - [husband_report_pdf_builder_test.dart](../../test/husband_report_pdf_builder_test.dart)
 - [insights_wellbeing_card_test.dart](../../test/insights_wellbeing_card_test.dart)
+- [launch_scope_community_test.dart](../../test/launch_scope_community_test.dart)
 - [legacy_screens_canonical_history_test.dart](../../test/legacy_screens_canonical_history_test.dart)
 - [localization_ui_test.dart](../../test/localization_ui_test.dart)
 - [madhhab_change_confirmation_test.dart](../../test/madhhab_change_confirmation_test.dart)

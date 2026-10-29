@@ -43,6 +43,7 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
 - [community_ar_390x844.png](../../test/goldens/community_ar_390x844.png)
 - [community_en_390x844.png](../../test/goldens/community_en_390x844.png)
+- [launch_scope_community_test.dart](../../test/launch_scope_community_test.dart)
 - [parity_community_test.dart](../../test/parity_community_test.dart)
 
 ## Requirements, decisions, and verification
