@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**177 existing Markdown documents**, grouped by source folder.
+**179 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -44,6 +44,11 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [app-wide-notifications.md](../../docs/engineering/app-wide-notifications.md)
 - [notification-reliability.md](../../docs/engineering/notification-reliability.md)
 - [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
+
+## docs/journeys
+
+- [NISWAH_JOURNEY_VERIFICATION_REPORT.md](../../docs/journeys/NISWAH_JOURNEY_VERIFICATION_REPORT.md)
+- [NISWAH_LAUNCH_SCOPE.md](../../docs/journeys/NISWAH_LAUNCH_SCOPE.md)
 
 ## docs/period-tracking
 

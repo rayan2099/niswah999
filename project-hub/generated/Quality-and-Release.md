@@ -44,6 +44,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [notification-reliability.md](../../docs/engineering/notification-reliability.md)
 - [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
 
+## docs/journeys
+
+- [NISWAH_JOURNEY_COVERAGE.csv](../../docs/journeys/NISWAH_JOURNEY_COVERAGE.csv)
+- [NISWAH_JOURNEY_VERIFICATION_REPORT.md](../../docs/journeys/NISWAH_JOURNEY_VERIFICATION_REPORT.md)
+- [NISWAH_LAUNCH_SCOPE.md](../../docs/journeys/NISWAH_LAUNCH_SCOPE.md)
+
 ## docs/period-tracking
 
 - [PERIOD_TRACKING_200_CASES.md](../../docs/period-tracking/PERIOD_TRACKING_200_CASES.md)
@@ -88,6 +94,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [deploy_kb_v1.sh](../../scripts/deploy_kb_v1.sh)
 - [generate_release_manifest.sh](../../scripts/generate_release_manifest.sh)
 - [ingest_geo_madhhab_review.py](../../scripts/ingest_geo_madhhab_review.py)
+- [journey_register.py](../../scripts/journey_register.py)
 - [local_env.sh](../../scripts/local_env.sh)
 - [period_tracking_register.py](../../scripts/period_tracking_register.py)
 - [pregnancy_status_parity.mjs](../../scripts/pregnancy_status_parity.mjs)
