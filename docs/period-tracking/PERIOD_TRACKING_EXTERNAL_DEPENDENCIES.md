@@ -50,10 +50,17 @@ CI passing is not device evidence.
 episode-correction tables and RPCs. It is additive: it creates new tables and
 functions, and replaces one validation trigger function with a superset.
 
-It has not been applied to staging or production. Until rayan applies it, the
-"Edit this period" actions fail on the server: she sees a "not saved"
-message and nothing changes. The new UI therefore must not ship in a build
-until the migration is on that build's backend.
+Staging (`ovgvevzrcefloitgcsia`): applied 2026-10-29 with rayan's approval.
+A read-only check confirmed all 13 functions match the tested copy (md5), and
+the rolled-back behavior script (`02_verify_staging_rolled_back.sql` in the
+project files) returned ALL PASSED, leaving no test accounts or rows. The
+follow-up `20261029110000_bleeding_local_today_search_path.sql` (advisor lint
+0011) is not yet applied to staging.
+
+Production: not applied. Until it is, the "Edit this period" actions fail on
+the server there: she sees a "not saved" message and nothing changes. The new
+UI therefore must not ship in a production build until both migrations are on
+the production backend. Production needs its own approval.
 
 Order: staging, then a device check, then production. rayan runs the SQL in
 the dashboard.

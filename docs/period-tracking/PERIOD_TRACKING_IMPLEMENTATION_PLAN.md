@@ -34,7 +34,7 @@ unsafe (for example, predictions must never create qadha debt, PT-112).
 
 | Step | Cases | State |
 | --- | --- | --- |
-| Episode corrections: move start/end, undo an end, remove and restore a period (migration `20261029100000_bleeding_episode_corrections.sql`, `EpisodeCorrectionRepository`, `episode_edit_sheet.dart`) | PT-027, PT-051..PT-057, PT-060, PT-148 | Done in code. SQL and widget tests pass. Not applied to any database |
+| Episode corrections: move start/end, undo an end, remove and restore a period (migration `20261029100000_bleeding_episode_corrections.sql`, `EpisodeCorrectionRepository`, `episode_edit_sheet.dart`) | PT-027, PT-051..PT-057, PT-060, PT-148 | Done in code; SQL and widget tests pass. Applied and verified on staging 2026-10-29; not on production |
 | A queued operation the user has since undone is dropped (NW410), never replayed | PT-027, PT-145 | Done |
 | Account deletion cascades to the archive, revisions and tombstones | PT-156 | Done (SQL section 10) |
 | "Ended, end unknown" from onboarding keeps the known start | PT-002 | Next. Needs an end-precision state, not a fake end date |

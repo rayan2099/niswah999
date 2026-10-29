@@ -186,3 +186,4 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261026090000_revoke_anon_security_definer_execute.sql](../../supabase/migrations/20261026090000_revoke_anon_security_definer_execute.sql)
 - [20261026160000_app_rls_initplan_and_notification_cleanup_cron.sql](../../supabase/migrations/20261026160000_app_rls_initplan_and_notification_cleanup_cron.sql)
 - [20261029100000_bleeding_episode_corrections.sql](../../supabase/migrations/20261029100000_bleeding_episode_corrections.sql)
+- [20261029110000_bleeding_local_today_search_path.sql](../../supabase/migrations/20261029110000_bleeding_local_today_search_path.sql)

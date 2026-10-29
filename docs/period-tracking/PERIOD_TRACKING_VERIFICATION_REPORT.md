@@ -32,8 +32,10 @@ It does not mean:
 - The backend it needs is deployed. The episode-correction cases (PT-027,
   PT-051, PT-052, PT-054, PT-056, PT-057, PT-060, PT-148) were verified
   against a scratch Postgres built from every migration, including
-  `20261029100000_bleeding_episode_corrections.sql`. That migration is not on
-  staging or production.
+  `20261029100000_bleeding_episode_corrections.sql`. On 2026-10-29 that
+  migration was also applied to staging and the same behavior checks passed
+  there (rolled back, synthetic accounts). It is not on production, and no
+  case has been run in the app against staging yet.
 
 CI passing is not a claim that all 200 cases are covered.
 
@@ -44,6 +46,7 @@ CI passing is not a claim that all 200 cases are covered.
 | `flutter test` (every test file without golden comparisons) | 1,620 passed, 7 skipped, 0 failed (final run on the committed code) |
 | `test/period_tracking/` (episode edits, PT-079, PT-112) plus the correction, sync-hardening and round-2 suites | All passed |
 | `test/security/run_sql_checks.sh` (scratch Postgres, synthetic users) | 5 of 5 files passed, including `bleeding_episode_corrections.sql` (11 sections) |
+| Staging (`ovgvevzrcefloitgcsia`), 2026-10-29 | Migration applied by rayan; 13 of 13 functions match the tested copy (md5); rolled-back behavior script ALL PASSED; 0 test rows left |
 | `flutter analyze` on the changed code | No issues |
 | `python3 scripts/period_tracking_register.py --check` | Register and CSV in sync |
 

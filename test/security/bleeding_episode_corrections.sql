@@ -409,6 +409,17 @@ BEGIN
     '42501', NULL, 'internal helper call');
   ASSERT NOT has_function_privilege('anon', 'public.remove_episode(uuid, uuid, timestamptz)', 'EXECUTE'),
     'FAIL: anon can call remove_episode';
+  -- Every function the corrections migrations add has a pinned search_path
+  -- (Supabase advisor lint 0011).
+  ASSERT NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    WHERE p.pronamespace = 'public'::regnamespace
+      AND p.proname IN ('bleeding_reject_tombstoned_operation', 'bleeding_observations_validate_insert',
+        'bleeding_episode_snapshot', 'bleeding_effective_observations', 'bleeding_observation_chains',
+        'bleeding_archive_observations', 'bleeding_episode_mutation_begin', 'bleeding_local_today',
+        'correct_episode_start', 'correct_episode_end', 'reopen_episode', 'remove_episode', 'restore_episode')
+      AND NOT coalesce(p.proconfig, '{}') && ARRAY['search_path=public']
+  ), 'FAIL: a corrections function has a mutable search_path';
 END $$;
 
 \echo '--- 10. PT-156 account deletion removes archive, revisions and tombstones too'
