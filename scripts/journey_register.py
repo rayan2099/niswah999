@@ -108,7 +108,6 @@ T = {
     "delops": "test/logging_sync_hardening/account_deletion_pending_ops_test.dart",
     "export": "test/data_export_resilience_test.dart",
     "boundary": "test/account_isolation/account_boundary_test.dart",
-    "community": "test/launch_scope_community_test.dart",
     "onbui": "test/onboarding_ui_test.dart",
     "onbans": "test/onboarding_server_hardening/onboarding_answers_test.dart",
     "onbsql": "test/onboarding_server_hardening/sql/02_onboarding_rpc_duplicates_and_overlaps.sql",
@@ -360,16 +359,16 @@ NJ-177|IN|NA|N|-|-|-|-|L|-|AI|-|AI mutations do not exist.
 NJ-178|IN|NA|N|-|-|-|-|L|-|AI|-|AI mutations do not exist.
 NJ-179|IN|BX|N|-|-|-|BX|M|-|AI|-|Chat retention policy undecided (gate 2 item 6).
 NJ-180|IN|IU|PP|-|-|-|BX|M|-|AI|{aicite}|Specialist review pending.
-NJ-181|COND|IU|PP|-|NR|NR|-|M|-|MSG|{msg}; {msgrt}|Messaging scope to confirm.
-NJ-182|COND|IU|PP|PP|NR|NR|-|C|-|MSG|{chatacct}; {boundary} (open chat closes on account change)|Membership enforced by RLS (is_conversation_participant). Hidden for launch in draft PR #64 pending scope decision.
-NJ-183|COND|IR|N|-|-|-|-|C|-|COMM MSG|-|No block feature (App Store 1.2). Draft PR #64 hides community from release builds; decision pending.
-NJ-184|COND|IR|N|-|-|-|-|C|-|COMM|-|No report feature (App Store 1.2). Draft PR #64 hides community from release builds; decision pending.
-NJ-185|COND|IR|N|-|-|-|-|M|-|MSG|-|Depends on block.
-NJ-186|COND|NA|N|-|-|-|-|L|-|MSG|-|Not assessed.
-NJ-187|COND|NA|N|-|-|-|-|L|-|COMM|-|Text-only community; attachments not found.
-NJ-188|COND|NA|N|-|-|-|-|L|-|-|-|No attachments found.
-NJ-189|COND|NA|N|-|-|-|-|M|-|-|-|No moderator tooling found in the app.
-NJ-190|COND|BX|P|-|NR|NR|-|H|-|COMM|{community} (release default hides tab, rows, alerts, showcase card)|Draft PR #64 implements "hide"; rayan's scope decision pending.
+NJ-181|IN|IU|PP|-|NR|NR|-|M|-|MSG|{msg}; {msgrt}|Messaging scope to confirm.
+NJ-182|IN|IU|PP|PP|NR|NR|-|C|-|MSG|{chatacct}; {boundary} (open chat closes on account change)|Membership enforced by RLS (is_conversation_participant).
+NJ-183|IN|IR|N|-|-|-|-|C|-|COMM MSG|-|No block feature (App Store 1.2). rayan 2026-10-29: community ships; block/report/moderation is being built in a separate thread.
+NJ-184|IN|IR|N|-|-|-|-|C|-|COMM|-|No report feature (App Store 1.2). rayan 2026-10-29: community ships; being built in a separate thread.
+NJ-185|IN|IR|N|-|-|-|-|M|-|MSG|-|Depends on block.
+NJ-186|IN|NA|N|-|-|-|-|L|-|MSG|-|Not assessed.
+NJ-187|IN|NA|N|-|-|-|-|L|-|COMM|-|Text-only community; attachments not found.
+NJ-188|IN|NA|N|-|-|-|-|L|-|-|-|No attachments found.
+NJ-189|IN|NA|N|-|-|-|-|M|-|-|-|No moderator tooling found in the app.
+NJ-190|IN|NA|-|-|-|-|-|H|-|COMM|-|rayan decided 2026-10-29 that community is in launch scope, so this journey (feature out of scope) does not apply while that holds.
 NJ-191|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
 NJ-192|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
 NJ-193|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.

@@ -1,6 +1,6 @@
 # Niswah launch scope for the 300 app-wide journeys
 
-Status: **proposed, awaiting rayan's decision** (2026-10-29).
+Status: community decided by rayan on 2026-10-29 (ships, with App Store 1.2 block and report). The rest is **proposed, awaiting rayan's decision**.
 
 The 300-journey register (`docs/NISWAH_APP_WIDE_300_ACCEPTANCE_JOURNEYS.md`)
 lists journeys for features the app does not have. Their presence in the
@@ -8,7 +8,7 @@ register does not authorize building them. This page records which features
 ship today, which are conditional, and which need a scope decision. The
 per-journey scope is in `docs/journeys/NISWAH_JOURNEY_COVERAGE.csv`.
 
-## Included: the feature ships in the current app (213 journeys)
+## Included: the feature ships in the current app (223 journeys, including community since 2026-10-29)
 
 Sign-up, sign-in, recovery, onboarding, period tracking (episodes,
 observations, corrections, removal, restore), calendar, predictions,
@@ -20,11 +20,11 @@ export, settings, privacy, account deletion, offline and sync behavior.
 Migrations, release builds, store review, monitoring, rollback. These are
 evidenced by release records, not app code.
 
-## Conditional: exists in code, launch scope to confirm (16 journeys)
+## Conditional: exists in code, launch scope to confirm (6 journeys; community moved to Included)
 
 | Feature | Journeys | Finding | Proposed decision |
 |---|---|---|---|
-| Community / messaging | NJ-181..NJ-190 | No block (NJ-183) or report (NJ-184). App Store guideline 1.2 requires both for user-generated content. | Hide community for launch, or build block and report first. Decision needed. |
+| Community / messaging | NJ-181..NJ-190 | **Decided 2026-10-29 by rayan: community ships.** It must meet App Store guideline 1.2, so block (NJ-183), report (NJ-184) and moderation are being built in a separate thread. | In scope. |
 | Push notifications | NJ-162, NJ-167 | Push is disabled in the launch builds. | Out of scope for launch; local reminders only. |
 | Pregnancy / postpartum mode | NJ-032, NJ-132, NJ-133, NJ-274 | Exists; medical wording needs specialist review. | Keep, with specialist sign-off listed as external evidence. |
 
