@@ -15,13 +15,13 @@ separately.
 | Status | Journeys |
 |---|---|
 | VERIFIED | 0 |
-| IMPLEMENTED — UNVERIFIED | 174 |
-| IMPLEMENTATION REQUIRED | 20 |
+| IMPLEMENTED — UNVERIFIED | 175 |
+| IMPLEMENTATION REQUIRED | 19 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 76 |
 | NOT ASSESSED | 30 |
 | OUT OF SCOPE — EXPLICIT DECISION | 0 |
 
-**64 of 300** journeys have their outcome demonstrated by a named automated
+**65 of 300** journeys have their outcome demonstrated by a named automated
 test. None is VERIFIED, because 159 journeys also need a signed iPhone and
 signed Android run, and none has been recorded.
 
@@ -29,7 +29,7 @@ signed Android run, and none has been recorded.
 
 | Dimension | Pass | Partial | Required, not run | Blocked |
 |---|---|---|---|---|
-| Automated | 64 | 95 | 126 (none yet) | – |
+| Automated | 65 | 94 | 126 (none yet) | – |
 | Staging integration | 12 | 7 | 1 | – |
 | Signed iPhone | 0 | – | 159 | – |
 | Signed Android | 0 | – | 159 | – |
@@ -40,7 +40,6 @@ signed Android run, and none has been recorded.
 | Journey | Gap |
 |---|---|
 | NJ-183, NJ-184 (Critical) | Community has no block or report. rayan decided community ships (2026-10-29); block, report and moderation are being built in a separate thread. |
-| NJ-013 | Open entry sheets now close when the session ends, but unsaved input is not recovered after signing back in. |
 | NJ-018, NJ-126 | Approximate dates need a clinical prediction policy (PT-003). |
 | NJ-147 | No remote fiqh kill switch (PT-196). |
 
@@ -48,7 +47,8 @@ Closed in open branches (automated evidence only): NJ-069 confirmation
 auto-advance (PR #63); NJ-074 recovery names the account and refuses a save
 after an account change, and NJ-232 export discarded on an account switch
 including A→B→A (draft PR #65). Screens, sheets and
-dialogs opened over home now close on sign-out or account switch.
+dialogs opened over home now close on sign-out or account switch. NJ-013:
+an unsaved day-log entry is kept for its account and offered back (draft PR #66).
 
 ## Sign-up email confirmation (NJ-003..NJ-006, NJ-061, NJ-062, NJ-065, NJ-066)
 

@@ -108,6 +108,7 @@ T = {
     "delops": "test/logging_sync_hardening/account_deletion_pending_ops_test.dart",
     "export": "test/data_export_resilience_test.dart",
     "boundary": "test/account_isolation/account_boundary_test.dart",
+    "draft": "test/account_isolation/entry_draft_after_session_end_test.dart",
     "onbui": "test/onboarding_ui_test.dart",
     "onbans": "test/onboarding_server_hardening/onboarding_answers_test.dart",
     "onbsql": "test/onboarding_server_hardening/sql/02_onboarding_rpc_duplicates_and_overlaps.sql",
@@ -191,7 +192,7 @@ NJ-009|IN|IU|P|-|NR|NR|-|H|-|MAIN AUTHCTL ONB|{routing} (confirmed user resumes 
 NJ-010|IN|IR|N|-|NR|NR|-|M|-|SIGNIN AUTHREPO|-|Auth's raw English message is shown; no explanation of temporary limits in Arabic.
 NJ-011|IN|IU|P|PP|NR|NR|-|H|-|RECOVERY|{recovery} (updates once and finishes)|Real reset email and link on device not yet run.
 NJ-012|IN|IU|PP|-|NR|NR|-|M|-|RECOVERY|{recovery} (server rejection does not finish)|Expired/reused link UX needs a device run.
-NJ-013|IN|IR|PP|-|NR|NR|-|H|-|AUTHCTL TRACK|{boundary} (open entry sheets close when the session ends)|Account content is protected; recovering the unsaved input after signing back in is not built.
+NJ-013|IN|IU|P|-|NR|NR|-|H|-|AUTHCTL TRACK|{draft} (day-log input kept for its account, offered back, never to another); {boundary}|Draft PR #66 (day-log sheet only) and #65. Start-bleeding and correction sheets have no draft; device run pending.
 NJ-014|IN|IU|P|-|NR|NR|-|C|PT-152 PT-153|AUTHCTL STORE NOTIF|{acct}; {prefs}; {notifacct}; {chatacct}|AI context and drafts on switch not covered by one test; device A→B run pending (gate A15).
 NJ-015|IN|IU|PP|-|NR|NR|-|H|PT-001|ONB|{onbans}; {onbui}|Dashboard consistency after onboarding not asserted end to end.
 NJ-016|IN|IU|PP|-|NR|NR|-|H|PT-004|ONB CALC|{onbans}|No-history path saves nothing invented; prediction "unavailable" proven in {nodata}.
