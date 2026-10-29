@@ -71,6 +71,19 @@ class BleedingWriteRejectedException implements Exception {
   String toString() => 'BleedingWriteRejectedException($code: $message)';
 }
 
+/// The server refused a queued write because she has since undone it: the
+/// episode it belongs to was removed, or the end it records was undone
+/// (`bleeding_operation_tombstones`, SQLSTATE `NW410`, migration
+/// 20261029100000). Never an error to show her — the background replay
+/// drops the queued copy, because applying it would bring back what she
+/// took out (PT-145, PT-156).
+class BleedingOperationUndoneException implements Exception {
+  const BleedingOperationUndoneException();
+
+  @override
+  String toString() => 'BleedingOperationUndoneException';
+}
+
 /// Logging/sync hardening (proposed) — `record_onboarding_menstrual_history`
 /// returned normally but with `episode_conflict = true`: nothing was saved
 /// for the episode part. Thrown only by the background replay, so a
@@ -132,6 +145,9 @@ class BleedingEpisodeRepositoryImpl {
         feature: 'cycle_tracking',
         recordId: recordId,
       );
+      if (error.code == 'NW410') {
+        throw const BleedingOperationUndoneException();
+      }
       if (isPermanentRejectionCode(error.code)) {
         throw BleedingWriteRejectedException(error.code!, error.message);
       }
@@ -1275,6 +1291,14 @@ class BleedingEpisodeRepositoryImpl {
             supersededObservationId: supersededObservationId,
           );
         }
+      } on BleedingOperationUndoneException {
+        // She undid this (removed the period, or undid the end) after it
+        // was queued; replaying it would bring it back. Dropped, not
+        // reported as needing her attention.
+        await PendingBleedingOperationStore.clearPending(
+          operation.operationId,
+          userId: ownerId,
+        );
       } catch (error, stack) {
         // Left pending — the next reconciliation attempt (next app start)
         // will retry it. Reported so a persistently-failing reconcile is

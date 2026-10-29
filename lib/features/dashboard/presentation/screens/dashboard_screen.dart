@@ -1306,16 +1306,21 @@ class DashboardScreenState extends State<DashboardScreen> {
     if (openEpisode?.id == null) return;
 
     if (!mounted) return;
-    final ended = await showEndBleedingSheet(
-      context,
-      episodeId: openEpisode!.id!,
-      episodeStartDate: openEpisode.startDate,
-    );
-    if (ended) {
+    Future<void> reload() async {
       await _viewModel.loadLogs();
       if (mounted) setState(() => _missedCheckinRefreshToken++);
       unawaited(_refreshCanonicalStatus());
     }
+
+    final ended = await showEndBleedingSheet(
+      context,
+      episodeId: openEpisode!.id!,
+      episodeStartDate: openEpisode.startDate,
+      onUndone: () {
+        if (mounted) unawaited(reload());
+      },
+    );
+    if (ended) await reload();
   }
 
   /// Commit D1 — the recurring "are you still bleeding today?" check-in,

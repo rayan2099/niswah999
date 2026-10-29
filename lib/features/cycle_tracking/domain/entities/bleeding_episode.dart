@@ -157,6 +157,7 @@ class BleedingEpisode extends Equatable {
     this.endSource,
     this.clientOperationId,
     this.endClientOperationId,
+    this.revisionToken,
   }) : assert(
          (lifecycleStatus == LifecycleStatus.ended) == (endDate != null),
          'endDate must be set if and only if lifecycleStatus is ended',
@@ -186,6 +187,12 @@ class BleedingEpisode extends Equatable {
   /// The idempotency key the "end" operation was performed under, once
   /// ended — see `end_bleeding_episode`.
   final String? endClientOperationId;
+
+  /// The row's `updated_at`, exactly as the server sent it. Passed back to
+  /// the episode correction RPCs so a change made on another device after
+  /// this copy was loaded is refused (NW409) instead of overwritten.
+  /// Null for an episode not read from the server.
+  final String? revisionToken;
 
   static String _dateOnly(DateTime date) =>
       '${date.year.toString().padLeft(4, '0')}-'
@@ -249,6 +256,7 @@ class BleedingEpisode extends Equatable {
           : ObservationSource.parse(json['end_source'] as String?),
       clientOperationId: json['client_operation_id'] as String?,
       endClientOperationId: json['end_client_operation_id'] as String?,
+      revisionToken: json['updated_at'] as String?,
     );
   }
 
@@ -266,6 +274,7 @@ class BleedingEpisode extends Equatable {
     endSource,
     clientOperationId,
     endClientOperationId,
+    revisionToken,
   ];
 }
 

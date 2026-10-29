@@ -8,6 +8,7 @@ import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/evidence_provenance.dart';
 import 'correction_sheet.dart';
 import 'daily_checkin_sheet.dart' show showBackfillObservationSheet;
+import 'episode_edit_sheet.dart';
 import 'provenance_badge.dart';
 
 String _t(String en, String ar) => AppLocaleController.instance.text(en, ar);
@@ -34,12 +35,24 @@ String _flowLabel(ObservationFlow flow) => switch (flow) {
 /// Returns true if the caller should reload canonical data from the
 /// server — never assumes the legacy projection will reflect the
 /// change.
+///
+/// [supersededElsewhere] holds the ids superseded by a correction dated on
+/// another day (a moved period end corrects the old closing entry from the
+/// new date), so such an entry is never offered as this day's current
+/// value. [isLatestEpisode]/[hasOpenEpisode] decide whether "I'm still
+/// bleeding" (undo an end) is offered in the period editor, and
+/// [onEpisodeChanged] runs after every saved period edit, including an
+/// Undo tapped after the sheets closed.
 Future<bool> showObservationDetailSheet(
   BuildContext context, {
   required DateTime day,
   required BleedingEpisode? episodeForDay,
   required List<BleedingObservation> observationsForDay,
   required BleedingEpisodeRepositoryImpl repository,
+  Set<String> supersededElsewhere = const {},
+  bool isLatestEpisode = false,
+  bool hasOpenEpisode = false,
+  VoidCallback? onEpisodeChanged,
 }) async {
   final result = await showModalBottomSheet<bool>(
     context: context,
@@ -48,6 +61,11 @@ Future<bool> showObservationDetailSheet(
       day: day,
       episodeForDay: episodeForDay,
       observationsForDay: observationsForDay,
+      supersededElsewhere: supersededElsewhere,
+      isLatestEpisode: isLatestEpisode,
+      hasOpenEpisode: hasOpenEpisode,
+      onEpisodeChanged: onEpisodeChanged,
+      repository: repository,
     ),
   );
   return result ?? false;
@@ -58,19 +76,29 @@ class _ObservationDetailSheet extends StatelessWidget {
     required this.day,
     required this.episodeForDay,
     required this.observationsForDay,
+    required this.supersededElsewhere,
+    required this.isLatestEpisode,
+    required this.hasOpenEpisode,
+    required this.repository,
+    this.onEpisodeChanged,
   });
 
   final DateTime day;
   final BleedingEpisode? episodeForDay;
   final List<BleedingObservation> observationsForDay;
+  final Set<String> supersededElsewhere;
+  final bool isLatestEpisode;
+  final bool hasOpenEpisode;
+  final BleedingEpisodeRepositoryImpl repository;
+  final VoidCallback? onEpisodeChanged;
 
   bool get _arabic => AppLocaleController.instance.isArabic;
 
   BleedingObservation? get _effective {
-    final supersededIds = observationsForDay
-        .map((o) => o.supersedesId)
-        .whereType<String>()
-        .toSet();
+    final supersededIds = {
+      ...supersededElsewhere,
+      ...observationsForDay.map((o) => o.supersedesId).whereType<String>(),
+    };
     return observationsForDay
         .where((o) => !supersededIds.contains(o.id))
         .firstOrNull;
@@ -180,6 +208,30 @@ class _ObservationDetailSheet extends StatelessWidget {
                       backgroundColor: AppColors.tahara,
                     ),
                   ),
+                if (episodeForDay?.id != null) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    key: const Key('observation-detail-edit-period'),
+                    onPressed: () async {
+                      final action = await showEpisodeEditSheet(
+                        context,
+                        episode: episodeForDay!,
+                        isLatestEpisode: isLatestEpisode,
+                        hasOpenEpisode: hasOpenEpisode,
+                        onChanged: onEpisodeChanged,
+                        episodes: repository,
+                      );
+                      if (context.mounted && action != null) {
+                        Navigator.of(context).pop(true);
+                      }
+                    },
+                    icon: const Icon(Icons.date_range_rounded, size: 18),
+                    label: Text(_t('Edit this period', 'تعديل هذا الحيض')),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(false),
