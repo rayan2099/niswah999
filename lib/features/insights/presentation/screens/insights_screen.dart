@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
@@ -14,8 +16,95 @@ import '../../../cycle_tracking/presentation/widgets/predicted_range_text.dart';
 import '../../../wellbeing/data/repositories/wellbeing_repository.dart';
 import '../../../wellbeing/domain/entities/wellbeing_log.dart';
 import '../../../wellbeing/domain/services/wellbeing_period_split.dart';
+import '../../../wellbeing/domain/services/wellbeing_trend.dart';
+import '../../../wellbeing/presentation/widgets/wellbeing_trend_chart.dart';
 
 String _in(String en, String ar) => AppLocaleController.instance.text(en, ar);
+
+/// "Last 3 months" / "آخر 3 أشهر", with the singular and the 11+ forms
+/// Arabic needs ("آخر شهر", "آخر 12 شهرًا").
+String _lastMonths(int months) => _in(
+  months == 1 ? 'Last month' : 'Last $months months',
+  months == 1
+      ? 'آخر شهر'
+      : months <= 10
+      ? 'آخر $months أشهر'
+      : 'آخر $months شهرًا',
+);
+
+const _trendRangeOptions = [1, 3, 6, 12];
+
+Future<int?> _pickTrendRange(
+  BuildContext context, {
+  required int selected,
+  required String title,
+  required String subtitle,
+}) => showModalBottomSheet<int>(
+  context: context,
+  backgroundColor: Colors.transparent,
+  builder: (_) =>
+      _TrendRangeSheet(selected: selected, title: title, subtitle: subtitle),
+);
+
+/// The period button on a trends card. A real control: at least 44pt tall,
+/// announced as a button with its current value.
+class _TrendRangeChip extends StatelessWidget {
+  const _TrendRangeChip({
+    super.key,
+    required this.months,
+    required this.onTap,
+    required this.semanticsLabel,
+  });
+  final int months;
+  final VoidCallback onTap;
+  final String semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    button: true,
+    label: '$semanticsLabel: ${_lastMonths(months)}',
+    hint: _in('Double-tap to change', 'انقري مرتين للتغيير'),
+    excludeSemantics: true,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(99),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Center(
+          widthFactor: 1,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF1F2),
+              borderRadius: BorderRadius.circular(99),
+              border: Border.all(color: const Color(0xFFFFCDD5)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _lastMonths(months),
+                  style: const TextStyle(
+                    color: Color(0xFF9F1239),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                const Icon(
+                  Icons.expand_more_rounded,
+                  size: 16,
+                  color: Color(0xFF9F1239),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 Color _regularityColor(CycleRegularity regularity) => switch (regularity) {
   CycleRegularity.regular || CycleRegularity.highlyRegular => AppColors.success,
@@ -43,6 +132,7 @@ class InsightsScreen extends StatefulWidget {
 class _InsightsScreenState extends State<InsightsScreen> {
   late final CycleTrackingViewModel _viewModel;
   int _trendMonths = 3;
+  int _wellbeingMonths = 3;
   int _wellbeingRefresh = 0;
 
   @override
@@ -186,7 +276,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       ),
                       const SizedBox(height: 28),
                       _WellbeingTrends(
-                        months: _trendMonths,
+                        months: _wellbeingMonths,
+                        onMonthsChanged: (value) =>
+                            setState(() => _wellbeingMonths = value),
                         refreshToken: _wellbeingRefresh,
                         cycleLogs: _viewModel.logs,
                         episodes: _viewModel.canonicalEpisodes,
@@ -502,10 +594,14 @@ class _SymptomTrends extends StatelessWidget {
   final VoidCallback onLog;
 
   Future<void> _selectRange(BuildContext context) async {
-    final selected = await showModalBottomSheet<int>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _TrendRangeSheet(selected: months),
+    final selected = await _pickTrendRange(
+      context,
+      selected: months,
+      title: _in('Symptom period', 'فترة اتجاهات الأعراض'),
+      subtitle: _in(
+        'Choose the period used to calculate symptom percentages.',
+        'اختاري الفترة المستخدمة لحساب نسب الأعراض.',
+      ),
     );
     if (selected != null) onMonthsChanged(selected);
   }
@@ -574,40 +670,11 @@ class _SymptomTrends extends StatelessWidget {
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-              InkWell(
+              _TrendRangeChip(
                 key: const Key('insights-trend-range'),
+                months: months,
                 onTap: () => _selectRange(context),
-                borderRadius: BorderRadius.circular(99),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF1F2),
-                    borderRadius: BorderRadius.circular(99),
-                    border: Border.all(color: const Color(0xFFFFCDD5)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _in('Last $months months', 'آخر $months أشهر'),
-                        style: const TextStyle(
-                          color: Color(0xFF9F1239),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(width: 3),
-                      const Icon(
-                        Icons.expand_more_rounded,
-                        size: 15,
-                        color: Color(0xFF9F1239),
-                      ),
-                    ],
-                  ),
-                ),
+                semanticsLabel: _in('Symptom period', 'فترة اتجاهات الأعراض'),
               ),
             ],
           ),
@@ -717,8 +784,14 @@ class _SymptomTrends extends StatelessWidget {
 }
 
 class _TrendRangeSheet extends StatelessWidget {
-  const _TrendRangeSheet({required this.selected});
+  const _TrendRangeSheet({
+    required this.selected,
+    required this.title,
+    required this.subtitle,
+  });
   final int selected;
+  final String title;
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -750,7 +823,7 @@ class _TrendRangeSheet extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            _in('Symptom period', 'فترة اتجاهات الأعراض'),
+            title,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               color: const Color(0xFF8E244D),
               fontFamily: AppTypography.serifFamily,
@@ -759,64 +832,70 @@ class _TrendRangeSheet extends StatelessWidget {
           ),
           const SizedBox(height: 5),
           Text(
-            _in(
-              'Choose the period used to calculate symptom percentages.',
-              'اختاري الفترة المستخدمة لحساب نسب الأعراض.',
-            ),
-            style: const TextStyle(color: AppColors.textTertiary, fontSize: 10),
+            subtitle,
+            style: const TextStyle(color: AppColors.textTertiary, fontSize: 11),
           ),
           const SizedBox(height: 20),
-          GridView.count(
-            crossAxisCount: 2,
+          GridView(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 2.7,
-            children: [1, 3, 6, 12].map((months) {
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              mainAxisExtent: math.max(
+                52,
+                MediaQuery.textScalerOf(context).scale(11) * 2 + 26,
+              ),
+            ),
+            children: _trendRangeOptions.map((months) {
               final active = months == selected;
-              return InkWell(
-                onTap: () => Navigator.of(context).pop(months),
-                borderRadius: BorderRadius.circular(15),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(horizontal: 13),
-                  decoration: BoxDecoration(
-                    color: active
-                        ? const Color(0xFFFFF1F2)
-                        : const Color(0xFFFAFAFA),
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(
+              return Semantics(
+                button: true,
+                selected: active,
+                child: InkWell(
+                  onTap: () => Navigator.of(context).pop(months),
+                  borderRadius: BorderRadius.circular(15),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 13),
+                    decoration: BoxDecoration(
                       color: active
-                          ? AppColors.brandSecondary
-                          : const Color(0xFFEFE7EA),
+                          ? const Color(0xFFFFF1F2)
+                          : const Color(0xFFFAFAFA),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(
+                        color: active
+                            ? AppColors.brandSecondary
+                            : const Color(0xFFEFE7EA),
+                      ),
                     ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (active) ...[
-                        const Icon(
-                          Icons.check_circle_rounded,
-                          size: 16,
-                          color: AppColors.brandSecondary,
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      Flexible(
-                        child: Text(
-                          _in('Last $months months', 'آخر $months أشهر'),
-                          maxLines: 1,
-                          style: TextStyle(
-                            color: active
-                                ? const Color(0xFF9F1239)
-                                : AppColors.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (active) ...[
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            size: 16,
+                            color: AppColors.brandSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Flexible(
+                          child: Text(
+                            _lastMonths(months),
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: active
+                                  ? const Color(0xFF9F1239)
+                                  : AppColors.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -1026,12 +1105,14 @@ class _InsightCard extends StatelessWidget {
 class _WellbeingTrends extends StatefulWidget {
   const _WellbeingTrends({
     required this.months,
+    required this.onMonthsChanged,
     required this.refreshToken,
     required this.cycleLogs,
     required this.episodes,
     required this.load,
   });
   final int months;
+  final ValueChanged<int> onMonthsChanged;
 
   /// Changes on pull-to-refresh, which reloads (and retries) the check-ins.
   final int refreshToken;
@@ -1061,8 +1142,13 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
   @override
   void didUpdateWidget(covariant _WellbeingTrends oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.months != widget.months ||
-        oldWidget.refreshToken != widget.refreshToken) {
+    if (oldWidget.months != widget.months) {
+      // A new period recomputes from its own check-ins; until they arrive
+      // the card shows loading rather than the previous period's numbers.
+      _logs = null;
+      _failed = false;
+      _load();
+    } else if (oldWidget.refreshToken != widget.refreshToken) {
       _load();
     }
   }
@@ -1120,16 +1206,47 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
     ),
   );
 
+  Future<void> _selectRange(BuildContext context) async {
+    final selected = await _pickTrendRange(
+      context,
+      selected: widget.months,
+      title: _in('Mood & wellbeing period', 'فترة الحالة النفسية'),
+      subtitle: _in(
+        'Choose the period used for the chart and the averages.',
+        'اختاري الفترة المستخدمة للرسم البياني والمتوسطات.',
+      ),
+    );
+    if (selected != null) widget.onMonthsChanged(selected);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final logs = _logs;
+    final today = AppClock.now();
+    final start = _rangeStart;
+    // Only check-ins inside the selected period count, whatever the loader
+    // returned.
+    final logs = _logs
+        ?.where(
+          (log) =>
+              !calendarDay(log.logDate).isBefore(start) &&
+              !calendarDay(log.logDate).isAfter(calendarDay(today)),
+        )
+        .toList();
     final split = logs == null
         ? null
         : WellbeingPeriodSplit.compute(
             logs: logs,
             cycleLogs: widget.cycleLogs,
             episodes: widget.episodes,
-            today: AppClock.now(),
+            today: today,
+          );
+    final trend = logs == null
+        ? null
+        : WellbeingTrend.compute(
+            logs: logs,
+            from: start,
+            today: today,
+            months: widget.months,
           );
     return _Card(
       child: Column(
@@ -1150,15 +1267,13 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-              Text(
-                _in(
-                  'Last ${widget.months} months',
-                  'آخر ${widget.months} أشهر',
-                ),
-                style: const TextStyle(
-                  color: AppColors.textTertiary,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
+              _TrendRangeChip(
+                key: const Key('insights-wellbeing-range'),
+                months: widget.months,
+                onTap: () => _selectRange(context),
+                semanticsLabel: _in(
+                  'Mood & wellbeing period',
+                  'فترة الحالة النفسية',
                 ),
               ),
             ],
@@ -1184,8 +1299,8 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
               padding: const EdgeInsets.only(top: 14),
               child: Text(
                 _in(
-                  'Log your mood from Today on any day, with or without a period, to see it here.',
-                  'سجّلي حالتكِ النفسية من الصفحة الرئيسية في أي يوم، مع الدورة أو بدونها، لتظهر هنا.',
+                  'No check-ins in this period. Log your mood from Today on any day, with or without a period, to see it here.',
+                  'لا توجد تسجيلات في هذه الفترة. سجّلي حالتكِ النفسية من الصفحة الرئيسية في أي يوم، مع الدورة أو بدونها، لتظهر هنا.',
                 ),
                 style: const TextStyle(
                   color: AppColors.textTertiary,
@@ -1194,6 +1309,9 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
               ),
             )
           else ...[
+            const SizedBox(height: 14),
+            WellbeingTrendChart(trend: trend!),
+            const SizedBox(height: 4),
             _row(_in('All days', 'كل الأيام'), split.all),
             _row(_in('Period days', 'أيام الدورة'), split.onPeriodDays),
             _row(

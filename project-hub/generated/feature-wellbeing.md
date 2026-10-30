@@ -16,14 +16,17 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [wellbeing_log.dart](../../lib/features/wellbeing/domain/entities/wellbeing_log.dart)
 - [wellbeing_insights_engine.dart](../../lib/features/wellbeing/domain/services/wellbeing_insights_engine.dart)
 - [wellbeing_period_split.dart](../../lib/features/wellbeing/domain/services/wellbeing_period_split.dart)
+- [wellbeing_trend.dart](../../lib/features/wellbeing/domain/services/wellbeing_trend.dart)
 - [wellbeing_report_pdf_builder.dart](../../lib/features/wellbeing/presentation/pdf/wellbeing_report_pdf_builder.dart)
 - [wellbeing_report_screen.dart](../../lib/features/wellbeing/presentation/screens/wellbeing_report_screen.dart)
+- [wellbeing_trend_chart.dart](../../lib/features/wellbeing/presentation/widgets/wellbeing_trend_chart.dart)
 
 ## Test navigation hints
 
 Filename matches only; inspect imports and behavior to establish actual coverage.
 
 - [insights_wellbeing_card_test.dart](../../test/insights_wellbeing_card_test.dart)
+- [insights_wellbeing_period_test.dart](../../test/insights_wellbeing_period_test.dart)
 - [wellbeing_insights_engine_test.dart](../../test/wellbeing_insights_engine_test.dart)
 - [wellbeing_period_split_test.dart](../../test/wellbeing_period_split_test.dart)
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
