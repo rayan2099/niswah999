@@ -4134,8 +4134,8 @@ class _PrayerStatusCard extends StatelessWidget {
             'تتغير عباداتكِ حسب حالتكِ الفقهية',
           )
         : _l(
-            'Prayer start times for your location. Record your prayers separately.',
-            'مواقيت بدء الصلاة حسب موقعكِ. سجّلي أداء الصلاة بنفسكِ.',
+            'Prayer start times for your location.',
+            'مواقيت بدء الصلاة حسب موقعكِ.',
           );
     final schedule = viewModel.schedule;
     final location = viewModel.location;
@@ -4163,6 +4163,9 @@ class _PrayerStatusCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Testing feedback 2026-10-30: the city control sat beside the
+          // subtitle; it belongs in the card's top corner opposite the title
+          // (top-left in Arabic, top-right in English).
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -4194,17 +4197,18 @@ class _PrayerStatusCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Flexible(
-                child: TextButton(
-                  onPressed: () => showPrayerSettings(context),
-                  child: Text(
-                    location == null
+                child: Align(
+                  alignment: AlignmentDirectional.topEnd,
+                  child: _PrayerLocationChip(
+                    label: location == null
                         ? _l('Set prayer location', 'حددي موقع الصلاة')
                         : prayerLocationLabel(
                             location,
                             isArabic: AppLocaleController.instance.isArabic,
                           ),
+                    onTap: () => showPrayerSettings(context),
                   ),
                 ),
               ),
@@ -4226,7 +4230,7 @@ class _PrayerStatusCard extends StatelessWidget {
             itemCount: prayer.PrayerName.values.length,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
               mainAxisExtent: 109,
               crossAxisSpacing: 12,
@@ -4238,11 +4242,15 @@ class _PrayerStatusCard extends StatelessWidget {
               // obligatory/on-time status may be shown while the
               // underlying Fiqh state is unresolved; both are
               // confident claims this state explicitly cannot support.
+              // Testing feedback 2026-10-30: this badge is the obligation
+              // only. "واجبة" appears exactly where the card's own title
+              // already says Salah is obligatory; whether she prayed is a
+              // separate control below that only she sets.
               final status = unresolved
                   ? _l('Unknown', 'غير معروفة')
                   : lifted
                   ? _l('Lifted', 'مرفوعة')
-                  : _prayerStatus(viewModel.statusFor(name));
+                  : _l('Obligatory', 'واجبة');
               final time = schedule?.timeFor(name);
               return Container(
                 padding: const EdgeInsets.all(12),
@@ -4327,13 +4335,56 @@ class _PrayerStatusCard extends StatelessWidget {
       ),
     );
   }
+}
 
-  String _prayerStatus(prayer.PrayerStatus status) => switch (status) {
-    prayer.PrayerStatus.pending => _l('Not recorded', 'لم تُسجّل'),
-    prayer.PrayerStatus.completed => _l('Prayed', 'صُلّيت'),
-    prayer.PrayerStatus.missed => _l('Missed', 'فائتة'),
-    prayer.PrayerStatus.excused => _l('Lifted', 'مرفوعة'),
-  };
+/// The city the prayer times are for, as a compact control in the card's
+/// top corner. At least 44 pt tall for touch, announced as a button.
+class _PrayerLocationChip extends StatelessWidget {
+  const _PrayerLocationChip({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: _l('Prayer location: $label. Change', 'موقع الصلاة: $label. تغيير'),
+    excludeSemantics: true,
+    child: InkWell(
+      key: const Key('prayer-location-chip'),
+      borderRadius: BorderRadius.circular(22),
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.location_on_outlined,
+                size: 15,
+                color: Color(0xFF9F1239),
+              ),
+              const SizedBox(width: 3),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF9F1239),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _DreamCard extends StatelessWidget {
