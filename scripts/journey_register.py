@@ -189,7 +189,7 @@ NJ-006|IN|IU|P|PP|NR|NR|-|M|-|SIGNIN AUTHREPO|{signup} (Auth rate-limit wait hon
 NJ-007|IN|IU|N|-|NR|NR|-|M|-|MAIN AUTHCTL|-|Deep link niswah://login-callback; cross-device confirmation needs a device run.
 NJ-008|IN|IU|PP|-|NR|NR|-|M|-|SIGNIN|{signup} (neutral "already has an account" wording)|Supabase hides existing accounts; wording now neutral. Device run pending.
 NJ-009|IN|IU|P|-|NR|NR|-|H|-|MAIN AUTHCTL ONB|{routing} (confirmed user resumes onboarding or dashboard from server state)|Device run pending.
-NJ-010|IN|IR|N|-|NR|NR|-|M|-|SIGNIN AUTHREPO|-|Auth's raw English message is shown; no explanation of temporary limits in Arabic.
+NJ-010|IN|IU|P|-|NR|NR|-|M|-|SIGNIN AUTHREPO|{signup} (wrong credentials and rate limit worded in Arabic/English; Auth's wait shown)|Draft PR #63. Lockout policy itself is Supabase's; device run pending.
 NJ-011|IN|IU|P|PP|NR|NR|-|H|-|RECOVERY|{recovery} (updates once and finishes)|Real reset email and link on device not yet run.
 NJ-012|IN|IU|PP|-|NR|NR|-|M|-|RECOVERY|{recovery} (server rejection does not finish)|Expired/reused link UX needs a device run.
 NJ-013|IN|IU|P|-|NR|NR|-|H|-|AUTHCTL TRACK|{draft} (day-log input kept for its account, offered back, never to another); {boundary}|Draft PR #66 (day-log sheet only) and #65. Start-bleeding and correction sheets have no draft; device run pending.
@@ -259,7 +259,7 @@ NJ-076|IN|IU|PP|-|NR|NR|-|H|-|AUTHCTL|{authctl}|Resume revalidation not asserted
 NJ-077|IN|IU|N|-|NR|NR|-|M|-|AUTHCTL|-|Duplicate callback handling not tested.
 NJ-078|IN|IU|N|-|NR|NR|-|H|-|AUTHCTL STORE|-|Refresh failure path not tested.
 NJ-079|IN|IU|PP|-|NR|NR|-|M|-|RECOVERY|{recovery} (clears pushed screens)|Back during recovery not asserted.
-NJ-080|IN|IR|N|-|NR|NR|-|M|-|AUTHCTL|-|No suspended/disabled account message.
+NJ-080|IN|IU|P|-|NR|NR|-|M|-|SIGNIN AUTHREPO|{signup} (user_banned shown as suspended)|Draft PR #63. No in-app appeal or support contact is defined yet.
 NJ-081|IN|BX|N|-|-|-|BX|M|-|MAIN|-|Sentry crash reporting has no opt-out; whether it counts as optional analytics is a policy decision.
 NJ-082|IN|BX|N|-|-|-|BX|M|-|LEGAL|-|Consent is not versioned; needs a policy decision.
 NJ-083|IN|IU|PP|-|NR|NR|-|M|-|ONB|{onbans} (R2-ONB-4)|Back navigation partly covered.

@@ -15,13 +15,13 @@ separately.
 | Status | Journeys |
 |---|---|
 | VERIFIED | 0 |
-| IMPLEMENTED — UNVERIFIED | 175 |
-| IMPLEMENTATION REQUIRED | 19 |
+| IMPLEMENTED — UNVERIFIED | 177 |
+| IMPLEMENTATION REQUIRED | 17 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 76 |
 | NOT ASSESSED | 30 |
 | OUT OF SCOPE — EXPLICIT DECISION | 0 |
 
-**65 of 300** journeys have their outcome demonstrated by a named automated
+**67 of 300** journeys have their outcome demonstrated by a named automated
 test. None is VERIFIED, because 159 journeys also need a signed iPhone and
 signed Android run, and none has been recorded.
 
@@ -29,7 +29,7 @@ signed Android run, and none has been recorded.
 
 | Dimension | Pass | Partial | Required, not run | Blocked |
 |---|---|---|---|---|
-| Automated | 65 | 94 | 126 (none yet) | – |
+| Automated | 67 | 94 | 124 (none yet) | – |
 | Staging integration | 12 | 7 | 1 | – |
 | Signed iPhone | 0 | – | 159 | – |
 | Signed Android | 0 | – | 159 | – |
