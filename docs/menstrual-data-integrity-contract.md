@@ -2141,3 +2141,72 @@ Nothing here was applied to a hosted project.
 
 Tests: `test/logging_sync_hardening/tracking_efficiency_test.dart` (9 of
 its 11 tests fail on the code before this change).
+
+## 22. Episode corrections (proposed, 2026-10-29, branch `feat/period-tracking-200-cases`)
+
+Before this change, a period's start or end could not be corrected once
+saved, an accidental end could not be undone, and a period could not be
+removed (PT-027, PT-051..PT-057 in
+`docs/period-tracking/PERIOD_TRACKING_COVERAGE.csv`).
+
+Migration `20261029100000_bleeding_episode_corrections.sql` (additive; not
+applied to any environment yet):
+
+- New SECURITY DEFINER RPCs: `correct_episode_start`, `correct_episode_end`,
+  `reopen_episode`, `remove_episode`, `restore_episode`. Each one takes a
+  `client_operation_id` (idempotent replay) and returns
+  `(episode_id, revision_id)`. The ones that change a period also take an
+  optional `p_expected_updated_at` revision token, and a mismatch raises
+  `NW409`. A change that would take out recorded entries raises `NW422`
+  (DETAIL = count) unless `p_retract_conflicting` is true, so the user
+  previews before anything is removed. Overlap, future-date and order
+  checks match the existing write boundary.
+- Nothing is rewritten in place. Rows a correction takes out move to
+  `bleeding_episodes_archive` and `bleeding_observations_archive`, and each
+  change writes a `bleeding_episode_revisions` row with before and after
+  state. The owner can read these; the client cannot write them.
+- `bleeding_operation_tombstones` records the operation ids of archived
+  rows. A BEFORE INSERT trigger raises `NW410`, so a queued offline
+  operation that the user has since undone cannot recreate the row. The
+  client drops such an operation from its queue
+  (`BleedingOperationUndoneException`).
+- `restore_episode` puts back the same ids, and is refused if a newer
+  period now overlaps.
+- Every new table cascades on account deletion.
+
+Client: `EpisodeCorrectionRepository` and `episode_edit_sheet.dart`
+("Edit this period" on Calendar, and Undo after "Period ended." on Today).
+Episode edits are online-only: offline keeps the sheet open, says nothing
+changed, and queues nothing. The `cycle_entries` mirror is brought in line
+only after the server confirms.
+
+Tests: `test/security/bleeding_episode_corrections.sql` (11 sections) and
+`test/period_tracking/episode_edit_test.dart` (14 tests).
+
+Single-entry delete (PT-055,
+`20261029120000_bleeding_observation_removal.sql`): `remove_observation`
+archives one day's entry with its whole correction chain, tombstones its
+operations and records a `remove_observation` revision; `restore_observation`
+puts back the same ids unless a newer entry now covers that day. The
+period's start entry and an ended period's closing entry are refused
+(NW423); they change only through the period editor, so a period never loses
+its start or its recorded end. Tests:
+`test/security/bleeding_observation_removal.sql` (8 sections) and
+`test/period_tracking/observation_remove_test.dart`.
+
+Unknown end (PT-002, `20261029130000_bleeding_episode_end_unknown.sql`): an
+ended episode may have `end_precision = 'unknown'` with no `end_date`,
+`end_time` or closing observation. It records "it has stopped, I don't know
+when" and nothing else. Overlap rules treat its start day as its last known
+day; `correct_episode_end` gives it a real end. Clients read it as
+`BleedingEpisode.endUnknown`: its start is a cycle start, it has no length,
+it is never "ongoing", and while it is the most recent period no fiqh
+ruling is shown (`CanonicalFiqhVerdict.lastEndUnknown`). Tests:
+`test/security/bleeding_episode_end_unknown.sql` (7 sections) and
+`test/period_tracking/end_unknown_test.dart`.
+
+### Known gaps
+
+- There is no split or merge (PT-045, PT-046).
+- There is no "recently removed" screen yet; the restore path is the Undo
+  snackbar.

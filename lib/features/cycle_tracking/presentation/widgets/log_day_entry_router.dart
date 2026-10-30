@@ -124,8 +124,8 @@ Future<bool> logCanonicalBleedingForDay(
         .any(
           (e) =>
               e.lifecycleStatus == LifecycleStatus.ended &&
-              e.endDate != null &&
-              calendarDaysBetween(day, e.endDate!) >= 0,
+              // An unknown end (PT-002) is known to cover its start day.
+              calendarDaysBetween(day, e.endDate ?? e.startDate) >= 0,
         );
     if (endsOnOrAfterDay) {
       ScaffoldMessenger.of(context).showSnackBar(

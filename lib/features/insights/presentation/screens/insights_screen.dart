@@ -364,7 +364,11 @@ class _PredictionCard extends StatelessWidget {
                               )
                       : basisNote ??
                             (daysUntil == null
-                                ? _in('Insufficient data', 'بيانات غير كافية')
+                                // PT-079: no date is shown, never a guess.
+                                ? _in(
+                                    'Not enough data for a prediction',
+                                    'لا تتوفر بيانات كافية للتوقع',
+                                  )
                                 : _in(
                                     'In about ${daysUntil.clamp(0, 999)} days',
                                     'بعد ${daysUntil.clamp(0, 999)} أيام تقريباً',
@@ -1266,7 +1270,12 @@ class _HistoryCard extends StatelessWidget {
                               '${_date(episode.endDate!)}',
                   ),
                   subtitle: Text(
-                    episode.endDate == null
+                    episode.endUnknown
+                        ? _in(
+                            'Ended, end date not recorded',
+                            'انتهت، وتاريخ الانتهاء غير مسجَّل',
+                          )
+                        : episode.endDate == null
                         ? _in('Started, not yet ended', 'بدأت ولم تنتهِ بعد')
                         : _in('Completed', 'مكتملة'),
                   ),

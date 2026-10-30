@@ -59,6 +59,13 @@ INSERT INTO auth.users (id, email) VALUES
   ('a0000000-0000-4000-8000-00000000000a', 'a@example.invalid'),
   ('b0000000-0000-4000-8000-00000000000b', 'b@example.invalid'),
   ('c0000000-0000-4000-8000-00000000000c', 'c@example.invalid');
+-- Messaging requires the current community terms (20261030090000).
+DO $$ BEGIN
+  IF to_regclass('public.community_terms_acceptances') IS NOT NULL THEN
+    EXECUTE $q$INSERT INTO public.community_terms_acceptances (user_id, terms_version)
+      SELECT id, public.community_terms_version() FROM auth.users$q$;
+  END IF;
+END $$;
 INSERT INTO public.dream_entries (user_id, title, description) VALUES
   ('a0000000-0000-4000-8000-00000000000a', 'a', 'a'),
   ('b0000000-0000-4000-8000-00000000000b', 'b', 'b');

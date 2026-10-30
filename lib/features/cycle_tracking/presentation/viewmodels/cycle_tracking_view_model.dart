@@ -79,10 +79,7 @@ class CycleTrackingViewModel extends ChangeNotifier {
       return (
         episodes: [
           for (final episode in result.dataOrNull ?? const <BleedingEpisode>[])
-            CanonicalEpisodeTiming(
-              startDate: episode.startDate,
-              endDate: episode.endDate,
-            ),
+            CanonicalEpisodeTiming.of(episode),
         ],
         complete: result is! LoadDegraded<List<BleedingEpisode>>,
       );

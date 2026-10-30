@@ -369,6 +369,8 @@ class FiqhReportPdfBuilder {
           insights.evidenceNote == ReportEvidenceNote.recordsUnavailable;
       final unverified =
           insights.evidenceNote == ReportEvidenceNote.evidenceUnverified;
+      final endUnknown =
+          insights.evidenceNote == ReportEvidenceNote.lastPeriodEndUnknown;
       widgets.add(
         _card(
           bg: '#FFF8E7',
@@ -377,6 +379,10 @@ class FiqhReportPdfBuilder {
                 ? (isArabic
                       ? 'تعذّر التحقق من سجلاتكِ الآن، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. أعيدي إنشاء التقرير لاحقًا.'
                       : "Your records couldn't be verified right now, so your current Fiqh state cannot be determined. Generate the report again later.")
+                : endUnknown
+                ? (isArabic
+                      ? 'تاريخ انتهاء آخر حيض غير مسجَّل، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. أضيفيه من "تعديل هذا الحيض" في التقويم.'
+                      : 'The end date of your last period isn\'t recorded, so your current Fiqh state cannot be determined. Add it with "Edit this period" on the Calendar.')
                 : unverified
                 ? (isArabic
                       ? 'تعذّر التحقق من بعض سجلاتكِ، لذلك لا يمكن تحديد حالتكِ الفقهية الحالية. راجعي سجلاتكِ، واسألي مختصة شرعية موثوقة إن احتجتِ إلى إرشاد اليوم.'

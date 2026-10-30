@@ -85,6 +85,8 @@ class ClientFiqhStateProvider {
           FiqhCycleState.insufficientHistory.name,
         // "Unable to verify" on Today: there is no classification to send.
         CanonicalFiqhVerdict.evidenceUnresolved => null,
+        // Her last period's end is unknown: no classification either.
+        CanonicalFiqhVerdict.lastEndUnknown => null,
       };
     } catch (_) {
       // Never let a context-enrichment failure block sending the question.

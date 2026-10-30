@@ -81,6 +81,32 @@ void main() {
     },
   );
 
+  testWidgets('PT-178: Back after changing the flow asks before discarding; '
+      'Back with nothing changed closes', (tester) async {
+    await pumpCorrectionSheet(tester);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard this change?'), findsNothing);
+    expect(find.text('Correct this entry'), findsNothing);
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Heavy'));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard this change?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('discard-edit-keep')));
+    await tester.pumpAndSettle();
+    expect(find.text('Correct this entry'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('discard-edit-discard')));
+    await tester.pumpAndSettle();
+    expect(find.text('Correct this entry'), findsNothing);
+  });
+
   testWidgets('Closure Blocker 12: with no Supabase session, Save reports the '
       'honest "saved on device, syncing" state rather than a false '
       '"could not save" (the correction was already persisted to the '

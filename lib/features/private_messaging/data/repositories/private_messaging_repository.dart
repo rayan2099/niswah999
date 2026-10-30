@@ -42,6 +42,7 @@ class PrivateMessagingRepository
     } on PostgrestException catch (e) {
       throw PrivateMessagingException(
         'Failed to load conversations: ${e.message}',
+        cause: e,
       );
     }
   }
@@ -59,7 +60,10 @@ class PrivateMessagingRepository
           .map((json) => PrivateMessage.fromJson(json))
           .toList();
     } on PostgrestException catch (e) {
-      throw PrivateMessagingException('Failed to load messages: ${e.message}');
+      throw PrivateMessagingException(
+        'Failed to load messages: ${e.message}',
+        cause: e,
+      );
     }
   }
 
@@ -97,6 +101,7 @@ class PrivateMessagingRepository
     } on PostgrestException catch (e) {
       throw PrivateMessagingException(
         'Failed to open conversation: ${e.message}',
+        cause: e,
       );
     }
   }
@@ -131,7 +136,10 @@ class PrivateMessagingRepository
           .single();
       return PrivateMessage.fromJson(response);
     } on PostgrestException catch (e) {
-      throw PrivateMessagingException('Failed to send message: ${e.message}');
+      throw PrivateMessagingException(
+        'Failed to send message: ${e.message}',
+        cause: e,
+      );
     }
   }
 
@@ -151,6 +159,7 @@ class PrivateMessagingRepository
     } on PostgrestException catch (e) {
       throw PrivateMessagingException(
         'Failed to mark messages read: ${e.message}',
+        cause: e,
       );
     }
   }
@@ -169,6 +178,7 @@ class PrivateMessagingRepository
     } on PostgrestException catch (e) {
       throw PrivateMessagingException(
         'Failed to count unread messages: ${e.message}',
+        cause: e,
       );
     }
   }
@@ -266,7 +276,11 @@ class PrivateMessagingRepository
 
 class PrivateMessagingException implements Exception {
   final String message;
-  const PrivateMessagingException(this.message);
+
+  /// The underlying [PostgrestException], kept so callers can recognise
+  /// community safety refusals (blocked word, block, suspension) by code.
+  final Object? cause;
+  const PrivateMessagingException(this.message, {this.cause});
 
   @override
   String toString() => 'PrivateMessagingException: $message';
