@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/data/countries.dart';
+import '../../../../core/errors/failures.dart';
 import '../../../../core/errors/network_failure.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
@@ -828,10 +829,39 @@ class _AuthSheetState extends State<_AuthSheet> {
                   "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
                   'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
                 )
+              : error is SignInRefusedFailure
+              ? _signInRefusalText(error)
               : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
       }
+    }
+  }
+
+  /// NJ-010 / NJ-080: Auth's sign-in refusals in the app's language.
+  String _signInRefusalText(SignInRefusedFailure failure) {
+    switch (failure.reason) {
+      case SignInRefusal.invalidCredentials:
+        return _tr(
+          'The email or password is not right. Check both and try again, or use "Forgot password?".',
+          'البريد الإلكتروني أو كلمة المرور غير صحيحة. تحققي منهما وحاولي مجدداً، أو استخدمي «نسيتِ كلمة المرور؟».',
+        );
+      case SignInRefusal.rateLimited:
+        final wait = failure.retryAfterSeconds;
+        return wait == null
+            ? _tr(
+                'Too many sign-in attempts for now. Wait a few minutes, then try again.',
+                'محاولات تسجيل دخول كثيرة الآن. انتظري بضع دقائق ثم حاولي مجدداً.',
+              )
+            : _tr(
+                'Too many sign-in attempts for now. Try again in $wait seconds.',
+                'محاولات تسجيل دخول كثيرة الآن. حاولي مجدداً بعد $wait ثانية.',
+              );
+      case SignInRefusal.disabled:
+        return _tr(
+          'This account is suspended, so it cannot sign in right now.',
+          'هذا الحساب موقوف، لذلك لا يمكنه تسجيل الدخول الآن.',
+        );
     }
   }
 
@@ -875,6 +905,8 @@ class _AuthSheetState extends State<_AuthSheet> {
                   "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
                   'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
                 )
+              : error is SignInRefusedFailure
+              ? _signInRefusalText(error)
               : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
@@ -906,6 +938,8 @@ class _AuthSheetState extends State<_AuthSheet> {
                   "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
                   'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
                 )
+              : error is SignInRefusedFailure
+              ? _signInRefusalText(error)
               : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });

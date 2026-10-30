@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/errors/failures.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
+import 'package:niswah/core/widgets/niswah_loading_indicator.dart';
 import 'package:niswah/features/auth/data/repositories/auth_repository_impl.dart';
 import 'package:niswah/features/auth/domain/email_address.dart';
 import 'package:niswah/features/auth/presentation/screens/sign_in_screen.dart';
@@ -31,6 +32,16 @@ class _FakeAuth extends AuthRepositoryImpl {
 
   @override
   Stream<AuthState> get authStateChanges => authStates.stream;
+
+  Object? signInError;
+
+  @override
+  Future<void> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    if (signInError != null) throw signInError!;
+  }
 
   final signUps = <String>[];
   final resends = <String>[];
@@ -91,6 +102,91 @@ void main() {
         ),
         isNot(isA<EmailRateLimitedFailure>()),
       );
+    });
+  });
+
+  group('sign-in refusals (NJ-010, NJ-080)', () {
+    test('Auth codes map to typed refusals; others keep Auth text', () {
+      AuthFailure map(String? code, {String status = '400', String m = 'x'}) =>
+          AuthRepositoryImpl.signInRefusalOr(
+            AuthException(m, statusCode: status, code: code),
+          );
+      expect(
+        (map('invalid_credentials') as SignInRefusedFailure).reason,
+        SignInRefusal.invalidCredentials,
+      );
+      final limited = map(
+        null,
+        status: '429',
+        m: 'For security purposes, you can only request this after 12 seconds.',
+      ) as SignInRefusedFailure;
+      expect(limited.reason, SignInRefusal.rateLimited);
+      expect(limited.retryAfterSeconds, 12);
+      expect(
+        (map('user_banned') as SignInRefusedFailure).reason,
+        SignInRefusal.disabled,
+      );
+      expect(map('something_else'), isNot(isA<SignInRefusedFailure>()));
+    });
+
+    Future<_FakeAuth> openSignIn(
+      WidgetTester tester, {
+      bool arabic = false,
+    }) async {
+      AppLocaleController.instance.setArabic(arabic);
+      final auth = _FakeAuth();
+      await tester.pumpWidget(
+        MaterialApp(home: SignInScreen(authRepositoryOverride: auth)),
+      );
+      await tester.pumpAndSettle();
+      final checkbox = find.byKey(const Key('consent_checkbox'));
+      await tester.ensureVisible(checkbox);
+      await tester.tap(checkbox);
+      await tester.pumpAndSettle();
+      final email = find.text(arabic ? 'البريد الإلكتروني' : 'Email');
+      await tester.ensureVisible(email.first);
+      await tester.tap(email.first);
+      await tester.pumpAndSettle();
+      return auth;
+    }
+
+    Future<void> submit(WidgetTester tester) async {
+      await tester.enterText(
+        find.byKey(const Key('auth_email_field')),
+        'sara@example.com',
+      );
+      await tester.enterText(find.byType(TextField).at(1), 'wrong-password');
+      final submitButton = find.byType(NiswahLoadingButton);
+      await tester.ensureVisible(submitButton);
+      await tester.tap(submitButton);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('NJ-010: a rate limit says when to try again, in Arabic', (
+      tester,
+    ) async {
+      final auth = await openSignIn(tester, arabic: true);
+      auth.signInError = const SignInRefusedFailure(
+        'raw English',
+        reason: SignInRefusal.rateLimited,
+        retryAfterSeconds: 30,
+      );
+      await submit(tester);
+      expect(find.textContaining('بعد 30 ثانية'), findsOneWidget);
+      expect(find.text('raw English'), findsNothing);
+    });
+
+    testWidgets('NJ-080: a suspended account is named as suspended', (
+      tester,
+    ) async {
+      final auth = await openSignIn(tester);
+      auth.signInError = const SignInRefusedFailure(
+        'User is banned',
+        reason: SignInRefusal.disabled,
+      );
+      await submit(tester);
+      expect(find.textContaining('suspended'), findsOneWidget);
+      expect(find.text('User is banned'), findsNothing);
     });
   });
 

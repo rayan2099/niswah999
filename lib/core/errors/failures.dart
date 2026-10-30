@@ -57,6 +57,33 @@ class EmailRateLimitedFailure extends AuthFailure {
   final int? retryAfterSeconds;
 }
 
+/// Why Auth refused an email sign-in, when it said (NJ-010, NJ-080). The
+/// sign-in sheet words each one in the app's language instead of showing
+/// Auth's English text.
+enum SignInRefusal {
+  /// Wrong email or password. Deliberately not split into "no such
+  /// account" and "wrong password", so it reveals neither.
+  invalidCredentials,
+
+  /// Too many attempts for now; Auth will accept them again later.
+  rateLimited,
+
+  /// The account is suspended or disabled.
+  disabled,
+}
+
+class SignInRefusedFailure extends AuthFailure {
+  const SignInRefusedFailure(
+    super.message, {
+    required this.reason,
+    this.retryAfterSeconds,
+    super.cause,
+  });
+
+  final SignInRefusal reason;
+  final int? retryAfterSeconds;
+}
+
 class NetworkFailure extends Failure {
   const NetworkFailure(
     super.message, {

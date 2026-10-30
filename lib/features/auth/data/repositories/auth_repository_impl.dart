@@ -71,7 +71,7 @@ class AuthRepositoryImpl implements AuthRepository {
         throw const AuthFailure('Authentication failed. Please try again.');
       }
     } on AuthException catch (error) {
-      throw AuthFailure(error.message);
+      throw signInRefusalOr(error);
     } on Failure {
       rethrow;
     } catch (error) {
@@ -109,6 +109,26 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (error) {
       throw const AuthFailure('Unable to create your account right now.');
     }
+  }
+
+  /// Auth's sign-in refusals that the sheet explains in the app's language
+  /// (NJ-010, NJ-080); anything else keeps Auth's message.
+  @visibleForTesting
+  static AuthFailure signInRefusalOr(AuthException error) {
+    final reason = switch (error.code) {
+      'invalid_credentials' => SignInRefusal.invalidCredentials,
+      'over_request_rate_limit' => SignInRefusal.rateLimited,
+      'user_banned' => SignInRefusal.disabled,
+      _ when error.statusCode == '429' => SignInRefusal.rateLimited,
+      _ => null,
+    };
+    if (reason == null) return AuthFailure(error.message, cause: error);
+    return SignInRefusedFailure(
+      error.message,
+      reason: reason,
+      retryAfterSeconds: retryAfterSecondsFrom(error.message),
+      cause: error,
+    );
   }
 
   @override
