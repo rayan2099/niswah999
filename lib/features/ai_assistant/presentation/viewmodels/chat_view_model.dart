@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/network/ai_failure.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
@@ -33,6 +34,19 @@ class ChatViewModel extends ChangeNotifier {
   bool isLoading = false;
   bool isSending = false;
   String? errorMessage;
+
+  /// The categorized reason the last send failed, or null. [errorMessage]
+  /// holds its text for the screen's error line.
+  AiFailure? lastFailure;
+
+  /// Key in a local user message's metadata: 'sending' or 'failed'. Never
+  /// persisted; a delivered message has no such key.
+  static const deliveryKey = 'delivery';
+
+  /// How many earlier turns travel with each message so follow-ups such as
+  /// "لماذا؟" keep their meaning (testing feedback 2026-10-30). The server
+  /// keeps at most 8 as well.
+  static const historyTurns = 8;
   List<ChatThread> threads = const <ChatThread>[];
   List<ChatMessage> messages = const <ChatMessage>[];
   String? currentThreadId;
@@ -187,26 +201,61 @@ class ChatViewModel extends ChangeNotifier {
     required String content,
     required ChatThreadType threadType,
   }) async {
-    if (content.trim().isEmpty) {
+    final text = content.trim();
+    if (text.isEmpty || isSending) {
       return;
     }
 
-    isSending = true;
-    errorMessage = null;
-    notifyListeners();
-
-    final now = DateTime.now();
-    final optimisticUserMessage = ChatMessage(
-      id: 'local_user_${now.microsecondsSinceEpoch}',
+    // The message's id is also the id it is stored under, on the server
+    // (Doctor Niswah) or by this app (the other chats), so a retry after a
+    // failure stores it once, never twice.
+    final message = ChatMessage(
+      id: const Uuid().v4(),
       threadId: threadId,
       userId: userId,
       role: ChatRole.user,
-      content: content,
-      metadata: const {},
-      createdAt: now,
+      content: text,
+      metadata: const {deliveryKey: 'sending'},
+      createdAt: DateTime.now(),
     );
-    messages = [...messages, optimisticUserMessage];
+    messages = [...messages, message];
+    await _deliver(message, threadType);
+  }
+
+  /// Sends a message that failed again, under the same id, in place.
+  Future<void> retryMessage({
+    required ChatMessage message,
+    required ChatThreadType threadType,
+  }) async {
+    if (isSending || message.metadata[deliveryKey] != 'failed') return;
+    final sending = _withDelivery(message, 'sending');
+    messages = [for (final m in messages) m.id == message.id ? sending : m];
+    await _deliver(sending, threadType);
+  }
+
+  /// Removes a failed message and returns its text, so the screen can put it
+  /// back in the composer for editing.
+  String? takeBackFailedMessage(ChatMessage message) {
+    if (message.metadata[deliveryKey] != 'failed') return null;
+    messages = messages.where((m) => m.id != message.id).toList();
+    errorMessage = null;
+    lastFailure = null;
     notifyListeners();
+    return message.content;
+  }
+
+  Future<void> _deliver(ChatMessage message, ChatThreadType threadType) async {
+    isSending = true;
+    errorMessage = null;
+    lastFailure = null;
+    notifyListeners();
+
+    // A reply that arrives after sign-out or an account switch belongs to
+    // the session that sent it and must not land in this screen.
+    final session = NotificationService.instance.sessionGeneration;
+    bool stillCurrent() =>
+        session == NotificationService.instance.sessionGeneration;
+    final history = _historyBefore(message);
 
     try {
       switch (threadType) {
@@ -221,36 +270,87 @@ class ChatViewModel extends ChangeNotifier {
             );
           }
           await sendViaDrNiswahBackendForTesting(
-            threadId: threadId,
-            userId: userId,
-            content: content,
+            threadId: message.threadId,
+            userId: message.userId,
+            content: message.content,
+            clientMessageId: message.id,
+            history: history,
           );
         case ChatThreadType.fiqhAdvisory:
-          await _sendViaFiqhAdvisor(
-            threadId: threadId,
-            userId: userId,
-            content: content,
-          );
+          await _sendViaFiqhAdvisor(message, history, stillCurrent);
         case ChatThreadType.dreamInterpreter:
         case ChatThreadType.general:
-          await _sendViaGeneralAssistant(
-            threadId: threadId,
-            userId: userId,
-            content: content,
-          );
+          await _sendViaGeneralAssistant(message, history, stillCurrent);
       }
+      if (!stillCurrent()) return;
+      _markDelivered(message.id);
     } catch (error, stack) {
-      errorMessage = error.toString();
+      if (!stillCurrent()) return;
+      final failure = error is AiFailure
+          ? error
+          : const AiFailure(AiFailureCategory.internal);
+      lastFailure = failure;
+      errorMessage = failure.message;
+      messages = [
+        for (final m in messages)
+          m.id == message.id ? _withDelivery(m, 'failed') : m,
+      ];
       AppErrorReporter.report(
         error,
         stack,
         context: 'ChatViewModel.sendMessage',
+        feature: 'ai_assistant',
+        recordId: failure.correlationId,
       );
     } finally {
-      isSending = false;
-      notifyListeners();
+      if (stillCurrent()) {
+        isSending = false;
+        notifyListeners();
+      }
     }
   }
+
+  /// Earlier delivered turns, oldest first, without failed or pending
+  /// messages and without the message being sent.
+  List<Map<String, String>> _historyBefore(ChatMessage message) {
+    final turns = <Map<String, String>>[];
+    for (final m in messages) {
+      if (m.id == message.id) break;
+      if (m.metadata.containsKey(deliveryKey)) continue;
+      if (m.role == ChatRole.system || m.content.trim().isEmpty) continue;
+      turns.add({'role': m.role.name, 'content': m.content});
+    }
+    return turns.length > historyTurns
+        ? turns.sublist(turns.length - historyTurns)
+        : turns;
+  }
+
+  void _markDelivered(String id) {
+    messages = [
+      for (final m in messages)
+        m.id == id
+            ? ChatMessage(
+                id: m.id,
+                threadId: m.threadId,
+                userId: m.userId,
+                role: m.role,
+                content: m.content,
+                metadata: {...m.metadata}..remove(deliveryKey),
+                createdAt: m.createdAt,
+              )
+            : m,
+    ];
+  }
+
+  static ChatMessage _withDelivery(ChatMessage m, String state) => ChatMessage(
+    id: m.id,
+    threadId: m.threadId,
+    userId: m.userId,
+    role: m.role,
+    content: m.content,
+    metadata: {...m.metadata, deliveryKey: state},
+    createdAt: m.createdAt,
+  );
 
   /// Backend path: the edge function owns the persona system prompt, the
   /// pregnancy-context lookup, the red-flag check, and the model call, and
@@ -269,6 +369,8 @@ class ChatViewModel extends ChangeNotifier {
     required String threadId,
     required String userId,
     required String content,
+    String? clientMessageId,
+    List<Map<String, String>> history = const [],
   }) async {
     // Independent of the network call below, so a red-flag symptom is
     // never silently dropped if the backend is unreachable.
@@ -281,6 +383,8 @@ class ChatViewModel extends ChangeNotifier {
       final response = await DrNiswahBackendService.instance.send(
         threadId: threadId,
         content: content,
+        clientMessageId: clientMessageId,
+        history: history,
       );
       // A delayed reply belongs to the session that sent it. It must not
       // add an alert or private feed entry after sign-out/account change.
@@ -301,6 +405,7 @@ class ChatViewModel extends ChangeNotifier {
           // already reads metadata['citations'] for its citation UI; this
           // locally-built optimistic message previously never populated it.
           'citations': response.citations.map((c) => c.toJson()).toList(),
+          if (response.kind != null) 'kind': response.kind,
         },
         createdAt: DateTime.now(),
       );
@@ -343,19 +448,14 @@ class ChatViewModel extends ChangeNotifier {
   }
 
   /// Fiqh Advisor thread: server-side (`fiqh-advisor-chat` Edge Function)
-  /// via [AiAdvisorService], which owns the Google-Search-grounded system
-  /// prompt and the trusted-citation filter.
-  Future<void> _sendViaFiqhAdvisor({
-    required String threadId,
-    required String userId,
-    required String content,
-  }) async {
-    final persistUser = persistUserMessageForTesting(
-      threadId: threadId,
-      userId: userId,
-      content: content,
-    );
-
+  /// via [AiAdvisorService], which owns the system prompt, retrieval and the
+  /// citation filter. A failure throws an [AiFailure]; it is never shown or
+  /// stored as an answer.
+  Future<void> _sendViaFiqhAdvisor(
+    ChatMessage message,
+    List<Map<String, String>> history,
+    bool Function() stillCurrent,
+  ) async {
     // Fiqh Remediation Wave 1: null whenever the user's Madhhab is
     // UNSET/UNKNOWN — never a fabricated value. See Section F.
     final madhhabState = MadhhabController.instance.state;
@@ -366,75 +466,88 @@ class ChatViewModel extends ChangeNotifier {
     final clientFiqhState = await ClientFiqhStateProvider()
         .currentClassification(selectedMadhhab);
     final result = await AiAdvisorService.instance.askFiqh(
-      question: content,
+      question: message.content,
       madhhab: selectedMadhhab,
       madhhabState: madhhabState,
       clientFiqhState: clientFiqhState,
+      history: history,
+      requestId: message.id,
     );
+    if (!stillCurrent()) return;
 
     final metadata = {
       'source': 'openai',
-      'grounded': true,
+      'grounded': result.citations.isNotEmpty,
       'madhhab': selectedMadhhab?.name,
       'madhhab_state': madhhabState.name,
       'citations': result.citations.map((item) => item.toJson()).toList(),
+      if (result.kind != null) 'kind': result.kind,
     };
     await showAssistantReplyAndPersistForTesting(
-      threadId: threadId,
-      userId: userId,
+      threadId: message.threadId,
+      userId: message.userId,
       text: result.text,
       metadata: metadata,
-      persistUser: persistUser,
+      persistUser: persistUserMessageForTesting(
+        threadId: message.threadId,
+        userId: message.userId,
+        content: message.content,
+        messageId: message.id,
+      ),
     );
   }
 
   /// General assistant / dream-interpreter thread types: server-side
   /// (`ai-assistant-chat` Edge Function), which owns the system prompt.
-  Future<void> _sendViaGeneralAssistant({
-    required String threadId,
-    required String userId,
-    required String content,
-  }) async {
+  Future<void> _sendViaGeneralAssistant(
+    ChatMessage message,
+    List<Map<String, String>> history,
+    bool Function() stillCurrent,
+  ) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
       throw StateError('Supabase is not initialized.');
     }
 
-    final persistUser = persistUserMessageForTesting(
-      threadId: threadId,
-      userId: userId,
-      content: content,
-    );
-
-    final response = await AiFunctionGateway.invoke(
+    final data = await AiFunctionGateway.invokeChat(
       client,
       'ai-assistant-chat',
-      // AICTX remediation: the general assistant previously received no
-      // context at all. madhhab is cheap and always known client-side
-      // (MadhhabController), so it's sent unconditionally now — the
-      // Edge Function treats it as optional either way. Fiqh Remediation
-      // Wave 1: null/'unset'/'unknown' are sent as-is, never a fabricated
-      // madhhab (Section F).
+      requestId: message.id,
+      // AICTX remediation: madhhab is cheap and always known client-side
+      // (MadhhabController), so it's sent unconditionally — the Edge
+      // Function treats it as optional either way. Fiqh Remediation Wave 1:
+      // null/'unset'/'unknown' are sent as-is, never a fabricated madhhab.
       body: {
-        'content': content,
+        'content': message.content,
         'madhhab': MadhhabController.instance.selectedOrNull?.name,
         'madhhab_state': MadhhabController.instance.state.name,
+        'history': history,
       },
     );
-    final data = response.data;
-    if (data is! Map || response.status != 200) {
-      final error = data is Map ? data['error']?.toString() : null;
-      throw StateError(
-        error ?? 'AI assistant service failed (${response.status}).',
-      );
-    }
+    final text = AiFunctionGateway.requireText(data, 'text', 'AI assistant');
+    if (!stillCurrent()) return;
+    final route = data['route'];
 
     await showAssistantReplyAndPersistForTesting(
-      threadId: threadId,
-      userId: userId,
-      text: AiFunctionGateway.requireText(data, 'text', 'AI assistant'),
-      metadata: const {'source': 'openai', 'grounded': false},
-      persistUser: persistUser,
+      threadId: message.threadId,
+      userId: message.userId,
+      text: text,
+      metadata: {
+        'source': 'openai',
+        'grounded': false,
+        // The general assistant pointed her to the Fiqh advisor or Doctor
+        // Niswah; the screen shows a button that opens it with her question.
+        if (route == 'fiqh' || route == 'health') ...{
+          'route': route,
+          'route_question': message.content,
+        },
+      },
+      persistUser: persistUserMessageForTesting(
+        threadId: message.threadId,
+        userId: message.userId,
+        content: message.content,
+        messageId: message.id,
+      ),
     );
   }
 
@@ -462,8 +575,9 @@ class ChatViewModel extends ChangeNotifier {
     required String threadId,
     required String userId,
     required String content,
+    String? messageId,
   }) {
-    final messageId = const Uuid().v4();
+    messageId ??= const Uuid().v4();
     return _repository
         .sendMessage(
           threadId: threadId,

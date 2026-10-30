@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/core/localization/app_locale_controller.dart';
+import 'package:niswah/core/network/ai_failure.dart';
 import 'package:niswah/core/network/ai_function_gateway.dart';
 import 'package:niswah/core/preferences/madhhab_controller.dart';
 import 'package:niswah/features/ai_advisor/ai_advisor_service.dart';
@@ -50,7 +51,13 @@ void main() {
         reply(entry.value);
         await expectLater(
           DrNiswahBackendService.instance.send(threadId: 't', content: 'hello'),
-          throwsA(isA<StateError>()),
+          throwsA(
+            isA<AiFailure>().having(
+              (f) => f.category,
+              'category',
+              AiFailureCategory.malformedResponse,
+            ),
+          ),
         );
       });
     }
@@ -64,7 +71,7 @@ void main() {
           userId: 'u',
           content: 'what is a normal cycle length?',
         ),
-        throwsA(isA<StateError>()),
+        throwsA(isA<AiFailure>()),
       );
       expect(vm.messages, isEmpty, reason: 'no banner, no blank bubble');
     });
@@ -93,31 +100,39 @@ void main() {
   });
 
   group('Fiqh advisor', () {
+    // Testing feedback 2026-10-30: a failure used to come back as a "sources
+    // could not be reached" ANSWER, shown and stored as if the advisor had
+    // replied. It is now an AiFailure, which the chat shows as a failed send
+    // with a retry.
     for (final entry in malformed.entries) {
-      test('${entry.key}: fails honestly in the user\'s language', () async {
-        AppLocaleController.instance.setArabic(false);
-        reply(entry.value);
-        final answer = await AiAdvisorService.instance.askFiqh(
-          question: 'q',
-          madhhab: null,
-          madhhabState: MadhhabSelectionState.unset,
-        );
-        expect(answer.text.trim(), isNotEmpty);
-        expect(answer.text, contains("couldn't be reached"));
-        expect(answer.text, isNot(matches(RegExp(r'[؀-ۿ]'))));
-        expect(answer.citations, isEmpty);
-      });
+      test(
+        '${entry.key}: throws a malformed-response failure, not an answer',
+        () async {
+          reply(entry.value);
+          await expectLater(
+            AiAdvisorService.instance.askFiqh(
+              question: 'q',
+              madhhab: null,
+              madhhabState: MadhhabSelectionState.unset,
+            ),
+            throwsA(
+              isA<AiFailure>().having(
+                (f) => f.category,
+                'category',
+                AiFailureCategory.malformedResponse,
+              ),
+            ),
+          );
+        },
+      );
     }
 
-    test('Arabic users get the Arabic fallback', () async {
+    test('failure messages are in the user\'s language', () async {
+      const failure = AiFailure(AiFailureCategory.malformedResponse);
+      AppLocaleController.instance.setArabic(false);
+      expect(failure.message, isNot(matches(RegExp(r'[؀-ۿ]'))));
       AppLocaleController.instance.setArabic(true);
-      reply('garbage');
-      final answer = await AiAdvisorService.instance.askFiqh(
-        question: 'q',
-        madhhab: null,
-        madhhabState: MadhhabSelectionState.unset,
-      );
-      expect(answer.text, contains('المصادر'));
+      expect(failure.message, matches(RegExp(r'[؀-ۿ]')));
     });
 
     test('a request carries the madhhab context the app knows', () async {

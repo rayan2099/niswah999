@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
+import '../../../../core/network/ai_failure.dart';
 import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../data/repositories/dream_interpreter_repository_impl.dart';
@@ -26,6 +27,13 @@ class DreamInterpreterViewModel extends ChangeNotifier {
   bool isSubmitting = false;
   String? errorMessage;
   String? warningMessage;
+
+  /// The categorized reason the last send failed, for the error notice.
+  AiFailure? lastFailure;
+
+  /// The function rejects a prompt longer than this; older turns in the
+  /// middle are dropped first so a long conversation keeps working.
+  static const maxPromptChars = 8000;
   List<DreamEntry> entries = const <DreamEntry>[];
 
   // Holds the back-and-forth for the dream currently being discussed on this
@@ -81,7 +89,9 @@ class DreamInterpreterViewModel extends ChangeNotifier {
     _transcript
       ..clear()
       ..add(DreamMessage(DreamMessageRole.user, entry.description))
-      ..add(DreamMessage(DreamMessageRole.assistant, entry.interpretation ?? ''));
+      ..add(
+        DreamMessage(DreamMessageRole.assistant, entry.interpretation ?? ''),
+      );
     notifyListeners();
   }
 
@@ -122,6 +132,7 @@ class DreamInterpreterViewModel extends ChangeNotifier {
     isSubmitting = true;
     errorMessage = null;
     warningMessage = null;
+    lastFailure = null;
     _isResumedFromHistory = false;
     _transcript.add(DreamMessage(DreamMessageRole.user, cleanMessage));
     notifyListeners();
@@ -131,18 +142,11 @@ class DreamInterpreterViewModel extends ChangeNotifier {
       if (client == null) {
         throw StateError('Supabase is not initialized.');
       }
-      final response = await AiFunctionGateway.invoke(
+      final data = await AiFunctionGateway.invokeChat(
         client,
         'dream-interpreter-chat',
-        body: {'prompt': _buildTranscriptPrompt()},
+        body: {'prompt': buildTranscriptPromptForTesting()},
       );
-      final data = response.data;
-      if (data is! Map || response.status != 200) {
-        final error = data is Map ? data['error']?.toString() : null;
-        throw StateError(
-          error ?? 'Dream interpreter service failed (${response.status}).',
-        );
-      }
       final replyText = AiFunctionGateway.requireText(
         data,
         'text',
@@ -188,7 +192,8 @@ class DreamInterpreterViewModel extends ChangeNotifier {
       // The failed turn has no reply yet; drop it so a retry doesn't
       // resend it twice in a row with nothing in between.
       _transcript.removeLast();
-      errorMessage = error.toString();
+      lastFailure = error is AiFailure ? error : null;
+      errorMessage = lastFailure?.message ?? error.toString();
       AppErrorReporter.report(
         error,
         stack,
@@ -200,14 +205,25 @@ class DreamInterpreterViewModel extends ChangeNotifier {
     }
   }
 
-  String _buildTranscriptPrompt() {
-    final buffer = StringBuffer();
-    for (final turn in _transcript) {
-      buffer.writeln(
-        '${turn.role == DreamMessageRole.user ? 'User' : 'Assistant'}: ${turn.content}',
-      );
+  /// The whole conversation as `User:`/`Assistant:` lines ending in
+  /// `Assistant:`. This full-transcript context is a large part of why the
+  /// dream interpreter handles follow-ups well (testing feedback
+  /// 2026-10-30), so its shape is pinned by a regression test. When it
+  /// would exceed [maxPromptChars], the first message (the dream itself) and
+  /// the most recent turns are kept and the turns between are dropped.
+  @visibleForTesting
+  String buildTranscriptPromptForTesting() {
+    String line(DreamMessage turn) =>
+        '${turn.role == DreamMessageRole.user ? 'User' : 'Assistant'}: ${turn.content}\n';
+    final lines = _transcript.map(line).toList();
+    const tail = 'Assistant:';
+    var total = lines.fold<int>(tail.length, (sum, l) => sum + l.length);
+    while (total > maxPromptChars && lines.length > 2) {
+      total -= lines.removeAt(1).length;
     }
-    buffer.write('Assistant:');
-    return buffer.toString();
+    final prompt = '${lines.join()}$tail';
+    return prompt.length > maxPromptChars
+        ? prompt.substring(prompt.length - maxPromptChars)
+        : prompt;
   }
 }

@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts';
-import { checkQueryRelevance } from './kb_relevance_gate.ts';
+import { checkQueryRelevance, normalizeArabic } from './kb_relevance_gate.ts';
 
 // Generated from the measured 68-case combined dataset (RETRIEVAL_PRECISION_BASELINE_40.csv
 // + the 35-case adversarial expansion) used to design and tune this gate --
@@ -347,4 +347,19 @@ Deno.test('checkQueryRelevance — Y34 [expansion35/very_generic_sentence_struct
 Deno.test('checkQueryRelevance — Y35 [expansion35/pregnancy_context]', () => {
   const result = checkQueryRelevance(`Are cramps in early pregnancy something to worry about?`);
   assertEquals(result.allow, true);
+});
+
+Deno.test('checkQueryRelevance — Arabic spelling variants match the same anchor (2026-10-30)', () => {
+  assertEquals(normalizeArabic('الإستحاضة'), 'الاستحاضه');
+  for (const q of ['ما حكم الإستحاضة', 'ما حكم الاستحاضه', 'ما حكم الاِستحاضة', 'هل الحمـل يؤخر']) {
+    assertEquals(checkQueryRelevance(q).allow, true, q);
+  }
+});
+
+Deno.test('checkQueryRelevance — everyday words from the testing feedback are in the domain', () => {
+  for (const q of ['هل الجماع حلال وقت الدورة؟', 'عندي افرازات بنية', 'عندي تبقع خفيف', 'مغص قوي']) {
+    assertEquals(checkQueryRelevance(q).allow, true, q);
+  }
+  // Still rejected: no anchor at all.
+  assertEquals(checkQueryRelevance('ممكن تجاوب على السؤال؟').allow, false);
 });

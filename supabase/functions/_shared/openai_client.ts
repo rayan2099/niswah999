@@ -42,10 +42,12 @@ export interface OpenAiCallResult {
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
-type ErrorCategory =
+export type OpenAiErrorCategory =
+  | 'not_configured'
   | 'invalid_credentials'
   | 'permission_denied'
   | 'rate_limited'
+  | 'quota_exhausted'
   | 'model_unavailable'
   | 'context_length_exceeded'
   | 'bad_request'
@@ -56,11 +58,15 @@ type ErrorCategory =
   | 'malformed_response'
   | 'unknown';
 
-function classifyStatus(status: number, errorBody: { error?: { code?: string; type?: string } } | null): ErrorCategory {
+function classifyStatus(status: number, errorBody: { error?: { code?: string; type?: string } } | null): OpenAiErrorCategory {
   if (status === 401) return 'invalid_credentials';
   if (status === 403) return 'permission_denied';
   if (status === 404) return 'model_unavailable';
-  if (status === 429) return 'rate_limited';
+  if (status === 429) {
+    // An exhausted billing quota is also a 429, but retrying it only burns
+    // time: it fails the same way until someone tops up the account.
+    return errorBody?.error?.code === 'insufficient_quota' ? 'quota_exhausted' : 'rate_limited';
+  }
   if (status >= 500) return 'server_error';
   if (status === 400) {
     const code = errorBody?.error?.code ?? '';
@@ -70,7 +76,7 @@ function classifyStatus(status: number, errorBody: { error?: { code?: string; ty
   return 'unknown';
 }
 
-const RETRYABLE: ReadonlySet<ErrorCategory> = new Set(['rate_limited', 'server_error']);
+const RETRYABLE: ReadonlySet<OpenAiErrorCategory> = new Set(['rate_limited', 'server_error']);
 
 // A non-retryable failure (bad credentials, permission denied, model
 // unavailable, malformed/empty response, etc.) must break out of the retry
@@ -80,7 +86,26 @@ const RETRYABLE: ReadonlySet<ErrorCategory> = new Set(['rate_limited', 'server_e
 // the throw into `lastError` and let the loop continue anyway, silently
 // retrying an error class that was never supposed to be retried. (Found by
 // openai_client.test.ts's 401 test during the OpenAI provider migration.)
-class NonRetryableOpenAiError extends Error {}
+/** Every failure callOpenAI throws carries its category, so callers can
+ * tell a timeout from a quota problem from a malformed reply without
+ * parsing messages. The message never contains the prompt or the key. */
+export class OpenAiError extends Error {
+  constructor(readonly category: OpenAiErrorCategory, message: string) {
+    super(message);
+  }
+}
+
+class NonRetryableOpenAiError extends OpenAiError {}
+
+/** Longest pause before retrying a 429, whatever Retry-After asks for: a
+ * person is waiting on the other end of this call. */
+const MAX_RATE_LIMIT_BACKOFF_MS = 2_000;
+
+function rateLimitBackoffMs(response: Response): number {
+  const header = Number(response.headers.get('retry-after'));
+  if (Number.isFinite(header) && header > 0) return Math.min(header * 1000, MAX_RATE_LIMIT_BACKOFF_MS);
+  return 750;
+}
 
 /**
  * Calls OpenAI's `/v1/responses` endpoint with the configured model
@@ -94,9 +119,9 @@ class NonRetryableOpenAiError extends Error {}
  */
 export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCallResult> {
   const apiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured.');
+  if (!apiKey) throw new OpenAiError('not_configured', 'OPENAI_API_KEY is not configured.');
   const model = Deno.env.get('OPENAI_MODEL');
-  if (!model) throw new Error('OPENAI_MODEL is not configured.');
+  if (!model) throw new OpenAiError('not_configured', 'OPENAI_MODEL is not configured.');
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxAttempts = 1 + Math.max(0, options.maxRetries ?? DEFAULT_MAX_RETRIES);
@@ -137,10 +162,14 @@ export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCall
           errorType: errorBody?.error?.type ?? null,
         });
         if (RETRYABLE.has(category) && attempt < maxAttempts) {
-          lastError = new Error(`OpenAI request failed (${response.status}: ${category}).`);
+          lastError = new OpenAiError(category, `OpenAI request failed (${response.status}: ${category}).`);
+          if (category === 'rate_limited') {
+            await new Promise((resolve) => setTimeout(resolve, rateLimitBackoffMs(response)));
+          }
           continue;
         }
         throw new NonRetryableOpenAiError(
+          category,
           errorBody?.error?.message ?? `OpenAI request failed (${response.status}: ${category}).`,
         );
       }
@@ -163,7 +192,7 @@ export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCall
 
       if (!text) {
         console.error('callOpenAI: empty response text', { model });
-        throw new NonRetryableOpenAiError('OpenAI returned no text.');
+        throw new NonRetryableOpenAiError('empty_response', 'OpenAI returned no text.');
       }
 
       // Token counts only -- never the prompt/response content itself.
@@ -183,13 +212,17 @@ export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCall
         throw error;
       }
       if (error instanceof DOMException && error.name === 'AbortError') {
-        lastError = new Error(`OpenAI request timed out after ${timeoutMs}ms.`);
+        lastError = new OpenAiError('timeout', `OpenAI request timed out after ${timeoutMs}ms.`);
       } else if (error instanceof TypeError) {
         // fetch() throws a bare TypeError for network-level failures (DNS,
         // connection refused, etc.) -- classified explicitly so it isn't
         // confused with a parsing bug in this module's own code.
         console.error('callOpenAI: network error', { model, message: error.message });
-        lastError = new Error('OpenAI request failed: network error.');
+        lastError = new OpenAiError('network_error', 'OpenAI request failed: network error.');
+      } else if (error instanceof SyntaxError) {
+        // response.json() on a 200 whose body is not JSON.
+        lastError = new NonRetryableOpenAiError('malformed_response', 'OpenAI returned a malformed response.');
+        throw lastError;
       } else {
         lastError = error;
       }
@@ -198,5 +231,6 @@ export async function callOpenAI(options: OpenAiCallOptions): Promise<OpenAiCall
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('OpenAI request failed.');
+  if (lastError instanceof OpenAiError) throw lastError;
+  throw new OpenAiError('unknown', lastError instanceof Error ? lastError.message : 'OpenAI request failed.');
 }

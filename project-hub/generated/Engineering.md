@@ -55,6 +55,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## lib/core/network
 
+- [ai_failure.dart](../../lib/core/network/ai_failure.dart)
 - [ai_function_gateway.dart](../../lib/core/network/ai_function_gateway.dart)
 - [supabase_client.dart](../../lib/core/network/supabase_client.dart)
 
@@ -116,16 +117,26 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [deno.json](../../supabase/functions/deno.json)
 - [deno.lock](../../supabase/functions/deno.lock)
 
+## supabase/functions/_evals
+
+- [ai_eval_cases.json](../../supabase/functions/_evals/ai_eval_cases.json)
+- [live_eval.ts](../../supabase/functions/_evals/live_eval.ts)
+- [offline_pipeline_eval.ts](../../supabase/functions/_evals/offline_pipeline_eval.ts)
+
 ## supabase/functions/_shared
 
 - [ai_user_context.test.ts](../../supabase/functions/_shared/ai_user_context.test.ts)
 - [ai_user_context.ts](../../supabase/functions/_shared/ai_user_context.ts)
+- [chat_contract.test.ts](../../supabase/functions/_shared/chat_contract.test.ts)
+- [chat_contract.ts](../../supabase/functions/_shared/chat_contract.ts)
 - [fiqh_state_guard.test.ts](../../supabase/functions/_shared/fiqh_state_guard.test.ts)
 - [fiqh_state_guard.ts](../../supabase/functions/_shared/fiqh_state_guard.ts)
 - [kb_relevance_gate.test.ts](../../supabase/functions/_shared/kb_relevance_gate.test.ts)
 - [kb_relevance_gate.ts](../../supabase/functions/_shared/kb_relevance_gate.ts)
 - [kb_retrieval.test.ts](../../supabase/functions/_shared/kb_retrieval.test.ts)
 - [kb_retrieval.ts](../../supabase/functions/_shared/kb_retrieval.ts)
+- [no_evidence_replies.test.ts](../../supabase/functions/_shared/no_evidence_replies.test.ts)
+- [no_evidence_replies.ts](../../supabase/functions/_shared/no_evidence_replies.ts)
 - [openai_client.test.ts](../../supabase/functions/_shared/openai_client.test.ts)
 - [openai_client.ts](../../supabase/functions/_shared/openai_client.ts)
 - [pregnancy_status.test.ts](../../supabase/functions/_shared/pregnancy_status.test.ts)

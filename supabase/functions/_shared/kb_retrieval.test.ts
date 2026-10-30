@@ -2,6 +2,7 @@ import { assertEquals, assertStrictEquals } from 'https://deno.land/std@0.208.0/
 import {
   assertSnapshotHealth,
   citationPayload,
+  citationsForAnswer,
   EXPECTED_SNAPSHOT_COMMIT,
   formatKnowledgeBlock,
   KnowledgeHit,
@@ -182,4 +183,24 @@ Deno.test('assertSnapshotHealth — fails closed (not throws) when the RPC call 
   const health = await assertSnapshotHealth(client as never);
   assertEquals(health.ok, false);
   assertEquals(health.reason, 'check_failed');
+});
+
+Deno.test('citationsForAnswer — one card per source, only for the items the answer used', () => {
+  // Testing feedback 2026-10-30: four items from one NHS page were shown as
+  // four identical "Urgent Maternal Warning Signs and Symptoms" cards.
+  const url = 'https://www.nhs.uk/pregnancy/related-conditions/complications/urgent-signs/';
+  const hits = [
+    hit({ knowledge_key: 'S1', version_id: 'v1', source_key: 'NHS-URGENT', source_url: url, locator: 'a' }),
+    hit({ knowledge_key: 'S2', version_id: 'v2', source_key: 'NHS-URGENT', source_url: url, locator: 'b' }),
+    hit({ knowledge_key: 'S3', version_id: 'v3', source_key: 'NHS-URGENT', source_url: url, locator: 'c' }),
+    hit({ knowledge_key: 'H1', version_id: 'v4', source_key: 'NHS-BIRTH', source_url: 'https://www.nhs.uk/birth', locator: 'd' }),
+    hit({ knowledge_key: 'H2', version_id: 'v5', source_key: 'CDC', source_url: 'https://www.cdc.gov/x', locator: 'e' }),
+  ];
+  const all = citationsForAnswer(hits, null);
+  assertEquals(all.map((c) => c.sourceKey), ['NHS-URGENT', 'NHS-BIRTH', 'CDC']);
+  assertEquals(all[0].locator, 'a');
+  const used = citationsForAnswer(hits, new Set(['S2', 'H2']));
+  assertEquals(used.map((c) => c.knowledgeKey), ['S2', 'H2']);
+  assertEquals(citationsForAnswer(hits, new Set()).length, 0);
+  assertEquals(citationsForAnswer(hits, new Set(['NOT-RETRIEVED'])).length, 0);
 });

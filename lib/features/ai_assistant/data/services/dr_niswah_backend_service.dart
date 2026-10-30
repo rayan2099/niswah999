@@ -1,3 +1,4 @@
+import '../../../../core/network/ai_failure.dart';
 import '../../../../core/network/ai_function_gateway.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../ai_advisor/ai_advisor_service.dart';
@@ -8,6 +9,7 @@ class DrNiswahBackendResponse {
     required this.urgent,
     this.citations = const [],
     this.knowledgeGrounded = false,
+    this.kind,
   });
 
   final String reply;
@@ -19,6 +21,11 @@ class DrNiswahBackendResponse {
   /// payload shape is identical (kb_retrieval.ts's `citationPayload()`).
   final List<FiqhCitation> citations;
   final bool knowledgeGrounded;
+
+  /// Which path produced the reply: 'grounded', 'urgent', 'small_talk' or
+  /// 'no_evidence_clarify' / 'no_evidence_out_of_scope' /
+  /// 'no_evidence_not_covered'. Null from a deployment before 2026-10-30.
+  final String? kind;
 
   /// Main-vs-PR#4 merge resolution (2026-10-08): extracted out of `send()`
   /// so this combined validation (strict reply checking, carried over from
@@ -41,15 +48,20 @@ class DrNiswahBackendResponse {
         .map((item) => FiqhCitation.fromJson(Map<String, dynamic>.from(item)))
         .toList();
     final knowledgeGrounded = data['knowledgeGrounded'] == true;
+    final kind = data['kind']?.toString();
     if (reply is! String || reply.trim().isEmpty) {
       if (!urgent) {
-        throw StateError('Doctor Niswah returned an empty or malformed reply.');
+        throw AiFailure(
+          AiFailureCategory.malformedResponse,
+          correlationId: data['correlationId']?.toString(),
+        );
       }
       return DrNiswahBackendResponse(
         reply: '',
         urgent: true,
         citations: citations,
         knowledgeGrounded: knowledgeGrounded,
+        kind: kind,
       );
     }
     return DrNiswahBackendResponse(
@@ -57,6 +69,7 @@ class DrNiswahBackendResponse {
       urgent: urgent,
       citations: citations,
       knowledgeGrounded: knowledgeGrounded,
+      kind: kind,
     );
   }
 }
@@ -73,29 +86,32 @@ class DrNiswahBackendService {
 
   bool get isAvailable => NiswahSupabase.clientOrNull != null;
 
+  /// [clientMessageId] is the id the server stores the question under, so
+  /// a retry of a failed send never stores it twice. [history] is the
+  /// conversation so far; the server prefers its own stored copy and uses
+  /// this only if it cannot read one.
   Future<DrNiswahBackendResponse> send({
     required String threadId,
     required String content,
+    String? clientMessageId,
+    List<Map<String, String>> history = const [],
   }) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
       throw StateError('Supabase is not initialized.');
     }
 
-    final response = await AiFunctionGateway.invoke(
+    final data = await AiFunctionGateway.invokeChat(
       client,
       'dr-niswah-chat',
-      body: {'threadId': threadId, 'content': content},
+      requestId: clientMessageId,
+      body: {
+        'threadId': threadId,
+        'content': content,
+        'clientMessageId': ?clientMessageId,
+        if (history.isNotEmpty) 'history': history,
+      },
     );
-
-    final data = response.data;
-    if (data is! Map || response.status != 200) {
-      final error = data is Map ? data['error']?.toString() : null;
-      throw StateError(
-        error ?? 'Doctor Niswah service failed (${response.status}).',
-      );
-    }
-
     return DrNiswahBackendResponse.fromBackendJson(data);
   }
 }

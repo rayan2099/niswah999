@@ -1,5 +1,4 @@
-import '../../core/errors/app_error_reporter.dart';
-import '../../core/localization/app_locale_controller.dart';
+import '../../core/network/ai_failure.dart';
 import '../../core/network/ai_function_gateway.dart';
 import '../../core/network/supabase_client.dart';
 import '../../core/preferences/madhhab_controller.dart';
@@ -52,10 +51,15 @@ class FiqhCitation {
 }
 
 class FiqhAnswer {
-  const FiqhAnswer({required this.text, this.citations = const []});
+  const FiqhAnswer({required this.text, this.citations = const [], this.kind});
 
   final String text;
   final List<FiqhCitation> citations;
+
+  /// Which path produced the answer ('grounded', 'small_talk',
+  /// 'madhhab_unset', 'state_unresolved', 'no_evidence_*'); null from a
+  /// deployment before 2026-10-30.
+  final String? kind;
 }
 
 /// Calls the `fiqh-advisor-chat` Supabase Edge Function, which owns the
@@ -67,19 +71,6 @@ class AiAdvisorService {
   const AiAdvisorService._();
 
   static const instance = AiAdvisorService._();
-
-  static const _noSourcesFallbackArText =
-      'تعذر الوصول إلى المصادر الموثقة الآن. لا يمكن إصدار توجيه فقهي آلي دون مصادر؛ يُرجى المحاولة لاحقاً أو سؤال عالِمة أو جهة إفتاء مؤهلة.';
-  static const _noSourcesFallbackEnText =
-      "The trusted sources couldn't be reached right now. An automated Fiqh answer can't be given without sources; please try again later or ask a qualified scholar or fatwa authority.";
-
-  /// Shown for every failure (no client, non-200, malformed reply). In the
-  /// user's language — it used to be Arabic-only, so an English-mode user got
-  /// an Arabic failure message.
-  static String get _noSourcesFallbackAr => AppLocaleController.instance.text(
-    _noSourcesFallbackEnText,
-    _noSourcesFallbackArText,
-  );
 
   /// [madhhab]/[madhhabState] (Fiqh Remediation Wave 1, Section F): the AI
   /// context must distinguish UNKNOWN from UNSET, never send a fabricated
@@ -99,46 +90,40 @@ class AiAdvisorService {
     /// — the server treats this strictly as `client_computed`, never as
     /// independently verified. See ClientFiqhStateProvider.
     String? clientFiqhState,
+
+    /// The conversation so far, so a follow-up such as "لماذا؟" is
+    /// understood and searched with the question it follows.
+    List<Map<String, String>> history = const [],
+    String? requestId,
   }) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
-      return FiqhAnswer(text: _noSourcesFallbackAr);
+      throw const AiFailure(AiFailureCategory.providerUnavailable);
     }
 
-    try {
-      final response = await AiFunctionGateway.invoke(
-        client,
-        'fiqh-advisor-chat',
-        body: {
-          'question': question,
-          'madhhab': madhhab?.name,
-          'madhhab_state': madhhabState.name,
-          if (clientFiqhState != null) 'clientFiqhState': clientFiqhState,
-        },
-      );
-
-      final data = response.data;
-      if (data is! Map || response.status != 200) {
-        final error = data is Map ? data['error']?.toString() : null;
-        throw StateError(
-          error ?? 'Fiqh advisor service failed (${response.status}).',
-        );
-      }
-
-      final citations = (data['citations'] as List<dynamic>? ?? [])
-          .map((item) => FiqhCitation.fromJson(Map<String, dynamic>.from(item)))
-          .toList();
-      return FiqhAnswer(
-        text: AiFunctionGateway.requireText(data, 'text', 'Fiqh advisor'),
-        citations: citations,
-      );
-    } catch (error, stack) {
-      AppErrorReporter.report(
-        error,
-        stack,
-        context: 'AiAdvisorService.askFiqh',
-      );
-      return FiqhAnswer(text: _noSourcesFallbackAr);
-    }
+    // A failure throws an AiFailure. It used to come back as a "sources
+    // could not be reached" answer, which was shown and stored as if the
+    // advisor had replied (testing feedback 2026-10-30).
+    final data = await AiFunctionGateway.invokeChat(
+      client,
+      'fiqh-advisor-chat',
+      requestId: requestId,
+      body: {
+        'question': question,
+        'madhhab': madhhab?.name,
+        'madhhab_state': madhhabState.name,
+        'clientFiqhState': ?clientFiqhState,
+        if (history.isNotEmpty) 'history': history,
+      },
+    );
+    final citations = (data['citations'] as List<dynamic>? ?? [])
+        .whereType<Map>()
+        .map((item) => FiqhCitation.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+    return FiqhAnswer(
+      text: AiFunctionGateway.requireText(data, 'text', 'Fiqh advisor'),
+      citations: citations,
+      kind: data['kind']?.toString(),
+    );
   }
 }

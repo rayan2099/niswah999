@@ -10,8 +10,9 @@ on:
       - 'scripts/test_build_kb_production_candidates.py'
       - 'scripts/test_trust_boundary.py'
       - 'supabase/migrations/*knowledge_base*.sql'
-      - 'supabase/functions/_shared/kb_retrieval.ts'
-      - 'supabase/functions/_shared/kb_retrieval.test.ts'
+      - 'supabase/functions/_shared/**'
+      - 'supabase/functions/ai-assistant-chat/**'
+      - 'supabase/functions/dream-interpreter-chat/**'
       - 'supabase/functions/deno.json'
       - 'supabase/functions/fiqh-advisor-chat/**'
       - 'supabase/functions/dr-niswah-chat/**'
@@ -82,13 +83,15 @@ jobs:
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Type-check kb_retrieval.ts and both KB-integrated edge functions
+      - name: Type-check the shared AI modules and all four AI chat edge functions
         run: |
           deno check --config supabase/functions/deno.json \
-            supabase/functions/_shared/kb_retrieval.ts \
+            supabase/functions/_shared/*.ts \
+            supabase/functions/ai-assistant-chat/index.ts \
+            supabase/functions/dream-interpreter-chat/index.ts \
             supabase/functions/fiqh-advisor-chat/index.ts \
             supabase/functions/dr-niswah-chat/index.ts
-      - name: Run kb_retrieval.ts unit tests (qualification metadata, Madhhab short-circuit, snapshot-health fail-closed behavior)
+      - name: Run the shared AI module unit tests (retrieval, relevance gate, chat contract, no-evidence replies, provider client)
         run: |
-          deno test --config supabase/functions/deno.json \
-            supabase/functions/_shared/kb_retrieval.test.ts
+          deno test --allow-env --config supabase/functions/deno.json \
+            supabase/functions/_shared/
