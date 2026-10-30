@@ -189,6 +189,21 @@ void main() {
         trend: trend,
       );
       expect(bytes.isNotEmpty, isTrue);
+      final hijriBytes = await WellbeingReportPdfBuilder.build(
+        isArabic: isArabic,
+        insights: insights,
+        periodStart: DateTime(2026, 8, 1),
+        generatedAt: DateTime(2026, 8, 18),
+        trend: trend,
+        hijri: true,
+      );
+      expect(hijriBytes.isNotEmpty, isTrue);
+      final hijriOut = Platform.environment['PDF_OUT'];
+      if (hijriOut != null && hijriOut.isNotEmpty) {
+        await File(
+          '$hijriOut/wellbeing_trend_hijri_${isArabic ? 'ar' : 'en'}.pdf',
+        ).writeAsBytes(hijriBytes);
+      }
       // Set PDF_OUT to look at the page.
       final out = Platform.environment['PDF_OUT'];
       if (out != null && out.isNotEmpty) {

@@ -4,6 +4,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/preferences/calendar_system_controller.dart';
 import '../../../../core/preferences/marital_status_controller.dart';
 import '../../../../core/preferences/ttc_mode_controller.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -35,8 +36,10 @@ class CycleTrackingScreen extends StatefulWidget {
 class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
   late final CycleTrackingViewModel _viewModel;
   DateTime _focusedMonth = AppClock.now();
-  bool _hijriFirst = false;
-  bool _summaryHijri = false;
+  bool get _hijriFirst => CalendarSystemController.instance.hijri;
+  // The month summary has its own toggle; it starts from the calendar's
+  // saved choice and follows it when the calendar changes.
+  bool _summaryHijri = CalendarSystemController.instance.hijri;
   _SummaryPeriod _summaryPeriod = _SummaryPeriod.monthly;
   DateTimeRange? _customSummaryRange;
 
@@ -45,6 +48,11 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
     super.initState();
     _viewModel = widget.viewModel ?? (CycleTrackingViewModel()..loadLogs());
     TtcModeController.instance.load();
+    CalendarSystemController.instance.load().then((_) {
+      if (mounted) {
+        setState(() => _summaryHijri = CalendarSystemController.instance.hijri);
+      }
+    });
   }
 
   @override
@@ -53,6 +61,7 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
       _viewModel,
       MaritalStatusController.instance,
       TtcModeController.instance,
+      CalendarSystemController.instance,
     ]),
     builder: (context, _) {
       final summary = _viewModel.summary;
@@ -113,10 +122,10 @@ class _CycleTrackingScreenState extends State<CycleTrackingScreen> {
                         summary: summary,
                         onDateSelected: _openDate,
                         showHijri: _hijriFirst,
-                        onCalendarModeChanged: (value) => setState(() {
-                          _hijriFirst = value;
-                          _summaryHijri = value;
-                        }),
+                        onCalendarModeChanged: (value) {
+                          setState(() => _summaryHijri = value);
+                          CalendarSystemController.instance.setHijri(value);
+                        },
                         showFertileWindow: TtcModeController.instance.enabled,
                       ),
                       if (TtcModeController.instance.enabled &&

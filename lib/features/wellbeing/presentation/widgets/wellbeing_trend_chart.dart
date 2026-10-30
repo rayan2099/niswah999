@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/preferences/calendar_system_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/services/wellbeing_trend.dart';
 import '../wellbeing_trend_text.dart';
@@ -88,6 +89,20 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    CalendarSystemController.instance.addListener(_calendarChanged);
+  }
+
+  @override
+  void dispose() {
+    CalendarSystemController.instance.removeListener(_calendarChanged);
+    super.dispose();
+  }
+
+  void _calendarChanged() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
     final color = _measure.color;
     return Column(
@@ -130,18 +145,11 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
               child: CustomPaint(
                 painter: _CurvePainter(
                   values: [for (final b in trend.buckets) _measure.of(b)],
-                  months: [
-                    for (final (i, (month, count)) in trend.monthSpans.indexed)
-                      (
-                        wellbeingMonthLabelShown(i, trend.monthSpans.length)
-                            ? wellbeingMonthLabel(
-                                month,
-                                arabic: AppLocaleController.instance.isArabic,
-                              )
-                            : '',
-                        count,
-                      ),
-                  ],
+                  months: wellbeingMonthLabels(
+                    trend,
+                    arabic: AppLocaleController.instance.isArabic,
+                    hijri: CalendarSystemController.instance.hijri,
+                  ),
                   color: color,
                   rtl: Directionality.of(context) == TextDirection.rtl,
                   labelStyle: DefaultTextStyle.of(context).style

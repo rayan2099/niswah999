@@ -49,17 +49,23 @@ class WellbeingTrend {
 
   int get bucketsWithData => buckets.where((b) => b.hasData).length;
 
-  /// Consecutive buckets grouped by the calendar month they start in, oldest
-  /// first, for month labels under a chart: (first day of month, bucket
-  /// count).
-  List<(DateTime, int)> get monthSpans {
+  /// Consecutive buckets grouped by the Gregorian month they start in,
+  /// oldest first: (first bucket's start day, bucket count).
+  List<(DateTime, int)> get monthSpans =>
+      monthSpansBy((day) => day.year * 12 + day.month);
+
+  /// Same as [monthSpans] for any calendar: [monthOf] gives a value that
+  /// is the same for every day of one month (used for Hijri months).
+  List<(DateTime, int)> monthSpansBy(int Function(DateTime day) monthOf) {
     final spans = <(DateTime, int)>[];
+    int? current;
     for (final b in buckets) {
-      final month = DateTime(b.start.year, b.start.month);
-      if (spans.isNotEmpty && spans.last.$1 == month) {
-        spans[spans.length - 1] = (month, spans.last.$2 + 1);
+      final month = monthOf(b.start);
+      if (spans.isNotEmpty && month == current) {
+        spans[spans.length - 1] = (spans.last.$1, spans.last.$2 + 1);
       } else {
-        spans.add((month, 1));
+        spans.add((b.start, 1));
+        current = month;
       }
     }
     return spans;

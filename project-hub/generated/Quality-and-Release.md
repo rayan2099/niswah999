@@ -157,6 +157,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [bleeding_reconcile_signal_test.dart](../../test/bleeding_reconcile_signal_test.dart)
 - [calendar_days_test.dart](../../test/calendar_days_test.dart)
 - [calendar_legend_live_language_switch_test.dart](../../test/calendar_legend_live_language_switch_test.dart)
+- [calendar_system_link_test.dart](../../test/calendar_system_link_test.dart)
 - [canonical_bleeding_status_resolver_test.dart](../../test/canonical_bleeding_status_resolver_test.dart)
 - [canonical_calendar_screen_test.dart](../../test/canonical_calendar_screen_test.dart)
 - [canonical_fiqh_evidence_adapter_test.dart](../../test/canonical_fiqh_evidence_adapter_test.dart)

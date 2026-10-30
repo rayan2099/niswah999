@@ -97,6 +97,7 @@ class WellbeingReportPdfBuilder {
     WellbeingPeriodSplit? periodSplit,
     WellbeingTrend? trend,
     int trendMonths = 3,
+    bool hijri = false,
   }) async {
     final regularData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
     final boldData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
@@ -128,6 +129,7 @@ class WellbeingReportPdfBuilder {
           periodSplit,
           trend,
           trendMonths,
+          hijri,
         ),
       ),
     );
@@ -355,6 +357,7 @@ class WellbeingReportPdfBuilder {
     WellbeingPeriodSplit? periodSplit,
     WellbeingTrend? trend,
     int trendMonths,
+    bool hijri,
   ) {
     final widgets = <pw.Widget>[
       _card(
@@ -399,7 +402,7 @@ class WellbeingReportPdfBuilder {
       if (trend != null && trend.checkIns > 0)
         pw.Inseparable(
           child: _card(
-            child: _weeklyTrends(isArabic, trend, trendMonths, semiBold),
+            child: _weeklyTrends(isArabic, trend, trendMonths, hijri, semiBold),
           ),
         ),
     ];
@@ -627,6 +630,7 @@ class WellbeingReportPdfBuilder {
     bool isArabic,
     WellbeingTrend trend,
     int months,
+    bool hijri,
     pw.Font semiBold,
   ) {
     final weekly = trend.granularity == WellbeingTrendGranularity.week;
@@ -644,7 +648,11 @@ class WellbeingReportPdfBuilder {
       color: PdfColor.fromHex(_textTertiary),
       fontSize: 7.5,
     );
-    final spans = trend.monthSpans;
+    final monthLabels = wellbeingMonthLabels(
+      trend,
+      arabic: isArabic,
+      hijri: hijri,
+    );
     final series = [
       _TrendSeries(isArabic ? 'المزاج' : 'Mood', _moodLine, _Marker.circle, [
         for (final b in trend.buckets) b.mood,
@@ -731,13 +739,11 @@ class WellbeingReportPdfBuilder {
         pw.Row(
           children: [
             pw.SizedBox(width: 16),
-            for (var i = 0; i < spans.length; i++)
+            for (final (label, count) in monthLabels)
               pw.Expanded(
-                flex: spans[i].$2,
+                flex: count,
                 child: pw.Text(
-                  wellbeingMonthLabelShown(i, spans.length)
-                      ? wellbeingMonthLabel(spans[i].$1, arabic: isArabic)
-                      : '',
+                  label,
                   textAlign: pw.TextAlign.center,
                   style: small,
                 ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/preferences/calendar_system_controller.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
@@ -113,6 +114,8 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
         months: _trendMonths,
       ),
       trendMonths: _trendMonths,
+      // Month names follow the calendar screen's Gregorian / Hijri choice.
+      hijri: CalendarSystemController.instance.hijri,
       periodStart: currentStart,
       generatedAt: now,
     );
