@@ -70,7 +70,24 @@ const WEAK_AR = [
   'ولادة', 'الولادة', 'ولدت', 'رضاعة', 'الرضاعة', 'رضاعه',
   'نزيف', 'النزيف', 'دم', 'الدم', 'دماء', 'خصوبة', 'الخصوبة', 'خصوب',
   'دوار', 'دوخة', 'تنفس', 'التنفس', 'إجهاض', 'الإجهاض', 'هرمون', 'هرمونات',
+  // Testing feedback 2026-10-30: everyday words for discharge, spotting,
+  // cramps and intercourse during the period were rejected as off-topic.
+  'إفرازات', 'افرازات', 'تبقع', 'تنقيط', 'مغص', 'تقلصات', 'جماع', 'الجماع', 'معاشرة',
 ];
+
+/** Arabic spelling variants users type interchangeably (أ/إ/آ/ا, ة/ه,
+ * ى/ي, diacritics, tatweel). Applied to the query and to every Arabic
+ * anchor, so "الاستحاضه", "إستحاضة" and "الإستحاضة" all match. */
+export function normalizeArabic(text: string): string {
+  return text
+    .replace(/[\u{064B}-\u{065F}\u{0670}\u{0640}]/gu, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي');
+}
+
+const STRONG_AR_NORMALIZED = STRONG_AR.map(normalizeArabic);
+const WEAK_AR_NORMALIZED = WEAK_AR.map(normalizeArabic);
 
 // Curated false-friend phrase patterns: common non-domain senses of
 // otherwise-weak-anchor words. A weak-anchor-only match is disqualified
@@ -169,8 +186,9 @@ export function checkQueryRelevance(query: string): RelevanceGateResult {
   if (isGibberish(query)) return { allow: false, reason: 'incoherent' };
 
   const words = wordSet(query);
-  const hasStrongAr = STRONG_AR.some((t) => query.includes(t));
-  const hasWeakAr = WEAK_AR.some((t) => query.includes(t));
+  const arabic = normalizeArabic(query);
+  const hasStrongAr = STRONG_AR_NORMALIZED.some((t) => arabic.includes(t));
+  const hasWeakAr = WEAK_AR_NORMALIZED.some((t) => arabic.includes(t));
   const hasStrong = [...words].some((w) => STRONG_EN.has(w)) || fuzzyContainsStrong(words);
   const hasWeak = [...words].some((w) => WEAK_EN.has(w));
 

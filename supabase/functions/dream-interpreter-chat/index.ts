@@ -20,18 +20,17 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { callOpenAI } from '../_shared/openai_client.ts';
 import { buildUserAiContext, formatContextBlock } from '../_shared/ai_user_context.ts';
+import { AI_ENDPOINT_RATE_LIMIT, checkRateLimit } from '../_shared/rate_limit.ts';
 import {
-  AI_ENDPOINT_RATE_LIMIT,
-  checkRateLimit,
-  limiterUnavailableResponse,
-  rateLimitedResponse,
-} from '../_shared/rate_limit.ts';
+  categorizeError,
+  CHAT_CORS_HEADERS,
+  chatErrorResponse,
+  chatJsonResponse,
+  correlationIdFrom,
+  logChatFailure,
+} from '../_shared/chat_contract.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
-};
+const corsHeaders = CHAT_CORS_HEADERS;
 
 const MAX_PROMPT_LENGTH = 8000;
 
@@ -69,14 +68,10 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const correlationId = correlationIdFrom(req);
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Missing Authorization header.' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (!authHeader) return chatErrorResponse('auth_expired', correlationId);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -85,12 +80,7 @@ Deno.serve(async (req) => {
     });
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
-    if (userError || !userData?.user) {
-      return new Response(JSON.stringify({ error: 'Invalid session.' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (userError || !userData?.user) return chatErrorResponse('auth_expired', correlationId);
 
     const rateLimit = await checkRateLimit(
       userClient,
@@ -98,24 +88,22 @@ Deno.serve(async (req) => {
       AI_ENDPOINT_RATE_LIMIT,
     );
     if (rateLimit.status === 'rate_limited') {
-      return rateLimitedResponse(rateLimit.retryAfterSeconds, corsHeaders);
+      return chatErrorResponse('rate_limited', correlationId, {
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      });
     }
     if (rateLimit.status === 'limiter_unavailable') {
-      return limiterUnavailableResponse(corsHeaders);
+      return chatErrorResponse('limiter_unavailable', correlationId, { retryAfterSeconds: 30 });
     }
 
     const { prompt } = await req.json();
     if (typeof prompt !== 'string' || !prompt.trim()) {
-      return new Response(JSON.stringify({ error: 'prompt is required.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return chatErrorResponse('invalid_request', correlationId, { message: 'prompt is required.' });
     }
     if (prompt.length > MAX_PROMPT_LENGTH) {
-      return new Response(
-        JSON.stringify({ error: `prompt exceeds ${MAX_PROMPT_LENGTH} characters.` }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return chatErrorResponse('invalid_request', correlationId, {
+        message: `prompt exceeds ${MAX_PROMPT_LENGTH} characters.`,
+      });
     }
 
     const userContext = await buildUserAiContext(userClient, { userId: userData.user.id });
@@ -127,19 +115,13 @@ Deno.serve(async (req) => {
       timeoutMs: 20_000,
     });
 
-    return new Response(JSON.stringify({ text: result.text }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return chatJsonResponse({ text: result.text }, correlationId);
   } catch (error) {
-    console.error('dream-interpreter-chat: request failed', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    // Unlike dr-niswah-chat/fiqh-advisor-chat, this feature has no graceful
-    // fallback-text UX today — the client shows a real error state on
-    // failure — so failures are surfaced as an error response, not masked.
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error.' }),
-      { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    );
+    // The client shows a real error state on failure, so failures are
+    // surfaced as a categorized error response, never masked as a reply.
+    // The prompt and the provider's message are never logged.
+    const category = categorizeError(error);
+    logChatFailure('dream-interpreter-chat', category, correlationId, error);
+    return chatErrorResponse(category, correlationId);
   }
 });

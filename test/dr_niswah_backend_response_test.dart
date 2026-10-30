@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:niswah/core/network/ai_failure.dart';
 import 'package:niswah/features/ai_assistant/data/services/dr_niswah_backend_service.dart';
 
 /// Main-vs-PR#4 merge resolution (2026-10-08): `DrNiswahBackendResponse
@@ -46,7 +47,7 @@ void main() {
           'reply': '',
           'urgent': false,
         }),
-        throwsA(isA<StateError>()),
+        throwsA(isA<AiFailure>()),
       );
     });
 
@@ -55,7 +56,7 @@ void main() {
       () {
         expect(
           () => DrNiswahBackendResponse.fromBackendJson({'urgent': false}),
-          throwsA(isA<StateError>()),
+          throwsA(isA<AiFailure>()),
         );
       },
     );
@@ -66,7 +67,7 @@ void main() {
           'reply': 12345,
           'urgent': false,
         }),
-        throwsA(isA<StateError>()),
+        throwsA(isA<AiFailure>()),
       );
     });
 

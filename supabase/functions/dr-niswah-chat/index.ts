@@ -16,28 +16,42 @@ import { callOpenAI } from '../_shared/openai_client.ts';
 import { buildUserAiContext, formatContextBlock } from '../_shared/ai_user_context.ts';
 import {
   assertSnapshotHealth,
-  citationPayload,
+  citationsForAnswer,
   formatKnowledgeBlock,
   retrieveKnowledge,
 } from '../_shared/kb_retrieval.ts';
-import {
-  AI_ENDPOINT_RATE_LIMIT,
-  checkRateLimit,
-  limiterUnavailableResponse,
-  rateLimitedResponse,
-} from '../_shared/rate_limit.ts';
+import { AI_ENDPOINT_RATE_LIMIT, checkRateLimit } from '../_shared/rate_limit.ts';
 import { detectSmallTalk, smallTalkReply } from '../_shared/small_talk.ts';
+import {
+  categorizeError,
+  CHAT_CORS_HEADERS,
+  chatErrorResponse,
+  chatJsonResponse,
+  type ChatTurn,
+  correlationIdFrom,
+  extractUsedKnowledge,
+  formatConversationPrompt,
+  isUuid,
+  logChatFailure,
+  MAX_HISTORY_TURNS,
+  normalizeHistory,
+  retrievalQueryFor,
+  USED_SOURCES_INSTRUCTION,
+} from '../_shared/chat_contract.ts';
+import { classifyNoEvidence, noEvidenceReply } from '../_shared/no_evidence_replies.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
-};
+const corsHeaders = CHAT_CORS_HEADERS;
 
 const SYSTEM_PROMPT = `أنتِ "طبيبة"، مرافقة صحية تعليمية داخل تطبيق نسوة.
 أسلوبك دافئ، مطمئن، مباشر، وبالعربية الفصحى المبسطة عندما تكتب المستخدمة بالعربية.
 
-ادخلي في صلب الإجابة مباشرة. لا تستخدمي رموز الماركداون. اجعلي الإجابة مختصرة عادةً إلا إذا طلبت المستخدمة تفصيلاً.
+طريقة الإجابة:
+- أجيبي عن سؤالها نفسه في الجملة الأولى، ثم أضيفي ما يهمها عمليًا. اجعلي الإجابة قصيرة عادةً (من جملتين إلى خمس جمل) إلا إذا طلبت تفصيلاً.
+- افهمي اللهجة السعودية والخليجية والأخطاء الإملائية، وردّي بعربية واضحة وطبيعية بلا تكلّف.
+- قد تسبق رسالتَها أدوارٌ سابقة من المحادثة. استخدميها لفهم المتابعات مثل "لماذا؟" أو "وإذا كان بنيًا؟" وأجيبي عمّا تقصده فعلًا، ولا تطلبي منها إعادة ما قالته. المحادثة السابقة ليست مصدرًا لأي معلومة صحية؛ المصدر هو [KNOWLEDGE] فقط.
+- إذا كانت الإجابة تتوقف فعلًا على تفصيل لم تذكره، اسألي سؤالًا واحدًا قصيرًا ومحددًا بدل سرد كل الاحتمالات.
+- لا تكرري التنبيهات والإخلاءات؛ اذكري التوجيه لمختص مرة واحدة فقط عندما يغيّر ما ينبغي أن تفعله.
+- لا تستخدمي رموز الماركداون.
 
 نطاقك يقتصر على الصحة النسائية: الدورة الشهرية، الحمل، ما بعد الولادة، الخصوبة/محاولة الحمل، والحالة النفسية المرتبطة بهذه المراحل. إذا كان سؤال المستخدمة لا علاقة له إطلاقًا بهذا النطاق (كطلب وصفة طعام، أو معلومة عامة لا صلة لها بالصحة النسائية)، فلا تجيبي عنه من معلوماتك العامة — وضّحي بإيجاز أن هذا خارج نطاق "طبيبة" ووجّهي المستخدمة للمساعد العام في التطبيق بدلاً من ذلك.
 
@@ -61,7 +75,9 @@ const SYSTEM_PROMPT = `أنتِ "طبيبة"، مرافقة صحية تعليم�
 حدود السلامة:
 - عند علامة خطر، الأولوية للتوجيه الطبي العاجل؛ لا تسمحي للنص التثقيفي أن يؤخر هذا التوجيه.
 - لا تحوّلي عرضًا إلى تشخيص.
-- إذا كان مستوى الخطورة غير واضح، صرّحي بعدم اليقين ووجهي إلى مختص.`;
+- إذا كان مستوى الخطورة غير واضح، صرّحي بعدم اليقين ووجهي إلى مختص.
+
+${USED_SOURCES_INSTRUCTION}`;
 
 const URGENT_BANNER_AR =
   'قد يكون هذا من علامات الخطر. يُرجى التواصل مع طبيبتك أو الطوارئ الآن.';
@@ -69,18 +85,11 @@ const URGENT_BANNER_EN =
   'This may be an urgent warning sign. Please contact your clinician or emergency care now.';
 
 // Hard fail-closed gate (Engineering Remediation Pass, Phase 3): for a
-// NON-urgent message, if retrieval returns nothing -- whether because
-// nothing in the KB matched this question, or because a row that would
-// have matched was filtered out by scope/pregnancy-state/postpartum/TTC/
-// qualification/fail-closed rules, or because the live snapshot doesn't
-// match what this code expects -- the model must never be called to answer
-// from its own pretrained knowledge. This mirrors fiqh-advisor-chat's
-// existing pre-generation gate, which dr-niswah-chat previously lacked
-// (it relied on a system-prompt instruction alone).
-const NO_ELIGIBLE_KB_AR =
-  'لا توجد في قاعدة معرفة نسوة المعتمدة للإنتاج معلومات كافية للإجابة عن هذا السؤال تحديدًا. يُرجى وصف الأمر لمختص صحي، أو التواصل مع الطوارئ إذا كان عرضًا عاجلًا.';
-const NO_ELIGIBLE_KB_EN =
-  'The verified Niswah knowledge base does not currently contain sufficient evidence to answer this specific question. Please describe it to a healthcare professional, or contact emergency care if this feels urgent.';
+// NON-urgent message, if retrieval returns nothing, the model is never
+// called to answer from its own pretrained knowledge. Since 2026-10-30 the
+// fixed reply depends on why there was nothing (no_evidence_replies.ts):
+// a vague message gets one clarifying question, an off-topic one is pointed
+// to the general assistant, and an uncovered health question says so.
 
 type RedFlagCategory =
   | 'bleeding'
@@ -138,14 +147,10 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const correlationId = correlationIdFrom(req);
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Missing Authorization header.' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (!authHeader) return chatErrorResponse('auth_expired', correlationId);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -156,21 +161,18 @@ Deno.serve(async (req) => {
     });
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
-    if (userError || !userData?.user) {
-      return new Response(JSON.stringify({ error: 'Invalid session.' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (userError || !userData?.user) return chatErrorResponse('auth_expired', correlationId);
     const userId = userData.user.id;
 
-    const { threadId, content } = await req.json();
+    const { threadId, content, clientMessageId, history: clientHistory } = await req.json();
     if (!threadId || typeof content !== 'string' || !content.trim()) {
-      return new Response(JSON.stringify({ error: 'threadId and content are required.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      return chatErrorResponse('invalid_request', correlationId, {
+        message: 'threadId and content are required.',
       });
     }
+    // The app sends a stable id per message, so retrying a failed send can
+    // never store the same question twice. Older builds send none.
+    const userMessageId = isUuid(clientMessageId) ? clientMessageId : crypto.randomUUID();
 
     const language = detectLanguage(content);
     const redFlags = detectRedFlags(content);
@@ -184,145 +186,116 @@ Deno.serve(async (req) => {
         AI_ENDPOINT_RATE_LIMIT,
       );
       if (rateLimit.status === 'rate_limited') {
-        return rateLimitedResponse(rateLimit.retryAfterSeconds, corsHeaders);
+        return chatErrorResponse('rate_limited', correlationId, {
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+        });
       }
       if (rateLimit.status === 'limiter_unavailable') {
-        return limiterUnavailableResponse(corsHeaders);
+        return chatErrorResponse('limiter_unavailable', correlationId, { retryAfterSeconds: 30 });
       }
     }
 
     let flaggedConversationSaved = true;
     if (urgent) {
-      try {
-        const serviceClient = createClient(supabaseUrl, serviceRoleKey);
-        await serviceClient.from('flagged_conversations').insert({
-          user_id: userId,
-          thread_id: threadId,
-          message_excerpt: content.slice(0, 500),
-          matched_categories: redFlags,
-        });
-      } catch (error) {
+      const serviceClient = createClient(supabaseUrl, serviceRoleKey);
+      const { error } = await serviceClient.from('flagged_conversations').insert({
+        user_id: userId,
+        thread_id: threadId,
+        message_excerpt: content.slice(0, 500),
+        matched_categories: redFlags,
+      });
+      if (error) {
         flaggedConversationSaved = false;
-        console.error('dr-niswah-chat: flagged_conversations insert failed', {
-          userId,
-          threadId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        console.error('dr-niswah-chat: flagged_conversations insert failed', { correlationId, code: error.code });
       }
     }
 
-    let userMessageSaved = true;
-    try {
-      await userClient.from('chat_messages').insert({
-        thread_id: threadId,
-        user_id: userId,
-        role: 'user',
-        content,
-        metadata: {},
-      });
-    } catch (error) {
-      userMessageSaved = false;
-      console.error('dr-niswah-chat: user chat_messages insert failed', {
-        userId,
-        threadId,
-        urgent,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    // Earlier turns of this thread, read from the user's own rows (RLS),
+    // oldest first. Falls back to what the app sent if the read fails.
+    const history = await loadThreadHistory(userClient, threadId, userMessageId, clientHistory, correlationId);
+
+    // supabase-js reports a failed insert in `error`, it does not throw, so
+    // the result is checked rather than wrapped in try/catch.
+    let userMessageSaved = false;
+    const saveUserMessage = async () => {
+      if (userMessageSaved) return;
+      const { error } = await userClient.from('chat_messages').upsert(
+        { id: userMessageId, thread_id: threadId, user_id: userId, role: 'user', content, metadata: {} },
+        { onConflict: 'id', ignoreDuplicates: true },
+      );
+      if (error) {
+        console.error('dr-niswah-chat: user chat_messages insert failed', { correlationId, urgent, code: error.code });
+      } else {
+        userMessageSaved = true;
+      }
+    };
+    const saveAssistantMessage = async (reply: string, metadata: Record<string, unknown>) => {
+      await saveUserMessage();
+      const { data, error } = await userClient
+        .from('chat_messages')
+        .insert({ thread_id: threadId, user_id: userId, role: 'assistant', content: reply, metadata })
+        .select('id')
+        .single();
+      if (error) {
+        console.error('dr-niswah-chat: assistant chat_messages insert failed', { correlationId, urgent, code: error.code });
+        return null;
+      }
+      return (data?.id as string | undefined) ?? null;
+    };
+
+    // An urgent message is stored before anything else can fail. An
+    // ordinary one is stored together with its reply, so a failed attempt
+    // leaves no unanswered question behind and the retry stores it once.
+    if (urgent) await saveUserMessage();
 
     // "شكرا", "hi", "تمام": a short social message gets a fixed friendly
     // reply instead of the no-knowledge refusal. Never on a red-flag message.
     const smallTalk = urgent ? null : detectSmallTalk(content);
     if (smallTalk) {
-      const finalReply = smallTalkReply(smallTalk, 'dr_niswah', language);
-      let assistantMessageId: string | null = null;
-      try {
-        const { data: saved } = await userClient
-          .from('chat_messages')
-          .insert({
-            thread_id: threadId,
-            user_id: userId,
-            role: 'assistant',
-            content: finalReply,
-            metadata: { source: 'small_talk', urgent: false },
-          })
-          .select()
-          .single();
-        assistantMessageId = saved?.id ?? null;
-      } catch (error) {
-        console.error('dr-niswah-chat: small-talk assistant message insert failed', {
-          userId, threadId, error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      return new Response(
-        JSON.stringify({
-          reply: finalReply,
-          urgent: false,
-          messageId: assistantMessageId,
-          citations: [],
-          knowledgeGrounded: false,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      const reply = smallTalkReply(smallTalk, 'dr_niswah', language);
+      const messageId = await saveAssistantMessage(reply, { source: 'small_talk', urgent: false });
+      return chatJsonResponse(
+        { reply, urgent: false, messageId, citations: [], knowledgeGrounded: false, kind: 'small_talk' },
+        correlationId,
       );
     }
 
+    const retrievalQuery = retrievalQueryFor(history, content);
     const [userContext, safetyHits, healthHits] = await Promise.all([
       buildUserAiContext(userClient, { userId, currentMessageSafetyFlags: redFlags }),
       retrieveKnowledge(userClient, {
         domain: 'SAFETY_ESCALATION',
         language,
-        query: content,
+        query: retrievalQuery,
         limit: urgent ? 8 : 4,
       }),
       retrieveKnowledge(userClient, {
         domain: 'HEALTH',
         language,
-        query: content,
+        query: retrievalQuery,
         limit: 8,
       }),
     ]);
 
     const kbHits = [...safetyHits, ...healthHits];
-    const citations = citationPayload(kbHits);
 
     // Hard fail-closed gate: applies to the ordinary educational path only.
     // The urgent banner is safety-critical and independent of KB grounding
     // (it fires from the keyword scan above, not from retrieval), so it must
-    // still reach the user even when there is no eligible knowledge to
-    // support supplementary text -- this gate never suppresses it.
-    const snapshotHealth = kbHits.length > 0 ? { ok: true } : await assertSnapshotHealth(userClient);
-    const noEligibleEvidence = kbHits.length === 0;
-
-    if (!urgent && noEligibleEvidence) {
-      const finalReply = language === 'ar' ? NO_ELIGIBLE_KB_AR : NO_ELIGIBLE_KB_EN;
-      let assistantMessageId: string | null = null;
-      try {
-        const { data: saved } = await userClient
-          .from('chat_messages')
-          .insert({
-            thread_id: threadId,
-            user_id: userId,
-            role: 'assistant',
-            content: finalReply,
-            metadata: { source: 'kb_fail_closed', urgent: false, snapshot_ok: snapshotHealth.ok },
-          })
-          .select()
-          .single();
-        assistantMessageId = saved?.id ?? null;
-      } catch (error) {
-        console.error('dr-niswah-chat: fail-closed assistant message insert failed', {
-          userId, threadId, error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      return new Response(
-        JSON.stringify({
-          reply: finalReply,
-          urgent: false,
-          messageId: assistantMessageId,
-          citations: [],
-          knowledgeGrounded: false,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    // still reach the user even when there is no eligible knowledge.
+    if (!urgent && kbHits.length === 0) {
+      const snapshotHealth = await assertSnapshotHealth(userClient);
+      const kind = classifyNoEvidence(retrievalQuery, content);
+      const reply = noEvidenceReply(kind, 'dr_niswah', language);
+      const messageId = await saveAssistantMessage(reply, {
+        source: 'kb_fail_closed',
+        no_evidence_kind: kind,
+        urgent: false,
+        snapshot_ok: snapshotHealth.ok,
+      });
+      return chatJsonResponse(
+        { reply, urgent: false, messageId, citations: [], knowledgeGrounded: false, kind: `no_evidence_${kind}` },
+        correlationId,
       );
     }
 
@@ -332,102 +305,87 @@ Deno.serve(async (req) => {
       formatKnowledgeBlock(kbHits),
     ].join('\n\n');
 
-    let reply: string;
+    let reply = '';
+    let usedIds: Set<string> | null = null;
     try {
       const result = await callOpenAI({
-        prompt: content,
+        prompt: formatConversationPrompt(history, content),
         systemInstruction,
+        timeoutMs: 25_000,
       });
-      reply = result.text;
+      ({ text: reply, usedIds } = extractUsedKnowledge(result.text));
+      if (!reply) throw new SyntaxError('empty after marker removal');
     } catch (error) {
-      console.error('dr-niswah-chat: model call failed', {
-        userId,
-        threadId,
-        urgent,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      reply = urgent
-        ? ''
-        : language === 'ar'
-          ? 'تعذر الحصول على رد الآن. حاولي مرة أخرى بعد قليل، وإذا كان لديك عرض مقلق فتواصلي مع مختص صحي.'
-          : 'A response is unavailable right now. Please try again, and contact a clinician if you have a concerning symptom.';
+      const category = error instanceof SyntaxError ? 'malformed_response' : categorizeError(error);
+      logChatFailure('dr-niswah-chat', category, correlationId, error);
+      // A failure is never stored or shown as an assistant answer
+      // (testing feedback 2026-10-30). The urgent banner is the exception:
+      // it is a complete safety reply on its own.
+      if (!urgent) return chatErrorResponse(category, correlationId);
+      reply = '';
     }
 
+    const citations = reply ? citationsForAnswer(kbHits, usedIds) : [];
     const urgentBanner = language === 'ar' ? URGENT_BANNER_AR : URGENT_BANNER_EN;
-    const finalReply = urgent
-      ? reply
-        ? `${urgentBanner}\n\n${reply}`
-        : urgentBanner
-      : reply;
+    const finalReply = urgent ? (reply ? `${urgentBanner}\n\n${reply}` : urgentBanner) : reply;
 
-    let assistantMessageId: string | null = null;
-    let assistantMessageSaved = true;
-    try {
-      const { data: savedAssistantMessage } = await userClient
-        .from('chat_messages')
-        .insert({
-          thread_id: threadId,
-          user_id: userId,
-          role: 'assistant',
-          content: finalReply,
-          metadata: {
-            source: 'openai_kb_grounded',
-            urgent,
-            knowledge_keys: [...new Set(kbHits.map((h) => h.knowledge_key))],
-            citation_count: citations.length,
-            // Pre-Merge Integration Validation (Phase 5, Finding 7): the
-            // live JSON response has always carried full citation objects
-            // (see the top-level `citations` field below), but this
-            // persisted copy previously carried only a count -- the one
-            // place the client's chat screen actually reads citations from
-            // (dr_niswah_chat_screen.dart's `message.metadata['citations']`)
-            // was silently getting nothing. citationPayload()'s shape
-            // (title/url/locator/...) already matches what that screen
-            // reads (`title`/`url`), so no client-side rendering change is
-            // needed for this fix to take effect.
-            citations,
-          },
-        })
-        .select()
-        .single();
-      assistantMessageId = savedAssistantMessage?.id ?? null;
-    } catch (error) {
-      assistantMessageSaved = false;
-      console.error('dr-niswah-chat: assistant chat_messages insert failed', {
-        userId,
-        threadId,
-        urgent,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const messageId = await saveAssistantMessage(finalReply, {
+      source: 'openai_kb_grounded',
+      urgent,
+      knowledge_keys: [...new Set(kbHits.map((h) => h.knowledge_key))],
+      used_knowledge_keys: usedIds ? [...usedIds] : null,
+      citation_count: citations.length,
+      // dr_niswah_chat_screen.dart reads metadata['citations'] when a
+      // thread is reopened, so the persisted copy carries the same objects
+      // as the live response.
+      citations,
+    });
 
-    if (urgent && (!flaggedConversationSaved || !userMessageSaved || !assistantMessageSaved)) {
+    if (urgent && (!flaggedConversationSaved || !userMessageSaved || !messageId)) {
       console.error('dr-niswah-chat: urgent exchange partially unpersisted', {
-        userId,
-        threadId,
+        correlationId,
         flaggedConversationSaved,
         userMessageSaved,
-        assistantMessageSaved,
+        assistantMessageSaved: Boolean(messageId),
       });
     }
 
-    return new Response(
-      JSON.stringify({
+    return chatJsonResponse(
+      {
         reply: finalReply,
         urgent,
-        messageId: assistantMessageId,
+        messageId,
         citations,
-        knowledgeGrounded: kbHits.length > 0,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        knowledgeGrounded: citations.length > 0,
+        kind: urgent ? 'urgent' : 'grounded',
+      },
+      correlationId,
     );
   } catch (error) {
-    console.error('dr-niswah-chat: unhandled error', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error.' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    );
+    const category = categorizeError(error);
+    logChatFailure('dr-niswah-chat', category, correlationId, error);
+    return chatErrorResponse(category, correlationId);
   }
 });
+
+// deno-lint-ignore no-explicit-any
+async function loadThreadHistory(
+  client: any,
+  threadId: string,
+  excludeId: string,
+  clientHistory: unknown,
+  correlationId: string,
+): Promise<ChatTurn[]> {
+  const { data, error } = await client
+    .from('chat_messages')
+    .select('id, role, content')
+    .eq('thread_id', threadId)
+    .neq('id', excludeId)
+    .order('created_at', { ascending: false })
+    .limit(MAX_HISTORY_TURNS);
+  if (error || !Array.isArray(data)) {
+    console.error('dr-niswah-chat: history read failed, using client history', { correlationId });
+    return normalizeHistory(clientHistory);
+  }
+  return normalizeHistory([...data].reverse());
+}

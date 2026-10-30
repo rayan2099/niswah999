@@ -9,6 +9,7 @@ import '../../../../core/network/supabase_client.dart';
 import '../../../../core/preferences/pregnancy_status_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/niswah_loading_indicator.dart';
+import '../../../../core/network/ai_failure.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/chat_thread.dart';
 import '../viewmodels/chat_view_model.dart';
@@ -57,10 +58,21 @@ class DrNiswahChatScreen extends StatefulWidget {
     super.key,
     this.mode = NiswahAssistantMode.general,
     this.initialThreadId,
+    this.initialDraft,
+    this.viewModelForTesting,
   });
 
   final NiswahAssistantMode mode;
   final String? initialThreadId;
+
+  /// Text placed in the composer on open, for example the question the
+  /// general assistant suggested asking the Fiqh advisor. Never sent
+  /// automatically: she reviews it and taps send.
+  final String? initialDraft;
+
+  /// Lets a widget test mount the screen on a prepared conversation.
+  @visibleForTesting
+  final ChatViewModel? viewModelForTesting;
   @override
   State<DrNiswahChatScreen> createState() => _DrNiswahChatScreenState();
 }
@@ -84,8 +96,13 @@ class _DrNiswahChatScreenState extends State<DrNiswahChatScreen> {
   @override
   void initState() {
     super.initState();
-    _model = ChatViewModel();
+    _model = widget.viewModelForTesting ?? ChatViewModel();
     _model.addListener(_followNewestMessage);
+    final draft = widget.initialDraft;
+    if (draft != null && draft.trim().isNotEmpty) {
+      _controller.text = draft;
+      _userNavigated = true;
+    }
     unawaited(_restoreCachedView());
     _model.loadThreads(userId: _currentUserId()).then((_) {
       if (!mounted) return;
@@ -218,8 +235,34 @@ class _DrNiswahChatScreenState extends State<DrNiswahChatScreen> {
           controller: _controller,
           scrollController: _scrollController,
           onSend: _send,
+          onRetry: (message) => _model.retryMessage(
+            message: message,
+            threadType: chatThreadTypeFor(widget.mode),
+          ),
+          onEdit: (message) {
+            final text = _model.takeBackFailedMessage(message);
+            if (text == null) return;
+            _controller.text = text;
+            _controller.selection = TextSelection.collapsed(
+              offset: text.length,
+            );
+          },
+          onOpenRoute: _openRoute,
         );
     }
+  }
+
+  /// Opens the chat the general assistant pointed her to, with her question
+  /// ready in the composer.
+  void _openRoute(String route, String question) {
+    final mode = route == 'fiqh'
+        ? NiswahAssistantMode.fiqhAdvisory
+        : NiswahAssistantMode.health;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DrNiswahChatScreen(mode: mode, initialDraft: question),
+      ),
+    );
   }
 
   Future<void> _send() async {
@@ -252,6 +295,9 @@ class _ChatBody extends StatelessWidget {
     required this.controller,
     required this.scrollController,
     required this.onSend,
+    required this.onRetry,
+    required this.onEdit,
+    required this.onOpenRoute,
   });
 
   final NiswahAssistantMode mode;
@@ -259,6 +305,9 @@ class _ChatBody extends StatelessWidget {
   final TextEditingController controller;
   final ScrollController scrollController;
   final VoidCallback onSend;
+  final ValueChanged<ChatMessage> onRetry;
+  final ValueChanged<ChatMessage> onEdit;
+  final void Function(String route, String question) onOpenRoute;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -280,8 +329,8 @@ class _ChatBody extends StatelessWidget {
               Expanded(
                 child: Text(
                   _ai(
-                    'Answers use your selected Madhhab and Google Search grounding. Ambiguous cases are escalated to a qualified scholar.',
-                    'تراعي الإجابات مذهبكِ المختار وتستند إلى البحث الموثق، وتُحال الحالات الملتبسة إلى مختصة شرعية.',
+                    'Answers come from Niswah\'s reviewed fiqh library for your selected madhhab. Unclear cases are referred to a qualified scholar.',
+                    'تستند الإجابات إلى مكتبة نسوة الفقهية المراجَعة وفق مذهبكِ المختار، وتُحال الحالات الملتبسة إلى عالِمة أو جهة إفتاء مؤهلة.',
                   ),
                   style: const TextStyle(
                     color: Color(0xFF704D0A),
@@ -312,7 +361,13 @@ class _ChatBody extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
                 itemCount: model.messages.length + (model.isSending ? 1 : 0),
                 itemBuilder: (_, i) => i < model.messages.length
-                    ? _Message(message: model.messages[i])
+                    ? _Message(
+                        message: model.messages[i],
+                        busy: model.isSending,
+                        onRetry: onRetry,
+                        onEdit: onEdit,
+                        onOpenRoute: onOpenRoute,
+                      )
                     : const _TypingIndicator(),
               ),
       ),
@@ -335,11 +390,12 @@ class _ChatBody extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  _ai(
-                    'The message could not be sent. Please try again.',
-                    'تعذر إرسال الرسالة. حاولي مرة أخرى.',
+                  _errorLine(model.lastFailure, model.errorMessage!),
+                  style: const TextStyle(
+                    color: Color(0xFF9F1239),
+                    fontSize: 11,
+                    height: 1.4,
                   ),
-                  style: const TextStyle(color: Color(0xFF9F1239), fontSize: 9),
                 ),
               ),
             ],
@@ -1065,21 +1121,37 @@ class _Composer extends StatelessWidget {
 }
 
 class _Message extends StatelessWidget {
-  const _Message({required this.message});
+  const _Message({
+    required this.message,
+    required this.busy,
+    required this.onRetry,
+    required this.onEdit,
+    required this.onOpenRoute,
+  });
   final ChatMessage message;
+  final bool busy;
+  final ValueChanged<ChatMessage> onRetry;
+  final ValueChanged<ChatMessage> onEdit;
+  final void Function(String route, String question) onOpenRoute;
 
-  List<Map<String, dynamic>> get _citations =>
-      (message.metadata['citations'] as List? ?? const [])
-          .whereType<Map>()
-          .map(Map<String, dynamic>.from)
-          .toList();
+  List<Map<String, dynamic>> get _citations => uniqueCitations(
+    (message.metadata['citations'] as List? ?? const [])
+        .whereType<Map>()
+        .map(Map<String, dynamic>.from)
+        .toList(),
+  );
   bool get _urgent => message.metadata['urgent'] == true;
+  bool get _failed => message.metadata[ChatViewModel.deliveryKey] == 'failed';
+  String? get _route {
+    final route = message.metadata['route'];
+    return route == 'fiqh' || route == 'health' ? route as String : null;
+  }
 
   @override
   Widget build(BuildContext context) {
     final mine = message.role == ChatRole.user;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+    final bubble = Padding(
+      padding: EdgeInsets.only(bottom: _failed ? 4 : 14),
       child: Row(
         mainAxisAlignment: mine
             ? MainAxisAlignment.end
@@ -1112,7 +1184,9 @@ class _Message extends StatelessWidget {
               constraints: const BoxConstraints(maxWidth: 285),
               decoration: BoxDecoration(
                 color: mine
-                    ? const Color(0xFFE91E4D)
+                    ? (_failed
+                          ? const Color(0xFFE91E4D).withValues(alpha: 0.55)
+                          : const Color(0xFFE91E4D))
                     : _urgent
                     ? const Color(0xFFFEF2F2)
                     : Colors.white,
@@ -1173,43 +1247,285 @@ class _Message extends StatelessWidget {
                           : _urgent
                           ? const Color(0xFF7F1D1D)
                           : const Color(0xFF734C43),
-                      fontSize: 11,
-                      height: 1.5,
+                      fontSize: 13,
+                      height: 1.55,
                       fontWeight: _urgent ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),
+                  if (!mine && _route != null) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      key: const Key('chat-route-button'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 44),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: Icon(
+                        _route == 'fiqh'
+                            ? Icons.menu_book_outlined
+                            : Icons.medical_services_outlined,
+                        size: 16,
+                      ),
+                      label: Text(
+                        _route == 'fiqh'
+                            ? _ai(
+                                'Ask the Fiqh advisor',
+                                'اسألي المستشارة الفقهية',
+                              )
+                            : _ai('Ask Doctor Niswah', 'اسألي الطبيبة نسوة'),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () => onOpenRoute(
+                        _route!,
+                        message.metadata['route_question']?.toString() ?? '',
+                      ),
+                    ),
+                  ],
                   if (!mine && _citations.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (var index = 0; index < _citations.length; index++)
-                          ActionChip(
-                            visualDensity: VisualDensity.compact,
-                            avatar: const Icon(
-                              Icons.open_in_new_rounded,
-                              size: 13,
-                            ),
-                            label: Text(
-                              '[${index + 1}] ${_citations[index]['title']}',
-                              style: const TextStyle(fontSize: 9),
-                            ),
-                            onPressed: () {
-                              final uri = Uri.tryParse(
-                                _citations[index]['url']?.toString() ?? '',
-                              );
-                              if (uri != null) launchUrl(uri);
-                            },
-                          ),
-                      ],
-                    ),
+                    _SourcesSection(citations: _citations),
                   ],
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+    if (!_failed) return bubble;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        bubble,
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Wrap(
+            spacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                _ai('Not sent', 'لم تُرسل'),
+                style: const TextStyle(color: Color(0xFF9F1239), fontSize: 11),
+              ),
+              TextButton.icon(
+                key: Key('chat-retry-${message.id}'),
+                style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
+                onPressed: busy ? null : () => onRetry(message),
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: Text(
+                  _ai('Retry', 'إعادة المحاولة'),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              TextButton(
+                key: Key('chat-edit-${message.id}'),
+                style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
+                onPressed: busy ? null : () => onEdit(message),
+                child: Text(
+                  _ai('Edit', 'تعديل'),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The error line above the composer: the categorized message plus a short
+/// reference support can look up (it is the request id the server logged).
+String _errorLine(AiFailure? failure, String message) {
+  // Read at build time so a language change since the failure applies.
+  final text = failure?.message ?? message;
+  final ref = failure?.shortReference ?? '';
+  return ref.isEmpty ? text : '$text (${_ai('ref', 'رمز')}: $ref)';
+}
+
+/// One entry per source document, in order. Older stored replies and
+/// deployments before 2026-10-30 can hold several entries for one document
+/// (one per knowledge item); those are folded together here too.
+@visibleForTesting
+List<Map<String, dynamic>> uniqueCitations(List<Map<String, dynamic>> raw) {
+  final seen = <String>{};
+  final out = <Map<String, dynamic>>[];
+  for (final citation in raw) {
+    final url = citation['url']?.toString().trim().toLowerCase() ?? '';
+    final title = citation['title']?.toString().trim().toLowerCase() ?? '';
+    final key = url.isNotEmpty ? url : title;
+    if (key.isEmpty || !seen.add(key)) continue;
+    out.add(citation);
+  }
+  return out;
+}
+
+/// An Arabic name for a source's publisher, from its link. Only publishers
+/// the knowledge base actually cites are listed; anything else shows its
+/// web address, never a guessed name. The original title and link are kept.
+@visibleForTesting
+String sourcePublisherLabel(String url, {required bool arabic}) {
+  final host =
+      Uri.tryParse(url)?.host.toLowerCase().replaceFirst('www.', '') ?? '';
+  const names = <String, (String, String)>{
+    'nhs.uk': ('NHS (UK)', 'هيئة الخدمات الصحية البريطانية NHS'),
+    'womenshealth.gov': (
+      'Office on Women\'s Health (US)',
+      'مكتب صحة المرأة الأمريكي',
+    ),
+    'cdc.gov': ('CDC', 'مراكز مكافحة الأمراض والوقاية منها CDC'),
+    'nichd.nih.gov': ('NIH – NICHD', 'المعاهد الوطنية للصحة الأمريكية NIH'),
+    'who.int': ('World Health Organization', 'منظمة الصحة العالمية'),
+    'moh.gov.sa': ('Saudi Ministry of Health', 'وزارة الصحة السعودية'),
+    'acog.org': ('ACOG', 'الكلية الأمريكية لأطباء النساء والتوليد ACOG'),
+    'nice.org.uk': ('NICE (UK)', 'المعهد الوطني البريطاني للصحة والرعاية NICE'),
+    'islamweb.net': ('IslamWeb', 'إسلام ويب'),
+    'waqfeya.net': ('Waqfeya Library', 'المكتبة الوقفية'),
+    'awqaf.gov.kw': ('Kuwait Ministry of Awqaf', 'وزارة الأوقاف الكويتية'),
+  };
+  for (final entry in names.entries) {
+    if (host == entry.key || host.endsWith('.${entry.key}')) {
+      return arabic ? entry.value.$2 : entry.value.$1;
+    }
+  }
+  return host;
+}
+
+/// The sources under an answer: one line per document, the first shown and
+/// the rest behind "المصادر" (testing feedback 2026-10-30: up to twelve
+/// cards under one reply).
+class _SourcesSection extends StatefulWidget {
+  const _SourcesSection({required this.citations});
+  final List<Map<String, dynamic>> citations;
+
+  @override
+  State<_SourcesSection> createState() => _SourcesSectionState();
+}
+
+class _SourcesSectionState extends State<_SourcesSection> {
+  static const _shownCollapsed = 1;
+  var _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final all = widget.citations;
+    final shown = _expanded ? all : all.take(_shownCollapsed).toList();
+    final hidden = all.length - shown.length;
+    final arabic = AppLocaleController.instance.isArabic;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          button: all.length > _shownCollapsed,
+          expanded: all.length > _shownCollapsed ? _expanded : null,
+          child: InkWell(
+            key: const Key('chat-sources-toggle'),
+            onTap: all.length > _shownCollapsed
+                ? () => setState(() => _expanded = !_expanded)
+                : null,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 36),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.library_books_outlined,
+                    size: 15,
+                    color: Color(0xFF885D54),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${_ai('Sources', 'المصادر')} (${all.length})',
+                    style: const TextStyle(
+                      color: Color(0xFF885D54),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (all.length > _shownCollapsed)
+                    Icon(
+                      _expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 18,
+                      color: const Color(0xFF885D54),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        for (final citation in shown)
+          _SourceLine(citation: citation, arabic: arabic),
+        if (hidden > 0)
+          Text(
+            _ai('+$hidden more', '+$hidden مصادر أخرى'),
+            style: const TextStyle(color: Color(0xFFB99A91), fontSize: 11),
+          ),
+      ],
+    );
+  }
+}
+
+class _SourceLine extends StatelessWidget {
+  const _SourceLine({required this.citation, required this.arabic});
+  final Map<String, dynamic> citation;
+  final bool arabic;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = citation['url']?.toString() ?? '';
+    final title = citation['title']?.toString() ?? '';
+    final publisher = sourcePublisherLabel(url, arabic: arabic);
+    final uri = Uri.tryParse(url);
+    return Semantics(
+      link: true,
+      label: '$publisher. $title',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: uri == null ? null : () => launchUrl(uri),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.open_in_new_rounded,
+                  size: 14,
+                  color: Color(0xFFB92564),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (publisher.isNotEmpty)
+                        Text(
+                          publisher,
+                          style: const TextStyle(
+                            color: Color(0xFF734C43),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(
+                          color: Color(0xFF885D54),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

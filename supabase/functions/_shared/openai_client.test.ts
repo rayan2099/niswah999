@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.208.0/assert/mod.ts';
-import { callOpenAI } from './openai_client.ts';
+import { callOpenAI, OpenAiError } from './openai_client.ts';
 
 // Stubs the global fetch used by callOpenAI() so these tests are
 // deterministic and never touch the real network / never need a real
@@ -228,5 +228,50 @@ Deno.test('callOpenAI — a network-level fetch failure (TypeError) is classifie
       Error,
       'OpenAI request failed: network error.',
     );
+  });
+});
+
+Deno.test('callOpenAI — an exhausted quota is not retried and is categorized as such', async () => {
+  await withEnv({ OPENAI_API_KEY: 'test-key', OPENAI_MODEL: 'gpt-test-model' }, async () => {
+    let calls = 0;
+    const error = await withStubbedFetch(
+      () => {
+        calls++;
+        return Promise.resolve(new Response(
+          JSON.stringify({ error: { code: 'insufficient_quota', type: 'insufficient_quota', message: 'quota' } }),
+          { status: 429 },
+        ));
+      },
+      () => callOpenAI({ prompt: 'p', systemInstruction: 's', maxRetries: 2 }).then(() => null, (e) => e),
+    );
+    assertEquals(calls, 1);
+    assertEquals(error instanceof OpenAiError && error.category, 'quota_exhausted');
+  });
+});
+
+Deno.test('callOpenAI — a timeout is categorized as timeout', async () => {
+  await withEnv({ OPENAI_API_KEY: 'test-key', OPENAI_MODEL: 'gpt-test-model' }, async () => {
+    const error = await withStubbedFetch(
+      (_input, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }),
+      () => callOpenAI({ prompt: 'p', systemInstruction: 's', timeoutMs: 10, maxRetries: 0 }).then(() => null, (e) => e),
+    );
+    assertEquals(error instanceof OpenAiError && error.category, 'timeout');
+  });
+});
+
+Deno.test('callOpenAI — a 200 with a non-JSON body is a malformed response, not retried', async () => {
+  await withEnv({ OPENAI_API_KEY: 'test-key', OPENAI_MODEL: 'gpt-test-model' }, async () => {
+    let calls = 0;
+    const error = await withStubbedFetch(
+      () => {
+        calls++;
+        return Promise.resolve(new Response('<html>gateway</html>', { status: 200 }));
+      },
+      () => callOpenAI({ prompt: 'p', systemInstruction: 's', maxRetries: 2 }).then(() => null, (e) => e),
+    );
+    assertEquals(calls, 1);
+    assertEquals(error instanceof OpenAiError && error.category, 'malformed_response');
   });
 });

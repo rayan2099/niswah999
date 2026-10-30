@@ -152,3 +152,27 @@ export function citationPayload(hits: KnowledgeHit[]) {
     humanReviewStatus: h.human_review_status,
   }));
 }
+
+/**
+ * The citations shown under an answer: only the knowledge items the model
+ * said it relied on, one card per source document. `usedIds` null means the
+ * model did not say, so every retrieved item counts; an empty set means it
+ * used none. Hits arrive ranked, so the first locator kept for a source is
+ * its best match.
+ *
+ * Before this, citationPayload() kept one card per (item, source, locator),
+ * so four knowledge items drawn from one NHS page became four identical
+ * "Urgent Maternal Warning Signs and Symptoms" cards (testing feedback
+ * 2026-10-30).
+ */
+export function citationsForAnswer(hits: KnowledgeHit[], usedIds: Set<string> | null) {
+  const relevant = usedIds === null ? hits : hits.filter((h) => usedIds.has(h.knowledge_key));
+  const seen = new Set<string>();
+  const unique = relevant.filter((h) => {
+    const key = (h.source_url || h.source_key).trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return citationPayload(unique);
+}

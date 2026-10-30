@@ -173,6 +173,12 @@ class _DreamInterpreterScreenState extends State<DreamInterpreterScreen> {
     if (text.isEmpty) return;
     _controller.clear();
     await _model.sendMessage(userId: _currentUserId(), message: text);
+    // A failed turn is dropped from the conversation; give the text back so
+    // nothing she wrote is lost (unless she has started typing again).
+    if (mounted && _model.errorMessage != null && _controller.text.isEmpty) {
+      _controller.text = text;
+      _controller.selection = TextSelection.collapsed(offset: text.length);
+    }
   }
 }
 
@@ -238,10 +244,11 @@ class _ChatView extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
           child: _DreamNotice(
-            message: _dr(
-              'The dream could not be interpreted. Please try again.',
-              'تعذر تفسير الرؤيا. حاولي مرة أخرى.',
-            ),
+            message: model.lastFailure?.message ??
+                _dr(
+                  'The dream could not be interpreted. Please try again.',
+                  'تعذر تفسير الرؤيا. حاولي مرة أخرى.',
+                ),
             isError: true,
           ),
         ),
