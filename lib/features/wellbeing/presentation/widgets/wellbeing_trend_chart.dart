@@ -81,10 +81,27 @@ class WellbeingTrendChart extends StatelessWidget {
     final withData = trend.bucketsWithData;
     return _in(
       '${trend.checkIns} check-ins in $withData of $total ${_unitPlural(total)}',
-      // Phrased to avoid Arabic number agreement with the counted noun.
-      'التسجيلات: ${trend.checkIns} · '
-          '${trend.granularity == WellbeingTrendGranularity.week ? 'أسابيع' : 'أشهر'} فيها تسجيل: $withData من $total',
+      '${_arCount(trend.checkIns, 'تسجيل واحد', 'تسجيلان', 'تسجيلات', 'تسجيلًا')} '
+          'في $withData من ${_arCount(total, 'أسبوع', 'أسبوعين', 'أسابيع', 'أسبوعًا', week: true)}',
     );
+  }
+
+  /// Arabic counted noun: 1, 2, 3–10 and 11+ forms. [week] switches the
+  /// noun set to months when the chart is grouped by month.
+  String _arCount(
+    int n,
+    String one,
+    String two,
+    String few,
+    String many, {
+    bool week = false,
+  }) {
+    if (week && trend.granularity == WellbeingTrendGranularity.month) {
+      (one, two, few, many) = ('شهر', 'شهرين', 'أشهر', 'شهرًا');
+    }
+    if (n == 1) return week ? '1 $one' : one;
+    if (n == 2) return week ? '2 $two' : two;
+    return n <= 10 ? '$n $few' : '$n $many';
   }
 
   String get semanticSummary {

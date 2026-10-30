@@ -1177,34 +1177,8 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
     }
   }
 
-  static String _avg(double? value) =>
-      value == null ? '—' : value.toStringAsFixed(1);
-
-  Widget _row(String label, WellbeingGroupSummary group) => Padding(
-    padding: const EdgeInsets.only(top: 14),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '$label · ${group.count} ${_in('check-ins', 'تسجيلات')}',
-          style: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          group.count == 0
-              ? _in('No check-ins yet', 'لا توجد تسجيلات بعد')
-              : '${_in('Mood', 'المزاج')} ${_avg(group.averageMood)}/5 · '
-                    '${_in('Energy', 'الطاقة')} ${_avg(group.averageEnergy)}/5 · '
-                    '${_in('Sleep', 'النوم')} ${_avg(group.averageSleep)}/5',
-          style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
-        ),
-      ],
-    ),
-  );
+  Widget _row(String label, WellbeingGroupSummary group) =>
+      _WellbeingGroupBlock(label: label, group: group);
 
   Future<void> _selectRange(BuildContext context) async {
     final selected = await _pickTrendRange(
@@ -1331,6 +1305,182 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// "3 check-ins" / "3 تسجيلات", with the Arabic dual and the 11+ form.
+String _checkIns(int n) => _in(
+  n == 1 ? '1 check-in' : '$n check-ins',
+  n == 1
+      ? 'تسجيل واحد'
+      : n == 2
+      ? 'تسجيلان'
+      : n <= 10
+      ? '$n تسجيلات'
+      : '$n تسجيلًا',
+);
+
+/// One group of the mood card (all days, period days, other days) as a
+/// small panel: a count pill, then one bar per measure on the 1–5 scale.
+/// Testing feedback 2026-10-30: the averages were a run of "3.5/5 · …"
+/// text that wrapped mid-number. Colors match the chart's series.
+class _WellbeingGroupBlock extends StatelessWidget {
+  const _WellbeingGroupBlock({required this.label, required this.group});
+  final String label;
+  final WellbeingGroupSummary group;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(top: 12),
+    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFBF8F9),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xFFF1E9EC)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (group.count > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(color: const Color(0xFFF1E9EC)),
+                ),
+                child: Text(
+                  _checkIns(group.count),
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        if (group.count == 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _in('No check-ins yet', 'لا توجد تسجيلات بعد'),
+              style: const TextStyle(
+                color: AppColors.textTertiary,
+                fontSize: 12,
+              ),
+            ),
+          )
+        else ...[
+          const SizedBox(height: 10),
+          _MetricBar(
+            label: _in('Mood', 'المزاج'),
+            value: group.averageMood!,
+            color: AppColors.brandPrimary,
+          ),
+          _MetricBar(
+            label: _in('Energy', 'الطاقة'),
+            value: group.averageEnergy!,
+            color: AppColors.nifas,
+          ),
+          _MetricBar(
+            label: _in('Sleep', 'النوم'),
+            value: group.averageSleep!,
+            color: AppColors.istihadah,
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _MetricBar extends StatelessWidget {
+  const _MetricBar({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+  final String label;
+  final double value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final number = value.toStringAsFixed(1);
+    return Semantics(
+      container: true,
+      label: _in('$label $number out of 5', '$label $number من 5'),
+      excludeSemantics: true,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 52),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  value: (value / 5).clamp(0.0, 1.0),
+                  minHeight: 8,
+                  backgroundColor: const Color(0xFFEFE7EA),
+                  valueColor: AlwaysStoppedAnimation(color),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            // One LTR run so "3.5/5" never reorders in Arabic.
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: number,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const TextSpan(
+                    text: '/5',
+                    style: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

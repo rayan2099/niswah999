@@ -115,6 +115,17 @@ Future<void> _choose(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
 }
 
+/// A text inside the mood card's group panel titled [label].
+Finder _inGroup(String label, String text) => find.descendant(
+  of: find.ancestor(
+    of: find.text(label),
+    matching: find.byWidgetPredicate(
+      (w) => w.runtimeType.toString() == '_WellbeingGroupBlock',
+    ),
+  ),
+  matching: find.text(text),
+);
+
 void main() {
   group('WellbeingTrend', () {
     test('weekly buckets with gaps, never filled in', () {
@@ -158,7 +169,7 @@ void main() {
   ) async {
     final requested = await _pump(tester);
     expect(find.text('Last 3 months'), findsNWidgets(2));
-    expect(find.text('All days · 4 check-ins'), findsOneWidget);
+    expect(_inGroup('All days', '4 check-ins'), findsOneWidget);
     expect(find.text('4 check-ins in 3 of 12 weeks'), findsOneWidget);
     expect(requested.last, DateTime(2026, 6, 1));
     expect(
@@ -168,7 +179,7 @@ void main() {
 
     await _choose(tester, 'Last 6 months');
     expect(requested.last, DateTime(2026, 3, 1));
-    expect(find.text('All days · 5 check-ins'), findsOneWidget);
+    expect(_inGroup('All days', '5 check-ins'), findsOneWidget);
     expect(find.textContaining('5 check-ins in 4 of '), findsOneWidget);
     // The symptom card keeps its own period.
     expect(
@@ -180,7 +191,7 @@ void main() {
     );
 
     await _choose(tester, 'Last month');
-    expect(find.text('All days · 2 check-ins'), findsOneWidget);
+    expect(_inGroup('All days', '2 check-ins'), findsOneWidget);
     expect(find.text('2 check-ins in 2 of 3 weeks'), findsOneWidget);
 
     await _choose(tester, 'Last 12 months');
@@ -214,6 +225,11 @@ void main() {
     expect(label, contains('Mood: first 3.0, latest 3.0'));
     expect(label, contains('Energy: first 3.0, latest 3.0'));
     expect(
+      find.bySemanticsLabel('Mood 3.5 out of 5'),
+      findsNWidgets(2),
+      reason: 'all days and days without a period',
+    );
+    expect(
       tester
           .getSemantics(find.byKey(const Key('insights-wellbeing-range')))
           .label,
@@ -226,10 +242,8 @@ void main() {
     await _pump(tester, arabic: true, textScale: 1.6);
     expect(tester.takeException(), isNull);
     expect(find.text('آخر 3 أشهر'), findsNWidgets(2));
-    expect(
-      find.text('التسجيلات: 4 · أسابيع فيها تسجيل: 3 من 12'),
-      findsOneWidget,
-    );
+    expect(find.text('4 تسجيلات في 3 من 12 أسبوعًا'), findsOneWidget);
+    expect(find.text('4 تسجيلات'), findsNWidgets(2));
     await _capture(tester, 'after_wellbeing_chart_ar');
 
     await tester.tap(find.byKey(const Key('insights-wellbeing-range')));
