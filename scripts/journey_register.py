@@ -197,7 +197,7 @@ NJ-013|IN|IU|P|-|NR|NR|-|H|-|AUTHCTL TRACK|{draft} (day-log input kept for its a
 NJ-014|IN|IU|P|-|NR|NR|-|C|PT-152 PT-153|AUTHCTL STORE NOTIF|{acct}; {prefs}; {notifacct}; {chatacct}|AI context and drafts on switch not covered by one test; device A→B run pending (gate A15).
 NJ-015|IN|IU|PP|-|NR|NR|-|H|PT-001|ONB|{onbans}; {onbui}|Dashboard consistency after onboarding not asserted end to end.
 NJ-016|IN|IU|PP|-|NR|NR|-|H|PT-004|ONB CALC|{onbans}|No-history path saves nothing invented; prediction "unavailable" proven in {nodata}.
-NJ-017|IN|IU|P|NR|NR|NR|-|H|PT-002|ONB TRACK MIG|{onbans} (R2-ONB-3 / PT-002); {endunksql}; {endunk}|Migration 20261029130000 not yet on staging.
+NJ-017|IN|IU|P|P|NR|NR|-|H|PT-002|ONB TRACK MIG|{onbans} (R2-ONB-3 / PT-002); {endunksql}; {endunk}; staging kit 09/10 passed 2026-10-30|Signed-device runs pending; not on production.
 NJ-018|IN|IR|N|-|NR|NR|BX|H|PT-003|ONB TRACK|-|No approximate-date precision; prediction policy needs clinical input (PT-003).
 NJ-019|IN|IU|P|-|NR|NR|-|H|PT-101|MADHHAB|{madhhabres}|Device run pending.
 NJ-020|IN|IU|PP|-|NR|NR|-|M|-|ONB|{onbans} (changed answer gets a fresh operation id)|Resume after kill not asserted.

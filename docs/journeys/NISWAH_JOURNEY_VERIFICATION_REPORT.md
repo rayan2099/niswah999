@@ -30,7 +30,7 @@ signed Android run, and none has been recorded.
 | Dimension | Pass | Partial | Required, not run | Blocked |
 |---|---|---|---|---|
 | Automated | 67 | 94 | 107 (none yet) | – |
-| Staging integration | 12 | 7 | 1 | – |
+| Staging integration | 13 | 7 | 0 | – |
 | Signed iPhone | 0 | – | 170 | – |
 | Signed Android | 0 | – | 170 | – |
 | Specialist (medical / fiqh) | 0 | – | – | 40 |
@@ -70,7 +70,7 @@ check that has not been run.
 
 ## Period-tracking register (PT-001..PT-200)
 
-50 VERIFIED, 87 IMPLEMENTED — UNVERIFIED, 30 IMPLEMENTATION REQUIRED,
+49 VERIFIED, 88 IMPLEMENTED — UNVERIFIED, 30 IMPLEMENTATION REQUIRED,
 33 BLOCKED. See `docs/period-tracking/PERIOD_TRACKING_VERIFICATION_REPORT.md`.
 
 ## External blockers

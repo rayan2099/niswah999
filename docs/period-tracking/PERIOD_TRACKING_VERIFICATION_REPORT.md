@@ -11,13 +11,13 @@ report summarizes it and must not contradict it.
 
 | Status | Count |
 | --- | --- |
-| VERIFIED | 50 |
-| IMPLEMENTED — UNVERIFIED | 87 |
+| VERIFIED | 49 |
+| IMPLEMENTED — UNVERIFIED | 88 |
 | IMPLEMENTATION REQUIRED | 30 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 33 |
 | NOT ASSESSED | 0 |
 
-These counts do not mean that 50 cases work on a phone today. See "What
+These counts do not mean that 49 cases work on a phone today. See "What
 VERIFIED means" below.
 
 ## What VERIFIED means here
@@ -36,10 +36,12 @@ It does not mean:
   migration was also applied to staging and the same behavior checks passed
   there (rolled back, synthetic accounts). It is not on production, and no
   case has been run in the app against staging yet. PT-055 (deleting one
-  day's entry) needs the follow-up migration
-  `20261029120000_bleeding_observation_removal.sql`, verified on scratch
-  Postgres only; it is not on staging or production yet. The same holds
-  for PT-002 and `20261029130000_bleeding_episode_end_unknown.sql`.
+  day's entry) and PT-002 (unknown end) need the follow-up migrations
+  `20261029120000_bleeding_observation_removal.sql` and
+  `20261029130000_bleeding_episode_end_unknown.sql`. Both are on staging
+  (2026-10-30: install checks and rolled-back behavior checks passed, no
+  synthetic rows left) and not on production. PT-002 is no longer counted
+  VERIFIED: rayan requires a signed-device run for it.
 
 CI passing is not a claim that all 200 cases are covered.
 
