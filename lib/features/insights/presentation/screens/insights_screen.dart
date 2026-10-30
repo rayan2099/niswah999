@@ -1283,7 +1283,7 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
           else ...[
             const SizedBox(height: 16),
             _WellbeingSummary(group: split.all),
-            const SizedBox(height: 6),
+            const SizedBox(height: 14),
             _DetailsToggle(
               expanded: _expanded,
               onTap: () => setState(() => _expanded = !_expanded),
@@ -1437,8 +1437,23 @@ class _SummaryTile extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            color.withValues(alpha: 0.10),
+            color.withValues(alpha: 0.03),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.12),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1491,37 +1506,49 @@ class _DetailsToggle extends StatelessWidget {
         ? _in('Hide details', 'إخفاء التفاصيل')
         : _in('Show details', 'عرض التفاصيل'),
     excludeSemantics: true,
-    child: InkWell(
-      key: const Key('wellbeing-details-toggle'),
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                expanded
-                    ? _in('Hide details', 'إخفاء التفاصيل')
-                    : _in('Show details', 'عرض التفاصيل'),
-                style: const TextStyle(
-                  color: Color(0xFF9F1239),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+    child: Container(
+      // Gradient border: an outer gradient with a white inner pill.
+      padding: const EdgeInsets.all(1.5),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(99),
+        gradient: const LinearGradient(
+          colors: [AppColors.brandPrimary, AppColors.istihadah],
+        ),
+      ),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(99),
+        child: InkWell(
+          key: const Key('wellbeing-details-toggle'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(99),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 46),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    expanded
+                        ? _in('Hide details', 'إخفاء التفاصيل')
+                        : _in('Show details', 'عرض التفاصيل'),
+                    style: const TextStyle(
+                      color: Color(0xFF9F1239),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 6),
+                Icon(
+                  expanded
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  color: AppColors.istihadah,
+                ),
+              ],
             ),
-            AnimatedRotation(
-              turns: expanded ? 0.5 : 0,
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 220),
-              child: const Icon(
-                Icons.expand_more_rounded,
-                color: Color(0xFF9F1239),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     ),
@@ -1549,7 +1576,7 @@ class _PeriodComparison extends StatelessWidget {
         ),
       ),
       Text(
-        count == 0 ? _in('no check-ins', 'لا توجد تسجيلات') : _checkIns(count),
+        count == 0 ? _in('none yet', 'لا يوجد بعد') : _checkIns(count),
         textAlign: TextAlign.center,
         style: _muted,
       ),

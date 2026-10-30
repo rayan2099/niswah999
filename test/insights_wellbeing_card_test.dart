@@ -115,7 +115,7 @@ void main() {
       reason: 'collapsed by default: a quick look',
     );
     await _expand(tester);
-    expect(find.text('no check-ins'), findsOneWidget, reason: 'period days');
+    expect(find.text('none yet'), findsOneWidget, reason: 'period days');
     expect(find.text('3 check-ins'), findsOneWidget, reason: 'other days');
     expect(
       find.textContaining('4.0', findRichText: true),
