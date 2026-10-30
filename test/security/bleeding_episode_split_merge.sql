@@ -1,5 +1,5 @@
 -- Regression for
--- supabase/migrations/20261030090000_bleeding_episode_split_merge.sql
+-- supabase/migrations/20261030012106_bleeding_episode_split_merge.sql
 -- (period tracking cases PT-045, PT-046; journeys NJ-101..NJ-104, NJ-279):
 -- a period can be split in two and two neighbouring periods merged, with
 -- a preview first, nothing she recorded rewritten, unanswered days left

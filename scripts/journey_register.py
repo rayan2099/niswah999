@@ -282,8 +282,8 @@ NJ-097|IN|IU|PP|-|NR|NR|-|M|PT-019|TRACK|{calendar}|Daily timeline readability n
 NJ-098|IN|IU|N|-|NR|NR|-|M|-|TRACK|-|Not asserted.
 NJ-099|IN|IU|P|PP|NR|NR|-|H|PT-055|TRACK MIG|{obsrm}; {obsrmsql} (start/end protected; rest unchanged)|120000 on staging; behaviour script not confirmed run.
 NJ-100|IN|IU|P|PP|NR|NR|-|H|PT-060|TRACK MIG|{obsrmsql} (stale token NW409)|Device run pending.
-NJ-101|IN|IU|P|NR|NR|NR|-|M|PT-045|TRACK MIG|{split}; {splitsql} sections 1-4|Migration 20261030090000 not applied anywhere; staging and device runs pending.
-NJ-102|IN|IU|P|NR|NR|NR|-|M|PT-046|TRACK MIG|{split}; {splitsql} sections 5-7|Migration 20261030090000 not applied anywhere; staging and device runs pending.
+NJ-101|IN|IU|P|NR|NR|NR|-|M|PT-045|TRACK MIG|{split}; {splitsql} sections 1-4|Migration 20261030012106 not applied anywhere; staging and device runs pending.
+NJ-102|IN|IU|P|NR|NR|NR|-|M|PT-046|TRACK MIG|{split}; {splitsql} sections 5-7|Migration 20261030012106 not applied anywhere; staging and device runs pending.
 NJ-103|IN|IU|P|NR|NR|NR|-|L|PT-045 PT-046|TRACK MIG|{split} (cancelled preview saves nothing); {splitsql} sections 1 and 5 (preview changes nothing)|Staging and device runs pending.
 NJ-104|IN|IU|PP|NR|NR|NR|-|M|PT-045 PT-046|MIG|{splitsql} (each RPC is one transaction; refusals leave the count and entries unchanged)|Atomic by construction; an injected mid-transaction failure is not tested.
 NJ-105|IN|IU|PP|-|-|-|-|M|-|TRACK|test/logging_sync_hardening/legacy_log_provenance_test.dart|Contradictory legacy boundaries partly covered.

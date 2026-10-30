@@ -69,7 +69,7 @@ CI passing is not a claim that all 200 cases are covered.
 | PT-112 | No proof | Structural test: no tracking, prediction or reminder code touches qadha; no qadha table exists; prayer status is never inferred |
 | PT-150 | (new path) | A transport failure during an edit reports "offline", queues nothing and changes nothing |
 | PT-178 | Edit sheets closed on Back and dropped the change | "Discard this change?" on the period editor, correction and past-day sheets |
-| PT-045, PT-046 | Two periods recorded as one (or one as two) could not be fixed | "Split into two periods" and "Join with the next period": preview with the number of entries that move, confirm, Undo; entries moved never rewritten, unrecorded days stay unanswered, stale versions refused (NW409), delayed operations tombstoned. Needs migration 20261030090000, not applied anywhere |
+| PT-045, PT-046 | Two periods recorded as one (or one as two) could not be fixed | "Split into two periods" and "Join with the next period": preview with the number of entries that move, confirm, Undo; entries moved never rewritten, unrecorded days stay unanswered, stale versions refused (NW409), delayed operations tombstoned. Needs migration 20261030012106, not applied anywhere |
 
 ## Highest-priority remaining defects
 

@@ -73,7 +73,7 @@ class RemovedEpisode {
 /// (cases PT-027, PT-051..PT-057, PT-060, PT-148) and the single-entry
 /// removal RPCs of `20261029120000_bleeding_observation_removal.sql`
 /// (PT-055), and the split/merge RPCs of
-/// `20261030090000_bleeding_episode_split_merge.sql` (PT-045, PT-046).
+/// `20261030012106_bleeding_episode_split_merge.sql` (PT-045, PT-046).
 ///
 /// Each call takes a client operation id generated once per user action
 /// and reused on retry (the RPC returns the original result for a repeat),
