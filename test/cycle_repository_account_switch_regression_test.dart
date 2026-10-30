@@ -21,8 +21,9 @@ class PausedLocalSource extends LocalCycleTrackingDataSource {
   @override
   Future<bool> setSyncStatusIfUnchanged(
     CycleLog log,
-    SyncStatus status,
-  ) async => true;
+    SyncStatus status, {
+    String? userId,
+  }) async => true;
 }
 
 class PausedReadSource extends LocalCycleTrackingDataSource {

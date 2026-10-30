@@ -420,8 +420,9 @@ class CycleCalculationService {
   ///   canonical start counted one period as two cycles, and one a day later
   ///   moved the start by a day.
   /// * A log-derived start one day before a canonical start is also the
-  ///   same episode (no real cycle starts 0-1 days after the last one); the
-  ///   log-derived start is kept with its paired length, as before.
+  ///   same episode under the existing deduplication policy. A completed
+  ///   canonical period's explicit start and measured length take precedence;
+  ///   without a measured canonical length, retain the existing log pairing.
   /// * A canonical ended episode contributes its own length whenever its
   ///   start is kept.
   ({List<DateTime> starts, List<int> periodLengths}) _mergeCanonical(
@@ -486,6 +487,13 @@ class CycleCalculationService {
         if (kept.last.fromCanonical && !candidate.fromCanonical) {
           // Only reachable for a zero-length canonical span: the log-derived
           // start of the same episode, the next day, replaces it.
+          kept[kept.length - 1] = candidate;
+        } else if (!kept.last.fromCanonical &&
+            candidate.fromCanonical &&
+            candidate.lengths.isNotEmpty) {
+          // The canonical period has a measured end, so its explicit start
+          // and duration outrank a neighboring compatibility projection.
+          // Unknown/open canonical timings retain the existing merge policy.
           kept[kept.length - 1] = candidate;
         }
         continue;

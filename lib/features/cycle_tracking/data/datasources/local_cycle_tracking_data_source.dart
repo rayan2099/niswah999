@@ -82,8 +82,14 @@ class LocalCycleTrackingDataSource {
   /// instead of being overwritten by the stale snapshot marked `synced`.
   /// A row deleted meanwhile is not brought back. Returns whether the
   /// status was written.
-  Future<bool> setSyncStatusIfUnchanged(CycleLog uploaded, SyncStatus status) {
-    final ownerId = SecureLocalStore.currentUserId();
+  Future<bool> setSyncStatusIfUnchanged(
+    CycleLog uploaded,
+    SyncStatus status, {
+    String? userId,
+  }) {
+    // A response belongs to the bucket used before the request, even if
+    // another account is active by the time the network completes.
+    final ownerId = userId ?? SecureLocalStore.currentUserId();
     return SecureLocalStore.serialized(_category, () async {
       final existing = await _loadLogs(ownerId);
       final index = existing.indexWhere((log) => log.id == uploaded.id);
