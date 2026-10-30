@@ -403,8 +403,19 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   Future<ReportSourceResult<List<CycleLog>>> getCycleLogsForReport({
     int limit = 1000,
   }) async {
-    final localLogs = await _localDataSource.loadLogs();
     final client = _client;
+    final session = client?.auth.currentSession;
+    final localOwner = SecureLocalStore.currentUserId();
+    bool current() =>
+        SecureLocalStore.currentUserId() == localOwner &&
+        client?.auth.currentSession?.user.id == session?.user.id;
+    const rejected = ReportSourceResult<List<CycleLog>>(
+      status: ReportSourceStatus.failed,
+      data: [],
+    );
+
+    final localLogs = await _localDataSource.loadLogs();
+    if (!current()) return rejected;
     if (client == null) {
       return ReportSourceResult(
         status: localLogs.isEmpty
@@ -414,8 +425,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       );
     }
 
-    final sessionUser = client.auth.currentUser;
-    if (sessionUser == null) {
+    if (session == null) {
       return ReportSourceResult(
         status: localLogs.isEmpty
             ? ReportSourceStatus.empty
@@ -428,9 +438,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       final response = await client
           .from('cycle_entries')
           .select()
-          .eq('user_id', sessionUser.id)
+          .eq('user_id', session.user.id)
           .order('date', ascending: false)
-          .limit(limit);
+          .limit(limit)
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
+      if (!current()) return rejected;
       final remote = _parseCycleEntries(response as List<dynamic>);
 
       final merged = _mergeLocalAndRemote(localLogs, remote);
@@ -444,6 +456,8 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         data: ordered,
       );
     } catch (error, stack) {
+      // A stale account's cache is not a safe fallback for the next account.
+      if (!current()) return rejected;
       AppErrorReporter.report(
         error,
         stack,
