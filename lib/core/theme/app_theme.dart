@@ -54,9 +54,7 @@ class AppColors {
   // the app via Material's default theming, and this redesign is scoped to
   // onboarding, not an app-wide rebrand. Exact hex values as specified.
   static const Color deepPlum = Color(0xFF553F50); // headings, key icons
-  static const Color mutedRose = Color(
-    0xFFC66F84,
-  ); // selected/highlight/active
+  static const Color mutedRose = Color(0xFFC66F84); // selected/highlight/active
   static const Color softBlush = Color(0xFFF6E8EC); // subtle selection bg
   static const Color warmIvory = Color(0xFFFCFAF8); // page background
   static const Color warmWhite = Color(0xFFFFFFFF); // cards/inputs
@@ -90,6 +88,36 @@ class AppTypography {
 
   static TextStyle arabic(TextStyle? base) => (base ?? const TextStyle())
       .copyWith(fontFamily: arabicFamily, height: 1.6);
+
+  /// App-wide text enlargement on top of the phone's own text-size setting.
+  /// Testing feedback 2026-10-30 (rayan): text across the app was slightly
+  /// too small; many screens use 9-11 pt sizes. One factor here enlarges
+  /// every screen evenly instead of editing hundreds of font sizes.
+  static const double appTextScale = 1.1;
+}
+
+/// The phone's text scaler with [AppTypography.appTextScale] applied on
+/// top, so a person who already enlarged text in Settings keeps that and
+/// gets the same small step up.
+class AppTextScaler extends TextScaler {
+  const AppTextScaler(this.base, {this.factor = AppTypography.appTextScale});
+
+  final TextScaler base;
+  final double factor;
+
+  @override
+  double scale(double fontSize) => base.scale(fontSize * factor);
+
+  @override
+  // ignore: deprecated_member_use
+  double get textScaleFactor => base.textScaleFactor * factor;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AppTextScaler && other.base == base && other.factor == factor;
+
+  @override
+  int get hashCode => Object.hash(base, factor);
 }
 
 class AppTheme {

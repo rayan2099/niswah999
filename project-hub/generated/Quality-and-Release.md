@@ -144,6 +144,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [app_error_reporter_sentry_test.dart](../../test/app_error_reporter_sentry_test.dart)
 - [app_integration_test.dart](../../test/app_integration_test.dart)
 - [app_localization_delegates_test.dart](../../test/app_localization_delegates_test.dart)
+- [app_text_scale_test.dart](../../test/app_text_scale_test.dart)
 - [app_theme_controller_test.dart](../../test/app_theme_controller_test.dart)
 - [app_wide_notification_controller_test.dart](../../test/app_wide_notification_controller_test.dart)
 - [app_wide_notification_navigation_test.dart](../../test/app_wide_notification_navigation_test.dart)
