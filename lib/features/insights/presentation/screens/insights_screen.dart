@@ -1127,6 +1127,7 @@ class _WellbeingTrends extends StatefulWidget {
 class _WellbeingTrendsState extends State<_WellbeingTrends> {
   List<WellbeingLog>? _logs;
   bool _failed = false;
+  bool _expanded = false;
   int _generation = 0;
 
   DateTime get _rangeStart =>
@@ -1176,9 +1177,6 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
       }
     }
   }
-
-  Widget _row(String label, WellbeingGroupSummary group) =>
-      _WellbeingGroupBlock(label: label, group: group);
 
   Future<void> _selectRange(BuildContext context) async {
     final selected = await _pickTrendRange(
@@ -1283,26 +1281,40 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
               ),
             )
           else ...[
-            const SizedBox(height: 14),
-            WellbeingTrendChart(trend: trend!),
-            const SizedBox(height: 4),
-            _row(_in('All days', 'كل الأيام'), split.all),
-            _row(_in('Period days', 'أيام الدورة'), split.onPeriodDays),
-            _row(
-              _in('Days without a period', 'أيام بلا دورة'),
-              split.onOtherDays,
+            const SizedBox(height: 16),
+            _WellbeingSummary(group: split.all),
+            const SizedBox(height: 6),
+            _DetailsToggle(
+              expanded: _expanded,
+              onTap: () => setState(() => _expanded = !_expanded),
             ),
-            const SizedBox(height: 14),
-            Text(
-              _in(
-                'Averages on a 1–5 scale. Period days are days with bleeding recorded; this is tracking only, not a ruling.',
-                'المتوسطات من 1 إلى 5. أيام الدورة هي الأيام المسجّل فيها نزول دم؛ هذا للتتبّع فقط وليس حكمًا شرعيًا.',
+            // Collapsed by default so the card stays a quick look; the
+            // chart and the period comparison open on request.
+            if (_expanded)
+              Column(
+                key: const Key('wellbeing-details'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 10),
+                  WellbeingTrendChart(trend: trend!),
+                  const SizedBox(height: 18),
+                  _PeriodComparison(
+                    period: split.onPeriodDays,
+                    other: split.onOtherDays,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    _in(
+                      'Averages on a 1–5 scale. Period days are days with bleeding recorded; this is tracking only, not a ruling.',
+                      'المتوسطات من 1 إلى 5. أيام الدورة هي الأيام المسجّل فيها نزول دم؛ هذا للتتبّع فقط وليس حكمًا شرعيًا.',
+                    ),
+                    style: const TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
               ),
-              style: const TextStyle(
-                color: AppColors.textTertiary,
-                fontSize: 10,
-              ),
-            ),
           ],
         ],
       ),
@@ -1322,168 +1334,332 @@ String _checkIns(int n) => _in(
       : '$n تسجيلًا',
 );
 
-/// One group of the mood card (all days, period days, other days) as a
-/// small panel: a count pill, then one bar per measure on the 1–5 scale.
-/// Testing feedback 2026-10-30: the averages were a run of "3.5/5 · …"
-/// text that wrapped mid-number. Colors match the chart's series.
-class _WellbeingGroupBlock extends StatelessWidget {
-  const _WellbeingGroupBlock({required this.label, required this.group});
-  final String label;
+const _moodColor = AppColors.brandPrimary;
+const _energyColor = AppColors.nifas;
+const _sleepColor = AppColors.istihadah;
+
+String _one(double value) => value.toStringAsFixed(1);
+
+/// "3.5/5" as one left-to-right run so it never reorders in Arabic.
+Widget _outOfFive(double? value, Color color, {double size = 13}) => Text.rich(
+  TextSpan(
+    children: [
+      TextSpan(
+        text: value == null ? '—' : _one(value),
+        style: TextStyle(
+          color: value == null ? AppColors.textTertiary : color,
+          fontSize: size,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      if (value != null)
+        TextSpan(
+          text: '/5',
+          style: TextStyle(color: AppColors.textTertiary, fontSize: size * 0.6),
+        ),
+    ],
+  ),
+  textDirection: TextDirection.ltr,
+  style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+);
+
+/// The quick look: the period's averages as three tiles and the sample
+/// size. Testing feedback 2026-10-30: the averages were a run of text
+/// that wrapped mid-number, and the card became very long.
+class _WellbeingSummary extends StatelessWidget {
+  const _WellbeingSummary({required this.group});
   final WellbeingGroupSummary group;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    margin: const EdgeInsets.only(top: 12),
-    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-    decoration: BoxDecoration(
-      color: const Color(0xFFFBF8F9),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFFF1E9EC)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: _SummaryTile(
+              label: _in('Mood', 'المزاج'),
+              icon: Icons.sentiment_satisfied_alt_rounded,
+              value: group.averageMood!,
+              color: _moodColor,
             ),
-            if (group.count > 0)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(99),
-                  border: Border.all(color: const Color(0xFFF1E9EC)),
-                ),
-                child: Text(
-                  _checkIns(group.count),
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        if (group.count == 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              _in('No check-ins yet', 'لا توجد تسجيلات بعد'),
-              style: const TextStyle(
-                color: AppColors.textTertiary,
-                fontSize: 12,
-              ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _SummaryTile(
+              label: _in('Energy', 'الطاقة'),
+              icon: Icons.bolt_rounded,
+              value: group.averageEnergy!,
+              color: _energyColor,
             ),
-          )
-        else ...[
-          const SizedBox(height: 10),
-          _MetricBar(
-            label: _in('Mood', 'المزاج'),
-            value: group.averageMood!,
-            color: AppColors.brandPrimary,
           ),
-          _MetricBar(
-            label: _in('Energy', 'الطاقة'),
-            value: group.averageEnergy!,
-            color: AppColors.nifas,
-          ),
-          _MetricBar(
-            label: _in('Sleep', 'النوم'),
-            value: group.averageSleep!,
-            color: AppColors.istihadah,
+          const SizedBox(width: 8),
+          Expanded(
+            child: _SummaryTile(
+              label: _in('Sleep', 'النوم'),
+              icon: Icons.bedtime_rounded,
+              value: group.averageSleep!,
+              color: _sleepColor,
+            ),
           ),
         ],
-      ],
-    ),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        _in(
+          'Average of ${_checkIns(group.count)}',
+          'متوسط ${_checkIns(group.count)}',
+        ),
+        key: const Key('wellbeing-summary-count'),
+        style: const TextStyle(color: AppColors.textTertiary, fontSize: 11),
+      ),
+    ],
   );
 }
 
-class _MetricBar extends StatelessWidget {
-  const _MetricBar({
+class _SummaryTile extends StatelessWidget {
+  const _SummaryTile({
     required this.label,
+    required this.icon,
     required this.value,
     required this.color,
   });
   final String label;
+  final IconData icon;
   final double value;
   final Color color;
 
   @override
-  Widget build(BuildContext context) {
-    final number = value.toStringAsFixed(1);
-    return Semantics(
-      container: true,
-      label: _in('$label $number out of 5', '$label $number من 5'),
-      excludeSemantics: true,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    label: _in('$label ${_one(value)} out of 5', '$label ${_one(value)} من 5'),
+    excludeSemantics: true,
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 4),
+          // One line, shrunk if needed: an Arabic word must not break.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _outOfFive(value, color, size: 22),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: (value / 5).clamp(0.0, 1.0),
+              minHeight: 4,
+              backgroundColor: color.withValues(alpha: 0.12),
+              valueColor: AlwaysStoppedAnimation(color),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _DetailsToggle extends StatelessWidget {
+  const _DetailsToggle({required this.expanded, required this.onTap});
+  final bool expanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    button: true,
+    expanded: expanded,
+    label: expanded
+        ? _in('Hide chart and comparison', 'إخفاء الرسم والمقارنة')
+        : _in('Show chart and comparison', 'عرض الرسم والمقارنة'),
+    excludeSemantics: true,
+    child: InkWell(
+      key: const Key('wellbeing-details-toggle'),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
         child: Row(
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 52),
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
             Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: (value / 5).clamp(0.0, 1.0),
-                  minHeight: 8,
-                  backgroundColor: const Color(0xFFEFE7EA),
-                  valueColor: AlwaysStoppedAnimation(color),
+              child: Text(
+                expanded
+                    ? _in('Hide chart and comparison', 'إخفاء الرسم والمقارنة')
+                    : _in('Show chart and comparison', 'عرض الرسم والمقارنة'),
+                style: const TextStyle(
+                  color: Color(0xFF9F1239),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
-            const SizedBox(width: 10),
-            // One LTR run so "3.5/5" never reorders in Arabic.
-            Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: number,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const TextSpan(
-                    text: '/5',
-                    style: TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ),
-              textDirection: TextDirection.ltr,
-              style: const TextStyle(
-                fontFeatures: [FontFeature.tabularFigures()],
+            AnimatedRotation(
+              turns: expanded ? 0.5 : 0,
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 220),
+              child: const Icon(
+                Icons.expand_more_rounded,
+                color: Color(0xFF9F1239),
               ),
             ),
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+
+/// Period days against days without a period, one pair of bars per
+/// measure. A tracking comparison only, never a ruling.
+class _PeriodComparison extends StatelessWidget {
+  const _PeriodComparison({required this.period, required this.other});
+  final WellbeingGroupSummary period;
+  final WellbeingGroupSummary other;
+
+  static const _periodColor = AppColors.haid;
+  static const _otherColor = AppColors.tahara;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    key: const Key('wellbeing-comparison'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        _in('Period days and other days', 'أيام الدورة وبقية الأيام'),
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 14,
+        runSpacing: 4,
+        children: [
+          _legend(
+            _periodColor,
+            _in('Period days', 'أيام الدورة'),
+            period.count,
+          ),
+          _legend(
+            _otherColor,
+            _in('Days without a period', 'أيام بلا دورة'),
+            other.count,
+          ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      for (final (label, pick)
+          in <(String, double? Function(WellbeingGroupSummary))>[
+            (_in('Mood', 'المزاج'), (g) => g.averageMood),
+            (_in('Energy', 'الطاقة'), (g) => g.averageEnergy),
+            (_in('Sleep', 'النوم'), (g) => g.averageSleep),
+          ])
+        Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              _bar(
+                _in('Period days', 'أيام الدورة'),
+                label,
+                pick(period),
+                _periodColor,
+              ),
+              const SizedBox(height: 4),
+              _bar(
+                _in('Days without a period', 'أيام بلا دورة'),
+                label,
+                pick(other),
+                _otherColor,
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+
+  Widget _legend(Color color, String label, int count) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(3),
+        ),
+      ),
+      const SizedBox(width: 5),
+      Text(
+        count == 0
+            ? '$label · ${_in('no check-ins', 'لا توجد تسجيلات')}'
+            : '$label · ${_checkIns(count)}',
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+      ),
+    ],
+  );
+
+  Widget _bar(String group, String measure, double? value, Color color) =>
+      Semantics(
+        container: true,
+        label: value == null
+            ? _in(
+                '$measure, $group: no check-ins',
+                '$measure، $group: لا توجد تسجيلات',
+              )
+            : _in(
+                '$measure, $group: ${_one(value)} out of 5',
+                '$measure، $group: ${_one(value)} من 5',
+              ),
+        excludeSemantics: true,
+        child: Row(
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  value: value == null ? 0 : (value / 5).clamp(0.0, 1.0),
+                  minHeight: 7,
+                  backgroundColor: const Color(0xFFF1E9EC),
+                  valueColor: AlwaysStoppedAnimation(color),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(width: 44, child: _outOfFive(value, color, size: 12)),
+          ],
+        ),
+      );
 }
 
 class _HistoryCard extends StatelessWidget {

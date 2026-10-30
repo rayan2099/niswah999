@@ -61,16 +61,14 @@ Future<void> _pumpInsights(
   }
 }
 
-/// A text inside the mood card's group panel titled [label].
-Finder _inGroup(String label, String text) => find.descendant(
-  of: find.ancestor(
-    of: find.text(label),
-    matching: find.byWidgetPredicate(
-      (w) => w.runtimeType.toString() == '_WellbeingGroupBlock',
-    ),
-  ),
-  matching: find.text(text),
-);
+/// The mood card's quick-look line, "Average of N check-ins".
+Finder _summary(String count) => find.text('Average of $count');
+
+Future<void> _expand(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const Key('wellbeing-details-toggle')));
+  await tester.tap(find.byKey(const Key('wellbeing-details-toggle')));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   // Device run 2026-10-28: mood check-ins never reached Insights, and
@@ -110,9 +108,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Mood & wellbeing'), findsOneWidget);
-    expect(_inGroup('All days', '3 check-ins'), findsOneWidget);
-    expect(_inGroup('Period days', 'No check-ins yet'), findsOneWidget);
-    expect(_inGroup('Days without a period', '3 check-ins'), findsOneWidget);
+    expect(_summary('3 check-ins'), findsOneWidget);
+    expect(
+      find.byKey(const Key('wellbeing-details')),
+      findsNothing,
+      reason: 'collapsed by default: a quick look',
+    );
+    await _expand(tester);
+    expect(find.text('Period days · no check-ins'), findsOneWidget);
+    expect(find.text('Days without a period · 3 check-ins'), findsOneWidget);
     expect(
       find.textContaining('4.0', findRichText: true),
       findsNWidgets(2),
@@ -125,13 +129,13 @@ void main() {
   ) async {
     var stored = _logs(2);
     await _pumpInsights(tester, (_) async => stored);
-    expect(_inGroup('All days', '2 check-ins'), findsOneWidget);
+    expect(_summary('2 check-ins'), findsOneWidget);
 
     stored = _logs(3);
     WellbeingRepository.revision.value++;
     await tester.pumpAndSettle();
 
-    expect(_inGroup('All days', '3 check-ins'), findsOneWidget);
+    expect(_summary('3 check-ins'), findsOneWidget);
   });
 
   testWidgets('an older request finishing last does not replace newer '
@@ -154,6 +158,6 @@ void main() {
     pending[0].complete(_logs(5));
     await tester.pumpAndSettle();
 
-    expect(_inGroup('All days', '2 check-ins'), findsOneWidget);
+    expect(_summary('2 check-ins'), findsOneWidget);
   });
 }

@@ -115,16 +115,14 @@ Future<void> _choose(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
 }
 
-/// A text inside the mood card's group panel titled [label].
-Finder _inGroup(String label, String text) => find.descendant(
-  of: find.ancestor(
-    of: find.text(label),
-    matching: find.byWidgetPredicate(
-      (w) => w.runtimeType.toString() == '_WellbeingGroupBlock',
-    ),
-  ),
-  matching: find.text(text),
-);
+/// The mood card's quick-look line, "Average of N check-ins".
+Finder _summary(String count) => find.text('Average of $count');
+
+Future<void> _expand(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const Key('wellbeing-details-toggle')));
+  await tester.tap(find.byKey(const Key('wellbeing-details-toggle')));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   group('WellbeingTrend', () {
@@ -168,8 +166,9 @@ void main() {
     tester,
   ) async {
     final requested = await _pump(tester);
+    await _expand(tester);
     expect(find.text('Last 3 months'), findsNWidgets(2));
-    expect(_inGroup('All days', '4 check-ins'), findsOneWidget);
+    expect(_summary('4 check-ins'), findsOneWidget);
     expect(find.text('4 check-ins in 3 of 12 weeks'), findsOneWidget);
     expect(requested.last, DateTime(2026, 6, 1));
     expect(
@@ -179,7 +178,7 @@ void main() {
 
     await _choose(tester, 'Last 6 months');
     expect(requested.last, DateTime(2026, 3, 1));
-    expect(_inGroup('All days', '5 check-ins'), findsOneWidget);
+    expect(_summary('5 check-ins'), findsOneWidget);
     expect(find.textContaining('5 check-ins in 4 of '), findsOneWidget);
     // The symptom card keeps its own period.
     expect(
@@ -191,7 +190,7 @@ void main() {
     );
 
     await _choose(tester, 'Last month');
-    expect(_inGroup('All days', '2 check-ins'), findsOneWidget);
+    expect(_summary('2 check-ins'), findsOneWidget);
     expect(find.text('2 check-ins in 2 of 3 weeks'), findsOneWidget);
 
     await _choose(tester, 'Last 12 months');
@@ -203,9 +202,10 @@ void main() {
   ) async {
     await _pump(tester, logs: [_log(DateTime(2026, 4, 10), 3, 3, 3)]);
     expect(find.textContaining('No check-ins in this period'), findsOneWidget);
-    expect(find.byKey(const Key('wellbeing-trend-chart')), findsNothing);
+    expect(find.byKey(const Key('wellbeing-details-toggle')), findsNothing);
 
     await _choose(tester, 'Last 6 months');
+    await _expand(tester);
     expect(find.byKey(const Key('wellbeing-trend-chart')), findsOneWidget);
     expect(
       find.textContaining('at least two different weeks'),
@@ -217,6 +217,14 @@ void main() {
   testWidgets('screen readers get the numbers as text', (tester) async {
     final semantics = tester.ensureSemantics();
     await _pump(tester);
+    await _expand(tester);
+    expect(
+      tester
+          .getSemantics(find.byKey(const Key('wellbeing-details-toggle')))
+          .flagsCollection
+          .isExpanded,
+      ui.Tristate.isTrue,
+    );
     final label = tester
         .getSemantics(find.byKey(const Key('wellbeing-trend-chart')))
         .label;
@@ -224,10 +232,10 @@ void main() {
     expect(label, contains('4 check-ins in 3 of 12 weeks'));
     expect(label, contains('Mood: first 3.0, latest 3.0'));
     expect(label, contains('Energy: first 3.0, latest 3.0'));
+    expect(find.bySemanticsLabel('Mood 3.5 out of 5'), findsOneWidget);
     expect(
-      find.bySemanticsLabel('Mood 3.5 out of 5'),
-      findsNWidgets(2),
-      reason: 'all days and days without a period',
+      find.bySemanticsLabel('Mood, Days without a period: 3.5 out of 5'),
+      findsOneWidget,
     );
     expect(
       tester
@@ -240,10 +248,12 @@ void main() {
 
   testWidgets('Arabic, right to left, with large text', (tester) async {
     await _pump(tester, arabic: true, textScale: 1.6);
+    await _capture(tester, 'after_wellbeing_collapsed_ar');
+    await _expand(tester);
     expect(tester.takeException(), isNull);
     expect(find.text('آخر 3 أشهر'), findsNWidgets(2));
     expect(find.text('4 تسجيلات في 3 من 12 أسبوعًا'), findsOneWidget);
-    expect(find.text('4 تسجيلات'), findsNWidgets(2));
+    expect(find.text('متوسط 4 تسجيلات'), findsOneWidget);
     await _capture(tester, 'after_wellbeing_chart_ar');
 
     await tester.tap(find.byKey(const Key('insights-wellbeing-range')));
