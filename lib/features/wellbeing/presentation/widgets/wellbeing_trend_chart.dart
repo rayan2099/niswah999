@@ -33,9 +33,10 @@ extension on _Measure {
 /// Weekly (monthly for 12 months) averages of one measure at a time, as a
 /// smooth filled line on the 1–5 check-in scale. rayan found three lines
 /// at once complicated (2026-10-30), so she picks mood, energy or sleep.
-/// Only real check-ins are drawn: a week without any breaks the line,
-/// never a guessed value. Time runs toward the reading
-/// direction's end (mirrored in Arabic). Nothing animates. Screen readers
+/// Only real check-ins get a point: weeks without any are joined by a thin
+/// dotted line (rayan found separate pieces confusing, 2026-10-30), never
+/// a guessed value. Month names sit under their weeks, and time runs
+/// toward the reading direction's end (mirrored in Arabic). Nothing animates. Screen readers
 /// get the same numbers as text.
 class WellbeingTrendChart extends StatefulWidget {
   const WellbeingTrendChart({super.key, required this.trend});
@@ -124,11 +125,23 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
           label: semanticSummary,
           child: ExcludeSemantics(
             child: SizedBox(
-              height: 140,
+              height: 158,
               width: double.infinity,
               child: CustomPaint(
                 painter: _CurvePainter(
                   values: [for (final b in trend.buckets) _measure.of(b)],
+                  months: [
+                    for (final (i, (month, count)) in trend.monthSpans.indexed)
+                      (
+                        wellbeingMonthLabelShown(i, trend.monthSpans.length)
+                            ? wellbeingMonthLabel(
+                                month,
+                                arabic: AppLocaleController.instance.isArabic,
+                              )
+                            : '',
+                        count,
+                      ),
+                  ],
                   color: color,
                   rtl: Directionality.of(context) == TextDirection.rtl,
                   labelStyle: DefaultTextStyle.of(context).style
@@ -138,28 +151,6 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
                 ),
               ),
             ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        ExcludeSemantics(
-          child: Row(
-            children: [
-              Text(
-                _in('Start', 'البداية'),
-                style: const TextStyle(
-                  color: AppColors.textTertiary,
-                  fontSize: 10,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                _in('Today', 'اليوم'),
-                style: const TextStyle(
-                  color: AppColors.textTertiary,
-                  fontSize: 10,
-                ),
-              ),
-            ],
           ),
         ),
         const SizedBox(height: 6),
@@ -176,10 +167,12 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
 /// A smooth line with a soft fill under it. Each segment joins two
 /// neighbouring weeks that both have check-ins; its control points share
 /// the end points' heights, so the curve never rises above or dips below
-/// a real average. A week without check-ins breaks the line.
+/// a real average. Across weeks without check-ins the line turns dotted
+/// and unfilled.
 class _CurvePainter extends CustomPainter {
   _CurvePainter({
     required this.values,
+    required this.months,
     required this.color,
     required this.rtl,
     required this.labelStyle,
@@ -187,6 +180,9 @@ class _CurvePainter extends CustomPainter {
   });
 
   final List<double?> values;
+
+  /// Month label and how many buckets it covers, oldest first.
+  final List<(String, int)> months;
   final Color color;
   final bool rtl;
   final TextStyle labelStyle;
@@ -207,14 +203,32 @@ class _CurvePainter extends CustomPainter {
     final gutter =
         labels.values.map((t) => t.width).reduce((a, b) => a > b ? a : b) + 8;
     const top = 8.0;
-    final bottom = size.height - 4;
-    // Inset so the first and last points are not clipped or under a label.
-    final start = rtl ? 8.0 : gutter + 8;
-    final end = rtl ? size.width - gutter - 8 : size.width - 8;
+    // Room under the plot for the month names.
+    final monthHeight = labels[1]!.height + 6;
+    final bottom = size.height - monthHeight;
+    final start = rtl ? 0.0 : gutter;
+    final end = rtl ? size.width - gutter : size.width;
     double y(double v) => bottom - (v - 1) / 4 * (bottom - top);
+    // Each week sits at the centre of its slot, so the month names line up
+    // with the weeks they cover. Time runs toward the reading direction's
+    // end.
     double x(int i) {
-      final f = n == 1 ? 0.5 : i / (n - 1);
+      final f = (i + 0.5) / n;
       return rtl ? end - f * (end - start) : start + f * (end - start);
+    }
+
+    var slot = 0;
+    for (final (label, count) in months) {
+      if (label.isNotEmpty) {
+        final t = TextPainter(
+          text: TextSpan(text: label, style: labelStyle),
+          textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
+          textScaler: scaler,
+        )..layout();
+        final centre = (x(slot) + x(slot + count - 1)) / 2;
+        t.paint(canvas, Offset(centre - t.width / 2, bottom + 6));
+      }
+      slot += count;
     }
 
     final grid = Paint()
@@ -247,6 +261,25 @@ class _CurvePainter extends CustomPainter {
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
+    // Weeks without check-ins between two real averages: a thin dotted
+    // line joins them so the chart reads as one line, with no point or
+    // fill where nothing was recorded.
+    final bridge = Paint()
+      ..color = color.withValues(alpha: 0.7)
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    for (var r = 1; r < runs.length; r++) {
+      final a = Offset(x(runs[r - 1].last), y(values[runs[r - 1].last]!));
+      final b = Offset(x(runs[r].first), y(values[runs[r].first]!));
+      final steps = ((b - a).distance / 5).floor();
+      for (var k = 0; k < steps; k += 2) {
+        canvas.drawLine(
+          Offset.lerp(a, b, k / steps)!,
+          Offset.lerp(a, b, (k + 1) / steps)!,
+          bridge,
+        );
+      }
+    }
     for (final run in runs) {
       if (run.length > 1) {
         final path = Path()..moveTo(x(run.first), y(values[run.first]!));
@@ -294,6 +327,7 @@ class _CurvePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _CurvePainter old) =>
       old.color != color ||
+      !listEquals(old.months, months) ||
       old.rtl != rtl ||
       old.scaler != scaler ||
       !listEquals(old.values, values);

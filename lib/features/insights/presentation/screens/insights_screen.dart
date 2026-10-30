@@ -1319,8 +1319,8 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
                   const SizedBox(height: 14),
                   Text(
                     _in(
-                      'Averages on a 1–5 scale. Period days are days with bleeding recorded; this is tracking only, not a ruling.',
-                      'المتوسطات من 1 إلى 5. أيام الدورة هي الأيام المسجّل فيها نزول دم؛ هذا للتتبّع فقط وليس حكمًا شرعيًا.',
+                      'Averages on a 1–5 scale. A dotted line joins weeks with weeks without check-ins between them. Period days are days with bleeding recorded; this is tracking only, not a ruling.',
+                      'المتوسطات من 1 إلى 5. الخط المنقّط يصل بين أسابيع تفصلها أسابيع بلا تسجيلات. أيام الدورة هي الأيام المسجّل فيها نزول دم؛ هذا للتتبّع فقط وليس حكمًا شرعيًا.',
                     ),
                     style: const TextStyle(
                       color: AppColors.textTertiary,

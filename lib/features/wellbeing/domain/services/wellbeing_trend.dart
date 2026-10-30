@@ -49,6 +49,22 @@ class WellbeingTrend {
 
   int get bucketsWithData => buckets.where((b) => b.hasData).length;
 
+  /// Consecutive buckets grouped by the calendar month they start in, oldest
+  /// first, for month labels under a chart: (first day of month, bucket
+  /// count).
+  List<(DateTime, int)> get monthSpans {
+    final spans = <(DateTime, int)>[];
+    for (final b in buckets) {
+      final month = DateTime(b.start.year, b.start.month);
+      if (spans.isNotEmpty && spans.last.$1 == month) {
+        spans[spans.length - 1] = (month, spans.last.$2 + 1);
+      } else {
+        spans.add((month, 1));
+      }
+    }
+    return spans;
+  }
+
   /// Ranges longer than six months are grouped by calendar month so the
   /// chart stays readable; shorter ones by seven-day blocks counted from
   /// the range start (not a locale-dependent week start).

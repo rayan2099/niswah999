@@ -147,6 +147,21 @@ void main() {
       expect(trend.buckets.last.end, DateTime(2026, 8, 18));
     });
 
+    test('month labels cover the weeks that start in each month', () {
+      final trend = WellbeingTrend.compute(
+        logs: _logs,
+        from: DateTime(2026, 6, 1),
+        today: DateTime(2026, 8, 18),
+        months: 3,
+      );
+      // Weeks start Jun 1, 8, 15, 22, 29 | Jul 6 ... 27 | Aug 3, 10, 17.
+      expect(trend.monthSpans, [
+        (DateTime(2026, 6), 5),
+        (DateTime(2026, 7), 4),
+        (DateTime(2026, 8), 3),
+      ]);
+    });
+
     test('twelve months group by calendar month', () {
       final trend = WellbeingTrend.compute(
         logs: _logs,

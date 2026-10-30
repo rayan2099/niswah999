@@ -37,3 +37,41 @@ String wellbeingTrendSampleLine(WellbeingTrend trend, {required bool arabic}) {
       : '$checkIns تسجيلًا';
   return '$count في $withData من ${_units(trend, total, true)}';
 }
+
+const _monthsAr = [
+  'يناير',
+  'فبراير',
+  'مارس',
+  'أبريل',
+  'مايو',
+  'يونيو',
+  'يوليو',
+  'أغسطس',
+  'سبتمبر',
+  'أكتوبر',
+  'نوفمبر',
+  'ديسمبر',
+];
+const _monthsEn = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// Month label under a trend chart.
+String wellbeingMonthLabel(DateTime month, {required bool arabic}) =>
+    (arabic ? _monthsAr : _monthsEn)[month.month - 1];
+
+/// Whether the month span at [index] gets a label: every month up to six,
+/// every other month beyond that so labels never crowd.
+bool wellbeingMonthLabelShown(int index, int spans) =>
+    spans <= 6 || index.isEven;

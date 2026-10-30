@@ -644,6 +644,7 @@ class WellbeingReportPdfBuilder {
       color: PdfColor.fromHex(_textTertiary),
       fontSize: 7.5,
     );
+    final spans = trend.monthSpans;
     final series = [
       _TrendSeries(isArabic ? 'المزاج' : 'Mood', _moodLine, _Marker.circle, [
         for (final b in trend.buckets) b.mood,
@@ -724,24 +725,30 @@ class WellbeingReportPdfBuilder {
             ),
           ],
         ),
-        pw.SizedBox(height: 2),
+        pw.SizedBox(height: 3),
+        // Month names under the weeks they cover; time runs toward the
+        // reading direction's end (right to left in Arabic).
         pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Padding(
-              padding: isArabic
-                  ? const pw.EdgeInsets.only(right: 16)
-                  : const pw.EdgeInsets.only(left: 16),
-              child: pw.Text(isArabic ? 'البداية' : 'Start', style: small),
-            ),
-            pw.Text(isArabic ? 'اليوم' : 'Today', style: small),
+            pw.SizedBox(width: 16),
+            for (var i = 0; i < spans.length; i++)
+              pw.Expanded(
+                flex: spans[i].$2,
+                child: pw.Text(
+                  wellbeingMonthLabelShown(i, spans.length)
+                      ? wellbeingMonthLabel(spans[i].$1, arabic: isArabic)
+                      : '',
+                  textAlign: pw.TextAlign.center,
+                  style: small,
+                ),
+              ),
           ],
         ),
         pw.SizedBox(height: 6),
         pw.Text(
           isArabic
-              ? '${wellbeingTrendSampleLine(trend, arabic: true)}. متوسطات من 1 إلى 5، وتظهر الأسابيع بلا تسجيلات فراغًا.'
-              : '${wellbeingTrendSampleLine(trend, arabic: false)}. Averages from 1 to 5; a week without check-ins is left as a gap.',
+              ? '${wellbeingTrendSampleLine(trend, arabic: true)}. متوسطات من 1 إلى 5. الخط المنقّط يصل بين أسابيع تفصلها أسابيع بلا تسجيلات.'
+              : '${wellbeingTrendSampleLine(trend, arabic: false)}. Averages from 1 to 5. A dotted line joins weeks that have weeks without check-ins between them.',
           style: small,
         ),
       ],
@@ -789,9 +796,10 @@ class WellbeingReportPdfBuilder {
     final top = size.y - inset;
     const bottom = inset;
     double y(double v) => bottom + (v - 1) / 4 * (top - bottom);
+    // Each week sits at the centre of its slot, so the month labels below
+    // line up with the weeks they cover.
     double x(int i) {
-      final f = n == 1 ? 0.5 : i / (n - 1);
-      final ltr = inset + f * (size.x - 2 * inset);
+      final ltr = (i + 0.5) / n * size.x;
       return rtl ? size.x - ltr : ltr;
     }
 
@@ -829,6 +837,22 @@ class WellbeingReportPdfBuilder {
           canvas.curveTo(mid, ay, mid, by, bx, by);
         }
       }
+
+      // Weeks without check-ins between two real averages: a thin dotted
+      // line joins them so the chart reads as one line, with no point or
+      // fill where nothing was recorded.
+      canvas
+        ..setStrokeColor(color)
+        ..setLineWidth(1)
+        ..setLineDashPattern(const [1.5, 2.5]);
+      for (var r = 1; r < runs.length; r++) {
+        final from = runs[r - 1].last, to = runs[r].first;
+        canvas
+          ..moveTo(x(from), y(values[from]!))
+          ..lineTo(x(to), y(values[to]!))
+          ..strokePath();
+      }
+      canvas.setLineDashPattern();
 
       for (final run in runs) {
         if (run.length > 1) {
