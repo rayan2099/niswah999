@@ -16,9 +16,11 @@ class _DelayedRepository extends CycleTrackingRepositoryImpl {
   final Completer<void> release;
   final bool fail;
   final entered = Completer<void>();
+  CycleLog? uploaded;
 
   @override
   Future<void> upsertCycleLog(CycleLog log) async {
+    uploaded = log;
     entered.complete();
     await release.future;
     if (fail) throw const NetworkFailure('Rejected.', retryable: false);
@@ -173,4 +175,72 @@ void main() {
       },
     );
   }
+
+  for (final fail in [false, true]) {
+    test(
+      'an older ${fail ? "failure" : "success"} cannot acknowledge a timestamp-only revision',
+      () async {
+        final release = Completer<void>();
+        final repository = _DelayedRepository(release, fail: fail);
+        final saving = repository.saveCycleLog(log(FlowLevel.light));
+        await repository.entered.future;
+        final source = LocalCycleTrackingDataSource();
+        final newer = log(FlowLevel.light)
+            .copyWith(updatedAt: DateTime.utc(2026, 10, 19));
+        await source.upsert(newer);
+        release.complete();
+        await saving;
+        final stored = (await source.loadLogs()).single;
+        expect(stored.updatedAt, newer.updatedAt);
+        expect(stored.syncStatus, SyncStatus.pending);
+      },
+    );
+  }
+
+  test(
+    'a response cannot downgrade an already acknowledged snapshot',
+    () async {
+      final source = LocalCycleTrackingDataSource();
+      final expected = log(FlowLevel.light);
+      await source.upsert(expected);
+      expect(
+        await source.setSyncStatusIfUnchanged(expected, SyncStatus.synced),
+        isTrue,
+      );
+      expect(
+        await source.setSyncStatusIfUnchanged(expected, SyncStatus.failed),
+        isFalse,
+      );
+      expect((await source.loadLogs()).single.syncStatus, SyncStatus.synced);
+    },
+  );
+
+  test('missing timestamps are frozen once for local save upload and acknowledgement', () async {
+    final release = Completer<void>();
+    final repository = _DelayedRepository(release);
+    final saving = repository.saveCycleLog(
+      CycleLog(
+        id: 'unstamped',
+        userId: 'owner-a',
+        date: DateTime(2026, 10, 1),
+        flow: FlowLevel.light,
+      ),
+    );
+    await repository.entered.future;
+    final source = LocalCycleTrackingDataSource();
+    final local = (await source.loadLogs()).single;
+    final uploaded = repository.uploaded!;
+    expect(uploaded.createdAt, isNotNull);
+    expect(uploaded.updatedAt, isNotNull);
+    expect(local.createdAt!.isAtSameMomentAs(uploaded.createdAt!), isTrue);
+    expect(local.updatedAt!.isAtSameMomentAs(uploaded.updatedAt!), isTrue);
+    release.complete();
+    await saving;
+    final acknowledged = (await source.loadLogs()).single;
+    expect(acknowledged.syncStatus, SyncStatus.synced);
+    expect(
+      acknowledged.updatedAt!.isAtSameMomentAs(uploaded.updatedAt!),
+      isTrue,
+    );
+  });
 }

@@ -76,8 +76,8 @@ class LocalCycleTrackingDataSource {
 
   /// Sets the stored copy of [uploaded] to [status] only if that copy
   /// still holds what was uploaded (same day, flow, notes, symptoms, cycle
-  /// day, owner and provenance). A sync pass works from a snapshot and
-  /// awaits the network per row; an edit she saved meanwhile is newer than
+  /// day, owner, provenance and revision timestamps). A sync pass works
+  /// from a snapshot and awaits the network per row; an edit she saved meanwhile is newer than
   /// what was uploaded and must stay `pending` (and keep its content)
   /// instead of being overwritten by the stale snapshot marked `synced`.
   /// A row deleted meanwhile is not brought back. Returns whether the
@@ -97,19 +97,15 @@ class LocalCycleTrackingDataSource {
       final current = existing[index];
       if (_contentKey(current) != _contentKey(uploaded)) return false;
       if (current.syncStatus == status) return true;
+      if (current.syncStatus != uploaded.syncStatus) return false;
       existing[index] = current.copyWith(syncStatus: status);
       await _writeAll(existing, ownerId);
       return true;
     });
   }
 
-  static String _contentKey(CycleLog log) => jsonEncode(
-    log.toJson()
-      ..remove('sync_status')
-      ..remove('time_logged')
-      ..remove('created_at')
-      ..remove('updated_at'),
-  );
+  static String _contentKey(CycleLog log) =>
+      jsonEncode(log.toJson()..remove('sync_status'));
 
   Future<void> _writeAll(Iterable<CycleLog> logs, String ownerId) =>
       SecureLocalStore.write(

@@ -31,6 +31,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community-ugc-safety.md](../../docs/community-ugc-safety.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
 - [cycle-sync-ack-owner-2026-10-30.md](../../docs/cycle-sync-ack-owner-2026-10-30.md)
+- [cycle-sync-exact-revision-2026-10-30.md](../../docs/cycle-sync-exact-revision-2026-10-30.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
 - [entry-draft-deletion-fence.md](../../docs/entry-draft-deletion-fence.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
