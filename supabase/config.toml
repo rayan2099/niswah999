@@ -415,3 +415,7 @@ enabled = true
 
 [functions.notification-dispatch]
 verify_jwt = false
+
+# Pre-auth signup/login endpoint; server owns credentials, limits and capacity.
+[functions.early-phone-access]
+verify_jwt = false

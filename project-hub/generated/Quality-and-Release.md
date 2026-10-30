@@ -27,6 +27,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
+- [early-phone-access.md](../../docs/early-phone-access.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
 - [menstrual-data-integrity-contract.md](../../docs/menstrual-data-integrity-contract.md)
@@ -153,6 +154,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [app_wide_push_dispatch_test.dart](../../test/app_wide_push_dispatch_test.dart)
 - [auth_gate_test.dart](../../test/auth_gate_test.dart)
 - [auth_onboarding_routing_test.dart](../../test/auth_onboarding_routing_test.dart)
+- [auth_repository_early_phone_test.dart](../../test/auth_repository_early_phone_test.dart)
 - [auth_repository_phone_normalization_test.dart](../../test/auth_repository_phone_normalization_test.dart)
 - [bleeding_episode_entity_test.dart](../../test/bleeding_episode_entity_test.dart)
 - [bleeding_episode_repository_test.dart](../../test/bleeding_episode_repository_test.dart)
@@ -272,6 +274,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## test/database
 
+- [early_phone_access.mjs](../../test/database/early_phone_access.mjs)
+- [early_phone_handler.mjs](../../test/database/early_phone_handler.mjs)
 - [package-lock.json](../../test/database/package-lock.json)
 - [package.json](../../test/database/package.json)
 - [private_phone_testing.mjs](../../test/database/private_phone_testing.mjs)

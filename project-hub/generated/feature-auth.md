@@ -31,6 +31,7 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 
 - [auth_gate_test.dart](../../test/auth_gate_test.dart)
 - [auth_onboarding_routing_test.dart](../../test/auth_onboarding_routing_test.dart)
+- [auth_repository_early_phone_test.dart](../../test/auth_repository_early_phone_test.dart)
 - [auth_repository_phone_normalization_test.dart](../../test/auth_repository_phone_normalization_test.dart)
 - [auth_controller_test.dart](../../test/services/auth_controller_test.dart)
 
