@@ -207,11 +207,7 @@ void main() {
     await _choose(tester, 'Last 6 months');
     await _expand(tester);
     expect(find.byKey(const Key('wellbeing-trend-chart')), findsOneWidget);
-    expect(
-      find.textContaining('at least two different weeks'),
-      findsOneWidget,
-      reason: 'one point is shown as a point, not a trend',
-    );
+    expect(find.textContaining('1 check-in in 1 of '), findsOneWidget);
   });
 
   testWidgets('screen readers get the numbers as text', (tester) async {
@@ -228,13 +224,20 @@ void main() {
     final label = tester
         .getSemantics(find.byKey(const Key('wellbeing-trend-chart')))
         .label;
-    expect(label, contains('weekly averages'));
+    expect(label, contains('Mood, weekly averages'));
     expect(label, contains('4 check-ins in 3 of 12 weeks'));
-    expect(label, contains('Mood: first 3.0, latest 3.0'));
-    expect(label, contains('Energy: first 3.0, latest 3.0'));
+    expect(label, contains('first 3.0, latest 3.0'));
+    // One measure at a time: the chips switch it.
+    await tester.tap(find.byKey(const Key('wellbeing-measure-sleep')));
+    await tester.pumpAndSettle();
+    final sleep = tester
+        .getSemantics(find.byKey(const Key('wellbeing-trend-chart')))
+        .label;
+    expect(sleep, contains('Sleep, weekly averages'));
+    expect(sleep, contains('first 3.0, latest 3.0'));
     expect(find.bySemanticsLabel('Mood 3.5 out of 5'), findsOneWidget);
     expect(
-      find.bySemanticsLabel('Mood, Days without a period: 3.5 out of 5'),
+      find.bySemanticsLabel('Mood, Other days: 3.5 out of 5'),
       findsOneWidget,
     );
     expect(

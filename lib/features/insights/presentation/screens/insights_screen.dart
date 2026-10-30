@@ -1488,8 +1488,8 @@ class _DetailsToggle extends StatelessWidget {
     button: true,
     expanded: expanded,
     label: expanded
-        ? _in('Hide chart and comparison', 'إخفاء الرسم والمقارنة')
-        : _in('Show chart and comparison', 'عرض الرسم والمقارنة'),
+        ? _in('Hide details', 'إخفاء التفاصيل')
+        : _in('Show details', 'عرض التفاصيل'),
     excludeSemantics: true,
     child: InkWell(
       key: const Key('wellbeing-details-toggle'),
@@ -1502,8 +1502,8 @@ class _DetailsToggle extends StatelessWidget {
             Expanded(
               child: Text(
                 expanded
-                    ? _in('Hide chart and comparison', 'إخفاء الرسم والمقارنة')
-                    : _in('Show chart and comparison', 'عرض الرسم والمقارنة'),
+                    ? _in('Hide details', 'إخفاء التفاصيل')
+                    : _in('Show details', 'عرض التفاصيل'),
                 style: const TextStyle(
                   color: Color(0xFF9F1239),
                   fontSize: 12,
@@ -1528,108 +1528,35 @@ class _DetailsToggle extends StatelessWidget {
   );
 }
 
-/// Period days against days without a period, one pair of bars per
-/// measure. A tracking comparison only, never a ruling.
+/// Period days against other days as a small table of averages. A
+/// tracking comparison only, never a ruling.
 class _PeriodComparison extends StatelessWidget {
   const _PeriodComparison({required this.period, required this.other});
   final WellbeingGroupSummary period;
   final WellbeingGroupSummary other;
 
-  static const _periodColor = AppColors.haid;
-  static const _otherColor = AppColors.tahara;
+  static const _muted = TextStyle(color: AppColors.textTertiary, fontSize: 11);
 
-  @override
-  Widget build(BuildContext context) => Column(
-    key: const Key('wellbeing-comparison'),
-    crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _head(String label, int count) => Column(
     children: [
       Text(
-        _in('Period days and other days', 'أيام الدورة وبقية الأيام'),
+        label,
+        textAlign: TextAlign.center,
         style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 13,
+          color: AppColors.textSecondary,
+          fontSize: 12,
           fontWeight: FontWeight.w700,
         ),
       ),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 14,
-        runSpacing: 4,
-        children: [
-          _legend(
-            _periodColor,
-            _in('Period days', 'أيام الدورة'),
-            period.count,
-          ),
-          _legend(
-            _otherColor,
-            _in('Days without a period', 'أيام بلا دورة'),
-            other.count,
-          ),
-        ],
-      ),
-      const SizedBox(height: 6),
-      for (final (label, pick)
-          in <(String, double? Function(WellbeingGroupSummary))>[
-            (_in('Mood', 'المزاج'), (g) => g.averageMood),
-            (_in('Energy', 'الطاقة'), (g) => g.averageEnergy),
-            (_in('Sleep', 'النوم'), (g) => g.averageSleep),
-          ])
-        Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              _bar(
-                _in('Period days', 'أيام الدورة'),
-                label,
-                pick(period),
-                _periodColor,
-              ),
-              const SizedBox(height: 4),
-              _bar(
-                _in('Days without a period', 'أيام بلا دورة'),
-                label,
-                pick(other),
-                _otherColor,
-              ),
-            ],
-          ),
-        ),
-    ],
-  );
-
-  Widget _legend(Color color, String label, int count) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Container(
-        width: 10,
-        height: 10,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(3),
-        ),
-      ),
-      const SizedBox(width: 5),
       Text(
-        count == 0
-            ? '$label · ${_in('no check-ins', 'لا توجد تسجيلات')}'
-            : '$label · ${_checkIns(count)}',
-        style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+        count == 0 ? _in('no check-ins', 'لا توجد تسجيلات') : _checkIns(count),
+        textAlign: TextAlign.center,
+        style: _muted,
       ),
     ],
   );
 
-  Widget _bar(String group, String measure, double? value, Color color) =>
+  Widget _cell(double? value, Color color, String measure, String group) =>
       Semantics(
         container: true,
         label: value == null
@@ -1642,24 +1569,66 @@ class _PeriodComparison extends StatelessWidget {
                 '$measure، $group: ${_one(value)} من 5',
               ),
         excludeSemantics: true,
-        child: Row(
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: value == null ? 0 : (value / 5).clamp(0.0, 1.0),
-                  minHeight: 7,
-                  backgroundColor: const Color(0xFFF1E9EC),
-                  valueColor: AlwaysStoppedAnimation(color),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(width: 44, child: _outOfFive(value, color, size: 12)),
-          ],
-        ),
+        child: Center(child: _outOfFive(value, color, size: 15)),
       );
+
+  @override
+  Widget build(BuildContext context) {
+    final periodLabel = _in('Period days', 'أيام الدورة');
+    final otherLabel = _in('Other days', 'بقية الأيام');
+    final rows = <(String, Color, double? Function(WellbeingGroupSummary))>[
+      (_in('Mood', 'المزاج'), _moodColor, (g) => g.averageMood),
+      (_in('Energy', 'الطاقة'), _energyColor, (g) => g.averageEnergy),
+      (_in('Sleep', 'النوم'), _sleepColor, (g) => g.averageSleep),
+    ];
+    return Container(
+      key: const Key('wellbeing-comparison'),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBF8F9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF1E9EC)),
+      ),
+      child: Table(
+        columnWidths: const {
+          0: FlexColumnWidth(1.1),
+          1: FlexColumnWidth(),
+          2: FlexColumnWidth(),
+        },
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        children: [
+          TableRow(
+            children: [
+              const SizedBox.shrink(),
+              _head(periodLabel, period.count),
+              _head(otherLabel, other.count),
+            ],
+          ),
+          for (final (label, color, pick) in rows)
+            TableRow(
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFFF1E9EC))),
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                _cell(pick(period), color, label, periodLabel),
+                _cell(pick(other), color, label, otherLabel),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _HistoryCard extends StatelessWidget {

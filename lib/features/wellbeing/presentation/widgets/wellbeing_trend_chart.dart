@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
@@ -8,168 +6,187 @@ import '../../domain/services/wellbeing_trend.dart';
 
 String _in(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
-enum _Marker { circle, square, triangle }
+enum _Measure { mood, energy, sleep }
 
-class _Series {
-  const _Series(
-    this.en,
-    this.ar,
-    this.color,
-    this.dash,
-    this.marker,
-    this.pick,
-  );
-  final String en;
-  final String ar;
-  final Color color;
+extension on _Measure {
+  String get label => switch (this) {
+    _Measure.mood => _in('Mood', 'المزاج'),
+    _Measure.energy => _in('Energy', 'الطاقة'),
+    _Measure.sleep => _in('Sleep', 'النوم'),
+  };
 
-  /// Line pattern, so the three lines differ by more than color.
-  final List<double>? dash;
-  final _Marker marker;
-  final double? Function(WellbeingTrendBucket) pick;
+  Color get color => switch (this) {
+    _Measure.mood => AppColors.brandPrimary,
+    _Measure.energy => AppColors.nifas,
+    _Measure.sleep => AppColors.istihadah,
+  };
 
-  String get label => _in(en, ar);
+  double? of(WellbeingTrendBucket b) => switch (this) {
+    _Measure.mood => b.mood,
+    _Measure.energy => b.energy,
+    _Measure.sleep => b.sleep,
+  };
 }
 
-final _series = [
-  _Series(
-    'Mood',
-    'المزاج',
-    AppColors.brandPrimary,
-    null,
-    _Marker.circle,
-    (b) => b.mood,
-  ),
-  _Series(
-    'Energy',
-    'الطاقة',
-    AppColors.nifas,
-    const [6, 4],
-    _Marker.square,
-    (b) => b.energy,
-  ),
-  _Series(
-    'Sleep',
-    'النوم',
-    AppColors.istihadah,
-    const [2, 3],
-    _Marker.triangle,
-    (b) => b.sleep,
-  ),
-];
-
-/// Line chart of weekly (or monthly) mood, energy and sleep averages on the
-/// 1–5 check-in scale. Only buckets with real check-ins are plotted; empty
-/// ones are gaps. Time runs toward the reading direction's end (mirrored
-/// in Arabic). Static: nothing animates, so reduced motion needs no case.
-/// Screen readers get one text summary of the same numbers.
-class WellbeingTrendChart extends StatelessWidget {
+/// Weekly (monthly for 12 months) averages of one measure at a time, as
+/// plain bars on the 1–5 check-in scale. rayan found the three-line chart
+/// complicated (2026-10-30), so she picks mood, energy or sleep and sees
+/// one bar per week. Only real check-ins are drawn: a week without any is
+/// a short grey stub, never a guessed value. Time runs toward the reading
+/// direction's end (mirrored in Arabic). Nothing animates. Screen readers
+/// get the same numbers as text.
+class WellbeingTrendChart extends StatefulWidget {
   const WellbeingTrendChart({super.key, required this.trend});
 
   final WellbeingTrend trend;
 
+  @override
+  State<WellbeingTrendChart> createState() => _WellbeingTrendChartState();
+}
+
+class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
+  _Measure _measure = _Measure.mood;
+
+  WellbeingTrend get trend => widget.trend;
+  bool get _weekly => trend.granularity == WellbeingTrendGranularity.week;
+
   static String _one(double value) => value.toStringAsFixed(1);
 
-  String _unitPlural(int n) =>
-      trend.granularity == WellbeingTrendGranularity.week
-      ? _in(n == 1 ? 'week' : 'weeks', n == 1 ? 'أسبوع' : 'أسابيع')
-      : _in(n == 1 ? 'month' : 'months', n == 1 ? 'شهر' : 'أشهر');
-
-  /// "12 check-ins in 5 of 13 weeks": the sample behind the lines.
-  String get sampleLine {
-    final total = trend.buckets.length;
-    final withData = trend.bucketsWithData;
-    return _in(
-      '${trend.checkIns} check-ins in $withData of $total ${_unitPlural(total)}',
-      '${_arCount(trend.checkIns, 'تسجيل واحد', 'تسجيلان', 'تسجيلات', 'تسجيلًا')} '
-          'في $withData من ${_arCount(total, 'أسبوع', 'أسبوعين', 'أسابيع', 'أسبوعًا', week: true)}',
-    );
-  }
-
-  /// Arabic counted noun: 1, 2, 3–10 and 11+ forms. [week] switches the
-  /// noun set to months when the chart is grouped by month.
-  String _arCount(
-    int n,
-    String one,
-    String two,
-    String few,
-    String many, {
-    bool week = false,
-  }) {
-    if (week && trend.granularity == WellbeingTrendGranularity.month) {
-      (one, two, few, many) = ('شهر', 'شهرين', 'أشهر', 'شهرًا');
-    }
-    if (n == 1) return week ? '1 $one' : one;
-    if (n == 2) return week ? '2 $two' : two;
+  /// Arabic counted noun: 1, 2, 3–10 and 11+ forms.
+  static String _arCount(int n, (String, String, String, String) forms) {
+    final (one, two, few, many) = forms;
+    if (n == 1) return '1 $one';
+    if (n == 2) return '2 $two';
     return n <= 10 ? '$n $few' : '$n $many';
   }
 
+  String _units(int n) => _weekly
+      ? _in(
+          n == 1 ? '$n week' : '$n weeks',
+          _arCount(n, ('أسبوع', 'أسبوعين', 'أسابيع', 'أسبوعًا')),
+        )
+      : _in(
+          n == 1 ? '$n month' : '$n months',
+          _arCount(n, ('شهر', 'شهرين', 'أشهر', 'شهرًا')),
+        );
+
+  /// "4 check-ins in 3 of 12 weeks": the sample behind the bars.
+  String get sampleLine {
+    final total = trend.buckets.length;
+    final withData = trend.bucketsWithData;
+    final checkIns = trend.checkIns;
+    return _in(
+      '${checkIns == 1 ? '1 check-in' : '$checkIns check-ins'} in $withData of ${_units(total)}',
+      '${checkIns == 1
+          ? 'تسجيل واحد'
+          : checkIns == 2
+          ? 'تسجيلان'
+          : checkIns <= 10
+          ? '$checkIns تسجيلات'
+          : '$checkIns تسجيلًا'} في $withData من ${_units(total)}',
+    );
+  }
+
   String get semanticSummary {
-    final withData = trend.buckets.where((b) => b.hasData).toList();
-    final parts = <String>[
-      trend.granularity == WellbeingTrendGranularity.week
+    final values = [
+      for (final b in trend.buckets)
+        if (_measure.of(b) != null) _measure.of(b)!,
+    ];
+    return [
+      _weekly
           ? _in(
-              'Chart of weekly averages, 1 to 5',
-              'رسم بياني للمتوسطات الأسبوعية من 1 إلى 5',
+              '${_measure.label}, weekly averages from 1 to 5',
+              '${_measure.label}، المتوسطات الأسبوعية من 1 إلى 5',
             )
           : _in(
-              'Chart of monthly averages, 1 to 5',
-              'رسم بياني للمتوسطات الشهرية من 1 إلى 5',
+              '${_measure.label}, monthly averages from 1 to 5',
+              '${_measure.label}، المتوسطات الشهرية من 1 إلى 5',
             ),
       sampleLine,
-    ];
-    if (withData.isNotEmpty) {
-      for (final s in _series) {
-        final first = s.pick(withData.first)!;
-        final latest = s.pick(withData.last)!;
-        parts.add(
-          withData.length == 1
-              ? '${s.label} ${_one(latest)}'
-              : _in(
-                  '${s.label}: first ${_one(first)}, latest ${_one(latest)}',
-                  '${s.label}: أول قيمة ${_one(first)}، وآخر قيمة ${_one(latest)}',
-                ),
-        );
-      }
-    }
-    return parts.join('. ');
+      if (values.length == 1)
+        _in('value ${_one(values.single)}', 'القيمة ${_one(values.single)}'),
+      if (values.length > 1)
+        _in(
+          'first ${_one(values.first)}, latest ${_one(values.last)}',
+          'أول قيمة ${_one(values.first)}، وآخر قيمة ${_one(values.last)}',
+        ),
+    ].join('. ');
   }
 
   @override
   Widget build(BuildContext context) {
-    final rtl = Directionality.of(context) == TextDirection.rtl;
-    final scaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.6);
+    final color = _measure.color;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ExcludeSemantics(
-          child: Wrap(
-            spacing: 14,
-            runSpacing: 6,
-            children: [for (final s in _series) _LegendItem(series: s)],
-          ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final m in _Measure.values)
+              ChoiceChip(
+                key: Key('wellbeing-measure-${m.name}'),
+                label: Text(m.label),
+                selected: m == _measure,
+                showCheckmark: false,
+                onSelected: (_) => setState(() => _measure = m),
+                selectedColor: m.color.withValues(alpha: 0.14),
+                backgroundColor: Colors.white,
+                side: BorderSide(
+                  color: m == _measure ? m.color : const Color(0xFFEFE7EA),
+                ),
+                labelStyle: TextStyle(
+                  color: m == _measure ? m.color : AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+              ),
+          ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 14),
         Semantics(
           key: const Key('wellbeing-trend-chart'),
           container: true,
           label: semanticSummary,
           child: ExcludeSemantics(
             child: SizedBox(
-              height: 150 + scaler.scale(12) * 2,
-              width: double.infinity,
-              child: CustomPaint(
-                painter: _TrendPainter(
-                  trend: trend,
-                  rtl: rtl,
-                  scaler: scaler,
-                  labelStyle: DefaultTextStyle.of(context).style
-                      .copyWith(color: AppColors.textTertiary, fontSize: 10),
-                  startLabel: _in('Start', 'البداية'),
-                  endLabel: _in('Today', 'اليوم'),
-                ),
+              height: 110,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final b in trend.buckets)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: _Bar(value: _measure.of(b), color: color),
+                      ),
+                    ),
+                ],
               ),
             ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        ExcludeSemantics(
+          child: Row(
+            children: [
+              Text(
+                _in('Start', 'البداية'),
+                style: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 10,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _in('Today', 'اليوم'),
+                style: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 10,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 6),
@@ -178,240 +195,42 @@ class WellbeingTrendChart extends StatelessWidget {
           key: const Key('wellbeing-trend-sample'),
           style: const TextStyle(color: AppColors.textTertiary, fontSize: 11),
         ),
-        if (trend.bucketsWithData == 1)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text(
-              _in(
-                'Check-ins from at least two different ${_unitPlural(2)} are needed to draw a line.',
-                trend.granularity == WellbeingTrendGranularity.week
-                    ? 'يلزم تسجيلات من أسبوعين مختلفين على الأقل لرسم خط.'
-                    : 'يلزم تسجيلات من شهرين مختلفين على الأقل لرسم خط.',
-              ),
-              style: const TextStyle(
-                color: AppColors.textTertiary,
-                fontSize: 11,
-              ),
-            ),
-          ),
       ],
     );
   }
 }
 
-class _LegendItem extends StatelessWidget {
-  const _LegendItem({required this.series});
-  final _Series series;
+class _Bar extends StatelessWidget {
+  const _Bar({required this.value, required this.color});
+  final double? value;
+  final Color color;
 
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      SizedBox(
-        width: 26,
-        height: 12,
-        child: CustomPaint(painter: _LegendPainter(series)),
-      ),
-      const SizedBox(width: 5),
-      Text(
-        series.label,
-        style: const TextStyle(
-          color: AppColors.textSecondary,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    ],
-  );
-}
-
-void _strokeLine(
-  Canvas canvas,
-  Offset a,
-  Offset b,
-  Paint paint,
-  List<double>? dash,
-) {
-  if (dash == null) {
-    canvas.drawLine(a, b, paint);
-    return;
-  }
-  final path = Path()
-    ..moveTo(a.dx, a.dy)
-    ..lineTo(b.dx, b.dy);
-  for (final metric in path.computeMetrics()) {
-    var distance = 0.0;
-    var on = 0;
-    while (distance < metric.length) {
-      final length = dash[on % dash.length];
-      if (on.isEven) {
-        canvas.drawPath(
-          metric.extractPath(
-            distance,
-            math.min(distance + length, metric.length),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final v = value;
+      if (v == null) {
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            height: 3,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFE7EA),
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
-          paint,
         );
       }
-      distance += length;
-      on++;
-    }
-  }
-}
-
-void _drawMarker(Canvas canvas, Offset c, _Marker marker, Color color) {
-  final fill = Paint()..color = color;
-  final ring = Paint()
-    ..color = Colors.white
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.5;
-  switch (marker) {
-    case _Marker.circle:
-      canvas
-        ..drawCircle(c, 4, fill)
-        ..drawCircle(c, 4, ring);
-    case _Marker.square:
-      final r = Rect.fromCenter(center: c, width: 7.5, height: 7.5);
-      canvas
-        ..drawRect(r, fill)
-        ..drawRect(r, ring);
-    case _Marker.triangle:
-      final p = Path()
-        ..moveTo(c.dx, c.dy - 5)
-        ..lineTo(c.dx + 4.5, c.dy + 3.5)
-        ..lineTo(c.dx - 4.5, c.dy + 3.5)
-        ..close();
-      canvas
-        ..drawPath(p, fill)
-        ..drawPath(p, ring);
-  }
-}
-
-class _LegendPainter extends CustomPainter {
-  _LegendPainter(this.series);
-  final _Series series;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final y = size.height / 2;
-    final paint = Paint()
-      ..color = series.color
-      ..strokeWidth = 2;
-    _strokeLine(
-      canvas,
-      Offset(0, y),
-      Offset(size.width, y),
-      paint,
-      series.dash,
-    );
-    _drawMarker(canvas, Offset(size.width / 2, y), series.marker, series.color);
-  }
-
-  @override
-  bool shouldRepaint(covariant _LegendPainter old) => old.series != series;
-}
-
-class _TrendPainter extends CustomPainter {
-  _TrendPainter({
-    required this.trend,
-    required this.rtl,
-    required this.scaler,
-    required this.labelStyle,
-    required this.startLabel,
-    required this.endLabel,
-  });
-
-  final WellbeingTrend trend;
-  final bool rtl;
-  final TextScaler scaler;
-  final TextStyle labelStyle;
-  final String startLabel;
-  final String endLabel;
-
-  TextPainter _text(String value) => TextPainter(
-    text: TextSpan(text: value, style: labelStyle),
-    textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
-    textScaler: scaler,
-  )..layout();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final yLabels = {
-      for (final v in const [1, 3, 5]) v: _text('$v'),
-    };
-    final gutter = yLabels.values.map((t) => t.width).reduce(math.max) + 8;
-    final xLabelHeight = _text(endLabel).height + 6;
-    const top = 6.0;
-    final bottom = size.height - xLabelHeight;
-    final plotStart = rtl ? 0.0 : gutter;
-    final plotEnd = rtl ? size.width - gutter : size.width;
-    final plotWidth = plotEnd - plotStart;
-    final n = trend.buckets.length;
-    if (n == 0 || plotWidth <= 0) return;
-
-    double yFor(double v) => bottom - (v - 1) / 4 * (bottom - top);
-    // Oldest bucket at the reading direction's start.
-    double xFor(int i) {
-      final fraction = (i + 0.5) / n;
-      return rtl
-          ? plotEnd - fraction * plotWidth
-          : plotStart + fraction * plotWidth;
-    }
-
-    final grid = Paint()
-      ..color = const Color(0xFFF1E9EC)
-      ..strokeWidth = 1;
-    for (var v = 1; v <= 5; v++) {
-      canvas.drawLine(
-        Offset(plotStart, yFor(v.toDouble())),
-        Offset(plotEnd, yFor(v.toDouble())),
-        grid,
+      return Align(
+        alignment: Alignment.bottomCenter,
+        child: Container(
+          height: constraints.maxHeight * (v / 5).clamp(0.05, 1.0),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(5)),
+          ),
+        ),
       );
-    }
-    yLabels.forEach((v, painter) {
-      final x = rtl ? size.width - painter.width : gutter - 8 - painter.width;
-      painter.paint(canvas, Offset(x, yFor(v.toDouble()) - painter.height / 2));
-    });
-
-    final start = _text(startLabel);
-    final end = _text(endLabel);
-    final labelY = bottom + 6;
-    if (rtl) {
-      start.paint(canvas, Offset(plotEnd - start.width, labelY));
-      end.paint(canvas, Offset(plotStart, labelY));
-    } else {
-      start.paint(canvas, Offset(plotStart, labelY));
-      end.paint(canvas, Offset(plotEnd - end.width, labelY));
-    }
-
-    for (final s in _series) {
-      final line = Paint()
-        ..color = s.color
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round;
-      for (var i = 1; i < n; i++) {
-        final a = s.pick(trend.buckets[i - 1]);
-        final b = s.pick(trend.buckets[i]);
-        // Gap where a bucket has no check-ins: never bridged by a guess.
-        if (a == null || b == null) continue;
-        _strokeLine(
-          canvas,
-          Offset(xFor(i - 1), yFor(a)),
-          Offset(xFor(i), yFor(b)),
-          line,
-          s.dash,
-        );
-      }
-      for (var i = 0; i < n; i++) {
-        final v = s.pick(trend.buckets[i]);
-        if (v != null) {
-          _drawMarker(canvas, Offset(xFor(i), yFor(v)), s.marker, s.color);
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _TrendPainter old) =>
-      old.trend != trend || old.rtl != rtl || old.scaler != scaler;
+    },
+  );
 }
