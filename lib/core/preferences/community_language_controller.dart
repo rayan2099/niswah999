@@ -32,6 +32,16 @@ class CommunityLanguageController extends ChangeNotifier {
 
   CommunityLanguage? _selected;
 
+  /// Bumped by every [select] and [resetInMemory]. A [load] that started
+  /// before one of them must not overwrite it with an older answer: testing
+  /// feedback 2026-10-30 showed Profile with neither community highlighted
+  /// although one had been chosen.
+  int _version = 0;
+
+  /// Test seam for the server read; null uses `public.users`.
+  @visibleForTesting
+  static Future<CommunityLanguage?> Function()? serverReadOverride;
+
   /// Non-null only once the user has explicitly chosen — never a default.
   CommunityLanguage? get selectedOrNull => _selected;
   bool get isSelected => _selected != null;
@@ -40,8 +50,10 @@ class CommunityLanguageController extends ChangeNotifier {
   /// network are available, otherwise this device's local cache,
   /// otherwise null (unset) — never a guessed/defaulted language.
   Future<void> load() async {
+    final version = _version;
     final preferences = await SharedPreferences.getInstance();
-    final serverValue = await _tryReadServerValue();
+    final serverValue = await (serverReadOverride ?? _tryReadServerValue)();
+    if (version != _version) return;
     if (serverValue != null) {
       _selected = serverValue;
       await _cacheLocally(preferences, serverValue);
@@ -50,14 +62,23 @@ class CommunityLanguageController extends ChangeNotifier {
     }
 
     final cached = preferences.getString(UserScopedPreferences.key(_key));
-    _selected = cached == null ? null : _parse(cached);
+    final cachedValue = cached == null ? null : _parse(cached);
+    if (version != _version) return;
+    _selected = cachedValue;
     notifyListeners();
+    // The server has no value but this device does: an earlier
+    // best-effort write did not land. Retry it so another device, or the
+    // next install, shows the same choice.
+    if (cachedValue != null && serverReadOverride == null) {
+      await _writeServerValue(cachedValue);
+    }
   }
 
   /// Explicit selection — from the Community entry gate or the
   /// Profile/Settings toggle. Never deletes or modifies any existing
   /// post; this only changes which community is displayed going forward.
   Future<void> select(CommunityLanguage value) async {
+    _version++;
     if (_selected == value) return;
     _selected = value;
     notifyListeners();
@@ -70,6 +91,7 @@ class CommunityLanguageController extends ChangeNotifier {
   /// account signing in next cannot briefly read the previous account's
   /// in-memory language before its own [load] completes.
   void resetInMemory() {
+    _version++;
     _selected = null;
     notifyListeners();
   }

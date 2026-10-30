@@ -59,6 +59,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _viewModel = ProfileViewModel()..loadCurrentUser();
     PregnancyStatusController.instance.load();
     TtcModeController.instance.load();
+    // A choice made at the Community gate is always shown here; reload
+    // only when nothing is in memory yet.
+    if (!CommunityLanguageController.instance.isSelected) {
+      CommunityLanguageController.instance.load();
+    }
   }
 
   @override
@@ -1548,6 +1553,7 @@ class _CommunityLanguageRow extends StatelessWidget {
         children: [
           Expanded(
             child: _segment(
+              key: const Key('community-language-ar'),
               label: _pr('Arabic Community', 'المجتمع العربي'),
               selected: selected == CommunityLanguage.ar,
               onTap: () => CommunityLanguageController.instance.select(
@@ -1557,6 +1563,7 @@ class _CommunityLanguageRow extends StatelessWidget {
           ),
           Expanded(
             child: _segment(
+              key: const Key('community-language-en'),
               label: 'English Community',
               selected: selected == CommunityLanguage.en,
               onTap: () => CommunityLanguageController.instance.select(
@@ -1569,26 +1576,51 @@ class _CommunityLanguageRow extends StatelessWidget {
     );
   }
 
+  /// Testing feedback 2026-10-30: the chosen community must read as
+  /// chosen. Filled with a check mark (not color alone), announced as a
+  /// selected button, and at least 44pt tall.
   Widget _segment({
+    required Key key,
     required String label,
     required bool selected,
     required VoidCallback onTap,
-  }) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: selected ? const Color(0xFFE11D48) : Colors.transparent,
-        borderRadius: BorderRadius.circular(99),
-      ),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: selected ? Colors.white : AppColors.textTertiary,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
+  }) => Semantics(
+    key: key,
+    container: true,
+    button: true,
+    selected: selected,
+    label: label,
+    excludeSemantics: true,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(99),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFE11D48) : Colors.transparent,
+          borderRadius: BorderRadius.circular(99),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (selected) ...[
+              const Icon(Icons.check_rounded, size: 16, color: Colors.white),
+              const SizedBox(width: 4),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: selected ? Colors.white : AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     ),
