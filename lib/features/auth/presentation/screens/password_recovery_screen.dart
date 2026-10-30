@@ -7,12 +7,16 @@ import '../../../../core/network/supabase_client.dart';
 
 /// Displayed only after Supabase confirms a password recovery session.
 class PasswordRecoveryScreen extends StatefulWidget {
-  const PasswordRecoveryScreen({super.key, this.updatePassword, this.onComplete});
+  const PasswordRecoveryScreen({super.key, this.updatePassword, this.onComplete, this.accountEmail});
 
   @visibleForTesting
   final Future<void> Function(String password)? updatePassword;
   @visibleForTesting
   final VoidCallback? onComplete;
+
+  /// The account the recovery link belongs to; defaults to the session's.
+  @visibleForTesting
+  final String? accountEmail;
 
   @override
   State<PasswordRecoveryScreen> createState() => _PasswordRecoveryScreenState();
@@ -23,6 +27,13 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   final _confirm = TextEditingController();
   bool _saving = false;
   String? _error;
+
+  // NJ-074: the recovery link can belong to a different account from the
+  // one that was signed in. The form names the account it changes, and a
+  // save is refused if the session changed account after it opened.
+  late final String? _accountId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
+  late final String? _accountEmail =
+      widget.accountEmail ?? NiswahSupabase.clientOrNull?.auth.currentUser?.email;
 
   String tr(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -60,7 +71,9 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
         await widget.updatePassword!(password);
       } else {
         final client = NiswahSupabase.client;
-        if (!AuthController.instance.passwordRecovery || client.auth.currentSession == null) {
+        if (!AuthController.instance.passwordRecovery ||
+            client.auth.currentSession == null ||
+            client.auth.currentUser?.id != _accountId) {
           throw StateError('Recovery session unavailable');
         }
         await client.auth.updateUser(UserAttributes(password: password));
@@ -89,6 +102,18 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(tr('Choose a new password', 'اختاري كلمة مرور جديدة'), style: Theme.of(context).textTheme.headlineSmall),
+          if (_accountEmail != null) ...[
+            const SizedBox(height: 8),
+            Text(tr('This changes the password for:', 'سيغيّر هذا كلمة المرور للحساب:')),
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Text(_accountEmail, key: const Key('recovery_account_email'), style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+            Text(tr(
+              'If this is not the account you meant, close the app and open the newest reset link from that account\'s email.',
+              'إذا لم يكن هذا الحساب المقصود، فأغلقي التطبيق وافتحي أحدث رابط إعادة تعيين من بريد ذلك الحساب.',
+            )),
+          ],
           const SizedBox(height: 20),
           TextField(key: const Key('new_password'), controller: _password, obscureText: true, autofillHints: const [AutofillHints.newPassword], decoration: InputDecoration(labelText: tr('New password', 'كلمة المرور الجديدة'))),
           const SizedBox(height: 14),

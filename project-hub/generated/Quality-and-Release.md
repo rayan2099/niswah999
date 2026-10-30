@@ -24,10 +24,13 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
+- [account-tracking-integration-2026-10-30.md](../../docs/account-tracking-integration-2026-10-30.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
+- [entry-draft-deletion-fence.md](../../docs/entry-draft-deletion-fence.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
+- [launch-audit-2026-10-29.md](../../docs/launch-audit-2026-10-29.md)
 - [menstrual-data-integrity-contract.md](../../docs/menstrual-data-integrity-contract.md)
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
@@ -36,6 +39,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
+- [tracking-asof-reconciliation-2026-10-30.md](../../docs/tracking-asof-reconciliation-2026-10-30.md)
 
 ## docs/engineering
 
@@ -167,6 +171,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
 - [correction_sheet_test.dart](../../test/correction_sheet_test.dart)
+- [cycle_calculation_asof_boundary_test.dart](../../test/cycle_calculation_asof_boundary_test.dart)
 - [cycle_calculation_canonical_episodes_test.dart](../../test/cycle_calculation_canonical_episodes_test.dart)
 - [cycle_calculation_service_test.dart](../../test/cycle_calculation_service_test.dart)
 - [cycle_calendar_legacy_provenance_test.dart](../../test/cycle_calendar_legacy_provenance_test.dart)
@@ -267,6 +272,11 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [wellbeing_period_split_test.dart](../../test/wellbeing_period_split_test.dart)
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
 - [widget_test.dart](../../test/widget_test.dart)
+
+## test/account_isolation
+
+- [account_boundary_test.dart](../../test/account_isolation/account_boundary_test.dart)
+- [entry_draft_after_session_end_test.dart](../../test/account_isolation/entry_draft_after_session_end_test.dart)
 
 ## test/fiqh_hardening
 
