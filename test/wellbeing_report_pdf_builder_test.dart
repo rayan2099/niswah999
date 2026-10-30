@@ -137,4 +137,16 @@ void main() {
       expect(bytes.isNotEmpty, isTrue);
     }
   });
+
+  test('the split table matches the Insights views', () {
+    final logs = [_log(1, mood: 4), _log(2, mood: 2)];
+    final split = WellbeingPeriodSplit.compute(
+      logs: logs,
+      today: DateTime(2026, 8, 25),
+    );
+    final rows = WellbeingReportPdfBuilder.periodSplitRows(true, split);
+    expect(rows.first, ['', 'كل الأيام', 'أيام الدورة', 'بقية الأيام']);
+    expect(rows[1], ['المزاج', '3.0/5', '—', '3.0/5']);
+    expect(rows.last, ['التسجيلات', '2', '0', '2']);
+  });
 }

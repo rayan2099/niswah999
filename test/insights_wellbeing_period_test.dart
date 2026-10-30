@@ -237,8 +237,11 @@ void main() {
     expect(sleep, contains('first 3.0, latest 3.0'));
     expect(find.bySemanticsLabel('Mood 3.5 out of 5'), findsOneWidget);
     expect(
-      find.bySemanticsLabel('Mood, Other days: 3.5 out of 5'),
-      findsOneWidget,
+      tester
+          .getSemantics(find.byKey(const Key('wellbeing-view-all')))
+          .flagsCollection
+          .isSelected,
+      ui.Tristate.isTrue,
     );
     expect(
       tester

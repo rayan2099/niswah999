@@ -114,14 +114,19 @@ void main() {
       findsNothing,
       reason: 'collapsed by default: a quick look',
     );
-    await _expand(tester);
-    expect(find.text('none yet'), findsOneWidget, reason: 'period days');
-    expect(find.text('3 check-ins'), findsOneWidget, reason: 'other days');
-    expect(
-      find.textContaining('4.0', findRichText: true),
-      findsNWidgets(2),
-      reason: 'mood, in two groups',
-    );
+    expect(find.textContaining('4.0', findRichText: true), findsOneWidget);
+
+    // Period days: none logged, said in words instead of empty tiles.
+    await tester.tap(find.byKey(const Key('wellbeing-view-period')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('wellbeing-group-empty')), findsOneWidget);
+    expect(find.textContaining('4.0', findRichText: true), findsNothing);
+
+    // Other days: all three check-ins.
+    await tester.tap(find.byKey(const Key('wellbeing-view-other')));
+    await tester.pumpAndSettle();
+    expect(_summary('3 check-ins'), findsOneWidget);
+    expect(find.textContaining('4.0', findRichText: true), findsOneWidget);
   });
 
   testWidgets('a new check-in shows without leaving the screen', (

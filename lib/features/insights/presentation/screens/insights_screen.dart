@@ -1128,6 +1128,7 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
   List<WellbeingLog>? _logs;
   bool _failed = false;
   bool _expanded = false;
+  _DayGroup _group = _DayGroup.all;
   int _generation = 0;
 
   DateTime get _rangeStart =>
@@ -1233,10 +1234,16 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  _in('Mood & wellbeing', 'الحالة النفسية'),
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                // One line: "الحالة النفسية" must not split over two.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    _in('Mood & wellbeing', 'الحالة النفسية'),
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700, fontSize: 16),
+                  ),
                 ),
               ),
               _TrendRangeChip(
@@ -1281,8 +1288,20 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
               ),
             )
           else ...[
-            const SizedBox(height: 16),
-            _WellbeingSummary(group: split.all),
+            const SizedBox(height: 14),
+            _GroupSwitch(
+              selected: _group,
+              onChanged: (value) => setState(() => _group = value),
+            ),
+            const SizedBox(height: 12),
+            _WellbeingSummary(
+              group: switch (_group) {
+                _DayGroup.period => split.onPeriodDays,
+                _DayGroup.other => split.onOtherDays,
+                _DayGroup.all => split.all,
+              },
+              dayGroup: _group,
+            ),
             const SizedBox(height: 14),
             _DetailsToggle(
               expanded: _expanded,
@@ -1297,11 +1316,6 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
                 children: [
                   const SizedBox(height: 10),
                   WellbeingTrendChart(trend: trend!),
-                  const SizedBox(height: 18),
-                  _PeriodComparison(
-                    period: split.onPeriodDays,
-                    other: split.onOtherDays,
-                  ),
                   const SizedBox(height: 14),
                   Text(
                     _in(
@@ -1367,54 +1381,84 @@ Widget _outOfFive(double? value, Color color, {double size = 13}) => Text.rich(
 /// size. Testing feedback 2026-10-30: the averages were a run of text
 /// that wrapped mid-number, and the card became very long.
 class _WellbeingSummary extends StatelessWidget {
-  const _WellbeingSummary({required this.group});
+  const _WellbeingSummary({required this.group, required this.dayGroup});
   final WellbeingGroupSummary group;
+  final _DayGroup dayGroup;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: _SummaryTile(
-              label: _in('Mood', 'المزاج'),
-              icon: Icons.sentiment_satisfied_alt_rounded,
-              value: group.averageMood!,
-              color: _moodColor,
+  Widget build(BuildContext context) => group.count == 0
+      ? Container(
+          key: const Key('wellbeing-group-empty'),
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFBF8F9),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFF1E9EC)),
+          ),
+          child: Text(
+            dayGroup == _DayGroup.period
+                ? _in(
+                    'No check-ins on period days in this time range yet.',
+                    'لا توجد تسجيلات في أيام الدورة خلال هذه الفترة بعد.',
+                  )
+                : _in(
+                    'No check-ins on other days in this time range yet.',
+                    'لا توجد تسجيلات في بقية الأيام خلال هذه الفترة بعد.',
+                  ),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _SummaryTile(
-              label: _in('Energy', 'الطاقة'),
-              icon: Icons.bolt_rounded,
-              value: group.averageEnergy!,
-              color: _energyColor,
+        )
+      : Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _SummaryTile(
+                    label: _in('Mood', 'المزاج'),
+                    icon: Icons.sentiment_satisfied_alt_rounded,
+                    value: group.averageMood!,
+                    color: _moodColor,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SummaryTile(
+                    label: _in('Energy', 'الطاقة'),
+                    icon: Icons.bolt_rounded,
+                    value: group.averageEnergy!,
+                    color: _energyColor,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SummaryTile(
+                    label: _in('Sleep', 'النوم'),
+                    icon: Icons.bedtime_rounded,
+                    value: group.averageSleep!,
+                    color: _sleepColor,
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _SummaryTile(
-              label: _in('Sleep', 'النوم'),
-              icon: Icons.bedtime_rounded,
-              value: group.averageSleep!,
-              color: _sleepColor,
+            const SizedBox(height: 8),
+            Text(
+              _in(
+                'Average of ${_checkIns(group.count)}',
+                'متوسط ${_checkIns(group.count)}',
+              ),
+              key: const Key('wellbeing-summary-count'),
+              style: const TextStyle(
+                color: AppColors.textTertiary,
+                fontSize: 11,
+              ),
             ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 8),
-      Text(
-        _in(
-          'Average of ${_checkIns(group.count)}',
-          'متوسط ${_checkIns(group.count)}',
-        ),
-        key: const Key('wellbeing-summary-count'),
-        style: const TextStyle(color: AppColors.textTertiary, fontSize: 11),
-      ),
-    ],
-  );
+          ],
+        );
 }
 
 class _SummaryTile extends StatelessWidget {
@@ -1555,102 +1599,77 @@ class _DetailsToggle extends StatelessWidget {
   );
 }
 
-/// Period days against other days as a small table of averages. A
-/// tracking comparison only, never a ruling.
-class _PeriodComparison extends StatelessWidget {
-  const _PeriodComparison({required this.period, required this.other});
-  final WellbeingGroupSummary period;
-  final WellbeingGroupSummary other;
+enum _DayGroup { all, period, other }
 
-  static const _muted = TextStyle(color: AppColors.textTertiary, fontSize: 11);
-
-  Widget _head(String label, int count) => Column(
-    children: [
-      Text(
-        label,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: AppColors.textSecondary,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      Text(
-        count == 0 ? _in('none yet', 'لا يوجد بعد') : _checkIns(count),
-        textAlign: TextAlign.center,
-        style: _muted,
-      ),
-    ],
-  );
-
-  Widget _cell(double? value, Color color, String measure, String group) =>
-      Semantics(
-        container: true,
-        label: value == null
-            ? _in(
-                '$measure, $group: no check-ins',
-                '$measure، $group: لا توجد تسجيلات',
-              )
-            : _in(
-                '$measure, $group: ${_one(value)} out of 5',
-                '$measure، $group: ${_one(value)} من 5',
-              ),
-        excludeSemantics: true,
-        child: Center(child: _outOfFive(value, color, size: 15)),
-      );
+/// Which days the tiles average: all days, period days (bleeding recorded)
+/// or the other days. Testing feedback 2026-10-30: a clearer way to see
+/// period days against regular days than a separate table.
+class _GroupSwitch extends StatelessWidget {
+  const _GroupSwitch({required this.selected, required this.onChanged});
+  final _DayGroup selected;
+  final ValueChanged<_DayGroup> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final periodLabel = _in('Period days', 'أيام الدورة');
-    final otherLabel = _in('Other days', 'بقية الأيام');
-    final rows = <(String, Color, double? Function(WellbeingGroupSummary))>[
-      (_in('Mood', 'المزاج'), _moodColor, (g) => g.averageMood),
-      (_in('Energy', 'الطاقة'), _energyColor, (g) => g.averageEnergy),
-      (_in('Sleep', 'النوم'), _sleepColor, (g) => g.averageSleep),
-    ];
+    final labels = {
+      _DayGroup.all: _in('All days', 'كل الأيام'),
+      _DayGroup.period: _in('Period days', 'أيام الدورة'),
+      _DayGroup.other: _in('Other days', 'بقية الأيام'),
+    };
     return Container(
-      key: const Key('wellbeing-comparison'),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+      padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: const Color(0xFFFBF8F9),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFF1E9EC)),
+        color: const Color(0xFFF6EFF2),
+        borderRadius: BorderRadius.circular(99),
       ),
-      child: Table(
-        columnWidths: const {
-          0: FlexColumnWidth(1.1),
-          1: FlexColumnWidth(),
-          2: FlexColumnWidth(),
-        },
-        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      child: Row(
         children: [
-          TableRow(
-            children: [
-              const SizedBox.shrink(),
-              _head(periodLabel, period.count),
-              _head(otherLabel, other.count),
-            ],
-          ),
-          for (final (label, color, pick) in rows)
-            TableRow(
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Color(0xFFF1E9EC))),
-              ),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+          for (final group in _DayGroup.values)
+            Expanded(
+              child: Semantics(
+                container: true,
+                button: true,
+                selected: group == selected,
+                label: labels[group],
+                excludeSemantics: true,
+                child: GestureDetector(
+                  key: Key('wellbeing-view-${group.name}'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onChanged(group),
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 44),
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: group == selected
+                        ? BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(99),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x1A881337),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          )
+                        : null,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        labels[group]!,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: group == selected
+                              ? const Color(0xFF9F1239)
+                              : AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-                _cell(pick(period), color, label, periodLabel),
-                _cell(pick(other), color, label, otherLabel),
-              ],
+              ),
             ),
         ],
       ),
