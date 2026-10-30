@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'private_phone_test_screen.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -82,6 +84,29 @@ class _SignInScreenState extends State<SignInScreen> {
 
   Future<void> _showAuthSheet({required bool isPhone}) =>
       _requireConsent(() async {
+        if (isPhone && privatePhoneTestBuild) {
+          await showDialog<void>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: Text(_tr('Private phone testing', 'اختبار الهاتف الخاص')),
+              content: Text(
+                _tr(
+                  'First verify your email to protect your account. Then open Profile → Private phone test to enter your number and see the test code. No SMS is sent; the number stays unverified.',
+                  'وثّقي بريدكِ أولاً لحماية حسابكِ، ثم افتحي الملف الشخصي ← اختبار رقم الهاتف لإدخال الرقم وعرض رمز الاختبار. لن تُرسل رسالة نصية ويبقى الرقم غير موثّق.',
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(
+                    _tr('Continue with email', 'المتابعة بالبريد الإلكتروني'),
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (!mounted) return;
+        }
         final success = await showModalBottomSheet<bool>(
           context: context,
           isScrollControlled: true,
@@ -89,7 +114,8 @@ class _SignInScreenState extends State<SignInScreen> {
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
           ),
-          builder: (_) => _AuthSheet(isPhone: isPhone),
+          builder: (_) =>
+              _AuthSheet(isPhone: isPhone && !privatePhoneTestBuild),
         );
 
         if (success == true && mounted) {

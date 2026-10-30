@@ -16,6 +16,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [ci.yml](../../.github/workflows/ci.yml)
 - [emergency-release.yml](../../.github/workflows/emergency-release.yml)
 - [kb-review-validation.yml](../../.github/workflows/kb-review-validation.yml)
+- [private-phone-testing.yml](../../.github/workflows/private-phone-testing.yml)
 - [project-vault.yml](../../.github/workflows/project-vault.yml)
 - [routine-release.yml](../../.github/workflows/routine-release.yml)
 - [w1001-sentinel.yml](../../.github/workflows/w1001-sentinel.yml)
@@ -34,6 +35,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [parity-checklist.md](../../docs/parity-checklist.md)
 - [password-recovery.md](../../docs/password-recovery.md)
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
+- [private-phone-testing.md](../../docs/private-phone-testing.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 
@@ -267,6 +269,12 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [wellbeing_period_split_test.dart](../../test/wellbeing_period_split_test.dart)
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
 - [widget_test.dart](../../test/widget_test.dart)
+
+## test/database
+
+- [package-lock.json](../../test/database/package-lock.json)
+- [package.json](../../test/database/package.json)
+- [private_phone_testing.mjs](../../test/database/private_phone_testing.mjs)
 
 ## test/fiqh_hardening
 

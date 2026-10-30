@@ -19,6 +19,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [profile_form_data.dart](../../lib/features/auth/presentation/models/profile_form_data.dart)
 - [account_settings_screen.dart](../../lib/features/auth/presentation/screens/account_settings_screen.dart)
 - [password_recovery_screen.dart](../../lib/features/auth/presentation/screens/password_recovery_screen.dart)
+- [private_phone_test_screen.dart](../../lib/features/auth/presentation/screens/private_phone_test_screen.dart)
 - [profile_screen.dart](../../lib/features/auth/presentation/screens/profile_screen.dart)
 - [sign_in_screen.dart](../../lib/features/auth/presentation/screens/sign_in_screen.dart)
 - [profile_view_model.dart](../../lib/features/auth/presentation/viewmodels/profile_view_model.dart)
