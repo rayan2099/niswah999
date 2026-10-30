@@ -16,10 +16,10 @@ separately.
 |---|---|
 | VERIFIED | 0 |
 | IMPLEMENTED — UNVERIFIED | 181 |
-| IMPLEMENTATION REQUIRED | 24 |
-| BLOCKED — EXTERNAL EVIDENCE REQUIRED | 94 |
+| IMPLEMENTATION REQUIRED | 25 |
+| BLOCKED — EXTERNAL EVIDENCE REQUIRED | 59 |
 | NOT ASSESSED | 0 |
-| OUT OF SCOPE — EXPLICIT DECISION | 1 |
+| OUT OF SCOPE — EXPLICIT DECISION | 35 |
 
 **67 of 300** journeys have their outcome demonstrated by a named automated
 test. None is VERIFIED, because 170 journeys also need a signed iPhone and
@@ -75,7 +75,7 @@ check that has not been run.
 
 ## External blockers
 
-- Launch-scope decisions: see `NISWAH_LAUNCH_SCOPE.md`.
+- Launch-scope decisions: see `NISWAH_LAUNCH_SCOPE.md`. On 2026-10-30 rayan deferred nine features that do not exist (34 journeys, now OUT OF SCOPE) and kept the remote fiqh switch-off (NJ-280, with PT-196) in scope.
 - Signed iPhone and Android runs of the device journeys.
 - Medical and fiqh specialist review (39 journeys).
 - Staging: migration `20261029130000` (PT-002) is not installed; the SQL is

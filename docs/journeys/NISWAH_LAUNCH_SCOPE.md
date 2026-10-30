@@ -28,20 +28,23 @@ evidenced by release records, not app code.
 | Push notifications | NJ-162, NJ-167 | Push is disabled in the launch builds. | Out of scope for launch; local reminders only. |
 | Pregnancy / postpartum mode | NJ-032, NJ-132, NJ-133, NJ-274 | Exists; medical wording needs specialist review. | Keep, with specialist sign-off listed as external evidence. |
 
-## Not implemented: scope decision required (35 journeys)
+## Out of launch scope (decided by rayan, 2026-10-30)
 
-| Feature | Journeys | Proposed decision |
-|---|---|---|
-| Subscriptions and purchases | NJ-049..NJ-052, NJ-191..NJ-200, NJ-272, NJ-277, NJ-287 | Out of scope: the app has no paid tier. |
-| Biometric lock | NJ-075 | Out of scope for launch. |
-| Medication / contraception records | NJ-134 | Out of scope for launch. |
-| AI that changes records | NJ-174..NJ-178, NJ-273 | Out of scope: the AI answers questions and never edits her records. |
-| Attachments and shareable links | NJ-187, NJ-188, NJ-246, NJ-257 | Out of scope: community and messages are text-only. |
-| Data import | NJ-127 | Out of scope for launch. |
-| History search, chart drill-down | NJ-107, NJ-115 | Out of scope for launch. |
-| Predictions-off setting | NJ-128 | Decision needed. |
-| Calendar display preference | NJ-089 | Out of scope: the Hijri month is already shown beside the Gregorian label. |
-| Remote guidance disable | NJ-280 | Tied to the fiqh kill switch (PT-196). |
+rayan chose to defer nine features that do not exist in the app (34 journeys)
+and to keep one, the remote fiqh switch-off, in launch scope.
+
+| Feature | Journeys | Decision | Consequence of deferring |
+|---|---|---|---|
+| Subscriptions and purchases | NJ-049..NJ-052, NJ-191..NJ-200, NJ-272, NJ-277, NJ-287 | Out of scope | No paid tier at launch; adding one later needs store review and receipt handling. |
+| Biometric lock | NJ-075 | Out of scope | Anyone holding her unlocked phone can open the app. |
+| Medication / contraception records | NJ-134 | Out of scope | They cannot be logged; predictions do not account for them. |
+| AI that changes records | NJ-174..NJ-178, NJ-273 | Out of scope | The AI only answers questions; she edits her records herself. |
+| Attachments and shareable links | NJ-187, NJ-188, NJ-246, NJ-257 | Out of scope | Community and messages stay text-only. |
+| Data import | NJ-127 | Out of scope | History from another app is entered by hand. |
+| History search, chart drill-down | NJ-107, NJ-115 | Out of scope | She browses by month. |
+| Predictions-off setting | NJ-128 | Out of scope | Predictions stay on; they are labelled as estimates. |
+| Calendar display preference | NJ-089 | Out of scope | The Hijri month is already shown beside the Gregorian label. |
+| Remote guidance disable | NJ-280 | **In scope** | Built with the fiqh kill switch (PT-196) so a wrong rule can be turned off without a release. |
 
 ## Deferred by product decision (18 journeys)
 
