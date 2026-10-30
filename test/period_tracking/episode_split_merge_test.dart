@@ -20,7 +20,7 @@ import '../support/secure_storage_test_support.dart';
 
 /// Splitting one period in two and joining two into one (PT-045, PT-046):
 /// the app side of
-/// supabase/migrations/20261030090000_bleeding_episode_split_merge.sql.
+/// supabase/migrations/20261030012106_bleeding_episode_split_merge.sql.
 /// The server rules (entries moved never rewritten, gap days left
 /// unanswered, preview before confirm, undo, tombstones) are proven in
 /// test/security/bleeding_episode_split_merge.sql.

@@ -190,6 +190,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check migration version identities
+        run: |
+          python3 -m unittest scripts.test_migration_versions -v
+          python3 scripts/check_migration_versions.py
+
       - uses: supabase/setup-cli@v1
         with:
           version: 2.109.1
