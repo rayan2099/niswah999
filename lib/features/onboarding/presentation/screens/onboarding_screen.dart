@@ -193,10 +193,10 @@ enum _PeriodSubStep { pickStart, stillHappening, pickEnd }
 /// Onboarding/server hardening (proposed, finding #4): [endedEndUnknown]
 /// is "No, it has stopped" followed by "I'm not sure exactly when". It
 /// used to be folded into [uncertain], which saved an OPEN episode ("may
-/// still be bleeding") — the opposite of what she said. The episode model
-/// has no "ended, end date unknown" state (the contract requires an
-/// `end_date` for `ended`), so this answer creates no episode at all; only
-/// her baseline estimates, if any, are saved.
+/// still be bleeding") — the opposite of what she said. Later it saved no
+/// episode at all, which lost the start she did know. PT-002: it now saves
+/// an ENDED episode with an unknown end ([BleedingEpisode.endUnknown]):
+/// the known start, no end date, nothing invented.
 enum _ActiveBleedingAnswer {
   unanswered,
   active,
@@ -967,13 +967,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId != null) {
       final periodDate = _periodDate;
-      // Finding #4: "stopped, not sure when" is not an episode we can
-      // record truthfully (see [_ActiveBleedingAnswer.endedEndUnknown]).
+      // PT-002: "stopped, not sure when" is an ended episode whose end is
+      // unknown (see [_ActiveBleedingAnswer.endedEndUnknown]).
       final hasEpisode =
           periodDate != null &&
           (_activeBleedingAnswer == _ActiveBleedingAnswer.active ||
               _activeBleedingAnswer == _ActiveBleedingAnswer.ended ||
-              _activeBleedingAnswer == _ActiveBleedingAnswer.uncertain);
+              _activeBleedingAnswer == _ActiveBleedingAnswer.uncertain ||
+              _activeBleedingAnswer == _ActiveBleedingAnswer.endedEndUnknown);
       final hasBaseline = _haidLengthValue != null || _cycleLengthValue != null;
 
       if (hasEpisode || hasBaseline) {
@@ -981,7 +982,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
         BleedingEpisode? episode;
         if (hasEpisode) {
-          final ended = _activeBleedingAnswer == _ActiveBleedingAnswer.ended;
+          final endUnknown =
+              _activeBleedingAnswer == _ActiveBleedingAnswer.endedEndUnknown;
+          final ended =
+              _activeBleedingAnswer == _ActiveBleedingAnswer.ended ||
+              endUnknown;
           // PR #4 hardening, Blocker 4: provenance follows which date was
           // actually reported, not which screen reported it — a real
           // "today" answer through onboarding is exactly as live as one
@@ -994,7 +999,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             localToday: localToday,
           );
           final periodEndDate = _periodEndDate;
-          final endSource = (ended && periodEndDate != null)
+          final endSource = endUnknown
+              ? ObservationSource.userReportedHistorical
+              : (ended && periodEndDate != null)
               ? ObservationSource.classify(
                   reportedDate: periodEndDate,
                   localToday: localToday,
@@ -1021,9 +1028,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             startDate: periodDate,
             startPrecision: ObservationPrecision.dateOnly,
             startSource: startSource,
-            endDate: ended ? periodEndDate : null,
-            endPrecision: ended ? ObservationPrecision.dateOnly : null,
+            endDate: ended && !endUnknown ? periodEndDate : null,
+            endPrecision: ended && !endUnknown
+                ? ObservationPrecision.dateOnly
+                : null,
             endSource: endSource,
+            endUnknown: endUnknown,
           );
         }
 
@@ -1057,6 +1067,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 'endDate': episode.endDate!.toIso8601String(),
               if (episode.endPrecision != null)
                 'endPrecision': episode.endPrecision!.value,
+              if (episode.endUnknown) 'endPrecision': 'unknown',
               if (episode.endSource != null)
                 'endSource': episode.endSource!.value,
             },

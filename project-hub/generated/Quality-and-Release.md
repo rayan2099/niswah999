@@ -22,6 +22,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## docs
 
+- [NISWAH_APP_WIDE_300_ACCEPTANCE_JOURNEYS.md](../../docs/NISWAH_APP_WIDE_300_ACCEPTANCE_JOURNEYS.md)
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
@@ -42,6 +43,20 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [app-wide-notifications.md](../../docs/engineering/app-wide-notifications.md)
 - [notification-reliability.md](../../docs/engineering/notification-reliability.md)
 - [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
+
+## docs/journeys
+
+- [NISWAH_JOURNEY_COVERAGE.csv](../../docs/journeys/NISWAH_JOURNEY_COVERAGE.csv)
+- [NISWAH_JOURNEY_VERIFICATION_REPORT.md](../../docs/journeys/NISWAH_JOURNEY_VERIFICATION_REPORT.md)
+- [NISWAH_LAUNCH_SCOPE.md](../../docs/journeys/NISWAH_LAUNCH_SCOPE.md)
+
+## docs/period-tracking
+
+- [PERIOD_TRACKING_200_CASES.md](../../docs/period-tracking/PERIOD_TRACKING_200_CASES.md)
+- [PERIOD_TRACKING_COVERAGE.csv](../../docs/period-tracking/PERIOD_TRACKING_COVERAGE.csv)
+- [PERIOD_TRACKING_EXTERNAL_DEPENDENCIES.md](../../docs/period-tracking/PERIOD_TRACKING_EXTERNAL_DEPENDENCIES.md)
+- [PERIOD_TRACKING_IMPLEMENTATION_PLAN.md](../../docs/period-tracking/PERIOD_TRACKING_IMPLEMENTATION_PLAN.md)
+- [PERIOD_TRACKING_VERIFICATION_REPORT.md](../../docs/period-tracking/PERIOD_TRACKING_VERIFICATION_REPORT.md)
 
 ## production-readiness-results/master
 
@@ -79,7 +94,9 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [deploy_kb_v1.sh](../../scripts/deploy_kb_v1.sh)
 - [generate_release_manifest.sh](../../scripts/generate_release_manifest.sh)
 - [ingest_geo_madhhab_review.py](../../scripts/ingest_geo_madhhab_review.py)
+- [journey_register.py](../../scripts/journey_register.py)
 - [local_env.sh](../../scripts/local_env.sh)
+- [period_tracking_register.py](../../scripts/period_tracking_register.py)
 - [pregnancy_status_parity.mjs](../../scripts/pregnancy_status_parity.mjs)
 - [provision_local_test_backend.sh](../../scripts/provision_local_test_backend.sh)
 - [provision_staging_secrets.py](../../scripts/provision_staging_secrets.py)
@@ -340,6 +357,14 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [04_account_deletion_completeness.sql](../../test/onboarding_server_hardening/sql/04_account_deletion_completeness.sql)
 - [run_sql_checks.sh](../../test/onboarding_server_hardening/sql/run_sql_checks.sh)
 
+## test/period_tracking
+
+- [end_unknown_test.dart](../../test/period_tracking/end_unknown_test.dart)
+- [episode_edit_test.dart](../../test/period_tracking/episode_edit_test.dart)
+- [no_qadha_from_predictions_test.dart](../../test/period_tracking/no_qadha_from_predictions_test.dart)
+- [observation_remove_test.dart](../../test/period_tracking/observation_remove_test.dart)
+- [prediction_no_data_test.dart](../../test/period_tracking/prediction_no_data_test.dart)
+
 ## test/prediction_efficiency
 
 - [prediction_efficiency_test.dart](../../test/prediction_efficiency/prediction_efficiency_test.dart)
@@ -406,6 +431,9 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [00_bootstrap_stub_supabase.sql](../../test/security/00_bootstrap_stub_supabase.sql)
 - [app_rls_initplan_and_notification_cleanup_cron.sql](../../test/security/app_rls_initplan_and_notification_cleanup_cron.sql)
+- [bleeding_episode_corrections.sql](../../test/security/bleeding_episode_corrections.sql)
+- [bleeding_episode_end_unknown.sql](../../test/security/bleeding_episode_end_unknown.sql)
+- [bleeding_observation_removal.sql](../../test/security/bleeding_observation_removal.sql)
 - [revoke_anon_security_definer_execute.sql](../../test/security/revoke_anon_security_definer_execute.sql)
 - [run_sql_checks.sh](../../test/security/run_sql_checks.sh)
 - [tracking_rls_initplan_and_fk_indexes.sql](../../test/security/tracking_rls_initplan_and_fk_indexes.sql)
