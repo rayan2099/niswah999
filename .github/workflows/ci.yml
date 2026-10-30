@@ -184,6 +184,35 @@ jobs:
       - name: Build iOS (no codesign, compile-correctness check only)
         run: flutter build ios --release --no-codesign
 
+  sql-security:
+    name: SQL security and tracking behavior (scratch PostgreSQL)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: synthetic_ci_only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check active migration versions
+        run: python3 scripts/check_migration_versions.py
+      - name: Run SQL regression suite on disposable databases
+        run: bash test/security/run_sql_checks.sh
+
   validate-migrations:
     name: Validate DB migration reproducibility (BR-002)
     runs-on: ubuntu-latest
