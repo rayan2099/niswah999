@@ -44,6 +44,7 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [community_ar_390x844.png](../../test/goldens/community_ar_390x844.png)
 - [community_en_390x844.png](../../test/goldens/community_en_390x844.png)
 - [parity_community_test.dart](../../test/parity_community_test.dart)
+- [community_ugc_safety.sql](../../test/security/community_ugc_safety.sql)
 
 ## Requirements, decisions, and verification
 
