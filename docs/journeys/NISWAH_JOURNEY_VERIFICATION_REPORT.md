@@ -15,25 +15,32 @@ separately.
 | Status | Journeys |
 |---|---|
 | VERIFIED | 0 |
-| IMPLEMENTED — UNVERIFIED | 177 |
-| IMPLEMENTATION REQUIRED | 17 |
-| BLOCKED — EXTERNAL EVIDENCE REQUIRED | 76 |
-| NOT ASSESSED | 30 |
-| OUT OF SCOPE — EXPLICIT DECISION | 0 |
+| IMPLEMENTED — UNVERIFIED | 181 |
+| IMPLEMENTATION REQUIRED | 24 |
+| BLOCKED — EXTERNAL EVIDENCE REQUIRED | 94 |
+| NOT ASSESSED | 0 |
+| OUT OF SCOPE — EXPLICIT DECISION | 1 |
 
 **67 of 300** journeys have their outcome demonstrated by a named automated
-test. None is VERIFIED, because 159 journeys also need a signed iPhone and
+test. None is VERIFIED, because 170 journeys also need a signed iPhone and
 signed Android run, and none has been recorded.
 
 ## Evidence by dimension
 
 | Dimension | Pass | Partial | Required, not run | Blocked |
 |---|---|---|---|---|
-| Automated | 67 | 94 | 124 (none yet) | – |
+| Automated | 67 | 94 | 107 (none yet) | – |
 | Staging integration | 12 | 7 | 1 | – |
-| Signed iPhone | 0 | – | 159 | – |
-| Signed Android | 0 | – | 159 | – |
-| Specialist (medical / fiqh) | 0 | – | – | 39 |
+| Signed iPhone | 0 | – | 170 | – |
+| Signed Android | 0 | – | 170 | – |
+| Specialist (medical / fiqh) | 0 | – | – | 40 |
+
+Every one of the 300 journeys is now assessed (2026-10-30). The last 30
+were features that do not exist (AI record changes, attachments, import,
+history search, a predictions-off setting), which are recorded as
+launch-scope decisions rather than built, and a few gaps that are now
+IMPLEMENTATION REQUIRED (time capture, notification grouping, recent
+authentication before deletion, storage-full saves, export snapshot).
 
 ## Critical and high gaps (Included scope)
 
@@ -42,6 +49,7 @@ signed Android run, and none has been recorded.
 | NJ-183, NJ-184 (Critical) | Community has no block or report. rayan decided community ships (2026-10-29); block, report and moderation are being built in a separate thread. |
 | NJ-018, NJ-126 | Approximate dates need a clinical prediction policy (PT-003). |
 | NJ-147 | No remote fiqh kill switch (PT-196). |
+| NJ-237 | Account deletion has no recent-authentication step; policy decision needed. |
 
 Closed in open branches (automated evidence only): NJ-069 confirmation
 auto-advance (PR #63); NJ-074 recovery names the account and refuses a save

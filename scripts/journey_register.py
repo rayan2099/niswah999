@@ -268,13 +268,13 @@ NJ-085|IN|IU|PP|-|NR|NR|-|M|PT-005|ONB|{onbans} (R2-ONB-7)|Partly covered.
 NJ-086|IN|IU|PP|-|NR|NR|-|M|-|ONB|{onbans} (R2-ONB-4 clears end after start change)|Partly covered.
 NJ-087|IN|IU|P|-|NR|NR|-|M|-|ONB|{onbans} (R2-ONB-5 skip saves nothing)|Device run pending.
 NJ-088|IN|IU|PP|-|NR|NR|-|M|-|LOCALE|{locale}|Partly covered.
-NJ-089|IN|NA|N|-|-|-|-|L|-|-|-|Not assessed: no separate calendar display preference found.
+NJ-089|NONE|BX|-|-|-|-|-|L|-|-|-|No calendar display preference exists; the Hijri month is shown beside the Gregorian label. Scope decision needed before building one.
 NJ-090|IN|IU|PP|-|NR|NR|-|M|-|NOTIF|{notifperm}|Resume refresh needs device evidence.
 NJ-091|IN|IU|P|-|NR|NR|-|H|PT-020|TRACK|{concurrency}; {idem}|Device run pending.
 NJ-092|IN|IU|P|-|NR|NR|-|H|PT-009|TRACK MIG|{rpcsql} (future dates rejected server-side)|Device clock-wrong run pending.
 NJ-093|IN|IU|P|P|NR|NR|-|H|PT-054|TRACK MIG|{episodeedit} (PT-054); {episql} section 3|Device run pending.
-NJ-094|IN|NA|N|-|-|-|-|M|PT-015|-|-|Time capture not implemented (PT-015).
-NJ-095|IN|NA|N|-|-|-|-|M|PT-017|-|-|Time capture not implemented (PT-017).
+NJ-094|IN|IR|N|-|NR|NR|-|M|PT-015|TRACK|-|Observation time capture is not implemented (PT-015); date-only stays date-only.
+NJ-095|IN|IR|N|-|NR|NR|-|M|PT-017|TRACK|-|Depends on time capture (PT-017).
 NJ-096|IN|IU|PP|-|NR|NR|-|M|-|TRACK|{midnight}|Partly covered.
 NJ-097|IN|IU|PP|-|NR|NR|-|M|PT-019|TRACK|{calendar}|Daily timeline readability not asserted.
 NJ-098|IN|IU|N|-|NR|NR|-|M|-|TRACK|-|Not asserted.
@@ -286,7 +286,7 @@ NJ-103|IN|IR|N|-|-|-|-|L|PT-045|-|-|Depends on split/merge.
 NJ-104|IN|IR|N|-|-|-|-|M|PT-045|-|-|Depends on split/merge.
 NJ-105|IN|IU|PP|-|-|-|-|M|-|TRACK|test/logging_sync_hardening/legacy_log_provenance_test.dart|Contradictory legacy boundaries partly covered.
 NJ-106|IN|IU|PP|-|NR|NR|-|M|PT-064|CAL|{caldst}|Year boundary not explicitly asserted.
-NJ-107|IN|NA|N|-|-|-|-|L|-|-|-|No history search/filter found.
+NJ-107|NONE|BX|-|-|-|-|-|L|-|-|-|No history search or filter exists. Scope decision needed.
 NJ-108|IN|IU|N|-|NR|NR|-|M|-|TRACK|-|Not asserted.
 NJ-109|IN|IU|P|P|NR|NR|-|M|PT-057|TRACK MIG|{episql} (replay returns the same revision); {obsrmsql} section 1|Device run pending.
 NJ-110|IN|IU|N|-|NR|NR|-|L|-|TRACK|-|Undo is snackbar-only; no retention window message.
@@ -294,7 +294,7 @@ NJ-111|IN|IU|PP|-|NR|NR|-|H|PT-061|CAL|{calendar}|Accessible distinction needs s
 NJ-112|IN|IU|PP|-|NR|NR|-|H|PT-031|CAL|{calendar}|Partly covered.
 NJ-113|IN|IU|N|-|NR|NR|-|M|-|DASH|-|Not asserted.
 NJ-114|IN|IU|N|-|NR|NR|-|M|-|INSIGHTS|-|Not asserted.
-NJ-115|IN|NA|N|-|-|-|-|L|-|INSIGHTS|-|Not assessed: chart point drill-down not found.
+NJ-115|NONE|BX|-|-|-|-|-|L|-|-|-|Insights charts have no point drill-down. Scope decision needed.
 NJ-116|IN|IU|P|-|NR|NR|-|M|PT-079|INSIGHTS|{nodata}|Device run pending.
 NJ-117|IN|IU|PP|-|NR|NR|BX|M|PT-070|CALC|{calcsvc}|Eligibility rules need clinical review.
 NJ-118|IN|IU|PP|-|NR|NR|-|L|-|CAL|test/calendar_days_test.dart|Leap day not explicitly asserted.
@@ -306,8 +306,8 @@ NJ-123|IN|IR|N|-|-|-|-|M|-|CALC|-|No prediction evaluation snapshots exist.
 NJ-124|IN|IU|PP|-|NR|NR|-|M|PT-072|CALC NOTIF|{estimate}|Reminder retirement not asserted together.
 NJ-125|IN|IU|P|-|NR|NR|-|M|PT-071|CALC|{late}|Device run pending.
 NJ-126|IN|IR|N|-|-|-|BX|M|PT-003|CALC|-|No approximate precision yet (PT-003).
-NJ-127|IN|NA|N|-|-|-|-|L|-|-|-|No import feature found.
-NJ-128|IN|NA|N|-|-|-|-|L|-|-|-|No setting to disable predictions found.
+NJ-127|NONE|BX|-|-|-|-|-|M|-|-|-|No data import exists. Scope decision needed.
+NJ-128|NONE|BX|-|-|-|-|-|M|-|-|-|No setting to turn predictions off. Scope decision needed.
 NJ-129|OPS|BX|N|-|-|-|-|M|-|-|-|No prediction feature flag; operations decision.
 NJ-130|OPS|BX|N|-|-|-|BX|M|-|-|-|Accuracy measurement planned post-pilot (gate 4); no claims made.
 NJ-131|IN|BX|PP|-|-|-|BX|C|PT-091|AI FIQH|{redflag}|Clinical rules unreviewed (gate 4).
@@ -317,7 +317,7 @@ NJ-134|NONE|BX|N|-|-|-|-|L|-|-|-|No medication/contraception input; scope decisi
 NJ-135|IN|BX|PP|-|-|-|BX|C|PT-091|AI|{redflag}|Escalation in notes not implemented; chat red flag unreviewed.
 NJ-136|OPS|BX|N|-|-|-|BX|H|-|-|-|No remote content withdrawal mechanism.
 NJ-137|IN|BX|N|-|-|-|BX|M|-|-|-|Translation review status not tracked.
-NJ-138|IN|NA|N|-|-|-|-|L|-|-|-|Not assessed.
+NJ-138|IN|BX|N|-|NR|NR|BX|M|-|-|-|Needs a specialist-approved acknowledgment policy for repeated safety notices before building.
 NJ-139|IN|IU|PP|-|-|-|BX|M|-|AI|{aicite}|Capability-limit wording needs clinician approval.
 NJ-140|OPS|BX|N|-|-|-|BX|L|-|-|-|No guidance caching policy.
 NJ-141|IN|IU|P|-|NR|NR|BX|H|PT-102|MADHHAB FIQH|{madhhabchange}; test/services/multi_madhhab_engine_test.dart|Rule values unreviewed by scholar.
@@ -345,7 +345,7 @@ NJ-162|COND|BX|N|-|-|-|-|L|-|NOTIF|-|Push is off for launch (gate 3).
 NJ-163|IN|IU|P|-|NR|NR|-|C|PT-152|NOTIF|{notifacct}; {chatacct}|Device run pending.
 NJ-164|IN|IU|PP|-|NR|NR|-|H|PT-164|NOTIF|{notifhist}|Deletion→stale reminder untested (PT-164).
 NJ-165|IN|IU|PP|-|NR|NR|-|M|-|NOTIF|test/notification_settings_race_test.dart|Travel transitions not asserted.
-NJ-166|IN|NA|N|-|-|-|-|L|-|NOTIF|-|Not assessed.
+NJ-166|IN|IR|N|-|NR|NR|-|L|-|-|-|Local reminders are scheduled per category with no grouping or de-duplication.
 NJ-167|COND|BX|N|-|-|-|-|L|-|NOTIF|-|Push off for launch.
 NJ-168|IN|IU|PP|-|NR|NR|-|M|-|NOTIF|{notifnav}|Partly covered.
 NJ-169|IN|IU|PP|-|NR|NR|-|M|-|NOTIF|test/app_wide_notification_controller_test.dart|Partly covered.
@@ -353,11 +353,11 @@ NJ-170|IN|BX|N|-|NR|NR|-|M|-|NOTIF|-|Platform restrictions need device evidence.
 NJ-171|IN|IU|N|-|NR|NR|-|C|-|AI|-|AI chat history is per user server-side; stale in-flight response after switch not tested.
 NJ-172|IN|IU|PP|P|-|-|-|C|-|AI|{rlssql}|Server RLS; AI edge functions filter by user (deployed 2026-10-29).
 NJ-173|IN|IU|N|-|-|-|-|H|-|AI|-|Prompt-injection handling not tested.
-NJ-174|IN|NA|N|-|-|-|-|M|-|AI|-|AI mutations do not exist.
-NJ-175|IN|NA|N|-|-|-|-|M|-|AI|-|AI mutations do not exist.
-NJ-176|IN|NA|N|-|-|-|-|L|-|AI|-|AI mutations do not exist.
-NJ-177|IN|NA|N|-|-|-|-|L|-|AI|-|AI mutations do not exist.
-NJ-178|IN|NA|N|-|-|-|-|L|-|AI|-|AI mutations do not exist.
+NJ-174|NONE|BX|-|-|-|-|-|M|-|AI|-|The AI cannot change records, so AI mutation journeys do not apply unless that is put in scope.
+NJ-175|NONE|BX|-|-|-|-|-|M|-|AI|-|AI cannot change records; see NJ-174.
+NJ-176|NONE|BX|-|-|-|-|-|M|-|AI|-|AI cannot change records; see NJ-174.
+NJ-177|NONE|BX|-|-|-|-|-|M|-|AI|-|AI cannot change records; see NJ-174.
+NJ-178|NONE|BX|-|-|-|-|-|M|-|AI|-|AI cannot change records; see NJ-174.
 NJ-179|IN|BX|N|-|-|-|BX|M|-|AI|-|Chat retention policy undecided (gate 2 item 6).
 NJ-180|IN|IU|PP|-|-|-|BX|M|-|AI|{aicite}|Specialist review pending.
 NJ-181|IN|IU|PP|-|NR|NR|-|M|-|MSG|{msg}; {msgrt}|Messaging scope to confirm.
@@ -365,11 +365,11 @@ NJ-182|IN|IU|PP|PP|NR|NR|-|C|-|MSG|{chatacct}; {boundary} (open chat closes on a
 NJ-183|IN|IR|N|-|-|-|-|C|-|COMM MSG|-|No block feature (App Store 1.2). rayan 2026-10-29: community ships; block/report/moderation is being built in a separate thread.
 NJ-184|IN|IR|N|-|-|-|-|C|-|COMM|-|No report feature (App Store 1.2). rayan 2026-10-29: community ships; being built in a separate thread.
 NJ-185|IN|IR|N|-|-|-|-|M|-|MSG|-|Depends on block.
-NJ-186|IN|NA|N|-|-|-|-|L|-|MSG|-|Not assessed.
-NJ-187|IN|NA|N|-|-|-|-|L|-|COMM|-|Text-only community; attachments not found.
-NJ-188|IN|NA|N|-|-|-|-|L|-|-|-|No attachments found.
-NJ-189|IN|NA|N|-|-|-|-|M|-|-|-|No moderator tooling found in the app.
-NJ-190|IN|NA|-|-|-|-|-|H|-|COMM|-|rayan decided 2026-10-29 that community is in launch scope, so this journey (feature out of scope) does not apply while that holds.
+NJ-186|IN|BX|-|-|-|-|-|M|-|MSG|-|Editing or deleting a sent message is not offered; whether it should be is part of the community moderation work in its own thread.
+NJ-187|NONE|BX|-|-|-|-|-|L|-|COMM|-|Community and messages are text-only; no attachments.
+NJ-188|NONE|BX|-|-|-|-|-|L|-|MSG|-|No attachments exist.
+NJ-189|IN|IR|N|-|NR|NR|-|C|-|COMM|-|No moderator tooling in the app; being built in the community moderation thread (App Store 1.2).
+NJ-190|IN|OOS|-|-|-|-|-|H|-|COMM|-|rayan decided 2026-10-29 that community is in launch scope, so the community-out-of-scope journey does not apply.
 NJ-191|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
 NJ-192|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
 NJ-193|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
@@ -404,19 +404,19 @@ NJ-221|IN|IU|PP|-|NR|NR|-|M|-|MAIN|{textscale}|Device run pending.
 NJ-222|IN|BX|PP|-|NR|NR|-|M|-|CAL|{a11y}|Screen reader evidence needed.
 NJ-223|IN|IU|P|-|NR|NR|-|M|-|TRACK|{episodeedit} (liveRegion error, sheet kept)|Device run pending.
 NJ-224|IN|IU|PP|-|NR|NR|-|M|-|CAL|{calendar}|Partly covered.
-NJ-225|IN|NA|N|-|-|-|-|L|-|-|-|Not assessed.
+NJ-225|IN|IU|N|-|NR|NR|-|M|-|-|-|Calendar and Today animations honour reduced motion (MediaQuery.disableAnimationsOf); not tested across feedback surfaces.
 NJ-226|IN|IU|PP|-|NR|NR|-|M|-|COMM|test/community_composer_keyboard_test.dart|Partly covered (PR #53).
-NJ-227|IN|NA|N|-|-|-|-|L|-|-|-|Not assessed.
+NJ-227|IN|IU|N|-|NR|NR|-|M|-|-|-|Standard Material focus order only; no explicit traversal; needs a device run with keyboard or switch access.
 NJ-228|IN|IU|PP|-|NR|NR|-|M|-|SIGNIN|{signup} (address forced left-to-right)|Partly covered.
 NJ-229|IN|IU|PP|-|-|-|-|L|-|LOCALE|test/app_localization_delegates_test.dart|Partly covered.
 NJ-230|IN|IU|P|-|NR|NR|-|M|PT-178|TRACK|{discard}|Device run pending.
 NJ-231|IN|IU|PP|-|NR|NR|-|M|-|EXPORT|{export}|Many-years size not tested.
 NJ-232|IN|IU|P|-|-|-|-|H|-|EXPORT|{boundary} (switch mid-export discards it, also A→B→A)|Draft PR #65; device run pending.
 NJ-233|IN|IU|P|-|-|-|-|M|-|EXPORT|{export} (failed sections listed)|Device run pending.
-NJ-234|IN|NA|N|-|-|-|-|L|-|EXPORT|-|Not assessed.
+NJ-234|IN|IU|N|-|NR|NR|-|L|-|EXPORT|-|Export copies to the clipboard only (no share sheet) and says "Copied to clipboard", never delivered.
 NJ-235|IN|IU|PP|-|-|-|-|H|-|MAIN|{sentry}|Redaction partly covered.
 NJ-236|OPS|BX|N|-|-|-|BX|H|-|-|-|Support access policy undecided.
-NJ-237|IN|NA|N|-|-|-|-|M|-|DELETE|-|Not assessed.
+NJ-237|IN|IR|N|-|NR|NR|-|H|-|-|-|Account deletion calls delete_my_account with the current session; no recent-authentication step. Policy decision needed.
 NJ-238|OPS|BX|N|-|-|-|BX|M|-|-|-|Retention exceptions need legal policy.
 NJ-239|IN|IU|PP|-|NR|NR|-|C|PT-156|DELETE STORE|{securestore} (clears deleted user)|Reinstall/backup run on device pending.
 NJ-240|IN|IU|PP|-|-|-|-|M|-|TRACK|{episodeedit}|Correction traceable via revisions.
@@ -425,7 +425,7 @@ NJ-242|IN|IU|P|P|-|-|-|C|-|MIG|{rlssql}; {userssql}|Covered by SQL.
 NJ-243|IN|IU|P|P|-|-|-|C|-|MIG|{rlssql}|Covered by SQL.
 NJ-244|IN|IU|P|P|-|-|-|C|-|MIG|{anonsql}|Covered by SQL; prod advisor confirmed 2026-10-27.
 NJ-245|IN|IU|P|-|-|-|-|H|-|MIG|{userssql}|Audit evidence not recorded.
-NJ-246|IN|NA|N|-|-|-|-|M|-|-|-|No shareable links/attachments found.
+NJ-246|NONE|BX|-|-|-|-|-|L|-|-|-|No shareable links or attachments exist.
 NJ-247|IN|IU|PP|-|-|-|-|H|-|MAIN|{sentry}|Representative failure paths not all covered.
 NJ-248|IN|IU|N|-|-|-|-|M|-|COMM MSG|-|Flutter renders text, not markup; not asserted.
 NJ-249|IN|IU|N|-|-|-|-|M|-|AI|-|AI rate limit exists server-side; not tested here.
@@ -434,9 +434,9 @@ NJ-251|IN|IU|PP|-|NR|NR|-|M|-|DASH|test/dashboard_canonical_degraded_evidence_te
 NJ-252|IN|BX|PP|-|NR|NR|-|M|-|TRACK|test/prediction_efficiency/|No defined budgets yet.
 NJ-253|IN|IU|PP|-|NR|NR|-|M|-|TRACK|{acct}|Partly covered.
 NJ-254|IN|IU|PP|-|NR|NR|-|H|-|PBOS|{pending}|Device run pending.
-NJ-255|IN|NA|N|-|-|-|-|M|-|-|-|Not assessed.
-NJ-256|IN|NA|N|-|-|-|-|L|-|-|-|Not assessed.
-NJ-257|IN|NA|N|-|-|-|-|L|-|-|-|No uploads found.
+NJ-255|IN|IR|N|-|NR|NR|-|M|-|TRACK|-|A failed local write (storage full) is not distinguished from other save failures.
+NJ-256|IN|IU|N|-|NR|NR|-|M|-|AI|-|Some lists use server limits; no defined retention or pagination policy for AI history.
+NJ-257|NONE|BX|-|-|-|-|-|L|-|-|-|No uploads exist.
 NJ-258|IN|IU|PP|-|NR|NR|-|M|-|NOTIF|test/dashboard_notification_tap_stream_test.dart|Partly covered.
 NJ-259|IN|IU|PP|-|NR|NR|-|M|-|PBOS|{idem}|Device run pending.
 NJ-260|IN|IU|PP|-|-|-|-|M|-|TRACK|{netfail}|Partly covered.
@@ -452,14 +452,14 @@ NJ-269|OPS|BX|N|-|-|-|-|M|-|-|-|Monitoring runbook not written.
 NJ-270|OPS|IU|N|-|-|-|-|M|-|-|-|This register records commits; automatic invalidation not built.
 NJ-271|IN|IU|PP|-|NR|NR|-|M|-|NOTIF TRACK|{notifnav}|Partly covered.
 NJ-272|NONE|BX|N|-|-|-|-|M|-|-|-|No purchases.
-NJ-273|IN|NA|N|-|-|-|-|L|-|AI|-|AI mutations do not exist.
+NJ-273|NONE|BX|-|-|-|-|-|M|-|AI|-|AI cannot change records; see NJ-174.
 NJ-274|COND|IU|N|-|NR|NR|-|M|-|PREG|-|Not asserted.
 NJ-275|DEFER|BX|N|-|-|-|-|L|-|-|-|Qadha deferred.
 NJ-276|IN|IU|N|-|NR|NR|-|M|-|TRACK LOCALE|-|Not asserted.
 NJ-277|NONE|BX|N|-|-|-|-|L|-|-|-|No purchases.
-NJ-278|IN|NA|N|-|-|-|-|L|-|EXPORT|-|Not assessed.
+NJ-278|IN|IR|N|-|-|-|-|M|-|EXPORT|-|Export reads sections one after another with no snapshot or scope disclosure.
 NJ-279|IN|IR|N|-|-|-|-|L|PT-045|-|-|Depends on split/merge.
-NJ-280|IN|NA|N|-|-|-|-|L|-|AI|-|No remote guidance disable exists.
+NJ-280|NONE|BX|-|-|-|-|-|M|PT-196|AI|-|No remote guidance disable exists (PT-196).
 NJ-281|OPS|BX|-|-|NR|-|-|H|-|-|-|Signed iPhone run needed.
 NJ-282|OPS|BX|-|-|-|NR|-|H|-|-|-|Signed Android run needed.
 NJ-283|OPS|BX|-|-|NR|NR|-|H|-|-|-|Signed-device run needed.
