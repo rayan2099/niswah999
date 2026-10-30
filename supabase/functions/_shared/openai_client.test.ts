@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.208.0/assert/mod.ts';
 import { callOpenAI, OpenAiError } from './openai_client.ts';
+import { categorizeError, chatErrorResponse } from './chat_contract.ts';
 
 // Stubs the global fetch used by callOpenAI() so these tests are
 // deterministic and never touch the real network / never need a real
@@ -273,5 +274,28 @@ Deno.test('callOpenAI — a 200 with a non-JSON body is a malformed response, no
     );
     assertEquals(calls, 1);
     assertEquals(error instanceof OpenAiError && error.category, 'malformed_response');
+  });
+});
+
+Deno.test('expired server key incident is service misconfiguration, never user auth or a retry loop', async () => {
+  await withEnv({ OPENAI_API_KEY: 'synthetic-expired-key', OPENAI_MODEL: 'gpt-test-model' }, async () => {
+    let calls = 0;
+    const error = await assertRejects(() => withStubbedFetch(() => {
+      calls++;
+      return Promise.resolve(new Response(JSON.stringify({ error: {
+        message: 'Your API key has expired. Create a new API key to continue.',
+        code: 'expired_secret_key',
+        type: 'invalid_request_error',
+      } }), { status: 401 }));
+    }, () => callOpenAI({ prompt: 'synthetic smoke test', systemInstruction: 'test' })), OpenAiError);
+    assertEquals(calls, 1);
+    assertEquals(error.category, 'invalid_credentials');
+    const category = categorizeError(error);
+    assertEquals(category, 'service_misconfigured');
+    const response = chatErrorResponse(category, 'synthetic-incident');
+    assertEquals(response.status, 503);
+    const body = await response.text();
+    assertEquals(body.includes('Your API key'), false);
+    assertEquals(body.includes('synthetic-expired-key'), false);
   });
 });

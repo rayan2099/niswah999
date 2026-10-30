@@ -12,7 +12,7 @@ All four chats (`ai-assistant-chat`, `dr-niswah-chat`, `fiqh-advisor-chat`, `dre
 
 | Feedback | Class | Cause |
 |---|---|---|
-| "تعذر إرسال الرسالة" in Niswah AI (p2) | Transport/provider, then presentation | Production `ai-assistant-chat` returned HTTP 502 four times between 10:54 and 10:56 UTC on 2026-10-30 (function edge logs, status codes only). 502 is that function's catch-all for any `callOpenAI` failure, so the exact provider category (quota, rate limit, bad request) is not recoverable from the status alone; the function's console lines were not read. The app then showed one generic line for every failure. |
+| "تعذر إرسال الرسالة" in Niswah AI (p2) | Transport/provider, then presentation | Production console logs independently confirm all four failures: OpenAI HTTP 401, category `invalid_credentials`, code `expired_secret_key`, type `invalid_request_error`. The general assistant converted these provider credential failures into HTTP 502. This is an expired server credential, not a user-session failure or a demonstrated transient OpenAI outage. The app then showed one generic line for every failure. |
 | Rigid "insufficient knowledge" reply to ordinary questions (p5, p6) | Retrieval + context loss | Doctor Niswah and the general assistant sent only the current message. A follow-up ("ماذا يدل اللون البني؟", "لماذا؟") has no domain word of its own, so the relevance gate rejected it before retrieval and the fixed refusal was returned. |
 | Follow-ups losing meaning | Context loss | Same: no conversation history reached the model or retrieval. The dream interpreter, which sends its whole transcript, did not have this problem. |
 | Up to twelve source cards, four identical (p5, p6) | Presentation | Citations were deduplicated per (knowledge item, source, locator), so four items from one NHS page became four cards, and every retrieved item was cited whether or not the answer used it. |
@@ -62,6 +62,9 @@ The registers live on the period-tracking branch (PR #60). Nothing here moves a 
 
 ## Remaining
 
-- The exact provider error behind the 502s needs the production function's console lines for 10:54–10:56 UTC (they carry `providerCategory` only after this change is deployed).
+- **Confirmed incident; remediation pending:** read-only production `function_logs` for 2026-10-30 10:53–10:58 UTC show `expired_secret_key` at 10:54:37.051, 10:54:46.832, 10:55:10.362 and 10:56:49.226 UTC. No conversations or credentials were needed to diagnose it.
+- Replace production's `OPENAI_API_KEY` through the authorized secret-management interface with an active key belonging to the intended OpenAI project. Never place it in this repository, a PR, diagnostics, or chat. The connected Supabase tool does not expose secret updates. No key was changed during this investigation.
+- PR #82 already maps provider 401 to `service_misconfigured` (HTTP 503), not `auth_expired`; it must not refresh the user's session or repeatedly retry an expired server key. The exact incident payload has an added regression test.
+- **Recovery evidence required:** after authorized credential rotation, make an authenticated synthetic request through the deployed general-assistant endpoint, confirm a real nonempty provider response, and check correlated logs for successful execution without credential errors. Check each other in-scope chat separately; knowledge-grounded fallbacks without a provider call do not demonstrate credential recovery. Record environment, deployed version and time without storing secrets or real conversations. This has not been run, so service recovery remains unverified.
 - Live, repeated evaluation with reviewer scoring; deployment to staging, then production, each with its own approval.
 - Whether a knowledge-grounded chat may ever answer without retrieved knowledge (for example general wellbeing chit-chat) is a product and safety decision; this change keeps the fail-closed rule.
