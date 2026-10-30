@@ -177,9 +177,9 @@ class _ReportSheetState extends State<_ReportSheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
+        padding: EdgeInsetsDirectional.only(
+          start: 20,
+          end: 20,
           bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
         ),
         child: SingleChildScrollView(
