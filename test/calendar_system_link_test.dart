@@ -41,36 +41,37 @@ void main() {
     expect(CalendarSystemController.instance.hijri, isTrue);
   });
 
-  final trend = WellbeingTrend.compute(
-    logs: [
-      WellbeingLog(
-        id: 'w1',
-        userId: 'local-user',
-        logDate: DateTime(2026, 6, 3),
-        mood: 3,
-        energy: 3,
-        sleep: 3,
-      ),
-    ],
-    from: DateTime(2026, 6, 1),
-    today: DateTime(2026, 8, 18),
-    months: 3,
-  );
+  final logs = [
+    WellbeingLog(
+      id: 'w1',
+      userId: 'local-user',
+      logDate: DateTime(2026, 6, 3),
+      mood: 3,
+      energy: 3,
+      sleep: 3,
+    ),
+  ];
 
-  test('Gregorian month names by default', () {
-    final labels = wellbeingMonthLabels(trend, arabic: true, hijri: false);
-    expect(labels.map((l) => l.$1), ['يونيو', 'يوليو', 'أغسطس']);
-    expect(labels.fold<int>(0, (n, l) => n + l.$2), trend.buckets.length);
+  List<String> names(bool hijri, {bool arabic = true}) => [
+    for (final b in WellbeingTrend.computeByMonth(
+      logs: logs,
+      from: DateTime(2026, 6, 1),
+      today: DateTime(2026, 8, 18),
+      monthOf: wellbeingMonthKey(hijri: hijri),
+    ).buckets)
+      wellbeingMonthName(b.start, arabic: arabic, hijri: hijri),
+  ];
+
+  test('Gregorian months by default', () {
+    expect(names(false), ['يونيو', 'يوليو', 'أغسطس']);
   });
 
-  test('Hijri month names when the calendar is set to Hijri', () {
-    final labels = wellbeingMonthLabels(trend, arabic: true, hijri: true);
-    // 1 June 2026 falls in Dhu al-Hijjah 1447; Muharram 1448 begins mid
-    // June.
-    expect(labels.first.$1, 'ذو الحجة');
-    expect(labels[1].$1, 'محرم');
-    expect(labels.fold<int>(0, (n, l) => n + l.$2), trend.buckets.length);
-    final english = wellbeingMonthLabels(trend, arabic: false, hijri: true);
-    expect(english.first.$1, 'Dhu al-Hijjah');
+  test('Hijri months when the calendar is set to Hijri', () {
+    // 1 June to 18 August 2026 spans Dhu al-Hijjah 1447 to Rabi I 1448.
+    final hijri = names(true);
+    expect(hijri.first, 'ذو الحجة');
+    expect(hijri[1], 'محرم');
+    expect(hijri, hasLength(greaterThanOrEqualTo(3)));
+    expect(names(true, arabic: false).first, 'Dhu al-Hijjah');
   });
 }

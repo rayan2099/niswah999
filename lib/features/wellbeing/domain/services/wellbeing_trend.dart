@@ -49,28 +49,6 @@ class WellbeingTrend {
 
   int get bucketsWithData => buckets.where((b) => b.hasData).length;
 
-  /// Consecutive buckets grouped by the Gregorian month they start in,
-  /// oldest first: (first bucket's start day, bucket count).
-  List<(DateTime, int)> get monthSpans =>
-      monthSpansBy((day) => day.year * 12 + day.month);
-
-  /// Same as [monthSpans] for any calendar: [monthOf] gives a value that
-  /// is the same for every day of one month (used for Hijri months).
-  List<(DateTime, int)> monthSpansBy(int Function(DateTime day) monthOf) {
-    final spans = <(DateTime, int)>[];
-    int? current;
-    for (final b in buckets) {
-      final month = monthOf(b.start);
-      if (spans.isNotEmpty && month == current) {
-        spans[spans.length - 1] = (spans.last.$1, spans.last.$2 + 1);
-      } else {
-        spans.add((b.start, 1));
-        current = month;
-      }
-    }
-    return spans;
-  }
-
   /// Ranges longer than six months are grouped by calendar month so the
   /// chart stays readable; shorter ones by seven-day blocks counted from
   /// the range start (not a locale-dependent week start).
@@ -128,6 +106,47 @@ class WellbeingTrend {
     return WellbeingTrend(
       granularity: granularity,
       buckets: buckets,
+      checkIns: inRange.length,
+    );
+  }
+
+  /// One bucket per calendar month from [from] to [today], oldest first.
+  /// [monthOf] returns a value shared by every day of one month, so the
+  /// months can be Gregorian or Hijri (the calendar screen's choice). The
+  /// first and last months may be partial.
+  static WellbeingTrend computeByMonth({
+    required List<WellbeingLog> logs,
+    required DateTime from,
+    required DateTime today,
+    required int Function(DateTime day) monthOf,
+  }) {
+    final first = calendarDay(from);
+    final last = calendarDay(today);
+    final inRange = [
+      for (final log in logs)
+        if (!calendarDay(log.logDate).isBefore(first) &&
+            !calendarDay(log.logDate).isAfter(last))
+          log,
+    ];
+    final ranges = <(DateTime, DateTime)>[];
+    for (var day = first; !day.isAfter(last); day = addCalendarDays(day, 1)) {
+      if (ranges.isNotEmpty && monthOf(ranges.last.$1) == monthOf(day)) {
+        ranges[ranges.length - 1] = (ranges.last.$1, day);
+      } else {
+        ranges.add((day, day));
+      }
+    }
+    return WellbeingTrend(
+      granularity: WellbeingTrendGranularity.month,
+      buckets: [
+        for (final (start, end) in ranges)
+          _bucket(start, end, [
+            for (final log in inRange)
+              if (!calendarDay(log.logDate).isBefore(start) &&
+                  !calendarDay(log.logDate).isAfter(end))
+                log,
+          ]),
+      ],
       checkIns: inRange.length,
     );
   }

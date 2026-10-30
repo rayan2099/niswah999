@@ -390,7 +390,7 @@ class WellbeingReportPdfBuilder {
           ],
         ),
       ),
-      // The table, then the weekly line right under it (rayan,
+      // The table, then the monthly bars right under it (rayan,
       // 2026-10-30). Each stays whole on a page, so the chart is never cut
       // from its legend.
       if (periodSplit != null && periodSplit.all.count > 0)
@@ -402,7 +402,7 @@ class WellbeingReportPdfBuilder {
       if (trend != null && trend.checkIns > 0)
         pw.Inseparable(
           child: _card(
-            child: _weeklyTrends(isArabic, trend, trendMonths, hijri, semiBold),
+            child: _monthlyBars(isArabic, trend, trendMonths, hijri, semiBold),
           ),
         ),
     ];
@@ -620,20 +620,18 @@ class WellbeingReportPdfBuilder {
         ],
       );
 
-  /// The Insights card's weekly lines for mood, energy and sleep on one
-  /// chart with a legend, since paper cannot switch between them (rayan,
-  /// 2026-10-30). Same rules as the app: only real weekly averages, a week
-  /// without check-ins breaks the line, and the curve never goes above or
-  /// below a real average. Each line also has its own marker shape, so the
-  /// chart reads without color.
-  static pw.Widget _weeklyTrends(
+  /// The Insights card's monthly bars (rayan, 2026-10-30): for each month,
+  /// a glassy bar for mood, energy and sleep with its average written on
+  /// it. Only real check-ins count: a month without any shows "—" and no
+  /// bars. Month names follow the calendar screen's Gregorian / Hijri
+  /// choice.
+  static pw.Widget _monthlyBars(
     bool isArabic,
     WellbeingTrend trend,
     int months,
     bool hijri,
     pw.Font semiBold,
   ) {
-    final weekly = trend.granularity == WellbeingTrendGranularity.week;
     final period = isArabic
         ? (months == 1
               ? 'آخر شهر'
@@ -641,37 +639,23 @@ class WellbeingReportPdfBuilder {
               ? 'آخر $months أشهر'
               : 'آخر $months شهرًا')
         : (months == 1 ? 'last month' : 'last $months months');
-    final title = isArabic
-        ? '${weekly ? 'المتوسطات الأسبوعية' : 'المتوسطات الشهرية'} · $period'
-        : '${weekly ? 'Weekly averages' : 'Monthly averages'} · $period';
     final small = pw.TextStyle(
       color: PdfColor.fromHex(_textTertiary),
       fontSize: 7.5,
     );
-    final monthLabels = wellbeingMonthLabels(
-      trend,
-      arabic: isArabic,
-      hijri: hijri,
-    );
-    final series = [
-      _TrendSeries(isArabic ? 'المزاج' : 'Mood', _moodLine, _Marker.circle, [
-        for (final b in trend.buckets) b.mood,
-      ]),
-      _TrendSeries(
-        isArabic ? 'الطاقة' : 'Energy',
-        _energyLine,
-        _Marker.square,
-        [for (final b in trend.buckets) b.energy],
-      ),
-      _TrendSeries(isArabic ? 'النوم' : 'Sleep', _sleepLine, _Marker.triangle, [
-        for (final b in trend.buckets) b.sleep,
-      ]),
+    final measures = [
+      (isArabic ? 'المزاج' : 'Mood', _moodLine),
+      (isArabic ? 'الطاقة' : 'Energy', _energyLine),
+      (isArabic ? 'النوم' : 'Sleep', _sleepLine),
     ];
+    final compact = trend.buckets.length > 6;
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Text(
-          title,
+          isArabic
+              ? 'المتوسطات الشهرية · $period'
+              : 'Monthly averages · $period',
           style: pw.TextStyle(
             font: semiBold,
             color: PdfColor.fromHex(_textPrimary),
@@ -681,26 +665,18 @@ class WellbeingReportPdfBuilder {
         pw.SizedBox(height: 8),
         pw.Row(
           children: [
-            for (final s in series) ...[
-              pw.CustomPaint(
-                size: const PdfPoint(16, 8),
-                painter: (canvas, size) {
-                  final color = PdfColor.fromHex(s.hex);
-                  canvas
-                    ..setStrokeColor(color)
-                    ..setLineWidth(1.4)
-                    ..moveTo(0, size.y / 2)
-                    ..lineTo(size.x, size.y / 2)
-                    ..strokePath();
-                  _drawMarker(canvas, s.marker, size.x / 2, size.y / 2, color);
-                },
+            for (final (label, hex) in measures) ...[
+              pw.Container(
+                width: 9,
+                height: 9,
+                decoration: _glass(PdfColor.fromHex(hex), 3),
               ),
               pw.SizedBox(width: 4),
               pw.Text(
-                s.label,
+                label,
                 style: pw.TextStyle(
                   font: semiBold,
-                  color: PdfColor.fromHex(s.hex),
+                  color: PdfColor.fromHex(hex),
                   fontSize: 9,
                 ),
               ),
@@ -708,184 +684,132 @@ class WellbeingReportPdfBuilder {
             ],
           ],
         ),
-        pw.SizedBox(height: 6),
-        // Scale labels sit at the start side, as in the app (right in
-        // Arabic); time runs toward the reading direction's end.
+        pw.SizedBox(height: 10),
+        // Time runs toward the reading direction's end (right to left in
+        // Arabic): the row follows the page's text direction.
         pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.end,
           children: [
-            pw.SizedBox(
-              width: 12,
-              height: _trendHeight,
-              child: pw.Column(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  for (final v in const [5, 3, 1]) pw.Text('$v', style: small),
-                ],
-              ),
-            ),
-            pw.SizedBox(width: 4),
-            pw.Expanded(
-              child: pw.CustomPaint(
-                size: const PdfPoint(double.infinity, _trendHeight),
-                painter: (canvas, size) =>
-                    _paintCurves(canvas, size, series, isArabic),
-              ),
-            ),
-          ],
-        ),
-        pw.SizedBox(height: 3),
-        // Month names under the weeks they cover; time runs toward the
-        // reading direction's end (right to left in Arabic).
-        pw.Row(
-          children: [
-            pw.SizedBox(width: 16),
-            for (final (label, count) in monthLabels)
+            for (final b in trend.buckets)
               pw.Expanded(
-                flex: count,
-                child: pw.Text(
-                  label,
-                  textAlign: pw.TextAlign.center,
-                  style: small,
+                child: pw.Padding(
+                  padding: pw.EdgeInsets.symmetric(horizontal: compact ? 2 : 8),
+                  child: pw.Column(
+                    children: [
+                      if (!b.hasData)
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(bottom: 4),
+                          child: pw.Text('—', style: small),
+                        )
+                      else
+                        pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end,
+                          children: [
+                            for (final (value, (_, hex)) in [
+                              (b.mood!, measures[0]),
+                              (b.energy!, measures[1]),
+                              (b.sleep!, measures[2]),
+                            ])
+                              pw.Expanded(
+                                child: pw.Padding(
+                                  padding: const pw.EdgeInsets.symmetric(
+                                    horizontal: 1.5,
+                                  ),
+                                  child: pw.Column(
+                                    children: [
+                                      pw.Text(
+                                        value.toStringAsFixed(1),
+                                        style: pw.TextStyle(
+                                          font: semiBold,
+                                          color: PdfColor.fromHex(hex),
+                                          fontSize: compact ? 5.5 : 8,
+                                        ),
+                                      ),
+                                      pw.SizedBox(height: 2),
+                                      // Drawn from zero so a 1 still shows.
+                                      _glassBar(
+                                        PdfColor.fromHex(hex),
+                                        _barHeight * value / 5,
+                                        compact ? 3 : 5,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      pw.Container(
+                        height: 0.8,
+                        color: PdfColor.fromHex(_gridLine),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        wellbeingMonthName(
+                          b.start,
+                          arabic: isArabic,
+                          hijri: hijri,
+                        ),
+                        style: pw.TextStyle(
+                          color: PdfColor.fromHex(_textSecondary),
+                          fontSize: compact ? 6.5 : 8.5,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
           ],
         ),
-        pw.SizedBox(height: 6),
+        pw.SizedBox(height: 8),
         pw.Text(
           isArabic
-              ? '${wellbeingTrendSampleLine(trend, arabic: true)}. متوسطات من 1 إلى 5. الخط المنقّط يصل بين أسابيع تفصلها أسابيع بلا تسجيلات.'
-              : '${wellbeingTrendSampleLine(trend, arabic: false)}. Averages from 1 to 5. A dotted line joins weeks that have weeks without check-ins between them.',
+              ? '${wellbeingTrendSampleLine(trend, arabic: true)}. متوسطات من 1 إلى 5، والشهر بلا تسجيلات يظهر «—».'
+              : '${wellbeingTrendSampleLine(trend, arabic: false)}. Averages from 1 to 5; a month without check-ins shows “—”.',
           style: small,
         ),
       ],
     );
   }
 
-  static const _trendHeight = 80.0;
+  static const _barHeight = 72.0;
+
+  static pw.Widget _glassBar(PdfColor color, double height, double radius) =>
+      pw.Container(
+        height: height,
+        decoration: _glass(color, radius),
+        alignment: pw.Alignment.topCenter,
+        child: pw.Container(
+          height: 2.5,
+          margin: const pw.EdgeInsets.fromLTRB(2.5, 2, 2.5, 0),
+          decoration: pw.BoxDecoration(
+            color: _tint(color, 0.06),
+            borderRadius: pw.BorderRadius.circular(2),
+          ),
+        ),
+      );
   static const _moodLine = _brandPrimary;
   static const _energyLine = '#D97706';
   static const _sleepLine = '#4F46E5';
 
-  static void _drawMarker(
-    PdfGraphics canvas,
-    _Marker marker,
-    double cx,
-    double cy,
-    PdfColor color,
-  ) {
-    canvas.setFillColor(color);
-    switch (marker) {
-      case _Marker.circle:
-        canvas.drawEllipse(cx, cy, 2.4, 2.4);
-      case _Marker.square:
-        canvas.drawRect(cx - 2.2, cy - 2.2, 4.4, 4.4);
-      case _Marker.triangle:
-        canvas
-          ..moveTo(cx, cy + 2.8)
-          ..lineTo(cx + 2.8, cy - 2.2)
-          ..lineTo(cx - 2.8, cy - 2.2)
-          ..closePath();
-    }
-    canvas.fillPath();
-  }
+  /// [color] blended toward white, so it reads as a translucent tint.
+  static PdfColor _tint(PdfColor color, double amount) => PdfColor(
+    1 - (1 - color.red) * amount,
+    1 - (1 - color.green) * amount,
+    1 - (1 - color.blue) * amount,
+  );
 
-  /// PDF coordinates start at the bottom left.
-  static void _paintCurves(
-    PdfGraphics canvas,
-    PdfPoint size,
-    List<_TrendSeries> series,
-    bool rtl,
-  ) {
-    final n = series.first.values.length;
-    if (n == 0) return;
-    const inset = 5.0;
-    final top = size.y - inset;
-    const bottom = inset;
-    double y(double v) => bottom + (v - 1) / 4 * (top - bottom);
-    // Each week sits at the centre of its slot, so the month labels below
-    // line up with the weeks they cover.
-    double x(int i) {
-      final ltr = (i + 0.5) / n * size.x;
-      return rtl ? size.x - ltr : ltr;
-    }
-
-    canvas
-      ..setStrokeColor(PdfColor.fromHex('#EFE7EA'))
-      ..setLineWidth(0.6)
-      ..setLineDashPattern(const [2, 2]);
-    for (final v in const [1, 2, 3, 4, 5]) {
-      canvas
-        ..moveTo(0, y(v.toDouble()))
-        ..lineTo(size.x, y(v.toDouble()))
-        ..strokePath();
-    }
-    canvas.setLineDashPattern();
-
-    for (final s in series) {
-      final values = s.values;
-      final color = PdfColor.fromHex(s.hex);
-      final runs = <List<int>>[];
-      for (var i = 0; i < n; i++) {
-        if (values[i] == null) continue;
-        if (runs.isEmpty || runs.last.last != i - 1) {
-          runs.add([i]);
-        } else {
-          runs.last.add(i);
-        }
-      }
-
-      void curve(List<int> run) {
-        canvas.moveTo(x(run.first), y(values[run.first]!));
-        for (var k = 1; k < run.length; k++) {
-          final ax = x(run[k - 1]), ay = y(values[run[k - 1]]!);
-          final bx = x(run[k]), by = y(values[run[k]]!);
-          final mid = (ax + bx) / 2;
-          canvas.curveTo(mid, ay, mid, by, bx, by);
-        }
-      }
-
-      // Weeks without check-ins between two real averages: a thin dotted
-      // line joins them so the chart reads as one line, with no point or
-      // fill where nothing was recorded.
-      canvas
-        ..setStrokeColor(color)
-        ..setLineWidth(1)
-        ..setLineDashPattern(const [1.5, 2.5]);
-      for (var r = 1; r < runs.length; r++) {
-        final from = runs[r - 1].last, to = runs[r].first;
-        canvas
-          ..moveTo(x(from), y(values[from]!))
-          ..lineTo(x(to), y(values[to]!))
-          ..strokePath();
-      }
-      canvas.setLineDashPattern();
-
-      for (final run in runs) {
-        if (run.length > 1) {
-          canvas
-            ..saveContext()
-            ..setGraphicState(PdfGraphicState(opacity: 0.10))
-            ..setFillColor(color);
-          curve(run);
-          canvas
-            ..lineTo(x(run.last), bottom)
-            ..lineTo(x(run.first), bottom)
-            ..closePath()
-            ..fillPath()
-            ..restoreContext();
-          canvas
-            ..setStrokeColor(color)
-            ..setLineWidth(1.6)
-            ..setLineCap(PdfLineCap.round);
-          curve(run);
-          canvas.strokePath();
-        }
-        for (final i in run) {
-          _drawMarker(canvas, s.marker, x(i), y(values[i]!), color);
-        }
-      }
-    }
-  }
+  /// Frosted glass: a translucent tint that fades downward with a light
+  /// edge; bars add a bright rim along the top (see [_glassBar]).
+  static pw.BoxDecoration _glass(PdfColor color, double radius) =>
+      pw.BoxDecoration(
+        borderRadius: pw.BorderRadius.circular(radius),
+        gradient: pw.LinearGradient(
+          begin: pw.Alignment.topCenter,
+          end: pw.Alignment.bottomCenter,
+          colors: [_tint(color, 0.55), _tint(color, 0.18)],
+        ),
+        border: pw.Border.all(color: _tint(color, 0.32), width: 0.7),
+      );
 
   static pw.Widget _moodDonut(WellbeingInsights insights, bool isArabic) {
     final total = insights.currentCount;
@@ -979,15 +903,4 @@ class WellbeingReportPdfBuilder {
       ),
     );
   }
-}
-
-enum _Marker { circle, square, triangle }
-
-class _TrendSeries {
-  const _TrendSeries(this.label, this.hex, this.marker, this.values);
-
-  final String label;
-  final String hex;
-  final _Marker marker;
-  final List<double?> values;
 }

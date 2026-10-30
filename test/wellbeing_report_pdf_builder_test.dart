@@ -7,6 +7,7 @@ import 'package:niswah/features/wellbeing/domain/services/wellbeing_insights_eng
 import 'package:niswah/features/wellbeing/domain/services/wellbeing_period_split.dart';
 import 'package:niswah/features/wellbeing/domain/services/wellbeing_trend.dart';
 import 'package:niswah/features/wellbeing/presentation/pdf/wellbeing_report_pdf_builder.dart';
+import 'package:niswah/features/wellbeing/presentation/wellbeing_trend_text.dart';
 
 WellbeingLog _log(
   int day, {
@@ -153,7 +154,7 @@ void main() {
     expect(rows.last, ['التسجيلات', '2', '0', '2']);
   });
 
-  test('includes the weekly trend from the Insights card', () async {
+  test('includes the monthly bars from the Insights card', () async {
     // Synthetic: two June weeks, a gap, then August.
     final logs = [
       _log(3, month: 6, mood: 2, energy: 3, sleep: 4),
@@ -169,13 +170,13 @@ void main() {
       previousPeriodLogs: const [],
       daysElapsedInPeriod: 18,
     );
-    final trend = WellbeingTrend.compute(
+    final trend = WellbeingTrend.computeByMonth(
       logs: logs,
       from: DateTime(2026, 6, 1),
       today: DateTime(2026, 8, 18),
-      months: 3,
+      monthOf: (day) => day.year * 12 + day.month,
     );
-    expect(trend.bucketsWithData, 4);
+    expect(trend.bucketsWithData, 2, reason: 'June and August; July empty');
     for (final isArabic in [true, false]) {
       final bytes = await WellbeingReportPdfBuilder.build(
         isArabic: isArabic,
@@ -194,7 +195,13 @@ void main() {
         insights: insights,
         periodStart: DateTime(2026, 8, 1),
         generatedAt: DateTime(2026, 8, 18),
-        trend: trend,
+        // Hijri months need a trend bucketed by Hijri month.
+        trend: WellbeingTrend.computeByMonth(
+          logs: logs,
+          from: DateTime(2026, 6, 1),
+          today: DateTime(2026, 8, 18),
+          monthOf: wellbeingMonthKey(hijri: true),
+        ),
         hijri: true,
       );
       expect(hijriBytes.isNotEmpty, isTrue);

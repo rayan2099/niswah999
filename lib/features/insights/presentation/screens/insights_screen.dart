@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/preferences/calendar_system_controller.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
@@ -16,6 +17,7 @@ import '../../../cycle_tracking/presentation/widgets/predicted_range_text.dart';
 import '../../../wellbeing/data/repositories/wellbeing_repository.dart';
 import '../../../wellbeing/domain/entities/wellbeing_log.dart';
 import '../../../wellbeing/domain/services/wellbeing_period_split.dart';
+import '../../../wellbeing/presentation/wellbeing_trend_text.dart';
 import '../../../wellbeing/domain/services/wellbeing_trend.dart';
 import '../../../wellbeing/presentation/widgets/wellbeing_trend_chart.dart';
 
@@ -1138,7 +1140,12 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
   void initState() {
     super.initState();
     WellbeingRepository.revision.addListener(_load);
+    CalendarSystemController.instance.addListener(_calendarChanged);
     _load();
+  }
+
+  void _calendarChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -1158,6 +1165,7 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
   @override
   void dispose() {
     WellbeingRepository.revision.removeListener(_load);
+    CalendarSystemController.instance.removeListener(_calendarChanged);
     super.dispose();
   }
 
@@ -1213,13 +1221,16 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
             episodes: widget.episodes,
             today: today,
           );
+    // One bar per month, in the calendar screen's Gregorian / Hijri months.
     final trend = logs == null
         ? null
-        : WellbeingTrend.compute(
+        : WellbeingTrend.computeByMonth(
             logs: logs,
             from: start,
             today: today,
-            months: widget.months,
+            monthOf: wellbeingMonthKey(
+              hijri: CalendarSystemController.instance.hijri,
+            ),
           );
     return _Card(
       child: Column(
@@ -1319,8 +1330,8 @@ class _WellbeingTrendsState extends State<_WellbeingTrends> {
                   const SizedBox(height: 14),
                   Text(
                     _in(
-                      'Averages on a 1–5 scale. A dotted line joins weeks with weeks without check-ins between them. Period days are days with bleeding recorded; this is tracking only, not a ruling.',
-                      'المتوسطات من 1 إلى 5. الخط المنقّط يصل بين أسابيع تفصلها أسابيع بلا تسجيلات. أيام الدورة هي الأيام المسجّل فيها نزول دم؛ هذا للتتبّع فقط وليس حكمًا شرعيًا.',
+                      'Monthly averages on a 1–5 scale; a month without check-ins shows “—”. Period days are days with bleeding recorded; this is tracking only, not a ruling.',
+                      'متوسطات شهرية من 1 إلى 5، والشهر بلا تسجيلات يظهر «—». أيام الدورة هي الأيام المسجّل فيها نزول دم؛ هذا للتتبّع فقط وليس حكمًا شرعيًا.',
                     ),
                     style: const TextStyle(
                       color: AppColors.textTertiary,

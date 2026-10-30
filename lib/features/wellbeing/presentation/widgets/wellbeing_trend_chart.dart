@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
@@ -31,17 +30,17 @@ extension on _Measure {
   };
 }
 
-/// Weekly (monthly for 12 months) averages of one measure at a time, as a
-/// smooth filled line on the 1–5 check-in scale. rayan found three lines
-/// at once complicated (2026-10-30), so she picks mood, energy or sleep.
-/// Only real check-ins get a point: weeks without any are joined by a thin
-/// dotted line (rayan found separate pieces confusing, 2026-10-30), never
-/// a guessed value. Month names sit under their weeks, and time runs
-/// toward the reading direction's end (mirrored in Arabic). Nothing animates. Screen readers
-/// get the same numbers as text.
+/// One glassy bar per month with its average written on it, for one
+/// measure at a time (mood, energy or sleep). rayan found the weekly line
+/// hard to read (2026-10-30). Only real check-ins count: a month without
+/// any shows "—" and no bar, never a guessed value. Month names follow the
+/// calendar screen's Gregorian / Hijri choice, and time runs toward the
+/// reading direction's end (mirrored in Arabic). Nothing animates. Screen
+/// readers get the same numbers as text.
 class WellbeingTrendChart extends StatefulWidget {
   const WellbeingTrendChart({super.key, required this.trend});
 
+  /// Monthly buckets (see [WellbeingTrend.computeByMonth]).
   final WellbeingTrend trend;
 
   @override
@@ -52,59 +51,34 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
   _Measure _measure = _Measure.mood;
 
   WellbeingTrend get trend => widget.trend;
-  bool get _weekly => trend.granularity == WellbeingTrendGranularity.week;
+  bool get _arabic => AppLocaleController.instance.isArabic;
+  bool get _hijri => CalendarSystemController.instance.hijri;
 
   static String _one(double value) => value.toStringAsFixed(1);
 
-  /// "4 check-ins in 3 of 12 weeks": the sample behind the line.
-  String get sampleLine => wellbeingTrendSampleLine(
-    trend,
-    arabic: AppLocaleController.instance.isArabic,
-  );
+  String _month(WellbeingTrendBucket b) =>
+      wellbeingMonthName(b.start, arabic: _arabic, hijri: _hijri);
 
-  String get semanticSummary {
-    final values = [
+  /// "6 check-ins in 2 of 3 months": the sample behind the bars.
+  String get sampleLine => wellbeingTrendSampleLine(trend, arabic: _arabic);
+
+  String get semanticSummary => [
+    _in(
+      '${_measure.label}, monthly averages from 1 to 5',
+      '${_measure.label}، المتوسطات الشهرية من 1 إلى 5',
+    ),
+    sampleLine,
+    [
       for (final b in trend.buckets)
-        if (_measure.of(b) != null) _measure.of(b)!,
-    ];
-    return [
-      _weekly
-          ? _in(
-              '${_measure.label}, weekly averages from 1 to 5',
-              '${_measure.label}، المتوسطات الأسبوعية من 1 إلى 5',
-            )
-          : _in(
-              '${_measure.label}, monthly averages from 1 to 5',
-              '${_measure.label}، المتوسطات الشهرية من 1 إلى 5',
-            ),
-      sampleLine,
-      if (values.length == 1)
-        _in('value ${_one(values.single)}', 'القيمة ${_one(values.single)}'),
-      if (values.length > 1)
-        _in(
-          'first ${_one(values.first)}, latest ${_one(values.last)}',
-          'أول قيمة ${_one(values.first)}، وآخر قيمة ${_one(values.last)}',
-        ),
-    ].join('. ');
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    CalendarSystemController.instance.addListener(_calendarChanged);
-  }
-
-  @override
-  void dispose() {
-    CalendarSystemController.instance.removeListener(_calendarChanged);
-    super.dispose();
-  }
-
-  void _calendarChanged() => setState(() {});
+        _measure.of(b) == null
+            ? _in('${_month(b)} no check-ins', '${_month(b)} بلا تسجيلات')
+            : '${_month(b)} ${_one(_measure.of(b)!)}',
+    ].join(_in(', ', '، ')),
+  ].join('. ');
 
   @override
   Widget build(BuildContext context) {
-    final color = _measure.color;
+    final scaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.6);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -133,35 +107,32 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
               ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
         Semantics(
           key: const Key('wellbeing-trend-chart'),
           container: true,
           label: semanticSummary,
           child: ExcludeSemantics(
-            child: SizedBox(
-              height: 158,
-              width: double.infinity,
-              child: CustomPaint(
-                painter: _CurvePainter(
-                  values: [for (final b in trend.buckets) _measure.of(b)],
-                  months: wellbeingMonthLabels(
-                    trend,
-                    arabic: AppLocaleController.instance.isArabic,
-                    hijri: CalendarSystemController.instance.hijri,
-                  ),
-                  color: color,
-                  rtl: Directionality.of(context) == TextDirection.rtl,
-                  labelStyle: DefaultTextStyle.of(context).style
-                      .copyWith(color: AppColors.textTertiary, fontSize: 10),
-                  scaler: MediaQuery.textScalerOf(context)
-                      .clamp(maxScaleFactor: 1.6),
-                ),
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: scaler),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final b in trend.buckets)
+                    Expanded(
+                      child: _MonthBar(
+                        value: _measure.of(b),
+                        color: _measure.color,
+                        month: _month(b),
+                        compact: trend.buckets.length > 6,
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 10),
         Text(
           sampleLine,
           key: const Key('wellbeing-trend-sample'),
@@ -172,171 +143,114 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
   }
 }
 
-/// A smooth line with a soft fill under it. Each segment joins two
-/// neighbouring weeks that both have check-ins; its control points share
-/// the end points' heights, so the curve never rises above or dips below
-/// a real average. Across weeks without check-ins the line turns dotted
-/// and unfilled.
-class _CurvePainter extends CustomPainter {
-  _CurvePainter({
-    required this.values,
-    required this.months,
+/// A frosted-glass bar: a translucent tint of the measure's color, a light
+/// edge and a soft glow, with the average written above it.
+class _MonthBar extends StatelessWidget {
+  const _MonthBar({
+    required this.value,
     required this.color,
-    required this.rtl,
-    required this.labelStyle,
-    required this.scaler,
+    required this.month,
+    required this.compact,
   });
 
-  final List<double?> values;
-
-  /// Month label and how many buckets it covers, oldest first.
-  final List<(String, int)> months;
+  final double? value;
   final Color color;
-  final bool rtl;
-  final TextStyle labelStyle;
-  final TextScaler scaler;
+  final String month;
+
+  /// More than six months: thinner bars and smaller numbers.
+  final bool compact;
+
+  static const _maxHeight = 120.0;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final n = values.length;
-    if (n == 0) return;
-    final labels = {
-      for (final v in const [1, 3, 5])
-        v: TextPainter(
-          text: TextSpan(text: '$v', style: labelStyle),
-          textDirection: TextDirection.ltr,
-          textScaler: scaler,
-        )..layout(),
-    };
-    final gutter =
-        labels.values.map((t) => t.width).reduce((a, b) => a > b ? a : b) + 8;
-    const top = 8.0;
-    // Room under the plot for the month names.
-    final monthHeight = labels[1]!.height + 6;
-    final bottom = size.height - monthHeight;
-    final start = rtl ? 0.0 : gutter;
-    final end = rtl ? size.width - gutter : size.width;
-    double y(double v) => bottom - (v - 1) / 4 * (bottom - top);
-    // Each week sits at the centre of its slot, so the month names line up
-    // with the weeks they cover. Time runs toward the reading direction's
-    // end.
-    double x(int i) {
-      final f = (i + 0.5) / n;
-      return rtl ? end - f * (end - start) : start + f * (end - start);
-    }
-
-    var slot = 0;
-    for (final (label, count) in months) {
-      if (label.isNotEmpty) {
-        final t = TextPainter(
-          text: TextSpan(text: label, style: labelStyle),
-          textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
-          textScaler: scaler,
-        )..layout();
-        final centre = (x(slot) + x(slot + count - 1)) / 2;
-        t.paint(canvas, Offset(centre - t.width / 2, bottom + 6));
-      }
-      slot += count;
-    }
-
-    final grid = Paint()
-      ..color = const Color(0xFFEFE7EA)
-      ..strokeWidth = 1;
-    for (final v in const [1, 3, 5]) {
-      final gy = y(v.toDouble());
-      for (var gx = start; gx < end; gx += 6) {
-        canvas.drawLine(Offset(gx, gy), Offset(gx + 3, gy), grid);
-      }
-      final t = labels[v]!;
-      t.paint(
-        canvas,
-        Offset(rtl ? size.width - t.width : 0, gy - t.height / 2),
-      );
-    }
-
-    // Runs of consecutive weeks with data.
-    final runs = <List<int>>[];
-    for (var i = 0; i < n; i++) {
-      if (values[i] == null) continue;
-      if (runs.isEmpty || runs.last.last != i - 1) {
-        runs.add([i]);
-      } else {
-        runs.last.add(i);
-      }
-    }
-    final line = Paint()
-      ..color = color
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    // Weeks without check-ins between two real averages: a thin dotted
-    // line joins them so the chart reads as one line, with no point or
-    // fill where nothing was recorded.
-    final bridge = Paint()
-      ..color = color.withValues(alpha: 0.7)
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round;
-    for (var r = 1; r < runs.length; r++) {
-      final a = Offset(x(runs[r - 1].last), y(values[runs[r - 1].last]!));
-      final b = Offset(x(runs[r].first), y(values[runs[r].first]!));
-      final steps = ((b - a).distance / 5).floor();
-      for (var k = 0; k < steps; k += 2) {
-        canvas.drawLine(
-          Offset.lerp(a, b, k / steps)!,
-          Offset.lerp(a, b, (k + 1) / steps)!,
-          bridge,
-        );
-      }
-    }
-    for (final run in runs) {
-      if (run.length > 1) {
-        final path = Path()..moveTo(x(run.first), y(values[run.first]!));
-        for (var k = 1; k < run.length; k++) {
-          final a = Offset(x(run[k - 1]), y(values[run[k - 1]]!));
-          final b = Offset(x(run[k]), y(values[run[k]]!));
-          final mid = (a.dx + b.dx) / 2;
-          path.cubicTo(mid, a.dy, mid, b.dy, b.dx, b.dy);
-        }
-        final fill = Path.from(path)
-          ..lineTo(x(run.last), bottom)
-          ..lineTo(x(run.first), bottom)
-          ..close();
-        canvas.drawPath(
-          fill,
-          Paint()
-            ..shader = LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                color.withValues(alpha: 0.28),
-                color.withValues(alpha: 0.02),
-              ],
-            ).createShader(Rect.fromLTRB(0, top, size.width, bottom)),
-        );
-        canvas.drawPath(path, line);
-      }
-      for (final i in run) {
-        final c = Offset(x(i), y(values[i]!));
-        canvas
-          ..drawCircle(c, 6, Paint()..color = color.withValues(alpha: 0.18))
-          ..drawCircle(c, 3.5, Paint()..color = color)
-          ..drawCircle(
-            c,
-            3.5,
-            Paint()
-              ..color = Colors.white
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.5,
-          );
-      }
-    }
+  Widget build(BuildContext context) {
+    final v = value;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              v == null ? '—' : v.toStringAsFixed(1),
+              style: TextStyle(
+                color: v == null ? AppColors.textTertiary : color,
+                fontSize: compact ? 10 : 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (v == null)
+            Container(
+              height: 6,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3EEF0),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            )
+          else
+            Container(
+              // Heights are drawn from zero so a 1 still shows as a bar.
+              height: _maxHeight * v / 5,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(compact ? 8 : 14),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    color.withValues(alpha: 0.42),
+                    color.withValues(alpha: 0.12),
+                  ],
+                ),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.22),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Align(
+                alignment: Alignment.topCenter,
+                // The glass highlight along the top edge.
+                child: Container(
+                  height: 10,
+                  margin: const EdgeInsets.fromLTRB(5, 4, 5, 0),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(99),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.75),
+                        Colors.white.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              month,
+              maxLines: 1,
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: compact ? 9 : 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
-
-  @override
-  bool shouldRepaint(covariant _CurvePainter old) =>
-      old.color != color ||
-      !listEquals(old.months, months) ||
-      old.rtl != rtl ||
-      old.scaler != scaler ||
-      !listEquals(old.values, values);
 }

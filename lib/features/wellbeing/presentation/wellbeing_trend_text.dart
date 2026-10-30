@@ -97,32 +97,19 @@ const _hijriMonthsEn = [
   'Dhu al-Hijjah',
 ];
 
-/// Month names under a trend chart, one per month the buckets start in,
-/// with how many buckets each covers. [hijri] follows the calendar screen's
-/// Gregorian / Hijri choice. Beyond six months every other name is left
-/// blank so labels never crowd.
-List<(String, int)> wellbeingMonthLabels(
-  WellbeingTrend trend, {
+/// A value shared by every day of one month, Gregorian or Hijri.
+int Function(DateTime day) wellbeingMonthKey({required bool hijri}) => hijri
+    ? (day) {
+        final (_, month, year) = hijriDateParts(day);
+        return year * 12 + month;
+      }
+    : (day) => day.year * 12 + day.month;
+
+/// The name of the month [day] falls in, Gregorian or Hijri.
+String wellbeingMonthName(
+  DateTime day, {
   required bool arabic,
   required bool hijri,
-}) {
-  final spans = hijri
-      ? trend.monthSpansBy((day) {
-          final (_, month, year) = hijriDateParts(day);
-          return year * 12 + month;
-        })
-      : trend.monthSpans;
-  return [
-    for (final (i, (start, count)) in spans.indexed)
-      (
-        spans.length <= 6 || i.isEven
-            ? hijri
-                  ? (arabic
-                        ? _hijriMonthsAr
-                        : _hijriMonthsEn)[hijriDateParts(start).$2 - 1]
-                  : (arabic ? _monthsAr : _monthsEn)[start.month - 1]
-            : '',
-        count,
-      ),
-  ];
-}
+}) => hijri
+    ? (arabic ? _hijriMonthsAr : _hijriMonthsEn)[hijriDateParts(day).$2 - 1]
+    : (arabic ? _monthsAr : _monthsEn)[day.month - 1];

@@ -147,19 +147,20 @@ void main() {
       expect(trend.buckets.last.end, DateTime(2026, 8, 18));
     });
 
-    test('month labels cover the weeks that start in each month', () {
-      final trend = WellbeingTrend.compute(
+    test('one bucket per calendar month, partial at the ends', () {
+      final trend = WellbeingTrend.computeByMonth(
         logs: _logs,
         from: DateTime(2026, 6, 1),
         today: DateTime(2026, 8, 18),
-        months: 3,
+        monthOf: (day) => day.year * 12 + day.month,
       );
-      // Weeks start Jun 1, 8, 15, 22, 29 | Jul 6 ... 27 | Aug 3, 10, 17.
-      expect(trend.monthSpans, [
-        (DateTime(2026, 6, 1), 5),
-        (DateTime(2026, 7, 6), 4),
-        (DateTime(2026, 8, 3), 3),
-      ]);
+      expect(trend.buckets, hasLength(3));
+      expect(trend.buckets.first.mood, 3.0);
+      expect(trend.buckets[1].count, 0);
+      expect(trend.buckets[1].mood, isNull, reason: 'July: a gap, not zero');
+      expect(trend.buckets.last.start, DateTime(2026, 8, 1));
+      expect(trend.buckets.last.end, DateTime(2026, 8, 18));
+      expect(trend.buckets.last.mood, 4.0);
     });
 
     test('twelve months group by calendar month', () {
@@ -184,7 +185,7 @@ void main() {
     await _expand(tester);
     expect(find.text('Last 3 months'), findsNWidgets(2));
     expect(_summary('4 check-ins'), findsOneWidget);
-    expect(find.text('4 check-ins in 3 of 12 weeks'), findsOneWidget);
+    expect(find.text('4 check-ins in 2 of 3 months'), findsOneWidget);
     expect(requested.last, DateTime(2026, 6, 1));
     expect(
       tester.getSize(find.byKey(const Key('insights-wellbeing-range'))).height,
@@ -194,7 +195,7 @@ void main() {
     await _choose(tester, 'Last 6 months');
     expect(requested.last, DateTime(2026, 3, 1));
     expect(_summary('5 check-ins'), findsOneWidget);
-    expect(find.textContaining('5 check-ins in 4 of '), findsOneWidget);
+    expect(find.text('5 check-ins in 3 of 6 months'), findsOneWidget);
     // The symptom card keeps its own period.
     expect(
       find.descendant(
@@ -206,7 +207,7 @@ void main() {
 
     await _choose(tester, 'Last month');
     expect(_summary('2 check-ins'), findsOneWidget);
-    expect(find.text('2 check-ins in 2 of 3 weeks'), findsOneWidget);
+    expect(find.text('2 check-ins in 1 of 1 month'), findsOneWidget);
 
     await _choose(tester, 'Last 12 months');
     expect(find.text('5 check-ins in 3 of 12 months'), findsOneWidget);
@@ -239,17 +240,17 @@ void main() {
     final label = tester
         .getSemantics(find.byKey(const Key('wellbeing-trend-chart')))
         .label;
-    expect(label, contains('Mood, weekly averages'));
-    expect(label, contains('4 check-ins in 3 of 12 weeks'));
-    expect(label, contains('first 3.0, latest 3.0'));
+    expect(label, contains('Mood, monthly averages'));
+    expect(label, contains('4 check-ins in 2 of 3 months'));
+    expect(label, contains('Jun 3.0, Jul no check-ins, Aug 4.0'));
     // One measure at a time: the chips switch it.
     await tester.tap(find.byKey(const Key('wellbeing-measure-sleep')));
     await tester.pumpAndSettle();
     final sleep = tester
         .getSemantics(find.byKey(const Key('wellbeing-trend-chart')))
         .label;
-    expect(sleep, contains('Sleep, weekly averages'));
-    expect(sleep, contains('first 3.0, latest 3.0'));
+    expect(sleep, contains('Sleep, monthly averages'));
+    expect(sleep, contains('Jun 3.0, Jul no check-ins, Aug 3.0'));
     expect(find.bySemanticsLabel('Mood 3.5 out of 5'), findsOneWidget);
     expect(
       tester
@@ -273,7 +274,8 @@ void main() {
     await _expand(tester);
     expect(tester.takeException(), isNull);
     expect(find.text('آخر 3 أشهر'), findsNWidgets(2));
-    expect(find.text('4 تسجيلات في 3 من 12 أسبوعًا'), findsOneWidget);
+    expect(find.text('4 تسجيلات في 2 من 3 أشهر'), findsOneWidget);
+    expect(find.text('يوليو'), findsOneWidget);
     expect(find.text('متوسط 4 تسجيلات'), findsOneWidget);
     await _capture(tester, 'after_wellbeing_chart_ar');
 

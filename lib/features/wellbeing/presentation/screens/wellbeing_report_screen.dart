@@ -13,6 +13,7 @@ import '../../domain/services/wellbeing_insights_engine.dart';
 import '../../domain/services/wellbeing_period_split.dart';
 import '../../domain/services/wellbeing_trend.dart';
 import '../pdf/wellbeing_report_pdf_builder.dart';
+import '../wellbeing_trend_text.dart';
 
 String _t(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -72,7 +73,7 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
     // handles the January -> December rollover without special-casing it.
     final previousStart = DateTime(now.year, now.month - 1, 1);
 
-    // The weekly trend covers the same default period as the Insights mood
+    // The monthly bars cover the same default period as the Insights mood
     // card (the current month and the two before it).
     final trendStart = DateTime(now.year, now.month - (_trendMonths - 1), 1);
 
@@ -107,11 +108,13 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
         cycleLogs: cycleLogs,
         today: now,
       ),
-      trend: WellbeingTrend.compute(
+      trend: WellbeingTrend.computeByMonth(
         logs: logs,
         from: trendStart,
         today: now,
-        months: _trendMonths,
+        monthOf: wellbeingMonthKey(
+          hijri: CalendarSystemController.instance.hijri,
+        ),
       ),
       trendMonths: _trendMonths,
       // Month names follow the calendar screen's Gregorian / Hijri choice.
