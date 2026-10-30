@@ -110,6 +110,8 @@ T = {
     "export": "test/data_export_resilience_test.dart",
     "boundary": "test/account_isolation/account_boundary_test.dart",
     "draft": "test/account_isolation/entry_draft_after_session_end_test.dart",
+    "split": "test/period_tracking/episode_split_merge_test.dart",
+    "splitsql": "test/security/bleeding_episode_split_merge.sql",
     "onbui": "test/onboarding_ui_test.dart",
     "onbans": "test/onboarding_server_hardening/onboarding_answers_test.dart",
     "onbsql": "test/onboarding_server_hardening/sql/02_onboarding_rpc_duplicates_and_overlaps.sql",
@@ -281,10 +283,10 @@ NJ-097|IN|IU|PP|-|NR|NR|-|M|PT-019|TRACK|{calendar}|Daily timeline readability n
 NJ-098|IN|IU|N|-|NR|NR|-|M|-|TRACK|-|Not asserted.
 NJ-099|IN|IU|P|PP|NR|NR|-|H|PT-055|TRACK MIG|{obsrm}; {obsrmsql} (start/end protected; rest unchanged)|120000 on staging; behaviour script not confirmed run.
 NJ-100|IN|IU|P|PP|NR|NR|-|H|PT-060|TRACK MIG|{obsrmsql} (stale token NW409)|Device run pending.
-NJ-101|IN|IR|N|-|-|-|-|M|PT-045|-|-|Split not implemented (PT-045).
-NJ-102|IN|IR|N|-|-|-|-|M|PT-046|-|-|Merge not implemented (PT-046).
-NJ-103|IN|IR|N|-|-|-|-|L|PT-045|-|-|Depends on split/merge.
-NJ-104|IN|IR|N|-|-|-|-|M|PT-045|-|-|Depends on split/merge.
+NJ-101|IN|IU|P|P|NR|NR|-|M|PT-045|TRACK MIG|{split}; {splitsql} sections 1-4; staging kit 12/13 passed 2026-10-30|Signed-device runs pending; not on production.
+NJ-102|IN|IU|P|P|NR|NR|-|M|PT-046|TRACK MIG|{split}; {splitsql} sections 5-7; staging kit 12/13 passed 2026-10-30|Signed-device runs pending; not on production.
+NJ-103|IN|IU|P|P|NR|NR|-|L|PT-045 PT-046|TRACK MIG|{split} (cancelled preview saves nothing); {splitsql} sections 1 and 5 (preview changes nothing); staging kit 12/13 passed 2026-10-30|Signed-device runs pending; not on production.
+NJ-104|IN|IU|PP|P|NR|NR|-|M|PT-045 PT-046|MIG|{splitsql} (each RPC is one transaction; refusals leave the count and entries unchanged); staging kit 12/13 passed 2026-10-30|Atomic by construction and staging behavior check passed; an injected mid-transaction failure is not tested. Signed-device runs pending.
 NJ-105|IN|IU|PP|-|-|-|-|M|-|TRACK|test/logging_sync_hardening/legacy_log_provenance_test.dart|Contradictory legacy boundaries partly covered.
 NJ-106|IN|IU|PP|-|NR|NR|-|M|PT-064|CAL|{caldst}|Year boundary not explicitly asserted.
 NJ-107|OUT|OOS|-|-|-|-|-|L|-|-|-|Out of scope for launch: rayan decided 2026-10-30 (deferred). No history search or filter exists. Scope decision needed.
@@ -459,7 +461,7 @@ NJ-275|DEFER|BX|N|-|-|-|-|L|-|-|-|Qadha deferred.
 NJ-276|IN|IU|N|-|NR|NR|-|M|-|TRACK LOCALE|-|Not asserted.
 NJ-277|OUT|OOS|N|-|-|-|-|L|-|-|-|Out of scope for launch: rayan decided 2026-10-30 (deferred). No purchases.
 NJ-278|IN|IR|N|-|-|-|-|M|-|EXPORT|-|Export reads sections one after another with no snapshot or scope disclosure.
-NJ-279|IN|IR|N|-|-|-|-|L|PT-045|-|-|Depends on split/merge.
+NJ-279|IN|IU|P|P|NR|NR|-|L|PT-045 PT-046|MIG|{splitsql} (stale version NW409, undo refused after a new entry); staging kit 12/13 passed 2026-10-30|Signed-device runs pending; not on production.
 NJ-280|IN|IR|-|-|-|-|-|M|PT-196|AI|-|In launch scope: rayan decided 2026-10-30 to build the remote fiqh switch-off with PT-196.
 NJ-281|OPS|BX|-|-|NR|-|-|H|-|-|-|Signed iPhone run needed.
 NJ-282|OPS|BX|-|-|-|NR|-|H|-|-|-|Signed Android run needed.

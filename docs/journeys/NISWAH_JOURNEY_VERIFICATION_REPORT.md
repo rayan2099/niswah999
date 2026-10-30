@@ -15,24 +15,24 @@ separately.
 | Status | Journeys |
 |---|---|
 | VERIFIED | 0 |
-| IMPLEMENTED — UNVERIFIED | 181 |
-| IMPLEMENTATION REQUIRED | 25 |
+| IMPLEMENTED — UNVERIFIED | 186 |
+| IMPLEMENTATION REQUIRED | 20 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 59 |
 | NOT ASSESSED | 0 |
 | OUT OF SCOPE — EXPLICIT DECISION | 35 |
 
-**67 of 300** journeys have their outcome demonstrated by a named automated
-test. None is VERIFIED, because 170 journeys also need a signed iPhone and
+**71 of 300** journeys have their outcome demonstrated by a named automated
+test. None is VERIFIED, because 175 journeys also need a signed iPhone and
 signed Android run, and none has been recorded.
 
 ## Evidence by dimension
 
 | Dimension | Pass | Partial | Required, not run | Blocked |
 |---|---|---|---|---|
-| Automated | 67 | 94 | 107 (none yet) | – |
-| Staging integration | 13 | 7 | 0 | – |
-| Signed iPhone | 0 | – | 170 | – |
-| Signed Android | 0 | – | 170 | – |
+| Automated | 71 | 95 | 102 (none yet) | – |
+| Staging integration | 18 | 7 | 0 | – |
+| Signed iPhone | 0 | – | 175 | – |
+| Signed Android | 0 | – | 175 | – |
 | Specialist (medical / fiqh) | 0 | – | – | 40 |
 
 Every one of the 300 journeys is now assessed (2026-10-30). The last 30
@@ -70,7 +70,7 @@ check that has not been run.
 
 ## Period-tracking register (PT-001..PT-200)
 
-49 VERIFIED, 88 IMPLEMENTED — UNVERIFIED, 30 IMPLEMENTATION REQUIRED,
+49 VERIFIED, 90 IMPLEMENTED — UNVERIFIED, 28 IMPLEMENTATION REQUIRED,
 33 BLOCKED. See `docs/period-tracking/PERIOD_TRACKING_VERIFICATION_REPORT.md`.
 
 ## External blockers

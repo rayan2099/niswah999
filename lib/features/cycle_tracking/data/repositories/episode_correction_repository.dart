@@ -42,11 +42,15 @@ class EpisodeEditResult {
     this.revisionId,
     this.conflictingCount,
     this.serverMessage,
+    this.secondEpisodeId,
   });
 
   final EpisodeEditStatus status;
   final String? revisionId;
   final int? conflictingCount;
+
+  /// The other period a split created or an undone merge brought back.
+  final String? secondEpisodeId;
 
   /// The server's own message for [EpisodeEditStatus.rejected]; for
   /// diagnostics and choosing a message, never shown raw to her.
@@ -68,7 +72,8 @@ class RemovedEpisode {
 /// `supabase/migrations/20261029100000_bleeding_episode_corrections.sql`
 /// (cases PT-027, PT-051..PT-057, PT-060, PT-148) and the single-entry
 /// removal RPCs of `20261029120000_bleeding_observation_removal.sql`
-/// (PT-055).
+/// (PT-055), and the split/merge RPCs of
+/// `20261030090000_bleeding_episode_split_merge.sql` (PT-045, PT-046).
 ///
 /// Each call takes a client operation id generated once per user action
 /// and reused on retry (the RPC returns the original result for a repeat),
@@ -240,6 +245,92 @@ class EpisodeCorrectionRepository {
     },
   );
 
+  /// Splits one period in two (PT-045): [secondStartDate] is the first day
+  /// of the second period and must hold bleeding she recorded;
+  /// [firstEndDate] is the first clean day of the first part, or null when
+  /// she does not know it (kept as an unknown end, never guessed). Entries
+  /// are moved, never rewritten; the days in between stay unanswered.
+  /// Without [confirm] nothing changes and the result is
+  /// [EpisodeEditStatus.needsConfirmation] with the number of entries that
+  /// would move. Undone with [undoSplit] and the returned revision id.
+  Future<EpisodeEditResult> splitEpisode({
+    required String clientOperationId,
+    required BleedingEpisode episode,
+    required DateTime secondStartDate,
+    required DateTime? firstEndDate,
+    required String? timezone,
+    required int utcOffsetMinutes,
+    bool confirm = false,
+  }) => _run(
+    'split_episode',
+    episode: episode,
+    params: {
+      'p_client_operation_id': clientOperationId,
+      'p_episode_id': episode.id,
+      'p_second_start_date': _dateOnly(secondStartDate),
+      'p_first_end_date': firstEndDate == null ? null : _dateOnly(firstEndDate),
+      'p_timezone': timezone,
+      'p_utc_offset_minutes': utcOffsetMinutes,
+      'p_expected_updated_at': episode.revisionToken,
+      'p_confirm': confirm,
+    },
+  );
+
+  /// Joins [first] (ended) with the period that follows it (PT-046) into
+  /// one, keeping every entry of both and leaving the days between them
+  /// unanswered. Same preview/confirm contract as [splitEpisode]; undone
+  /// with [undoMerge].
+  Future<EpisodeEditResult> mergeEpisodes({
+    required String clientOperationId,
+    required BleedingEpisode first,
+    required BleedingEpisode second,
+    bool confirm = false,
+  }) => _run(
+    'merge_episodes',
+    episode: first,
+    alsoResync: [?second.id],
+    params: {
+      'p_client_operation_id': clientOperationId,
+      'p_first_episode_id': first.id,
+      'p_second_episode_id': second.id,
+      'p_expected_first_updated_at': first.revisionToken,
+      'p_expected_second_updated_at': second.revisionToken,
+      'p_confirm': confirm,
+    },
+  );
+
+  /// Undoes the split [splitRevisionId] of [episodeId]; refused
+  /// (changedElsewhere) once either part changed or gained an entry.
+  Future<EpisodeEditResult> undoSplit({
+    required String clientOperationId,
+    required String episodeId,
+    required String secondEpisodeId,
+    required String splitRevisionId,
+  }) => _run(
+    'undo_episode_split',
+    episodeId: episodeId,
+    alsoResync: [secondEpisodeId],
+    params: {
+      'p_client_operation_id': clientOperationId,
+      'p_split_revision_id': splitRevisionId,
+    },
+  );
+
+  /// Undoes the merge [mergeRevisionId] into [episodeId]; refused
+  /// (changedElsewhere) once the merged period changed.
+  Future<EpisodeEditResult> undoMerge({
+    required String clientOperationId,
+    required String episodeId,
+    required String mergeRevisionId,
+  }) => _run(
+    'undo_episode_merge',
+    episodeId: episodeId,
+    params: {
+      'p_client_operation_id': clientOperationId,
+      'p_merge_revision_id': mergeRevisionId,
+    },
+  );
+
   /// Periods she removed, most recent first, for "Undo".
   Future<LoadResult<List<RemovedEpisode>>> getRemovedEpisodes(
     String userId,
@@ -307,6 +398,7 @@ class EpisodeCorrectionRepository {
     String rpc, {
     BleedingEpisode? episode,
     String? episodeId,
+    List<String> alsoResync = const [],
     required Map<String, dynamic> params,
   }) async {
     final client = _client;
@@ -317,22 +409,24 @@ class EpisodeCorrectionRepository {
 
     // What this device mirrors for the episode before the change, so the
     // mirror can be brought in line afterwards.
+    // Split and merge move entries between periods, so the mirror is
+    // compared across every period the change touches.
+    final resyncIds = {id, ...alsoResync};
     final Set<String> beforeIds;
     try {
-      final before = await _episodes.getObservationsForEpisode(id);
-      beforeIds = _effectiveIds(
-        before.dataOrNull ?? const <BleedingObservation>[],
-      );
+      beforeIds = await _effectiveIdsOf(resyncIds);
     } catch (error) {
       if (!BleedingEpisodeRepositoryImpl.isTransportFailure(error)) rethrow;
       return const EpisodeEditResult(EpisodeEditStatus.offline);
     }
 
     final String revisionId;
+    final String? secondEpisodeId;
     try {
       final response = await client.rpc(rpc, params: params);
       final row = (response as List).single as Map<String, dynamic>;
       revisionId = row['revision_id'] as String;
+      secondEpisodeId = row['second_episode_id'] as String?;
     } on PostgrestException catch (error, stack) {
       return _classify(error, stack, rpc, id);
     } catch (error, stack) {
@@ -348,7 +442,7 @@ class EpisodeCorrectionRepository {
     }
 
     try {
-      await _resyncMirror(id, beforeIds);
+      await _resyncMirror({...resyncIds, ?secondEpisodeId}, beforeIds);
     } catch (error, stack) {
       // The server change is saved; a stale local mirror is corrected by
       // the next full read. Never report the save itself as failed.
@@ -375,7 +469,11 @@ class EpisodeCorrectionRepository {
             }),
       );
     }
-    return EpisodeEditResult(EpisodeEditStatus.saved, revisionId: revisionId);
+    return EpisodeEditResult(
+      EpisodeEditStatus.saved,
+      revisionId: revisionId,
+      secondEpisodeId: secondEpisodeId,
+    );
   }
 
   EpisodeEditResult _classify(
@@ -429,12 +527,31 @@ class EpisodeCorrectionRepository {
     };
   }
 
+  Future<Set<String>> _effectiveIdsOf(Set<String> episodeIds) async {
+    final ids = <String>{};
+    for (final episodeId in episodeIds) {
+      final loaded = await _episodes.getObservationsForEpisode(episodeId);
+      ids.addAll(
+        _effectiveIds(loaded.dataOrNull ?? const <BleedingObservation>[]),
+      );
+    }
+    return ids;
+  }
+
   /// Deletes this device's mirror of every observation the change took
   /// out or superseded, and mirrors every current observation that is new.
-  Future<void> _resyncMirror(String episodeId, Set<String> beforeIds) async {
-    final after = await _episodes.getObservationsForEpisode(episodeId);
-    final observations = after.dataOrNull;
-    if (observations == null) return;
+  Future<void> _resyncMirror(
+    Set<String> episodeIds,
+    Set<String> beforeIds,
+  ) async {
+    final observations = <BleedingObservation>[];
+    for (final episodeId in episodeIds) {
+      final after = await _episodes.getObservationsForEpisode(episodeId);
+      final loaded = after.dataOrNull;
+      // Unknown state: leave the mirror for the next full read.
+      if (loaded == null) return;
+      observations.addAll(loaded);
+    }
     final effectiveIds = _effectiveIds(observations);
     final effective = [
       for (final o in observations)
