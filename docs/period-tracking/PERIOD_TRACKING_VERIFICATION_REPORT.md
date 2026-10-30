@@ -12,8 +12,8 @@ report summarizes it and must not contradict it.
 | Status | Count |
 | --- | --- |
 | VERIFIED | 50 |
-| IMPLEMENTED — UNVERIFIED | 87 |
-| IMPLEMENTATION REQUIRED | 30 |
+| IMPLEMENTED — UNVERIFIED | 89 |
+| IMPLEMENTATION REQUIRED | 28 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 33 |
 | NOT ASSESSED | 0 |
 
@@ -69,15 +69,15 @@ CI passing is not a claim that all 200 cases are covered.
 | PT-112 | No proof | Structural test: no tracking, prediction or reminder code touches qadha; no qadha table exists; prayer status is never inferred |
 | PT-150 | (new path) | A transport failure during an edit reports "offline", queues nothing and changes nothing |
 | PT-178 | Edit sheets closed on Back and dropped the change | "Discard this change?" on the period editor, correction and past-day sheets |
+| PT-045, PT-046 | Two periods recorded as one (or one as two) could not be fixed | "Split into two periods" and "Join with the next period": preview with the number of entries that move, confirm, Undo; entries moved never rewritten, unrecorded days stay unanswered, stale versions refused (NW409), delayed operations tombstoned. Needs migration 20261030090000, not applied anywhere |
 
 ## Highest-priority remaining defects
 
 | Case | Priority | Gap |
 | --- | --- | --- |
 | PT-003 | P2 | An approximate date is stored as if exact |
-| PT-045, PT-046 | P2 | No split or merge of periods |
 | PT-015, PT-017 | P2/P3 | No time or part-of-day capture |
-| PT-078, PT-164 | P2 | Recalculation after deletes is untested for reminders |
+| PT-078 | P2 | Recalculation after deletes is shown by code reading only; PT-164 has a re-plan test but no end-to-end reminder assertion |
 | PT-196, PT-197, PT-199 | P2 | No fiqh kill switch, discrepancy detection or report flow |
 
 The full list is every IMPLEMENTATION REQUIRED row in the CSV.

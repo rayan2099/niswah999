@@ -35,10 +35,18 @@ String episodeDateLabel(DateTime date) {
 }
 
 /// What the edit sheet did, so the caller can reload.
-enum EpisodeEditAction { startMoved, endMoved, reopened, removed }
+enum EpisodeEditAction {
+  startMoved,
+  endMoved,
+  reopened,
+  removed,
+  split,
+  merged,
+}
 
 /// Edit one recorded period: move its start or end, undo an end she did
-/// not mean, or remove it (cases PT-027, PT-051..PT-054, PT-056, PT-057).
+/// not mean, remove it (cases PT-027, PT-051..PT-054, PT-056, PT-057),
+/// split it in two or join it with the next one (PT-045, PT-046).
 ///
 /// Every change goes through [EpisodeCorrectionRepository]; nothing here
 /// writes directly. A change that would take out entries she recorded is
@@ -98,7 +106,7 @@ class EpisodeEditSheet extends StatefulWidget {
   State<EpisodeEditSheet> createState() => _EpisodeEditSheetState();
 }
 
-enum _Mode { menu, start, end }
+enum _Mode { menu, start, end, split }
 
 class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
   _Mode _mode = _Mode.menu;
@@ -113,6 +121,35 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
   // gets a new one.
   String _operationId = const Uuid().v4();
   String? _operationKey;
+
+  // Split: the day the second period started (one of her recorded
+  // bleeding days) and the first part's first clean day, or unknown.
+  List<DateTime>? _bleedingDays;
+  DateTime? _secondStart;
+  DateTime? _firstEnd;
+  bool _firstEndUnknown = false;
+
+  // Merge: the period right after this one, when there is one.
+  BleedingEpisode? _nextEpisode;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_ended) _loadNextEpisode();
+  }
+
+  Future<void> _loadNextEpisode() async {
+    final result = await widget.episodes.getEpisodesForUser(_episode.userId);
+    if (!mounted) return;
+    BleedingEpisode? next;
+    for (final e in result.dataOrNull ?? const <BleedingEpisode>[]) {
+      if (e.id == null || e.id == _episode.id) continue;
+      if (!e.startDate.isAfter(_episode.startDate)) continue;
+      if (next == null || e.startDate.isBefore(next.startDate)) next = e;
+    }
+    // Unreadable list: no merge offered rather than a guessed neighbour.
+    setState(() => _nextEpisode = next);
+  }
 
   BleedingEpisode get _episode => widget.episode;
   bool get _arabic => AppLocaleController.instance.isArabic;
@@ -396,6 +433,264 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
     );
   }
 
+  Future<void> _openSplit() async {
+    setState(() {
+      _mode = _Mode.split;
+      _secondStart = null;
+      _firstEnd = null;
+      _firstEndUnknown = false;
+      _bleedingDays = null;
+      _message = null;
+    });
+    final result = await widget.episodes.getObservationsForEpisode(
+      _episode.id!,
+    );
+    if (!mounted) return;
+    final observations = result.dataOrNull;
+    if (observations == null) {
+      setState(() {
+        _bleedingDays = const [];
+        _message = _messageFor(
+          const EpisodeEditResult(EpisodeEditStatus.offline),
+        );
+      });
+      return;
+    }
+    final supersededIds = {
+      for (final o in observations)
+        if (o.supersedesId != null) o.supersedesId!,
+    };
+    final end = _episode.endDate;
+    final days = {
+      for (final o in observations)
+        if (!supersededIds.contains(o.id) &&
+            o.flow != ObservationFlow.none &&
+            o.observedDate.isAfter(_episode.startDate) &&
+            (end == null || o.observedDate.isBefore(end)))
+          calendarDay(o.observedDate),
+    }.toList()..sort();
+    setState(() => _bleedingDays = days);
+  }
+
+  Future<void> _pickFirstEnd() async {
+    final second = _secondStart!;
+    final first = _episode.startDate.add(const Duration(days: 1));
+    final last = second.subtract(const Duration(days: 1));
+    final current = _firstEnd ?? last;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current.isBefore(first) ? first : current,
+      firstDate: first,
+      lastDate: last,
+      helpText: _t(
+        'First day with no bleeding (first period)',
+        'أول يوم بلا دم (الحيض الأول)',
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _firstEnd = calendarDay(picked);
+      _firstEndUnknown = false;
+      _message = null;
+    });
+  }
+
+  /// The first part needs at least one day between its start and the
+  /// second start for a known clean day.
+  bool get _firstEndPickable =>
+      _secondStart != null &&
+      calendarDaysBetween(_episode.startDate, _secondStart!) >= 2;
+
+  Future<void> _saveSplit({bool confirm = false}) async {
+    final second = _secondStart;
+    if (second == null || _saving) return;
+    if (_firstEnd == null && !_firstEndUnknown) return;
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    final now = AppClock.now();
+    final timezone = await DeviceTimezone.currentId();
+    final key =
+        'split:${second.toIso8601String()}:'
+        '${_firstEndUnknown ? 'unknown' : _firstEnd!.toIso8601String()}:'
+        '$confirm';
+    final result = await widget.repository.splitEpisode(
+      clientOperationId: _operationFor(key),
+      episode: _episode,
+      secondStartDate: second,
+      firstEndDate: _firstEndUnknown ? null : _firstEnd,
+      timezone: timezone,
+      utcOffsetMinutes: now.timeZoneOffset.inMinutes,
+      confirm: confirm,
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    if (result.status == EpisodeEditStatus.needsConfirmation) {
+      final n = result.conflictingCount ?? 0;
+      final confirmed = await _confirmMove(
+        title: _t('Split this period?', 'تقسيم هذا الحيض؟'),
+        body: _t(
+          '$n ${n == 1 ? 'entry' : 'entries'} from '
+              '${episodeDateLabel(second)} on will move to a new period. '
+              'Nothing is deleted or changed, and days you did not record '
+              'stay unrecorded. You can undo this right after.',
+          'ستنتقل $n من الإدخالات من ${episodeDateLabel(second)} فما بعد '
+              'إلى حيض جديد. لا يُحذف شيء ولا يتغير، والأيام التي لم '
+              'تسجليها تبقى غير مسجّلة. يمكنكِ التراجع مباشرة بعد ذلك.',
+        ),
+        action: _t('Split', 'تقسيم'),
+        confirmKey: const Key('episode-split-confirm'),
+      );
+      if (confirmed == true && mounted) await _saveSplit(confirm: true);
+      return;
+    }
+    if (!result.saved) {
+      setState(() => _message = _messageFor(result));
+      return;
+    }
+    final repository = widget.repository;
+    final episodeId = _episode.id!;
+    final secondId = result.secondEpisodeId;
+    final revisionId = result.revisionId;
+    final undoOperation = const Uuid().v4();
+    _finishWithUndo(
+      EpisodeEditAction.split,
+      _t('Period split in two.', 'تم تقسيم الحيض إلى حيضين.'),
+      undo: secondId == null || revisionId == null
+          ? null
+          : () => repository.undoSplit(
+              clientOperationId: undoOperation,
+              episodeId: episodeId,
+              secondEpisodeId: secondId,
+              splitRevisionId: revisionId,
+            ),
+      undone: _t('Split undone.', 'تم التراجع عن التقسيم.'),
+    );
+  }
+
+  Future<void> _merge({bool confirm = false}) async {
+    final next = _nextEpisode;
+    if (next == null || _saving) return;
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    final result = await widget.repository.mergeEpisodes(
+      clientOperationId: _operationFor('merge:${next.id}:$confirm'),
+      first: _episode,
+      second: next,
+      confirm: confirm,
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    if (result.status == EpisodeEditStatus.needsConfirmation) {
+      final n = result.conflictingCount ?? 0;
+      final confirmed = await _confirmMove(
+        title: _t('Join these periods?', 'دمج هذين الحيضين؟'),
+        body: _t(
+          'The period that started ${episodeDateLabel(next.startDate)} and '
+              'its $n ${n == 1 ? 'entry' : 'entries'} will become part of '
+              'this one. Nothing is deleted or changed, and days you did '
+              'not record between them stay unrecorded. You can undo this '
+              'right after.',
+          'سيصبح الحيض الذي بدأ في ${episodeDateLabel(next.startDate)} '
+              'وإدخالاته ($n) جزءاً من هذا الحيض. لا يُحذف شيء ولا يتغير، '
+              'والأيام التي لم تسجليها بينهما تبقى غير مسجّلة. يمكنكِ '
+              'التراجع مباشرة بعد ذلك.',
+        ),
+        action: _t('Join', 'دمج'),
+        confirmKey: const Key('episode-merge-confirm'),
+      );
+      if (confirmed == true && mounted) await _merge(confirm: true);
+      return;
+    }
+    if (!result.saved) {
+      setState(() => _message = _messageFor(result));
+      return;
+    }
+    final repository = widget.repository;
+    final episodeId = _episode.id!;
+    final revisionId = result.revisionId;
+    final undoOperation = const Uuid().v4();
+    _finishWithUndo(
+      EpisodeEditAction.merged,
+      _t('Periods joined.', 'تم دمج الحيضين.'),
+      undo: revisionId == null
+          ? null
+          : () => repository.undoMerge(
+              clientOperationId: undoOperation,
+              episodeId: episodeId,
+              mergeRevisionId: revisionId,
+            ),
+      undone: _t('Join undone.', 'تم التراجع عن الدمج.'),
+    );
+  }
+
+  Future<bool?> _confirmMove({
+    required String title,
+    required String body,
+    required String action,
+    required Key confirmKey,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(_t('Cancel', 'إلغاء')),
+          ),
+          FilledButton(
+            key: confirmKey,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Closes the sheet and offers Undo in a snackbar that outlives it.
+  void _finishWithUndo(
+    EpisodeEditAction action,
+    String confirmation, {
+    required Future<EpisodeEditResult> Function()? undo,
+    required String undone,
+  }) {
+    final messenger = widget.messenger;
+    final onChanged = widget.onChanged;
+    Navigator.of(context).pop(action);
+    onChanged?.call();
+    messenger?.showSnackBar(
+      SnackBar(
+        key: const Key('episode-moved-snackbar'),
+        duration: const Duration(seconds: 8),
+        content: Text(confirmation),
+        action: undo == null
+            ? null
+            : SnackBarAction(
+                label: _t('Undo', 'تراجع'),
+                onPressed: () async {
+                  final result = await undo();
+                  onChanged?.call();
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        result.saved ? undone : _messageFor(result),
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
+    );
+  }
+
   void _finish(EpisodeEditAction action, String confirmation) {
     final messenger = widget.messenger;
     Navigator.of(context).pop(action);
@@ -425,6 +720,13 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
               'وحاولي مرة أخرى.',
         );
       case EpisodeEditStatus.changedElsewhere:
+        if (result.serverMessage?.contains('can no longer be undone') ??
+            false) {
+          return _t(
+            'This can no longer be undone because the period changed since.',
+            'لم يعد التراجع ممكناً لأن الحيض تغيّر منذ ذلك الحين.',
+          );
+        }
         return _t(
           'This period was changed on another device. Close this and open '
               'it again to see the latest version.',
@@ -448,6 +750,34 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
             'أنهي حيضكِ الحالي قبل إعادة فتح هذا الحيض.',
           );
         }
+        if (message.contains('no bleeding is recorded on')) {
+          return _t(
+            'A period can only start on a day with bleeding you recorded.',
+            'لا يبدأ الحيض إلا في يوم سجّلتِ فيه دماً.',
+          );
+        }
+        if (message.contains('bleeding is recorded between')) {
+          return _t(
+            'You recorded bleeding after that day. Choose a later first day '
+                'with no bleeding, or "I don\'t know".',
+            'سجّلتِ دماً بعد ذلك اليوم. اختاري يوماً لاحقاً بلا دم، أو '
+                '"لا أعرف".',
+          );
+        }
+        if (message.contains('a corrected entry spans')) {
+          return _t(
+            'An entry you corrected crosses that day. Check that entry first.',
+            'يوجد إدخال معدَّل يمتد عبر ذلك اليوم. راجعيه أولاً.',
+          );
+        }
+        if (message.contains('another period lies between') ||
+            message.contains('first period is still open')) {
+          return _t(
+            'Only a finished period and the one right after it can be '
+                'joined.',
+            'لا يُدمج إلا حيض منتهٍ مع الحيض الذي يليه مباشرة.',
+          );
+        }
         if (message.contains('later episode exists')) {
           return _t(
             'Only your most recent period can be reopened.',
@@ -465,7 +795,9 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
   }
 
   /// A date she picked but has not saved yet.
-  bool get _hasUnsavedEdit => _mode != _Mode.menu && _newDate != null;
+  bool get _hasUnsavedEdit => _mode == _Mode.split
+      ? _secondStart != null
+      : _mode != _Mode.menu && _newDate != null;
 
   @override
   Widget build(BuildContext context) {
@@ -525,7 +857,12 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
                   style: const TextStyle(color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 16),
-                if (_mode == _Mode.menu) ..._menu() else ..._dateEditor(),
+                if (_mode == _Mode.menu)
+                  ..._menu()
+                else if (_mode == _Mode.split)
+                  ..._splitEditor()
+                else
+                  ..._dateEditor(),
                 if (_message != null && _message!.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Semantics(
@@ -582,6 +919,31 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
         ),
         enabled: !_saving,
         onTap: _reopen,
+      ),
+    _ActionTile(
+      key: const Key('episode-edit-split'),
+      icon: Icons.call_split_rounded,
+      title: _t('Split into two periods', 'تقسيمه إلى حيضين'),
+      subtitle: _t(
+        'For two periods recorded as one.',
+        'لحيضين سُجّلا كحيض واحد.',
+      ),
+      enabled: !_saving,
+      onTap: _openSplit,
+    ),
+    if (_ended && _nextEpisode != null)
+      _ActionTile(
+        key: const Key('episode-edit-merge'),
+        icon: Icons.merge_rounded,
+        title: _t('Join with the next period', 'دمجه مع الحيض التالي'),
+        subtitle: _t(
+          'The next one started ${episodeDateLabel(_nextEpisode!.startDate)}. '
+              'For one period recorded as two.',
+          'بدأ التالي في ${episodeDateLabel(_nextEpisode!.startDate)}. '
+              'لحيض واحد سُجّل كحيضين.',
+        ),
+        enabled: !_saving,
+        onTap: _merge,
       ),
     _ActionTile(
       key: const Key('episode-edit-remove'),
@@ -674,6 +1036,135 @@ class _EpisodeEditSheetState extends State<EpisodeEditSheet> {
             ? null
             : () => setState(() {
                 _mode = _Mode.menu;
+                _message = null;
+              }),
+        child: Text(_t('Back', 'رجوع')),
+      ),
+    ];
+  }
+
+  List<Widget> _splitEditor() {
+    final days = _bleedingDays;
+    final second = _secondStart;
+    final canSave =
+        !_saving && second != null && (_firstEnd != null || _firstEndUnknown);
+    return [
+      Text(
+        _t(
+          'Which day did the second period start?',
+          'في أي يوم بدأ الحيض الثاني؟',
+        ),
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      const SizedBox(height: 6),
+      if (days == null)
+        const Center(child: CircularProgressIndicator())
+      else if (days.isEmpty)
+        Text(
+          key: const Key('episode-split-no-days'),
+          _t(
+            'The second period has to start on a day with bleeding you '
+                'recorded, after the first day. Record that day first.',
+            'يجب أن يبدأ الحيض الثاني في يوم سجّلتِ فيه دماً بعد اليوم '
+                'الأول. سجّلي ذلك اليوم أولاً.',
+          ),
+          style: const TextStyle(color: AppColors.textSecondary),
+        )
+      else
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final day in days)
+              ChoiceChip(
+                key: Key(
+                  'episode-split-day-${day.toIso8601String().substring(0, 10)}',
+                ),
+                label: Text(episodeDateLabel(day)),
+                selected: second == day,
+                onSelected: _saving
+                    ? null
+                    : (_) => setState(() {
+                        _secondStart = day;
+                        if (_firstEnd != null && !_firstEnd!.isBefore(day)) {
+                          _firstEnd = null;
+                        }
+                        if (!_firstEndPickable) {
+                          _firstEnd = null;
+                          _firstEndUnknown = true;
+                        }
+                        _message = null;
+                      }),
+              ),
+          ],
+        ),
+      if (second != null) ...[
+        const SizedBox(height: 16),
+        Text(
+          _t(
+            'When did the first one stop? (first day with no bleeding)',
+            'متى انتهى الأول؟ (أول يوم بلا دم)',
+          ),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
+        OutlinedButton.icon(
+          key: const Key('episode-split-first-end'),
+          onPressed: _saving || !_firstEndPickable ? null : _pickFirstEnd,
+          icon: const Icon(Icons.calendar_today_rounded, size: 18),
+          label: Text(
+            _firstEnd == null
+                ? _t('Choose a day', 'اختاري يوماً')
+                : episodeDateLabel(_firstEnd!),
+          ),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+          ),
+        ),
+        CheckboxListTile(
+          key: const Key('episode-split-end-unknown'),
+          contentPadding: EdgeInsets.zero,
+          value: _firstEndUnknown,
+          onChanged: _saving || !_firstEndPickable
+              ? null
+              : (value) => setState(() {
+                  _firstEndUnknown = value ?? false;
+                  if (_firstEndUnknown) _firstEnd = null;
+                }),
+          title: Text(_t("I don't know", 'لا أعرف')),
+          subtitle: Text(
+            _t(
+              'The end stays unrecorded; nothing is guessed.',
+              'تبقى النهاية غير مسجّلة؛ لا يُخمَّن شيء.',
+            ),
+          ),
+        ),
+      ],
+      const SizedBox(height: 16),
+      FilledButton(
+        key: const Key('episode-split-save'),
+        onPressed: canSave ? _saveSplit : null,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(52),
+          backgroundColor: AppColors.tahara,
+        ),
+        child: _saving
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Text(_t('Continue', 'متابعة')),
+      ),
+      TextButton(
+        onPressed: _saving
+            ? null
+            : () => setState(() {
+                _mode = _Mode.menu;
+                _secondStart = null;
                 _message = null;
               }),
         child: Text(_t('Back', 'رجوع')),
