@@ -76,6 +76,17 @@ class Harness {
     }
   }
 
+  /// Entering Community (or Messages) for the first time shows the
+  /// community-terms gate (App Store guideline 1.2). Ticks the agreement
+  /// and continues when it is on screen; no-op otherwise.
+  Future<void> acceptCommunityTermsIfShown() async {
+    final agree = find.byKey(const ValueKey('community-terms-agree'));
+    if (agree.evaluate().isEmpty) return;
+    await tapVisible(agree);
+    await tapVisible(find.byKey(const ValueKey('community-terms-accept')));
+    await settle(2);
+  }
+
   bool get isAndroid => Platform.isAndroid;
 
   final List<String> notes = [];

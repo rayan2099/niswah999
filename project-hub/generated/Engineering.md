@@ -31,6 +31,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [acceptance_gate.dart](../../lib/core/config/acceptance_gate.dart)
 - [app_environment.dart](../../lib/core/config/app_environment.dart)
 - [build_info.dart](../../lib/core/config/build_info.dart)
+- [support_contact.dart](../../lib/core/config/support_contact.dart)
 - [test_backend_gate.dart](../../lib/core/config/test_backend_gate.dart)
 
 ## lib/core/data
@@ -185,3 +186,4 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261022084701_app_wide_notifications.sql](../../supabase/migrations/20261022084701_app_wide_notifications.sql)
 - [20261026090000_revoke_anon_security_definer_execute.sql](../../supabase/migrations/20261026090000_revoke_anon_security_definer_execute.sql)
 - [20261026160000_app_rls_initplan_and_notification_cleanup_cron.sql](../../supabase/migrations/20261026160000_app_rls_initplan_and_notification_cleanup_cron.sql)
+- [20261030090000_community_ugc_safety.sql](../../supabase/migrations/20261030090000_community_ugc_safety.sql)

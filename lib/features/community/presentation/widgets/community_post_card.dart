@@ -29,6 +29,8 @@ class CommunityPostCard extends StatefulWidget {
     this.onDelete,
     this.onMessageAuthor,
     this.onAuthorTap,
+    this.onReport,
+    this.onBlock,
   });
 
   final CommunityPost post;
@@ -38,6 +40,11 @@ class CommunityPostCard extends StatefulWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onMessageAuthor;
   final VoidCallback? onAuthorTap;
+
+  /// Report / block the author (App Store guideline 1.2). Shown in the
+  /// ••• menu on other members' posts only.
+  final VoidCallback? onReport;
+  final VoidCallback? onBlock;
 
   @override
   State<CommunityPostCard> createState() => _CommunityPostCardState();
@@ -162,22 +169,44 @@ class _CommunityPostCardState extends State<CommunityPostCard> {
                 ),
                 if (widget.onMessageAuthor != null)
                   ContactAuthorButton(onTap: widget.onMessageAuthor!),
-                if (widget.isOwnPost && widget.onDelete != null)
+                if ((widget.isOwnPost && widget.onDelete != null) ||
+                    (!widget.isOwnPost &&
+                        (widget.onReport != null || widget.onBlock != null)))
                   PopupMenuButton<String>(
+                    key: const ValueKey('community-post-menu'),
                     padding: EdgeInsets.zero,
+                    tooltip: _t('More options', 'خيارات أخرى'),
                     icon: Icon(
                       Icons.more_horiz_rounded,
                       color: palette.textMuted,
                       size: 18,
                     ),
                     onSelected: (value) {
-                      if (value == 'delete') _confirmDelete(context);
+                      switch (value) {
+                        case 'delete':
+                          _confirmDelete(context);
+                        case 'report':
+                          widget.onReport?.call();
+                        case 'block':
+                          widget.onBlock?.call();
+                      }
                     },
                     itemBuilder: (context) => [
-                      PopupMenuItem(
-                        value: 'delete',
-                        child: Text(_t('Delete post', 'حذف المنشور')),
-                      ),
+                      if (widget.isOwnPost)
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Text(_t('Delete post', 'حذف المنشور')),
+                        ),
+                      if (!widget.isOwnPost && widget.onReport != null)
+                        PopupMenuItem(
+                          value: 'report',
+                          child: Text(_t('Report post', 'الإبلاغ عن المنشور')),
+                        ),
+                      if (!widget.isOwnPost && widget.onBlock != null)
+                        PopupMenuItem(
+                          value: 'block',
+                          child: Text(_t('Block member', 'حظر العضوة')),
+                        ),
                     ],
                   ),
               ],
