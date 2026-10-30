@@ -19,6 +19,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [wellbeing_trend.dart](../../lib/features/wellbeing/domain/services/wellbeing_trend.dart)
 - [wellbeing_report_pdf_builder.dart](../../lib/features/wellbeing/presentation/pdf/wellbeing_report_pdf_builder.dart)
 - [wellbeing_report_screen.dart](../../lib/features/wellbeing/presentation/screens/wellbeing_report_screen.dart)
+- [wellbeing_trend_text.dart](../../lib/features/wellbeing/presentation/wellbeing_trend_text.dart)
 - [wellbeing_trend_chart.dart](../../lib/features/wellbeing/presentation/widgets/wellbeing_trend_chart.dart)
 
 ## Test navigation hints

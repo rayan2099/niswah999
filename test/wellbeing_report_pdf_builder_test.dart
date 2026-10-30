@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:niswah/features/cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import 'package:niswah/features/wellbeing/domain/entities/wellbeing_log.dart';
 import 'package:niswah/features/wellbeing/domain/services/wellbeing_insights_engine.dart';
 import 'package:niswah/features/wellbeing/domain/services/wellbeing_period_split.dart';
+import 'package:niswah/features/wellbeing/domain/services/wellbeing_trend.dart';
 import 'package:niswah/features/wellbeing/presentation/pdf/wellbeing_report_pdf_builder.dart';
 
 WellbeingLog _log(
@@ -148,5 +151,50 @@ void main() {
     expect(rows.first, ['', 'كل الأيام', 'أيام الدورة', 'بقية الأيام']);
     expect(rows[1], ['المزاج', '3.0/5', '—', '3.0/5']);
     expect(rows.last, ['التسجيلات', '2', '0', '2']);
+  });
+
+  test('includes the weekly trend from the Insights card', () async {
+    // Synthetic: two June weeks, a gap, then August.
+    final logs = [
+      _log(3, month: 6, mood: 2, energy: 3, sleep: 4),
+      _log(4, month: 6, mood: 4, energy: 3, sleep: 2),
+      _log(9, month: 6, mood: 3, energy: 2, sleep: 3),
+      _log(10, month: 8, mood: 5, energy: 4, sleep: 3),
+      _log(17, month: 8, mood: 3, energy: 3, sleep: 3),
+      _log(18, month: 8, mood: 4, energy: 4, sleep: 4),
+    ];
+    final august = logs.where((log) => log.logDate.month == 8).toList();
+    final insights = WellbeingInsightsEngine.analyze(
+      currentPeriodLogs: august,
+      previousPeriodLogs: const [],
+      daysElapsedInPeriod: 18,
+    );
+    final trend = WellbeingTrend.compute(
+      logs: logs,
+      from: DateTime(2026, 6, 1),
+      today: DateTime(2026, 8, 18),
+      months: 3,
+    );
+    expect(trend.bucketsWithData, 4);
+    for (final isArabic in [true, false]) {
+      final bytes = await WellbeingReportPdfBuilder.build(
+        isArabic: isArabic,
+        insights: insights,
+        periodStart: DateTime(2026, 8, 1),
+        generatedAt: DateTime(2026, 8, 18),
+        periodSplit: WellbeingPeriodSplit.compute(
+          logs: august,
+          today: DateTime(2026, 8, 18),
+        ),
+        trend: trend,
+      );
+      expect(bytes.isNotEmpty, isTrue);
+      // Set PDF_OUT to look at the page.
+      final out = Platform.environment['PDF_OUT'];
+      if (out != null && out.isNotEmpty) {
+        await File('$out/wellbeing_trend_${isArabic ? 'ar' : 'en'}.pdf')
+            .writeAsBytes(bytes);
+      }
+    }
   });
 }

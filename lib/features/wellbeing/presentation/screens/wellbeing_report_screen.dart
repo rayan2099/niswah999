@@ -10,6 +10,7 @@ import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../data/repositories/wellbeing_repository.dart';
 import '../../domain/services/wellbeing_insights_engine.dart';
 import '../../domain/services/wellbeing_period_split.dart';
+import '../../domain/services/wellbeing_trend.dart';
 import '../pdf/wellbeing_report_pdf_builder.dart';
 
 String _t(String en, String ar) => AppLocaleController.instance.text(en, ar);
@@ -61,6 +62,8 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
     );
   }
 
+  static const _trendMonths = 3;
+
   Future<Uint8List> _generate(bool isArabic) async {
     final now = AppClock.now();
     final currentStart = DateTime(now.year, now.month, 1);
@@ -68,7 +71,11 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
     // handles the January -> December rollover without special-casing it.
     final previousStart = DateTime(now.year, now.month - 1, 1);
 
-    final logs = await _repository.getLogs(from: previousStart, to: now);
+    // The weekly trend covers the same default period as the Insights mood
+    // card (the current month and the two before it).
+    final trendStart = DateTime(now.year, now.month - (_trendMonths - 1), 1);
+
+    final logs = await _repository.getLogs(from: trendStart, to: now);
 
     final currentLogs = logs
         .where((log) => !log.logDate.isBefore(currentStart))
@@ -99,6 +106,13 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
         cycleLogs: cycleLogs,
         today: now,
       ),
+      trend: WellbeingTrend.compute(
+        logs: logs,
+        from: trendStart,
+        today: now,
+        months: _trendMonths,
+      ),
+      trendMonths: _trendMonths,
       periodStart: currentStart,
       generatedAt: now,
     );

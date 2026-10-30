@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/services/wellbeing_trend.dart';
+import '../wellbeing_trend_text.dart';
 
 String _in(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -53,40 +54,11 @@ class _WellbeingTrendChartState extends State<WellbeingTrendChart> {
 
   static String _one(double value) => value.toStringAsFixed(1);
 
-  /// Arabic counted noun: 1, 2, 3–10 and 11+ forms.
-  static String _arCount(int n, (String, String, String, String) forms) {
-    final (one, two, few, many) = forms;
-    if (n == 1) return '1 $one';
-    if (n == 2) return '2 $two';
-    return n <= 10 ? '$n $few' : '$n $many';
-  }
-
-  String _units(int n) => _weekly
-      ? _in(
-          n == 1 ? '$n week' : '$n weeks',
-          _arCount(n, ('أسبوع', 'أسبوعين', 'أسابيع', 'أسبوعًا')),
-        )
-      : _in(
-          n == 1 ? '$n month' : '$n months',
-          _arCount(n, ('شهر', 'شهرين', 'أشهر', 'شهرًا')),
-        );
-
   /// "4 check-ins in 3 of 12 weeks": the sample behind the line.
-  String get sampleLine {
-    final total = trend.buckets.length;
-    final withData = trend.bucketsWithData;
-    final checkIns = trend.checkIns;
-    return _in(
-      '${checkIns == 1 ? '1 check-in' : '$checkIns check-ins'} in $withData of ${_units(total)}',
-      '${checkIns == 1
-          ? 'تسجيل واحد'
-          : checkIns == 2
-          ? 'تسجيلان'
-          : checkIns <= 10
-          ? '$checkIns تسجيلات'
-          : '$checkIns تسجيلًا'} في $withData من ${_units(total)}',
-    );
-  }
+  String get sampleLine => wellbeingTrendSampleLine(
+    trend,
+    arabic: AppLocaleController.instance.isArabic,
+  );
 
   String get semanticSummary {
     final values = [

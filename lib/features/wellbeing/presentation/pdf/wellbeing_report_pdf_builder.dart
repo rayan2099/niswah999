@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import '../../domain/services/wellbeing_period_split.dart';
+import '../../domain/services/wellbeing_trend.dart';
+import '../wellbeing_trend_text.dart';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
@@ -93,6 +95,8 @@ class WellbeingReportPdfBuilder {
     required DateTime generatedAt,
     List<NotedEntry> notes = const [],
     WellbeingPeriodSplit? periodSplit,
+    WellbeingTrend? trend,
+    int trendMonths = 3,
   }) async {
     final regularData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
     final boldData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
@@ -116,8 +120,15 @@ class WellbeingReportPdfBuilder {
         header: (context) =>
             _header(isArabic, periodStart, generatedAt, semiBold),
         footer: (context) => _footer(isArabic),
-        build: (context) =>
-            _body(isArabic, insights, notes, semiBold, periodSplit),
+        build: (context) => _body(
+          isArabic,
+          insights,
+          notes,
+          semiBold,
+          periodSplit,
+          trend,
+          trendMonths,
+        ),
       ),
     );
 
@@ -342,6 +353,8 @@ class WellbeingReportPdfBuilder {
     List<NotedEntry> notes,
     pw.Font semiBold,
     WellbeingPeriodSplit? periodSplit,
+    WellbeingTrend? trend,
+    int trendMonths,
   ) {
     final widgets = <pw.Widget>[
       _card(
@@ -376,6 +389,13 @@ class WellbeingReportPdfBuilder {
       ),
       if (periodSplit != null && periodSplit.all.count > 0)
         _card(child: _periodSplitTable(isArabic, periodSplit, semiBold)),
+      if (trend != null && trend.checkIns > 0)
+        // Kept on one page so a chart is never cut from its label.
+        pw.Inseparable(
+          child: _card(
+            child: _weeklyTrends(isArabic, trend, trendMonths, semiBold),
+          ),
+        ),
     ];
 
     if (notes.isNotEmpty) {
@@ -590,6 +610,219 @@ class WellbeingReportPdfBuilder {
             ),
         ],
       );
+
+  /// The Insights card's weekly line, for mood, energy and sleep together
+  /// since paper cannot switch between them (rayan, 2026-10-30). Same rules
+  /// as the app: only real weekly averages, a week without check-ins breaks
+  /// the line, and the curve never goes above or below a real average.
+  static pw.Widget _weeklyTrends(
+    bool isArabic,
+    WellbeingTrend trend,
+    int months,
+    pw.Font semiBold,
+  ) {
+    final weekly = trend.granularity == WellbeingTrendGranularity.week;
+    final period = isArabic
+        ? (months == 1
+              ? 'آخر شهر'
+              : months <= 10
+              ? 'آخر $months أشهر'
+              : 'آخر $months شهرًا')
+        : (months == 1 ? 'last month' : 'last $months months');
+    final title = isArabic
+        ? '${weekly ? 'المتوسطات الأسبوعية' : 'المتوسطات الشهرية'} · $period'
+        : '${weekly ? 'Weekly averages' : 'Monthly averages'} · $period';
+    final small = pw.TextStyle(
+      color: PdfColor.fromHex(_textTertiary),
+      fontSize: 7.5,
+    );
+    final measures = [
+      (
+        isArabic ? 'المزاج' : 'Mood',
+        _moodLine,
+        [for (final b in trend.buckets) b.mood],
+      ),
+      (
+        isArabic ? 'الطاقة' : 'Energy',
+        _energyLine,
+        [for (final b in trend.buckets) b.energy],
+      ),
+      (
+        isArabic ? 'النوم' : 'Sleep',
+        _sleepLine,
+        [for (final b in trend.buckets) b.sleep],
+      ),
+    ];
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          title,
+          style: pw.TextStyle(
+            font: semiBold,
+            color: PdfColor.fromHex(_textPrimary),
+            fontSize: 11,
+          ),
+        ),
+        for (final (label, hex, values) in measures) ...[
+          pw.SizedBox(height: 8),
+          pw.Text(
+            label,
+            style: pw.TextStyle(
+              font: semiBold,
+              color: PdfColor.fromHex(hex),
+              fontSize: 9,
+            ),
+          ),
+          pw.SizedBox(height: 2),
+          // Scale labels sit at the start side, as in the app (right in
+          // Arabic); time runs toward the reading direction's end.
+          pw.Row(
+            children: [
+              pw.SizedBox(
+                width: 12,
+                height: _trendHeight,
+                child: pw.Column(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (final v in const [5, 3, 1])
+                      pw.Text('$v', style: small),
+                  ],
+                ),
+              ),
+              pw.SizedBox(width: 4),
+              pw.Expanded(
+                child: pw.CustomPaint(
+                  size: const PdfPoint(double.infinity, _trendHeight),
+                  painter: (canvas, size) => _paintCurve(
+                    canvas,
+                    size,
+                    values,
+                    PdfColor.fromHex(hex),
+                    isArabic,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+        pw.SizedBox(height: 4),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Padding(
+              padding: isArabic
+                  ? const pw.EdgeInsets.only(right: 16)
+                  : const pw.EdgeInsets.only(left: 16),
+              child: pw.Text(isArabic ? 'البداية' : 'Start', style: small),
+            ),
+            pw.Text(isArabic ? 'اليوم' : 'Today', style: small),
+          ],
+        ),
+        pw.SizedBox(height: 6),
+        pw.Text(
+          wellbeingTrendSampleLine(trend, arabic: isArabic),
+          style: pw.TextStyle(
+            color: PdfColor.fromHex(_textSecondary),
+            fontSize: 8.5,
+          ),
+        ),
+        pw.SizedBox(height: 2),
+        pw.Text(
+          isArabic
+              ? 'متوسطات من 1 إلى 5 من تسجيلاتكِ اليومية. تظهر الأسابيع بلا تسجيلات فراغًا.'
+              : 'Averages from 1 to 5 from your daily check-ins. A week without check-ins is left as a gap.',
+          style: small,
+        ),
+      ],
+    );
+  }
+
+  static const _trendHeight = 54.0;
+  static const _moodLine = _brandPrimary;
+  static const _energyLine = '#D97706';
+  static const _sleepLine = '#4F46E5';
+
+  /// PDF coordinates start at the bottom left.
+  static void _paintCurve(
+    PdfGraphics canvas,
+    PdfPoint size,
+    List<double?> values,
+    PdfColor color,
+    bool rtl,
+  ) {
+    final n = values.length;
+    if (n == 0) return;
+    const inset = 4.0;
+    final top = size.y - inset;
+    const bottom = inset;
+    double y(double v) => bottom + (v - 1) / 4 * (top - bottom);
+    double x(int i) {
+      final f = n == 1 ? 0.5 : i / (n - 1);
+      final ltr = inset + f * (size.x - 2 * inset);
+      return rtl ? size.x - ltr : ltr;
+    }
+
+    canvas
+      ..setStrokeColor(PdfColor.fromHex('#EFE7EA'))
+      ..setLineWidth(0.6)
+      ..setLineDashPattern(const [2, 2]);
+    for (final v in const [1, 3, 5]) {
+      canvas
+        ..moveTo(0, y(v.toDouble()))
+        ..lineTo(size.x, y(v.toDouble()))
+        ..strokePath();
+    }
+    canvas.setLineDashPattern();
+
+    final runs = <List<int>>[];
+    for (var i = 0; i < n; i++) {
+      if (values[i] == null) continue;
+      if (runs.isEmpty || runs.last.last != i - 1) {
+        runs.add([i]);
+      } else {
+        runs.last.add(i);
+      }
+    }
+
+    void curve(List<int> run) {
+      canvas.moveTo(x(run.first), y(values[run.first]!));
+      for (var k = 1; k < run.length; k++) {
+        final ax = x(run[k - 1]), ay = y(values[run[k - 1]]!);
+        final bx = x(run[k]), by = y(values[run[k]]!);
+        final mid = (ax + bx) / 2;
+        canvas.curveTo(mid, ay, mid, by, bx, by);
+      }
+    }
+
+    for (final run in runs) {
+      if (run.length > 1) {
+        canvas
+          ..saveContext()
+          ..setGraphicState(PdfGraphicState(opacity: 0.14))
+          ..setFillColor(color);
+        curve(run);
+        canvas
+          ..lineTo(x(run.last), bottom)
+          ..lineTo(x(run.first), bottom)
+          ..closePath()
+          ..fillPath()
+          ..restoreContext();
+        canvas
+          ..setStrokeColor(color)
+          ..setLineWidth(1.6)
+          ..setLineCap(PdfLineCap.round);
+        curve(run);
+        canvas.strokePath();
+      }
+      for (final i in run) {
+        canvas
+          ..setFillColor(color)
+          ..drawEllipse(x(i), y(values[i]!), 2.2, 2.2)
+          ..fillPath();
+      }
+    }
+  }
 
   static pw.Widget _moodDonut(WellbeingInsights insights, bool isArabic) {
     final total = insights.currentCount;
