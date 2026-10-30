@@ -37,6 +37,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
+- [report-cycle-history-owner-2026-10-30.md](../../docs/report-cycle-history-owner-2026-10-30.md)
 
 ## docs/engineering
 
@@ -255,6 +256,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [profile_update_observability_test.dart](../../test/profile_update_observability_test.dart)
 - [provenance_badge_test.dart](../../test/provenance_badge_test.dart)
 - [report_canonical_evidence_test.dart](../../test/report_canonical_evidence_test.dart)
+- [report_cycle_history_owner_test.dart](../../test/report_cycle_history_owner_test.dart)
 - [resource_library_test.dart](../../test/resource_library_test.dart)
 - [rtl_directional_padding_lint_test.dart](../../test/rtl_directional_padding_lint_test.dart)
 - [secure_local_store_test.dart](../../test/secure_local_store_test.dart)
