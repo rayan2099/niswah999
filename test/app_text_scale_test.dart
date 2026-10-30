@@ -10,11 +10,11 @@ void main() {
   test('the app factor multiplies the phone setting, never replaces it', () {
     expect(
       const AppTextScaler(TextScaler.noScaling).scale(10),
-      closeTo(11, 1e-9),
+      closeTo(10.7, 1e-9),
     );
     expect(
       const AppTextScaler(TextScaler.linear(1.5)).scale(10),
-      closeTo(16.5, 1e-9),
+      closeTo(16.05, 1e-9),
       reason: 'someone who already enlarged text keeps it, plus the step',
     );
     expect(
@@ -30,7 +30,7 @@ void main() {
       (tester) async {
         await ParityTestHarness.pump(tester, arabic: arabic);
         final context = tester.element(find.byType(Scaffold).first);
-        expect(MediaQuery.textScalerOf(context).scale(10), closeTo(11, 1e-9));
+        expect(MediaQuery.textScalerOf(context).scale(10), closeTo(10.7, 1e-9));
         expect(tester.takeException(), isNull);
       },
     );

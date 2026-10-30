@@ -93,7 +93,7 @@ class AppTypography {
   /// Testing feedback 2026-10-30 (rayan): text across the app was slightly
   /// too small; many screens use 9-11 pt sizes. One factor here enlarges
   /// every screen evenly instead of editing hundreds of font sizes.
-  static const double appTextScale = 1.1;
+  static const double appTextScale = 1.07;
 }
 
 /// The phone's text scaler with [AppTypography.appTextScale] applied on
