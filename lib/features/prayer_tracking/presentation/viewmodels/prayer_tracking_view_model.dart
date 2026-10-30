@@ -155,11 +155,57 @@ class PrayerTrackingViewModel extends ChangeNotifier {
     );
 
     final generation = _loadGeneration;
-    await _repository.savePrayer(updated);
-    final loaded = await _repository.getDailyPrayerLog(date, userId: userId);
-    if (!_disposed && generation == _loadGeneration) {
-      entries = loaded;
-      notifyListeners();
+    try {
+      await _repository.savePrayer(updated);
+    } finally {
+      // The device copy is written before the server one, so a failed
+      // server write still leaves a record on the device; show it.
+      final loaded = await _repository.getDailyPrayerLog(date, userId: userId);
+      if (!_disposed && generation == _loadGeneration) {
+        entries = loaded;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// The account today's entries belong to, or null before the first load.
+  String? get userId => _userId;
+
+  /// Whether [prayerName]'s time has begun today at the selected location.
+  /// Completion can only be recorded once it has: nobody has prayed Isha at
+  /// noon. False when there is no schedule.
+  bool hasStarted(PrayerName prayerName) {
+    final instant = schedule?.instants[prayerName];
+    if (instant == null) return false;
+    return !AppClock.now().toUtc().isBefore(instant.toUtc());
+  }
+
+  /// Removes today's record for [prayerName], returning it to "not
+  /// recorded". This is the undo for a completion she recorded by mistake;
+  /// it never creates a missed or qadha record.
+  Future<void> clearPrayerStatus({
+    required String userId,
+    required PrayerName prayerName,
+  }) async {
+    if (userId != _userId) throw StateError('Prayer account changed');
+    final date = prayerDate;
+    final generation = _loadGeneration;
+    try {
+      for (final entry in [...entries]) {
+        if (entry.userId == userId &&
+            entry.prayerName == prayerName &&
+            _sameDate(entry.date, date)) {
+          await _repository.deletePrayer(entry.id);
+        }
+      }
+    } finally {
+      // The device copy is removed first, so even when the server delete
+      // fails the card must show what the device now holds.
+      final loaded = await _repository.getDailyPrayerLog(date, userId: userId);
+      if (!_disposed && generation == _loadGeneration) {
+        entries = loaded;
+        notifyListeners();
+      }
     }
   }
 
