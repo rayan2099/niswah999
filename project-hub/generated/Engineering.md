@@ -61,6 +61,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## lib/core/preferences
 
+- [calendar_system_controller.dart](../../lib/core/preferences/calendar_system_controller.dart)
 - [community_language_controller.dart](../../lib/core/preferences/community_language_controller.dart)
 - [local_preference_scope.dart](../../lib/core/preferences/local_preference_scope.dart)
 - [madhhab_controller.dart](../../lib/core/preferences/madhhab_controller.dart)

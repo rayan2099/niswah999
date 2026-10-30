@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import '../../domain/services/wellbeing_period_split.dart';
+import '../../domain/services/wellbeing_trend.dart';
+import '../wellbeing_trend_text.dart';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
@@ -93,6 +95,9 @@ class WellbeingReportPdfBuilder {
     required DateTime generatedAt,
     List<NotedEntry> notes = const [],
     WellbeingPeriodSplit? periodSplit,
+    WellbeingTrend? trend,
+    int trendMonths = 3,
+    bool hijri = false,
   }) async {
     final regularData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
     final boldData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
@@ -116,8 +121,16 @@ class WellbeingReportPdfBuilder {
         header: (context) =>
             _header(isArabic, periodStart, generatedAt, semiBold),
         footer: (context) => _footer(isArabic),
-        build: (context) =>
-            _body(isArabic, insights, notes, semiBold, periodSplit),
+        build: (context) => _body(
+          isArabic,
+          insights,
+          notes,
+          semiBold,
+          periodSplit,
+          trend,
+          trendMonths,
+          hijri,
+        ),
       ),
     );
 
@@ -223,20 +236,117 @@ class WellbeingReportPdfBuilder {
   );
 
   /// Device run 2026-10-28: mood is tracked on every day, with or without a
-  /// period, and the report says which check-ins fell on bleeding days.
-  static String _periodSplitText(bool isArabic, WellbeingPeriodSplit split) {
-    String avg(double? value) => value == null ? '—' : value.toStringAsFixed(1);
-    final period = split.onPeriodDays;
-    final other = split.onOtherDays;
-    return isArabic
-        ? 'تُسجَّل الحالة النفسية في كل الأيام، مع الدورة أو بدونها. هذا الشهر: '
-              '${period.count} تسجيل في أيام الدورة (متوسط المزاج ${avg(period.averageMood)}/5)، '
-              'و${other.count} في أيام بلا دورة (متوسط المزاج ${avg(other.averageMood)}/5). '
-              'أيام الدورة هي الأيام المسجّل فيها نزول دم، وليست حكمًا شرعيًا.'
-        : 'Mood is tracked on every day, with or without a period. This month: '
-              '${period.count} check-ins on period days (average mood ${avg(period.averageMood)}/5) '
-              'and ${other.count} on days without a period (average mood ${avg(other.averageMood)}/5). '
-              'Period days are days with bleeding recorded, not a religious ruling.';
+  /// period. Testing feedback 2026-10-30: the report shows the same three
+  /// views as Insights (all days, period days, other days) as a table of
+  /// mood, energy and sleep averages with their check-in counts.
+  ///
+  /// Rows of cells, first row the header; `—` where a group has no
+  /// check-ins. Exposed for tests.
+  static List<List<String>> periodSplitRows(
+    bool isArabic,
+    WellbeingPeriodSplit split,
+  ) {
+    String avg(double? value) =>
+        value == null ? '—' : '${value.toStringAsFixed(1)}/5';
+    final groups = [split.all, split.onPeriodDays, split.onOtherDays];
+    return [
+      [
+        '',
+        isArabic ? 'كل الأيام' : 'All days',
+        isArabic ? 'أيام الدورة' : 'Period days',
+        isArabic ? 'بقية الأيام' : 'Other days',
+      ],
+      [
+        isArabic ? 'المزاج' : 'Mood',
+        for (final g in groups) avg(g.averageMood),
+      ],
+      [
+        isArabic ? 'الطاقة' : 'Energy',
+        for (final g in groups) avg(g.averageEnergy),
+      ],
+      [
+        isArabic ? 'النوم' : 'Sleep',
+        for (final g in groups) avg(g.averageSleep),
+      ],
+      [
+        isArabic ? 'التسجيلات' : 'Check-ins',
+        for (final g in groups) '${g.count}',
+      ],
+    ];
+  }
+
+  static pw.Widget _periodSplitTable(
+    bool isArabic,
+    WellbeingPeriodSplit split,
+    pw.Font semiBold,
+  ) {
+    final rows = periodSplitRows(isArabic, split);
+    pw.Widget cell(String text, {bool head = false, bool first = false}) =>
+        pw.Expanded(
+          flex: first ? 5 : 4,
+          child: pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 4),
+            child: pw.Text(
+              text,
+              textAlign: first ? pw.TextAlign.start : pw.TextAlign.center,
+              style: pw.TextStyle(
+                font: head || first ? semiBold : null,
+                color: PdfColor.fromHex(
+                  head
+                      ? _textSecondary
+                      : (first ? _textPrimary : _brandPrimary),
+                ),
+                fontSize: head ? 9 : 10,
+              ),
+            ),
+          ),
+        );
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          isArabic
+              ? 'الحالة النفسية في أيام الدورة وبقية الأيام'
+              : 'Mood on period days and other days',
+          style: pw.TextStyle(
+            font: semiBold,
+            color: PdfColor.fromHex(_textPrimary),
+            fontSize: 11,
+          ),
+        ),
+        pw.SizedBox(height: 6),
+        for (var r = 0; r < rows.length; r++)
+          pw.Container(
+            decoration: r == 0
+                ? null
+                : pw.BoxDecoration(
+                    border: pw.Border(
+                      top: pw.BorderSide(
+                        color: PdfColor.fromHex(_gridLine),
+                        width: 0.8,
+                      ),
+                    ),
+                  ),
+            child: pw.Row(
+              children: [
+                for (var c = 0; c < rows[r].length; c++)
+                  cell(rows[r][c], head: r == 0, first: c == 0),
+              ],
+            ),
+          ),
+        pw.SizedBox(height: 6),
+        pw.Text(
+          isArabic
+              ? 'المتوسطات من 1 إلى 5. تُسجَّل الحالة النفسية في كل الأيام، وأيام الدورة هي الأيام المسجّل فيها نزول دم، وليست حكمًا شرعيًا.'
+              : 'Averages on a 1–5 scale. Mood is tracked on every day; period days are days with bleeding recorded, not a religious ruling.',
+          style: pw.TextStyle(
+            color: PdfColor.fromHex(_textTertiary),
+            fontSize: 8,
+            lineSpacing: 2,
+          ),
+        ),
+      ],
+    );
   }
 
   static List<pw.Widget> _body(
@@ -245,6 +355,9 @@ class WellbeingReportPdfBuilder {
     List<NotedEntry> notes,
     pw.Font semiBold,
     WellbeingPeriodSplit? periodSplit,
+    WellbeingTrend? trend,
+    int trendMonths,
+    bool hijri,
   ) {
     final widgets = <pw.Widget>[
       _card(
@@ -277,15 +390,19 @@ class WellbeingReportPdfBuilder {
           ],
         ),
       ),
+      // The table, then the monthly bars right under it (rayan,
+      // 2026-10-30). Each stays whole on a page, so the chart is never cut
+      // from its legend.
       if (periodSplit != null && periodSplit.all.count > 0)
-        _card(
-          child: pw.Text(
-            _periodSplitText(isArabic, periodSplit),
-            style: pw.TextStyle(
-              color: PdfColor.fromHex(_textSecondary),
-              fontSize: 9,
-              lineSpacing: 2,
-            ),
+        pw.Inseparable(
+          child: _card(
+            child: _periodSplitTable(isArabic, periodSplit, semiBold),
+          ),
+        ),
+      if (trend != null && trend.checkIns > 0)
+        pw.Inseparable(
+          child: _card(
+            child: _monthlyBars(isArabic, trend, trendMonths, hijri, semiBold),
           ),
         ),
     ];
@@ -501,6 +618,197 @@ class WellbeingReportPdfBuilder {
               ),
             ),
         ],
+      );
+
+  /// The Insights card's monthly bars (rayan, 2026-10-30): for each month,
+  /// a glassy bar for mood, energy and sleep with its average written on
+  /// it. Only real check-ins count: a month without any shows "—" and no
+  /// bars. Month names follow the calendar screen's Gregorian / Hijri
+  /// choice.
+  static pw.Widget _monthlyBars(
+    bool isArabic,
+    WellbeingTrend trend,
+    int months,
+    bool hijri,
+    pw.Font semiBold,
+  ) {
+    final period = isArabic
+        ? (months == 1
+              ? 'آخر شهر'
+              : months <= 10
+              ? 'آخر $months أشهر'
+              : 'آخر $months شهرًا')
+        : (months == 1 ? 'last month' : 'last $months months');
+    final small = pw.TextStyle(
+      color: PdfColor.fromHex(_textTertiary),
+      fontSize: 7.5,
+    );
+    final measures = [
+      (isArabic ? 'المزاج' : 'Mood', _moodLine),
+      (isArabic ? 'الطاقة' : 'Energy', _energyLine),
+      (isArabic ? 'النوم' : 'Sleep', _sleepLine),
+    ];
+    final compact = trend.buckets.length > 6;
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          isArabic
+              ? 'المتوسطات الشهرية · $period'
+              : 'Monthly averages · $period',
+          style: pw.TextStyle(
+            font: semiBold,
+            color: PdfColor.fromHex(_textPrimary),
+            fontSize: 11,
+          ),
+        ),
+        pw.SizedBox(height: 8),
+        pw.Row(
+          children: [
+            for (final (label, hex) in measures) ...[
+              pw.Container(
+                width: 9,
+                height: 9,
+                decoration: _glass(PdfColor.fromHex(hex), 3),
+              ),
+              pw.SizedBox(width: 4),
+              pw.Text(
+                label,
+                style: pw.TextStyle(
+                  font: semiBold,
+                  color: PdfColor.fromHex(hex),
+                  fontSize: 9,
+                ),
+              ),
+              pw.SizedBox(width: 14),
+            ],
+          ],
+        ),
+        pw.SizedBox(height: 10),
+        // Time runs toward the reading direction's end (right to left in
+        // Arabic): the row follows the page's text direction.
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.end,
+          children: [
+            for (final b in trend.buckets)
+              pw.Expanded(
+                child: pw.Padding(
+                  padding: pw.EdgeInsets.symmetric(horizontal: compact ? 2 : 8),
+                  child: pw.Column(
+                    children: [
+                      if (!b.hasData)
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(bottom: 4),
+                          child: pw.Text('—', style: small),
+                        )
+                      else
+                        pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end,
+                          children: [
+                            for (final (value, (_, hex)) in [
+                              (b.mood!, measures[0]),
+                              (b.energy!, measures[1]),
+                              (b.sleep!, measures[2]),
+                            ])
+                              pw.Expanded(
+                                child: pw.Padding(
+                                  padding: const pw.EdgeInsets.symmetric(
+                                    horizontal: 1.5,
+                                  ),
+                                  child: pw.Column(
+                                    children: [
+                                      pw.Text(
+                                        value.toStringAsFixed(1),
+                                        style: pw.TextStyle(
+                                          font: semiBold,
+                                          color: PdfColor.fromHex(hex),
+                                          fontSize: compact ? 5.5 : 8,
+                                        ),
+                                      ),
+                                      pw.SizedBox(height: 2),
+                                      // Drawn from zero so a 1 still shows.
+                                      _glassBar(
+                                        PdfColor.fromHex(hex),
+                                        _barHeight * value / 5,
+                                        compact ? 3 : 5,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      pw.Container(
+                        height: 0.8,
+                        color: PdfColor.fromHex(_gridLine),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        wellbeingMonthName(
+                          b.start,
+                          arabic: isArabic,
+                          hijri: hijri,
+                        ),
+                        style: pw.TextStyle(
+                          color: PdfColor.fromHex(_textSecondary),
+                          fontSize: compact ? 6.5 : 8.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+        pw.SizedBox(height: 8),
+        pw.Text(
+          isArabic
+              ? '${wellbeingTrendSampleLine(trend, arabic: true)}. متوسطات من 1 إلى 5، والشهر بلا تسجيلات يظهر «—».'
+              : '${wellbeingTrendSampleLine(trend, arabic: false)}. Averages from 1 to 5; a month without check-ins shows “—”.',
+          style: small,
+        ),
+      ],
+    );
+  }
+
+  static const _barHeight = 72.0;
+
+  static pw.Widget _glassBar(PdfColor color, double height, double radius) =>
+      pw.Container(
+        height: height,
+        decoration: _glass(color, radius),
+        alignment: pw.Alignment.topCenter,
+        child: pw.Container(
+          height: 2.5,
+          margin: const pw.EdgeInsets.fromLTRB(2.5, 2, 2.5, 0),
+          decoration: pw.BoxDecoration(
+            color: _tint(color, 0.06),
+            borderRadius: pw.BorderRadius.circular(2),
+          ),
+        ),
+      );
+  static const _moodLine = _brandPrimary;
+  static const _energyLine = '#D97706';
+  static const _sleepLine = '#4F46E5';
+
+  /// [color] blended toward white, so it reads as a translucent tint.
+  static PdfColor _tint(PdfColor color, double amount) => PdfColor(
+    1 - (1 - color.red) * amount,
+    1 - (1 - color.green) * amount,
+    1 - (1 - color.blue) * amount,
+  );
+
+  /// Frosted glass: a translucent tint that fades downward with a light
+  /// edge; bars add a bright rim along the top (see [_glassBar]).
+  static pw.BoxDecoration _glass(PdfColor color, double radius) =>
+      pw.BoxDecoration(
+        borderRadius: pw.BorderRadius.circular(radius),
+        gradient: pw.LinearGradient(
+          begin: pw.Alignment.topCenter,
+          end: pw.Alignment.bottomCenter,
+          colors: [_tint(color, 0.55), _tint(color, 0.18)],
+        ),
+        border: pw.Border.all(color: _tint(color, 0.32), width: 0.7),
       );
 
   static pw.Widget _moodDonut(WellbeingInsights insights, bool isArabic) {

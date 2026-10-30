@@ -3,6 +3,7 @@ import 'notification_delivery_preferences.dart';
 import 'dart:async';
 
 import '../errors/app_error_reporter.dart';
+import 'calendar_system_controller.dart';
 import 'community_language_controller.dart';
 import 'marital_status_controller.dart';
 import 'notification_log_controller.dart';
@@ -25,6 +26,7 @@ class LocalPreferenceScope {
     NotificationLogController.instance.resetInMemory();
     NotificationDeliveryPreferences.instance.resetInMemory();
     CommunityLanguageController.instance.resetInMemory();
+    CalendarSystemController.instance.resetInMemory();
   }
 
   /// Sign-in: load the signed-in user's own values. Each load is independent —
@@ -38,6 +40,7 @@ class LocalPreferenceScope {
       'notification_delivery': NotificationDeliveryPreferences.instance.load,
       'notification_log': NotificationLogController.instance.load,
       'community_language': CommunityLanguageController.instance.load,
+      'calendar_system': CalendarSystemController.instance.load,
     };
     for (final entry in loads.entries) {
       try {

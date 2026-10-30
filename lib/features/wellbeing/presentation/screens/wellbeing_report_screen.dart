@@ -4,13 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
+import '../../../../core/preferences/calendar_system_controller.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../cycle_tracking/data/repositories/cycle_tracking_repository_impl.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../data/repositories/wellbeing_repository.dart';
 import '../../domain/services/wellbeing_insights_engine.dart';
 import '../../domain/services/wellbeing_period_split.dart';
+import '../../domain/services/wellbeing_trend.dart';
 import '../pdf/wellbeing_report_pdf_builder.dart';
+import '../wellbeing_trend_text.dart';
 
 String _t(String en, String ar) => AppLocaleController.instance.text(en, ar);
 
@@ -61,6 +64,8 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
     );
   }
 
+  static const _trendMonths = 3;
+
   Future<Uint8List> _generate(bool isArabic) async {
     final now = AppClock.now();
     final currentStart = DateTime(now.year, now.month, 1);
@@ -68,7 +73,11 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
     // handles the January -> December rollover without special-casing it.
     final previousStart = DateTime(now.year, now.month - 1, 1);
 
-    final logs = await _repository.getLogs(from: previousStart, to: now);
+    // The monthly bars cover the same default period as the Insights mood
+    // card (the current month and the two before it).
+    final trendStart = DateTime(now.year, now.month - (_trendMonths - 1), 1);
+
+    final logs = await _repository.getLogs(from: trendStart, to: now);
 
     final currentLogs = logs
         .where((log) => !log.logDate.isBefore(currentStart))
@@ -99,6 +108,17 @@ class _WellbeingReportScreenState extends State<WellbeingReportScreen> {
         cycleLogs: cycleLogs,
         today: now,
       ),
+      trend: WellbeingTrend.computeByMonth(
+        logs: logs,
+        from: trendStart,
+        today: now,
+        monthOf: wellbeingMonthKey(
+          hijri: CalendarSystemController.instance.hijri,
+        ),
+      ),
+      trendMonths: _trendMonths,
+      // Month names follow the calendar screen's Gregorian / Hijri choice.
+      hijri: CalendarSystemController.instance.hijri,
       periodStart: currentStart,
       generatedAt: now,
     );

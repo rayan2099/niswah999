@@ -61,6 +61,15 @@ Future<void> _pumpInsights(
   }
 }
 
+/// The mood card's quick-look line, "Average of N check-ins".
+Finder _summary(String count) => find.text('Average of $count');
+
+Future<void> _expand(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const Key('wellbeing-details-toggle')));
+  await tester.tap(find.byKey(const Key('wellbeing-details-toggle')));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   // Device run 2026-10-28: mood check-ins never reached Insights, and
   // nothing showed without a period. With no period logged at all they
@@ -99,10 +108,25 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Mood & wellbeing'), findsOneWidget);
-    expect(find.text('All days · 3 check-ins'), findsOneWidget);
-    expect(find.text('Period days · 0 check-ins'), findsOneWidget);
-    expect(find.text('Days without a period · 3 check-ins'), findsOneWidget);
-    expect(find.textContaining('Mood 4.0/5'), findsNWidgets(2));
+    expect(_summary('3 check-ins'), findsOneWidget);
+    expect(
+      find.byKey(const Key('wellbeing-details')),
+      findsNothing,
+      reason: 'collapsed by default: a quick look',
+    );
+    expect(find.textContaining('4.0', findRichText: true), findsOneWidget);
+
+    // Period days: none logged, said in words instead of empty tiles.
+    await tester.tap(find.byKey(const Key('wellbeing-view-period')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('wellbeing-group-empty')), findsOneWidget);
+    expect(find.textContaining('4.0', findRichText: true), findsNothing);
+
+    // Other days: all three check-ins.
+    await tester.tap(find.byKey(const Key('wellbeing-view-other')));
+    await tester.pumpAndSettle();
+    expect(_summary('3 check-ins'), findsOneWidget);
+    expect(find.textContaining('4.0', findRichText: true), findsOneWidget);
   });
 
   testWidgets('a new check-in shows without leaving the screen', (
@@ -110,13 +134,13 @@ void main() {
   ) async {
     var stored = _logs(2);
     await _pumpInsights(tester, (_) async => stored);
-    expect(find.text('All days · 2 check-ins'), findsOneWidget);
+    expect(_summary('2 check-ins'), findsOneWidget);
 
     stored = _logs(3);
     WellbeingRepository.revision.value++;
     await tester.pumpAndSettle();
 
-    expect(find.text('All days · 3 check-ins'), findsOneWidget);
+    expect(_summary('3 check-ins'), findsOneWidget);
   });
 
   testWidgets('an older request finishing last does not replace newer '
@@ -139,6 +163,6 @@ void main() {
     pending[0].complete(_logs(5));
     await tester.pumpAndSettle();
 
-    expect(find.text('All days · 2 check-ins'), findsOneWidget);
+    expect(_summary('2 check-ins'), findsOneWidget);
   });
 }
