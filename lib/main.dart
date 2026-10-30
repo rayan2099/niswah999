@@ -477,9 +477,14 @@ class NiswahApp extends StatelessWidget {
             GlobalCupertinoLocalizations.delegate,
           ],
           supportedLocales: const [Locale('ar'), Locale('en')],
-          builder: (context, child) => Directionality(
-            textDirection: AppLocaleController.instance.textDirection,
-            child: Stack(children: [child!, const DiagnosticsBanner()]),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: AppTextScaler(MediaQuery.textScalerOf(context)),
+            ),
+            child: Directionality(
+              textDirection: AppLocaleController.instance.textDirection,
+              child: Stack(children: [child!, const DiagnosticsBanner()]),
+            ),
           ),
           home: _buildHome(context),
           routes: {
