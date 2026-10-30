@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/storage/secure_local_store.dart';
 import '../../../doctor_report/domain/entities/report_source_status.dart';
 import '../datasources/local_cycle_tracking_data_source.dart';
 import '../../domain/entities/cycle_log.dart';
@@ -184,6 +185,16 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
 
   @override
   Future<SyncStatus> saveCycleLog(CycleLog log) async {
+    // Reject a stale form/async callback before it enters another account's
+    // local cache. The remote guard below runs only after the local save.
+    final localOwner = SecureLocalStore.currentUserId();
+    final sessionOwner = _client?.auth.currentSession?.user.id;
+    if ((SecureLocalStore.hasSession && log.userId != localOwner) ||
+        (sessionOwner != null && log.userId != sessionOwner)) {
+      throw const NetworkFailure(
+        'Sign in to the original account before saving this record.',
+      );
+    }
     // Saved locally as `pending` first (formData.toCycleLog defaults to
     // SyncStatus.pending) — if the remote attempt below fails retryably,
     // this pending marker is exactly what makes it eligible for automatic
