@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**191 existing Markdown documents**, grouped by source folder.
+**192 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -46,6 +46,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [parity-checklist.md](../../docs/parity-checklist.md)
 - [password-recovery.md](../../docs/password-recovery.md)
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
+- [physical-sign-in-ui-2026-10-27.md](../../docs/physical-sign-in-ui-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 - [report-cycle-history-owner-2026-10-30.md](../../docs/report-cycle-history-owner-2026-10-30.md)

@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/device_timezone.dart';
+import '../storage/secure_local_store.dart';
 import 'user_scoped_preferences.dart';
 
 /// A resolved location to compute prayer times for: real coordinates plus a
@@ -265,43 +266,51 @@ class PrayerLocationController extends ChangeNotifier {
         location.longitude.abs() > 180) {
       throw ArgumentError('Invalid prayer coordinates');
     }
+    final owner = SecureLocalStore.currentUserId();
+    final keys = {for (final key in [_latKey, _lngKey, _labelKey, _labelArKey, _fromDeviceKey, _zoneKey, _confirmedKey]) key: UserScopedPreferences.key(key)};
     final preferences = await SharedPreferences.getInstance();
+    if (SecureLocalStore.currentUserId() != owner) {
+      throw StateError('Account changed during location save.');
+    }
     await preferences.setDouble(
-      UserScopedPreferences.key(_latKey),
+      keys[_latKey]!,
       location.latitude,
     );
     await preferences.setDouble(
-      UserScopedPreferences.key(_lngKey),
+      keys[_lngKey]!,
       location.longitude,
     );
     await preferences.setString(
-      UserScopedPreferences.key(_labelKey),
+      keys[_labelKey]!,
       location.label,
     );
     if (location.labelAr != null) {
       await preferences.setString(
-        UserScopedPreferences.key(_labelArKey),
+        keys[_labelArKey]!,
         location.labelAr!,
       );
     } else {
-      await preferences.remove(UserScopedPreferences.key(_labelArKey));
+      await preferences.remove(keys[_labelArKey]!);
     }
     await preferences.setBool(
-      UserScopedPreferences.key(_fromDeviceKey),
+      keys[_fromDeviceKey]!,
       location.fromDevice,
     );
     if (location.timezoneId != null) {
       await preferences.setString(
-        UserScopedPreferences.key(_zoneKey),
+        keys[_zoneKey]!,
         location.timezoneId!,
       );
     } else {
-      await preferences.remove(UserScopedPreferences.key(_zoneKey));
+      await preferences.remove(keys[_zoneKey]!);
     }
     await preferences.setBool(
-      UserScopedPreferences.key(_confirmedKey),
+      keys[_confirmedKey]!,
       location.timezoneConfirmed,
     );
+    if (SecureLocalStore.currentUserId() != owner) {
+      throw StateError('Account changed during location save.');
+    }
     _selected = location;
     notifyListeners();
   }
@@ -311,6 +320,7 @@ class PrayerLocationController extends ChangeNotifier {
   /// [LocationPermissionDenied] on failure so the caller can show a real
   /// message rather than silently doing nothing (the bug this replaces).
   Future<PrayerLocation> useDeviceLocation() async {
+    final owner = SecureLocalStore.currentUserId();
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw const LocationServiceDisabled();
     }
@@ -337,6 +347,9 @@ class PrayerLocationController extends ChangeNotifier {
       position.latitude,
       position.longitude,
     );
+    if (SecureLocalStore.currentUserId() != owner) {
+      throw StateError('Account changed during location lookup.');
+    }
     await select(location);
     return location;
   }
