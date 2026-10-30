@@ -243,19 +243,36 @@ class DataExportResult {
 /// output — it is listed under `export['sections_unavailable']` instead,
 /// and simply absent from the export map itself (never a fabricated empty
 /// value standing in for "couldn't fetch this").
+/// Thrown when the signed-in account stopped being [userId] while the
+/// export ran (NJ-232). Nothing fetched so far is returned: a section read
+/// with another account's session (for example `private_messages`, which
+/// relies on RLS alone) could otherwise end up in this account's export,
+/// also after switching back (A→B→A).
+class ExportAccountChanged implements Exception {
+  const ExportAccountChanged();
+}
+
 Future<DataExportResult> buildDataExport({
   required ExportSectionFetcher fetcher,
   required String userId,
   required void Function(Object error, StackTrace stack, String section)
   onSectionError,
   DateTime? now,
+  bool Function()? isCurrentAccount,
 }) async {
+  void ensureCurrent() {
+    if (isCurrentAccount != null && !isCurrentAccount()) {
+      throw const ExportAccountChanged();
+    }
+  }
+
   final export = <String, dynamic>{
     'exported_at': (now ?? DateTime.now()).toIso8601String(),
   };
   final failedSections = <String>[];
 
   for (final section in exportSections) {
+    ensureCurrent();
     try {
       if (section.many) {
         export[section.key] = await fetcher.fetchMany(
@@ -274,6 +291,7 @@ Future<DataExportResult> buildDataExport({
       failedSections.add(section.key);
       onSectionError(error, stack, section.key);
     }
+    ensureCurrent();
   }
 
   export['export_complete'] = failedSections.isEmpty;
