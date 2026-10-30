@@ -9,6 +9,7 @@
     "docs/acceptance-test-runbook.md",
     "docs/cycle-prediction-model.md",
     "docs/database-migration-strategy.md",
+    "docs/early-phone-access.md",
     "docs/engineering/app-wide-notifications.md",
     "docs/engineering/notification-reliability.md",
     "docs/engineering/prayer-time-integrity.md",

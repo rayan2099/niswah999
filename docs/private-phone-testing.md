@@ -1,5 +1,7 @@
 # Private phone testing
 
+For the later owner decision allowing real users without verification, see [early phone access](early-phone-access.md). This document describes the original separate private rehearsal only.
+
 Owner decision: retain phone collection during private testing, show a test code in-app, and keep the number unverified. Verified email establishes account ownership; future real SMS is required before phone login/recovery. This change adds no authentication bypass and sends no SMS.
 
 [Auth feature map](../project-hub/generated/feature-auth.md).

@@ -82,49 +82,51 @@ class _SignInScreenState extends State<SignInScreen> {
     await proceed();
   }
 
-  Future<void> _showAuthSheet({required bool isPhone}) =>
-      _requireConsent(() async {
-        if (isPhone && privatePhoneTestBuild) {
-          await showDialog<void>(
-            context: context,
-            builder: (dialogContext) => AlertDialog(
-              title: Text(_tr('Private phone testing', 'اختبار الهاتف الخاص')),
-              content: Text(
-                _tr(
-                  'First verify your email to protect your account. Then open Profile → Private phone test to enter your number and see the test code. No SMS is sent; the number stays unverified.',
-                  'وثّقي بريدكِ أولاً لحماية حسابكِ، ثم افتحي الملف الشخصي ← اختبار رقم الهاتف لإدخال الرقم وعرض رمز الاختبار. لن تُرسل رسالة نصية ويبقى الرقم غير موثّق.',
+  Future<void> _showAuthSheet({required bool isPhone}) => _requireConsent(
+    () async {
+      if (isPhone && privatePhoneTestBuild && !earlyPhoneAccessBuild) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(_tr('Private phone testing', 'اختبار الهاتف الخاص')),
+            content: Text(
+              _tr(
+                'First verify your email to protect your account. Then open Profile → Private phone test to enter your number and see the test code. No SMS is sent; the number stays unverified.',
+                'وثّقي بريدكِ أولاً لحماية حسابكِ، ثم افتحي الملف الشخصي ← اختبار رقم الهاتف لإدخال الرقم وعرض رمز الاختبار. لن تُرسل رسالة نصية ويبقى الرقم غير موثّق.',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(
+                  _tr('Continue with email', 'المتابعة بالبريد الإلكتروني'),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: Text(
-                    _tr('Continue with email', 'المتابعة بالبريد الإلكتروني'),
-                  ),
-                ),
-              ],
-            ),
-          );
-          if (!mounted) return;
-        }
-        final success = await showModalBottomSheet<bool>(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.white,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            ],
           ),
-          builder: (_) =>
-              _AuthSheet(isPhone: isPhone && !privatePhoneTestBuild),
         );
+        if (!mounted) return;
+      }
+      final success = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        builder: (_) => _AuthSheet(
+          isPhone: isPhone && (!privatePhoneTestBuild || earlyPhoneAccessBuild),
+        ),
+      );
 
-        if (success == true && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_tr('Welcome back!', 'أهلاً بعودتكِ!'))),
-          );
-          _onAuthenticated();
-        }
-      });
+      if (success == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_tr('Welcome back!', 'أهلاً بعودتكِ!'))),
+        );
+        _onAuthenticated();
+      }
+    },
+  );
 
   Future<void> _signInWithGoogle() => _requireConsent(_signInWithGoogleImpl);
 
@@ -719,11 +721,12 @@ class _AuthSheetState extends State<_AuthSheet> {
   void initState() {
     super.initState();
     _country = kCountries.first;
-    _recoverySubscription = NiswahSupabase.clientOrNull?.auth.onAuthStateChange.listen((state) {
-      if (state.event == AuthChangeEvent.passwordRecovery && mounted) {
-        Navigator.of(context).pop();
-      }
-    });
+    _recoverySubscription = NiswahSupabase.clientOrNull?.auth.onAuthStateChange
+        .listen((state) {
+          if (state.event == AuthChangeEvent.passwordRecovery && mounted) {
+            Navigator.of(context).pop();
+          }
+        });
   }
 
   @override
@@ -752,14 +755,14 @@ class _AuthSheetState extends State<_AuthSheet> {
             password: _passwordController.text,
             displayName: _nameController.text.trim(),
           );
-          if (mounted) {
+          if (!earlyPhoneAccessBuild && mounted) {
             setState(() {
               _pendingPhone = fullPhone;
               _awaitingPhoneOtp = true;
               _loading = false;
             });
+            return;
           }
-          return;
         } else {
           await repo.signInWithPhone(
             phone: fullPhone,
@@ -813,18 +816,34 @@ class _AuthSheetState extends State<_AuthSheet> {
   Future<void> _requestPasswordReset() async {
     final email = _identifierController.text.trim();
     if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
-      setState(() => _error = _tr('Enter a valid email address first.', 'أدخلي بريدًا إلكترونيًا صحيحًا أولاً.'));
+      setState(
+        () => _error = _tr(
+          'Enter a valid email address first.',
+          'أدخلي بريدًا إلكترونيًا صحيحًا أولاً.',
+        ),
+      );
       return;
     }
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       await AuthRepositoryImpl().resetPasswordForEmail(email: email);
-      if (mounted) setState(() { _loading = false; _resetRequested = true; });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _resetRequested = true;
+        });
     } catch (_) {
-      if (mounted) setState(() {
-        _loading = false;
-        _error = _tr('Could not send the reset request. Please try again.', 'تعذّر إرسال طلب إعادة التعيين. حاولي مرة أخرى.');
-      });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _error = _tr(
+            'Could not send the reset request. Please try again.',
+            'تعذّر إرسال طلب إعادة التعيين. حاولي مرة أخرى.',
+          );
+        });
     }
   }
 
@@ -959,11 +978,24 @@ class _AuthSheetState extends State<_AuthSheet> {
   );
 
   List<Widget> _resetRequestedChildren() => [
-    Text(_tr('Check your email', 'تحققي من بريدك الإلكتروني'), textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+    Text(
+      _tr('Check your email', 'تحققي من بريدك الإلكتروني'),
+      textAlign: TextAlign.center,
+      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+    ),
     const SizedBox(height: 12),
-    Text(_tr('If an account exists for this email, a reset link will be sent. Open it on this device.', 'إذا كان البريد مرتبطًا بحساب، سنرسل رابط إعادة التعيين. افتحي الرابط على هذا الجهاز.'), textAlign: TextAlign.center),
+    Text(
+      _tr(
+        'If an account exists for this email, a reset link will be sent. Open it on this device.',
+        'إذا كان البريد مرتبطًا بحساب، سنرسل رابط إعادة التعيين. افتحي الرابط على هذا الجهاز.',
+      ),
+      textAlign: TextAlign.center,
+    ),
     const SizedBox(height: 12),
-    TextButton(onPressed: () => setState(() => _resetRequested = false), child: Text(_tr('Back to sign in', 'العودة لتسجيل الدخول'))),
+    TextButton(
+      onPressed: () => setState(() => _resetRequested = false),
+      child: Text(_tr('Back to sign in', 'العودة لتسجيل الدخول')),
+    ),
   ];
 
   List<Widget> _otpStepChildren() => [
@@ -1225,6 +1257,16 @@ class _AuthSheetState extends State<_AuthSheet> {
         ),
       ),
     const SizedBox(height: 14),
+    if (widget.isPhone && earlyPhoneAccessBuild) ...[
+      Text(
+        _tr(
+          'Early access: phone and password, without SMS. Your number stays unverified. Keep your password safe; recovery is not available yet.',
+          'التسجيل المبكر: رقم الهاتف وكلمة المرور دون رسالة نصية. يبقى رقمكِ غير موثّق. احتفظي بكلمة المرور؛ استعادة الحساب غير متاحة حالياً.',
+        ),
+        key: const Key('early_phone_notice'),
+      ),
+      const SizedBox(height: 14),
+    ],
     TextField(
       controller: _passwordController,
       obscureText: _obscure,

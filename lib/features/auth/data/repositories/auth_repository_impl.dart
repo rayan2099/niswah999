@@ -1,4 +1,5 @@
 import '../../../notifications/data/services/app_notification_session.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -9,11 +10,19 @@ import '../../domain/account_deletion_orchestrator.dart';
 import '../../domain/entities/app_user.dart';
 import '../../domain/repositories/auth_repository.dart';
 
+// Build flag controls presentation only; the server separately gates allocation.
+const earlyPhoneAccessBuild = bool.fromEnvironment('EARLY_PHONE_ACCESS');
+
 class AuthRepositoryImpl implements AuthRepository {
   final SupabaseClient _client;
 
   AuthRepositoryImpl({SupabaseClient? client})
     : _client = client ?? NiswahSupabase.client;
+
+  static String _contactEmail(User user) =>
+      user.email?.endsWith('@early.niswah.invalid') == true
+      ? ''
+      : user.email ?? '';
 
   /// Custom URL scheme (registered in Info.plist / AndroidManifest.xml) that
   /// email confirmation and password-reset links redirect back into —
@@ -41,7 +50,7 @@ class AuthRepositoryImpl implements AuthRepository {
     if (profile == null) {
       return AppUser(
         id: sessionUser.id,
-        email: sessionUser.email ?? '',
+        email: _contactEmail(sessionUser),
         displayName: sessionUser.userMetadata?['full_name'] as String?,
         isAnonymous: sessionUser.isAnonymous,
       );
@@ -120,11 +129,50 @@ class AuthRepositoryImpl implements AuthRepository {
     }
   }
 
+  Future<void> _earlyPhoneAuth({
+    required String action,
+    required String phone,
+    required String password,
+    String? displayName,
+  }) async {
+    try {
+      final response = await _client.functions.invoke(
+        'early-phone-access',
+        body: {
+          'action': action,
+          'phone': phone,
+          'password': password,
+          if (displayName != null) 'display_name': displayName,
+        },
+      );
+      final data = response.data;
+      if (data is! Map || data['refresh_token'] is! String) {
+        throw const AuthFailure('تعذّر إتمام الطلب. حاولي مرة أخرى.');
+      }
+      await _client.auth.setSession(data['refresh_token'] as String);
+    } on FunctionException catch (error) {
+      final details = error.details;
+      final code = details is Map ? details['error'] : null;
+      throw AuthFailure(switch (code) {
+        'cohort_full' => 'اكتمل التسجيل المبكر لـ 1000 حساب. يمكنكِ تسجيل الدخول إلى حسابكِ الحالي.',
+        'rate_limited' => 'محاولات كثيرة. حاولي بعد 15 دقيقة.',
+        'invalid_credentials' => 'تعذّر الدخول. تحققي من الرقم وكلمة المرور.',
+        'signup_unavailable' => 'التسجيل بهذا الرقم غير متاح حالياً. جرّبي تسجيل الدخول إن كان لديكِ حساب.',
+        'invalid_request' =>
+          'أدخلي رقماً صحيحاً وكلمة مرور من 8 أحرف على الأقل.',
+        _ => 'الخدمة غير متاحة مؤقتاً. حاولي لاحقاً.',
+      });
+    }
+  }
+
   @override
   Future<void> signInWithPhone({
     required String phone,
     required String password,
   }) async {
+    if (earlyPhoneAccessBuild) {
+      return _earlyPhoneAuth(action: 'login', phone: phone, password: password);
+    }
     try {
       final response = await _client.auth.signInWithPassword(
         phone: AuthRepositoryImpl.normalizePhone(phone),
@@ -151,6 +199,14 @@ class AuthRepositoryImpl implements AuthRepository {
     required String password,
     String? displayName,
   }) async {
+    if (earlyPhoneAccessBuild) {
+      return _earlyPhoneAuth(
+        action: 'signup',
+        phone: phone,
+        password: password,
+        displayName: displayName,
+      );
+    }
     try {
       final response = await _client.auth.signUp(
         phone: AuthRepositoryImpl.normalizePhone(phone),
@@ -231,6 +287,11 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> resetPasswordForEmail({required String email}) async {
+    if (email.trim().toLowerCase().endsWith('@early.niswah.invalid')) {
+      throw const AuthFailure(
+        'استعادة حساب التسجيل المبكر غير متاحة حتى تفعيل التحقق.',
+      );
+    }
     try {
       await _client.auth.resetPasswordForEmail(
         email.trim(),
@@ -285,7 +346,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
       return AppUser(
         id: sessionUser.id,
-        email: sessionUser.email ?? email.trim(),
+        email: _contactEmail(sessionUser),
         displayName: (response?['display_name'] as String?) ?? safeDisplayName,
         isAnonymous:
             response?['anonymous_mode'] as bool? ?? anonymousMode ?? false,
@@ -334,9 +395,8 @@ class AuthRepositoryImpl implements AuthRepository {
       // Removes this user's locally-cached sensitive data (cycle/prayer/
       // pregnancy). Any category that fails is retried on the next app
       // start (see `retryPendingLocalSensitiveDataCleanups` in main.dart).
-      cleanupLocal: () => cleanUpLocalSensitiveDataForDeletedAccount(
-        deletedUserId,
-      ),
+      cleanupLocal: () =>
+          cleanUpLocalSensitiveDataForDeletedAccount(deletedUserId),
       // The RPC deletes `auth.users` server-side — it does not by itself
       // invalidate this client's locally-cached session/tokens or fire
       // Supabase's auth-state-change stream (the mechanism `AuthController`
@@ -386,7 +446,7 @@ class AuthRepositoryImpl implements AuthRepository {
       final storedName = response?['display_name'] as String?;
       return AppUser(
         id: sessionUser.id,
-        email: sessionUser.email ?? '',
+        email: _contactEmail(sessionUser),
         displayName: (storedName != null && storedName.trim().isNotEmpty)
             ? storedName
             : fallbackName,
@@ -395,7 +455,7 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (_) {
       return AppUser(
         id: sessionUser.id,
-        email: sessionUser.email ?? '',
+        email: _contactEmail(sessionUser),
         displayName: fallbackName,
         isAnonymous: sessionUser.isAnonymous,
       );

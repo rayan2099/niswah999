@@ -4,6 +4,10 @@ on:
     paths:
       - 'supabase/migrations/20261030210000_private_phone_testing.sql'
       - 'test/database/**'
+      - 'supabase/migrations/*early_phone_access.sql'
+      - 'supabase/functions/early-phone-access/**'
+      - 'test/auth_repository_early_phone_test.dart'
+      - 'lib/features/auth/**'
       - '.github/workflows/private-phone-testing.yml'
 permissions:
   contents: read
@@ -21,3 +25,14 @@ jobs:
         working-directory: test/database
       - run: npm test
         working-directory: test/database
+  flutter-early-phone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+      - run: flutter pub get
+      - run: touch .env
+      - run: flutter test --dart-define=EARLY_PHONE_ACCESS=true test/auth_repository_early_phone_test.dart

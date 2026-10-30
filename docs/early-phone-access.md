@@ -1,0 +1,29 @@
+# Early access: up to 1,000 phone/password accounts
+
+Current owner decision supersedes the verified-email prerequisite in [private phone testing](private-phone-testing.md) for this separate public early-access cohort. Real users enter a phone number and password; no email, SMS or in-app code is required. Numbers remain unverified. The owner accepted impersonated-number registration and unavailable recovery until real verification is introduced. This is authored implementation, not an enabled service.
+
+[Auth map](../project-hub/generated/feature-auth.md). [Repository](../lib/features/auth/data/repositories/auth_repository_impl.dart). [UI](../lib/features/auth/presentation/screens/sign_in_screen.dart).
+
+## Design
+
+- [Pre-auth Edge endpoint](../supabase/functions/early-phone-access/handler.js) creates Supabase password accounts using random internal `@early.niswah.invalid` aliases. These are transport identifiers, not supplied or verified email addresses. Admin `email_confirm` enables that internal credential only; no supplied phone/mailbox is confirmed. `app_metadata.auth_method=early_phone_password`, `phone_verified=false`, `email_verified=false`. Never use this cohort's internal `email_confirmed_at` as evidence of mailbox ownership.
+- Never writes `auth.users.phone` or promotes a phone claim to verified. Real phone accounts cannot be claimed through signup. Existing phone/password sign-in continues through GoTrue when no early account mapping exists. Early registration cannot link accounts or reset passwords. A repeated signup never changes an existing password.
+- [Service-only migration](../supabase/migrations/20261030204723_early_phone_access.sql) serializes allocations on one capacity row, with a hard **1,000 lifetime reservations** cap. It covers this new no-verification cohort, not existing users or the separate verified email/SMS signup methods. Retries reuse a reservation. Deletion does not reopen a slot. A provider failure may leave a reserved pending slot; retry uses its same alias. Do not release slots blindly after a timeout: the Auth account may already exist.
+- Existing account login remains available at capacity and when enrollment is closed. The UI reports capacity reached; no waitlist collection is implemented.
+- Password minimum eight characters for new accounts, ten attempts per identifier per 15 minutes in shared database state. GoTrue still verifies passwords. Public signup without ownership checks remains susceptible to fake accounts consuming capacity; the cap is not a guarantee of 1,000 unique people.
+- Store a keyed HMAC lookup instead of a raw phone number. Keep `EARLY_PHONE_HMAC_KEY` stable; rotating it without a mapping migration breaks lookup. No secrets, requests, numbers, passwords or sessions are logged. Endpoint replies have `Cache-Control: no-store`. Attempt buckets expire after 24 hours. Deletion cascades account mappings and their attempt state, while the non-identifying capacity counter remains.
+- Internal email aliases are hidden from the app profile and rejected by the app's email-recovery method. Phone recovery is unavailable. Future real SMS verification needs an explicit authenticated migration and collision handling; it must never automatically link another user's data based on a number claim.
+
+## Activation and rollback (not executed)
+
+1. Review this stacked draft and its CI. Apply the migration to staging, deploy `early-phone-access` with its committed pre-auth configuration, and configure a randomly generated, stable server-only `EARLY_PHONE_HMAC_KEY` of at least 32 characters. Standard server `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` must be present; never copy the service key to Flutter.
+2. The capacity row defaults `enabled=false`. An administrator can enable enrollment on staging with `update public.early_phone_capacity set enabled=true where singleton;`. Build with `--dart-define=EARLY_PHONE_ACCESS=true` and `PRIVATE_PHONE_TESTING=false`.
+3. Verify real Supabase Auth integration, session refresh, restart, account switching/deletion, UI overflow/accessibility and recovery messaging on signed devices. Exercise concurrent signup across separate connections near the cap. Verify existing phone/email login independently. No live proof is claimed by the isolated tests.
+4. Production installation/activation is a separate deployment decision after staging acceptance. Do not globally disable email/phone confirmation or enable test-phone overrides.
+5. Close new enrollment by setting `enabled=false`; retain endpoint, mapping, HMAC key and enabled client login routing for existing cohort users. Removing the build routing before migrating their credentials locks them out of phone entry. Back up secrets through the secure deployment system, never this repository.
+
+## Verification
+
+Executed locally: **15 PGlite database checks**, including 1,000 allocations, overflow, duplicate allocation, closure, client-role denials, existing-phone denial, attempt limit/expiry, invariant enforcement and deletion. **19 handler checks** with synthetic mocked HTTP verify signup, retry, session response, alias semantics, password failure, transport failure, legacy login, no OTP and no recovery/link actions. **19 prior private-phone database checks** also passed.
+
+Run `npm ci --ignore-scripts && npm test` in `test/database`. These are isolated checks, not live GoTrue/PostgREST, multi-connection concurrency or provider evidence. [Flutter repository tests](../test/auth_repository_early_phone_test.dart) are authored for `flutter test --dart-define=EARLY_PHONE_ACCESS=true test/auth_repository_early_phone_test.dart`; the workflow runs this separately. Local Flutter dependency setup did not complete and was stopped; Flutter analyzer/tests/native compilation remain unverified. Dart formatting and `git diff --check` passed. No deployment, schema application, activation, merge or release performed.

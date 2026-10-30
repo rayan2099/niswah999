@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node private_phone_testing.mjs"
+    "test": "node private_phone_testing.mjs && node early_phone_access.mjs && node early_phone_handler.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.13"
