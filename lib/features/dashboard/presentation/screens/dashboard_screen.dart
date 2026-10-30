@@ -4134,8 +4134,8 @@ class _PrayerStatusCard extends StatelessWidget {
             'تتغير عباداتكِ حسب حالتكِ الفقهية',
           )
         : _l(
-            'Prayer start times for your location. Record your prayers separately.',
-            'مواقيت بدء الصلاة حسب موقعكِ. سجّلي أداء الصلاة بنفسكِ.',
+            'Prayer start times for your location.',
+            'مواقيت بدء الصلاة حسب موقعكِ.',
           );
     final schedule = viewModel.schedule;
     final location = viewModel.location;
@@ -4232,11 +4232,7 @@ class _PrayerStatusCard extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
-              // Room for the completion control (44 pt touch target),
-              // growing with the text size.
-              mainAxisExtent: lifted
-                  ? 109
-                  : 109 + MediaQuery.textScalerOf(context).scale(48),
+              mainAxisExtent: 109,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
             ),
@@ -4330,18 +4326,6 @@ class _PrayerStatusCard extends StatelessWidget {
                         fontSize: 8,
                       ),
                     ),
-                    // No completion control while prayer is lifted: there
-                    // is nothing to record. While the state is unresolved
-                    // she can still record what she did; that records her
-                    // action, not a ruling.
-                    if (!lifted) ...[
-                      const SizedBox(height: 4),
-                      _PrayerCompletionControl(
-                        viewModel: viewModel,
-                        prayerName: name,
-                        prayerLabel: names[name]!,
-                      ),
-                    ],
                   ],
                 ),
               );
@@ -4401,183 +4385,6 @@ class _PrayerLocationChip extends StatelessWidget {
       ),
     ),
   );
-}
-
-/// Whether she prayed this prayer today, recorded only by her own tap and
-/// stored per account, local date and prayer (PrayerTrackingViewModel).
-/// Tapping a recorded prayer undoes it; nothing is ever inferred, and an
-/// unrecorded prayer never becomes a missed prayer or a qadha debt.
-class _PrayerCompletionControl extends StatelessWidget {
-  const _PrayerCompletionControl({
-    required this.viewModel,
-    required this.prayerName,
-    required this.prayerLabel,
-  });
-
-  final PrayerTrackingViewModel viewModel;
-  final prayer.PrayerName prayerName;
-  final String prayerLabel;
-
-  Future<void> _record(BuildContext context, {required bool done}) async {
-    final userId = viewModel.userId;
-    if (userId == null) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    try {
-      if (done) {
-        await viewModel.togglePrayerStatus(
-          userId: userId,
-          prayerName: prayerName,
-          status: prayer.PrayerStatus.completed,
-        );
-      } else {
-        await viewModel.clearPrayerStatus(
-          userId: userId,
-          prayerName: prayerName,
-        );
-      }
-    } on StateError {
-      // The account changed or the times are unavailable: nothing to show
-      // on a card that is about to be replaced.
-      return;
-    } catch (_) {
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text(
-            _l(
-              'Saved on this device. It could not be synced yet.',
-              'حُفظ على جهازكِ، وتعذّرت مزامنته الآن.',
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-    messenger
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            done
-                ? _l('$prayerLabel recorded as prayed', 'سُجّلت $prayerLabel مؤدّاة')
-                : _l('$prayerLabel record removed', 'أُلغي تسجيل $prayerLabel'),
-          ),
-          action: SnackBarAction(
-            label: _l('Undo', 'تراجع'),
-            onPressed: () {
-              if (viewModel.userId != userId) return;
-              unawaited(
-                done
-                    ? viewModel.clearPrayerStatus(
-                        userId: userId,
-                        prayerName: prayerName,
-                      )
-                    : viewModel.togglePrayerStatus(
-                        userId: userId,
-                        prayerName: prayerName,
-                        status: prayer.PrayerStatus.completed,
-                      ),
-              );
-            },
-          ),
-        ),
-      );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final status = viewModel.statusFor(prayerName);
-    final started = viewModel.hasStarted(prayerName);
-    final prayed = status == prayer.PrayerStatus.completed;
-    // A missed or lifted record made on the full prayer screen is shown
-    // as recorded there, not offered for change here.
-    if (status == prayer.PrayerStatus.missed ||
-        status == prayer.PrayerStatus.excused) {
-      return Text(
-        status == prayer.PrayerStatus.missed
-            ? _l('Recorded as missed', 'مسجّلة فائتة')
-            : _l('Recorded as lifted', 'مسجّلة مرفوعة'),
-        style: const TextStyle(color: AppColors.textTertiary, fontSize: 9),
-      );
-    }
-    final label = prayed
-        ? _l('Prayed', 'أدّيتُها')
-        : started
-        ? _l('Mark as prayed', 'سجّلي أداءها')
-        : _l('Not yet time', 'لم يحن وقتها');
-    return Semantics(
-      button: true,
-      toggled: prayed,
-      enabled: prayed || started,
-      label: prayed
-          ? _l('$prayerLabel prayed. Tap to undo', '$prayerLabel مؤدّاة. اضغطي للتراجع')
-          : started
-          ? _l('Mark $prayerLabel as prayed', 'سجّلي أداء $prayerLabel')
-          : _l('$prayerLabel: not yet time', '$prayerLabel: لم يحن وقتها'),
-      excludeSemantics: true,
-      child: InkWell(
-        key: Key('prayer-complete-${prayerName.name}'),
-        borderRadius: BorderRadius.circular(12),
-        onTap: prayed
-            ? () => _record(context, done: false)
-            : started
-            ? () => _record(context, done: true)
-            : null,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: Container(
-            width: double.infinity,
-            alignment: AlignmentDirectional.centerStart,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              color: prayed
-                  ? AppColors.tahara.withValues(alpha: 0.12)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: prayed
-                    ? AppColors.tahara
-                    : started
-                    ? AppColors.tahara.withValues(alpha: 0.45)
-                    : AppColors.shadowColor,
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  prayed
-                      ? Icons.check_circle_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  size: 16,
-                  color: prayed
-                      ? AppColors.tahara
-                      : started
-                      ? AppColors.textSecondary
-                      : AppColors.textTertiary,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: prayed
-                          ? AppColors.tahara
-                          : started
-                          ? AppColors.textSecondary
-                          : AppColors.textTertiary,
-                      fontSize: 10,
-                      fontWeight: prayed ? FontWeight.w700 : FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _DreamCard extends StatelessWidget {
