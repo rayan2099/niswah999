@@ -80,4 +80,34 @@ void main() {
     );
     expect(result.averagePeriodLength, 5);
   });
+
+  for (final endedWithoutDate in [true, false]) {
+    test(
+      'historical cutoff preserves ${endedWithoutDate ? "unknown ended" : "open"} canonical timing',
+      () {
+        final result = service.calculate(
+          [
+            log('later-start', DateTime(2026, 8, 10), FlowLevel.medium),
+            log('later-end', DateTime(2026, 8, 15), FlowLevel.none),
+            log('future', DateTime(2026, 9, 8), FlowLevel.medium),
+          ],
+          asOf: asOf,
+          canonicalEpisodes: [
+            CanonicalEpisodeTiming(
+              startDate: DateTime(2026, 7, 13),
+              endUnknown: endedWithoutDate,
+            ),
+          ],
+        );
+        expect(
+          result.haidStarts,
+          endedWithoutDate
+              ? [DateTime(2026, 7, 13), DateTime(2026, 8, 10)]
+              : [DateTime(2026, 7, 13)],
+        );
+        expect(result.cycleLengths, endedWithoutDate ? [28] : isEmpty);
+        expect(result.averagePeriodLength, endedWithoutDate ? 5 : isNull);
+      },
+    );
+  }
 }

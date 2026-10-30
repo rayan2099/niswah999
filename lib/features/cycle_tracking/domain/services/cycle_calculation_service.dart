@@ -36,10 +36,28 @@ String cycleRegularityLabel(CycleRegularity value, {required bool isArabic}) {
 /// supplied here as facts, never as invented daily rows, and
 /// `cycle_entries` never becomes authoritative for them.
 class CanonicalEpisodeTiming {
-  const CanonicalEpisodeTiming({required this.startDate, this.endDate});
+  const CanonicalEpisodeTiming({
+    required this.startDate,
+    this.endDate,
+    this.endUnknown = false,
+  });
+
+  CanonicalEpisodeTiming.of(BleedingEpisode episode)
+    : this(
+        startDate: episode.startDate,
+        endDate: episode.endDate,
+        endUnknown: episode.endUnknown,
+      );
 
   final DateTime startDate;
+
+  /// Null while the episode is open, and for an ended episode whose end
+  /// she does not know ([endUnknown]).
   final DateTime? endDate;
+
+  /// PT-002: ended, end not known. Its start counts as a cycle start; it
+  /// has no length, and it is never treated as still ongoing.
+  final bool endUnknown;
 }
 
 class CycleCalculationResult {
@@ -440,7 +458,13 @@ class CycleCalculationService {
       for (final episode in canonical)
         (
           start: calendarDay(episode.startDate),
-          end: episode.endDate == null ? null : calendarDay(episode.endDate!),
+          // An unknown end occupies only its start day: never "ongoing",
+          // and a zero-length span contributes no period length.
+          end: episode.endUnknown
+              ? calendarDay(episode.startDate)
+              : episode.endDate == null
+              ? null
+              : calendarDay(episode.endDate!),
         ),
     ];
     bool insideCanonicalSpan(DateTime day) => spans.any(
@@ -559,6 +583,7 @@ class CycleCalculationService {
           .map(
             (episode) => CanonicalEpisodeTiming(
               startDate: episode.startDate,
+              endUnknown: episode.endUnknown,
               endDate:
                   episode.endDate != null &&
                       calendarDay(episode.endDate!).isAfter(today)

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/data/countries.dart';
+import '../../../../core/errors/failures.dart';
 import '../../../../core/errors/network_failure.dart';
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
@@ -15,6 +16,8 @@ import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../../core/widgets/niswah_logo.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
 import '../../data/repositories/auth_repository_impl.dart';
+import '../../domain/email_address.dart';
+import '../widgets/email_confirmation_pending.dart';
 
 String _tr(String english, String arabic) =>
     AppLocaleController.instance.text(english, arabic);
@@ -26,7 +29,16 @@ String _tr(String english, String arabic) =>
 /// auth-state stream and `AuthController` swap it to `NiswahHomeShell`
 /// reactively; onboarding advances to its next step instead).
 class SignInScreen extends StatefulWidget {
-  const SignInScreen({super.key, this.onAuthenticated, this.embedded = false});
+  const SignInScreen({
+    super.key,
+    this.onAuthenticated,
+    this.embedded = false,
+    this.authRepositoryOverride,
+  });
+
+  /// Test seam for the email/phone sheet's auth calls.
+  @visibleForTesting
+  final AuthRepositoryImpl? authRepositoryOverride;
 
   /// Called after a successful sign-in or sign-up. Defaults to a no-op —
   /// the root router's `AuthController` listener handles routing once the
@@ -89,7 +101,10 @@ class _SignInScreenState extends State<SignInScreen> {
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
           ),
-          builder: (_) => _AuthSheet(isPhone: isPhone),
+          builder: (_) => _AuthSheet(
+            isPhone: isPhone,
+            repositoryOverride: widget.authRepositoryOverride,
+          ),
         );
 
         if (success == true && mounted) {
@@ -181,39 +196,42 @@ class _LanguageToggle extends StatelessWidget {
   const _LanguageToggle();
 
   @override
-  Widget build(BuildContext context) {
-    final isArabic = AppLocaleController.instance.isArabic;
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: const Color(0xFFFCE7EB)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _segment(
-            label: 'EN',
-            selected: !isArabic,
-            onTap: () => AppLocaleController.instance.setArabic(false),
-          ),
-          _segment(
-            label: 'ع',
-            selected: isArabic,
-            onTap: () => AppLocaleController.instance.setArabic(true),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: AppLocaleController.instance,
+    builder: (context, _) {
+      final isArabic = AppLocaleController.instance.isArabic;
+      return Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(99),
+          border: Border.all(color: const Color(0xFFFCE7EB)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _segment(
+              label: 'EN',
+              selected: !isArabic,
+              onTap: () => AppLocaleController.instance.setArabic(false),
+            ),
+            _segment(
+              label: 'ع',
+              selected: isArabic,
+              onTap: () => AppLocaleController.instance.setArabic(true),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 
   Widget _segment({
     required String label,
@@ -601,8 +619,7 @@ class _FeatureTile extends StatelessWidget {
           Flexible(
             child: Text(
               label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              softWrap: true,
               style: const TextStyle(
                 color: Color(0xFF374151),
                 fontSize: 11.5,
@@ -655,8 +672,9 @@ class _AuthChoiceButton extends StatelessWidget {
 }
 
 class _AuthSheet extends StatefulWidget {
-  const _AuthSheet({required this.isPhone});
+  const _AuthSheet({required this.isPhone, this.repositoryOverride});
   final bool isPhone;
+  final AuthRepositoryImpl? repositoryOverride;
   @override
   State<_AuthSheet> createState() => _AuthSheetState();
 }
@@ -684,6 +702,10 @@ class _AuthSheetState extends State<_AuthSheet> {
   bool _awaitingEmailConfirmation = false;
   String? _pendingEmail;
 
+  // Set once a session change has closed this sheet, so a repeated auth
+  // event can never pop a second route.
+  bool _closedBySession = false;
+
   final _nameController = TextEditingController();
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -693,15 +715,36 @@ class _AuthSheetState extends State<_AuthSheet> {
   void initState() {
     super.initState();
     _country = kCountries.first;
-    _recoverySubscription = NiswahSupabase.clientOrNull?.auth.onAuthStateChange.listen((state) {
-      if (state.event == AuthChangeEvent.passwordRecovery && mounted) {
+    // Keeps the typo suggestion under the email field current.
+    _identifierController.addListener(_onIdentifierChanged);
+    final authStates = widget.repositoryOverride != null
+        ? widget.repositoryOverride!.authStateChanges
+        : NiswahSupabase.clientOrNull?.auth.onAuthStateChange;
+    _recoverySubscription = authStates?.listen((state) {
+      if (!mounted || _closedBySession) return;
+      if (state.event == AuthChangeEvent.passwordRecovery) {
+        _closedBySession = true;
         Navigator.of(context).pop();
+      } else if (_awaitingEmailConfirmation &&
+          state.session != null &&
+          state.event == AuthChangeEvent.signedIn) {
+        // NJ-069: she opened the confirmation link while this screen was
+        // up. The session is already hers, so advance once instead of
+        // asking her to sign in again.
+        _closedBySession = true;
+        AuthController.instance.markSignedUp();
+        Navigator.pop(context, true);
       }
     });
   }
 
+  void _onIdentifierChanged() {
+    if (mounted && !widget.isPhone) setState(() {});
+  }
+
   @override
   void dispose() {
+    _identifierController.removeListener(_onIdentifierChanged);
     _recoverySubscription?.cancel();
     _nameController.dispose();
     _identifierController.dispose();
@@ -716,7 +759,7 @@ class _AuthSheetState extends State<_AuthSheet> {
       _error = null;
     });
     try {
-      final repo = AuthRepositoryImpl();
+      final repo = _repository();
       if (widget.isPhone) {
         final fullPhone =
             '${_country.dial}${_identifierController.text.trim()}';
@@ -742,7 +785,18 @@ class _AuthSheetState extends State<_AuthSheet> {
         }
       } else {
         if (_isSignUp) {
-          final email = _identifierController.text.trim();
+          // NJ-061: trimmed and lower-cased, and shown back to her exactly.
+          final email = normalizeEmail(_identifierController.text);
+          if (!looksLikeEmail(email)) {
+            setState(() {
+              _loading = false;
+              _error = _tr(
+                'Enter a valid email address.',
+                'أدخلي بريدًا إلكترونيًا صحيحًا.',
+              );
+            });
+            return;
+          }
           final needsConfirmation = await repo.signUpWithEmail(
             email: email,
             password: _passwordController.text,
@@ -777,10 +831,39 @@ class _AuthSheetState extends State<_AuthSheet> {
                   "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
                   'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
                 )
+              : error is SignInRefusedFailure
+              ? _signInRefusalText(error)
               : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
       }
+    }
+  }
+
+  /// NJ-010 / NJ-080: Auth's sign-in refusals in the app's language.
+  String _signInRefusalText(SignInRefusedFailure failure) {
+    switch (failure.reason) {
+      case SignInRefusal.invalidCredentials:
+        return _tr(
+          'The email or password is not right. Check both and try again, or use "Forgot password?".',
+          'البريد الإلكتروني أو كلمة المرور غير صحيحة. تحققي منهما وحاولي مجدداً، أو استخدمي «نسيتِ كلمة المرور؟».',
+        );
+      case SignInRefusal.rateLimited:
+        final wait = failure.retryAfterSeconds;
+        return wait == null
+            ? _tr(
+                'Too many sign-in attempts for now. Wait a few minutes, then try again.',
+                'محاولات تسجيل دخول كثيرة الآن. انتظري بضع دقائق ثم حاولي مجدداً.',
+              )
+            : _tr(
+                'Too many sign-in attempts for now. Try again in $wait seconds.',
+                'محاولات تسجيل دخول كثيرة الآن. حاولي مجدداً بعد $wait ثانية.',
+              );
+      case SignInRefusal.disabled:
+        return _tr(
+          'This account is suspended, so it cannot sign in right now.',
+          'هذا الحساب موقوف، لذلك لا يمكنه تسجيل الدخول الآن.',
+        );
     }
   }
 
@@ -824,6 +907,8 @@ class _AuthSheetState extends State<_AuthSheet> {
                   "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
                   'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
                 )
+              : error is SignInRefusedFailure
+              ? _signInRefusalText(error)
               : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
@@ -855,6 +940,8 @@ class _AuthSheetState extends State<_AuthSheet> {
                   "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
                   'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
                 )
+              : error is SignInRefusedFailure
+              ? _signInRefusalText(error)
               : error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
@@ -862,38 +949,8 @@ class _AuthSheetState extends State<_AuthSheet> {
     }
   }
 
-  Future<void> _resendEmailConfirmation() async {
-    final email = _pendingEmail;
-    if (email == null) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final repo = AuthRepositoryImpl();
-      await repo.resendEmailConfirmation(email: email);
-      if (mounted) {
-        setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_tr('Email resent.', 'تم إعادة إرسال البريد.')),
-          ),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _error = isNetworkFailure(error)
-              ? _tr(
-                  "Couldn't reach Niswah. Check your connection and try again — what you typed is still here.",
-                  'تعذّر الوصول إلى نسواه. تحققي من اتصالكِ ثم حاولي مجدداً — ما كتبتِه ما زال هنا.',
-                )
-              : error.toString().replaceFirst('Exception: ', '');
-          _loading = false;
-        });
-      }
-    }
-  }
+  AuthRepositoryImpl _repository() =>
+      widget.repositoryOverride ?? AuthRepositoryImpl();
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1010,71 +1067,25 @@ class _AuthSheetState extends State<_AuthSheet> {
   ];
 
   List<Widget> _emailConfirmationStepChildren() => [
-    const Icon(
-      Icons.mark_email_unread_outlined,
-      size: 48,
-      color: Color(0xFFE11D48),
-    ),
-    const SizedBox(height: 14),
-    Text(
-      _tr('Check your email', 'تحققي من بريدكِ الإلكتروني'),
-      textAlign: TextAlign.center,
-      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-    ),
-    const SizedBox(height: 8),
-    Text(
-      _tr(
-        'We sent a confirmation link to ${_pendingEmail ?? ''}. '
-            'Click it, then come back and sign in.',
-        'أرسلنا رابط تأكيد إلى ${_pendingEmail ?? ''}. '
-            'اضغطي عليه ثم عودي لتسجيل الدخول.',
-      ),
-      textAlign: TextAlign.center,
-      style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
-    ),
-    if (_error != null) ...[
-      const SizedBox(height: 12),
-      Text(
-        _error!,
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: Color(0xFFDC2626), fontSize: 12),
-      ),
-    ],
-    const SizedBox(height: 22),
-    SizedBox(
-      height: 54,
-      child: FilledButton(
-        onPressed: _loading
-            ? null
-            : () => setState(() {
-                _awaitingEmailConfirmation = false;
-                _pendingEmail = null;
-                _isSignUp = false;
-              }),
-        style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFFE11D48),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        child: Text(
-          _tr('Back to Sign In', 'العودة لتسجيل الدخول'),
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-    ),
-    const SizedBox(height: 14),
-    Center(
-      child: TextButton(
-        onPressed: _loading ? null : _resendEmailConfirmation,
-        child: _loading
-            ? NiswahLoadingIndicator(
-                size: NiswahLoadingSize.small,
-                contrast: NiswahLoadingContrast.dark,
-                semanticsLabel: _tr('Loading', 'جارٍ التحميل'),
-              )
-            : Text(_tr('Resend email', 'إعادة إرسال البريد')),
-      ),
+    EmailConfirmationPending(
+      email: _pendingEmail ?? '',
+      onResend: () =>
+          _repository().resendEmailConfirmation(email: _pendingEmail ?? ''),
+      // NJ-005: back to the sign-up form with everything she typed, so
+      // only the address needs fixing.
+      onChangeEmail: () => setState(() {
+        _awaitingEmailConfirmation = false;
+        _pendingEmail = null;
+        _isSignUp = true;
+        _error = null;
+      }),
+      onBackToSignIn: () => setState(() {
+        _awaitingEmailConfirmation = false;
+        _identifierController.text = _pendingEmail ?? '';
+        _pendingEmail = null;
+        _isSignUp = false;
+        _error = null;
+      }),
     ),
   ];
 
@@ -1191,13 +1202,38 @@ class _AuthSheetState extends State<_AuthSheet> {
       )
     else
       TextField(
+        key: const Key('auth_email_field'),
         controller: _identifierController,
         keyboardType: TextInputType.emailAddress,
+        autocorrect: false,
         decoration: InputDecoration(
           labelText: _tr('Email', 'البريد الإلكتروني'),
           prefixIcon: const Icon(Icons.email_outlined),
         ),
       ),
+    // NJ-062: a likely domain typo is suggested; she decides.
+    if (!widget.isPhone && _isSignUp)
+      if (suggestEmailCorrection(_identifierController.text)
+          case final suggestion?)
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton(
+            key: const Key('email_typo_suggestion'),
+            onPressed: () => _identifierController.text = suggestion,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: _tr('Did you mean ', 'هل تقصدين ')),
+                  TextSpan(
+                    text: '\u2066$suggestion\u2069',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  TextSpan(text: _tr('?', '؟')),
+                ],
+              ),
+            ),
+          ),
+        ),
     const SizedBox(height: 14),
     TextField(
       controller: _passwordController,

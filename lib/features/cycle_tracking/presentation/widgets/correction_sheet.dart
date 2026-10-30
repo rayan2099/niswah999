@@ -14,6 +14,7 @@ import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_entries_projection.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/load_result.dart';
+import 'discard_edit_guard.dart';
 import 'start_bleeding_sheet.dart' show rejectedWriteMessage;
 
 String _t(String english, String arabic) =>
@@ -339,21 +340,25 @@ class _CorrectObservationSheetState extends State<_CorrectObservationSheet> {
   @override
   Widget build(BuildContext context) {
     final conflictWith = _conflictWith;
-    return Directionality(
-      textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
-      child: Padding(
-        padding: EdgeInsetsDirectional.only(
-          start: 20,
-          end: 20,
-          top: 20,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: conflictWith != null
-              ? _buildConflict(conflictWith)
-              : _buildForm(),
+    return DiscardEditGuard(
+      hasUnsavedChange: _flow != widget.target.flow,
+      saving: _saving,
+      child: Directionality(
+        textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
+        child: Padding(
+          padding: EdgeInsetsDirectional.only(
+            start: 20,
+            end: 20,
+            top: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: conflictWith != null
+                ? _buildConflict(conflictWith)
+                : _buildForm(),
+          ),
         ),
       ),
     );

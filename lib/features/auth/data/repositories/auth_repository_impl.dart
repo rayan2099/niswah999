@@ -1,4 +1,5 @@
 import '../../../notifications/data/services/app_notification_session.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -6,6 +7,7 @@ import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
 import '../../../../core/storage/local_sensitive_data_cleanup.dart';
 import '../../domain/account_deletion_orchestrator.dart';
+import '../../domain/email_address.dart';
 import '../../domain/entities/app_user.dart';
 import '../../domain/repositories/auth_repository.dart';
 
@@ -14,6 +16,10 @@ class AuthRepositoryImpl implements AuthRepository {
 
   AuthRepositoryImpl({SupabaseClient? client})
     : _client = client ?? NiswahSupabase.client;
+
+  /// Session changes, including one created by opening a confirmation
+  /// link while "Check your email" is showing (NJ-069).
+  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
   /// Custom URL scheme (registered in Info.plist / AndroidManifest.xml) that
   /// email confirmation and password-reset links redirect back into —
@@ -65,7 +71,7 @@ class AuthRepositoryImpl implements AuthRepository {
         throw const AuthFailure('Authentication failed. Please try again.');
       }
     } on AuthException catch (error) {
-      throw AuthFailure(error.message);
+      throw signInRefusalOr(error);
     } on Failure {
       rethrow;
     } catch (error) {
@@ -83,7 +89,7 @@ class AuthRepositoryImpl implements AuthRepository {
   }) async {
     try {
       final response = await _client.auth.signUp(
-        email: email.trim(),
+        email: normalizeEmail(email),
         password: password,
         emailRedirectTo: _emailRedirectTo,
         data: {
@@ -97,7 +103,7 @@ class AuthRepositoryImpl implements AuthRepository {
       }
       return response.session == null;
     } on AuthException catch (error) {
-      throw AuthFailure(error.message);
+      throw emailRateLimitOr(error);
     } on Failure {
       rethrow;
     } catch (error) {
@@ -105,19 +111,55 @@ class AuthRepositoryImpl implements AuthRepository {
     }
   }
 
+  /// Auth's sign-in refusals that the sheet explains in the app's language
+  /// (NJ-010, NJ-080); anything else keeps Auth's message.
+  @visibleForTesting
+  static AuthFailure signInRefusalOr(AuthException error) {
+    final reason = switch (error.code) {
+      'invalid_credentials' => SignInRefusal.invalidCredentials,
+      'over_request_rate_limit' => SignInRefusal.rateLimited,
+      'user_banned' => SignInRefusal.disabled,
+      _ when error.statusCode == '429' => SignInRefusal.rateLimited,
+      _ => null,
+    };
+    if (reason == null) return AuthFailure(error.message, cause: error);
+    return SignInRefusedFailure(
+      error.message,
+      reason: reason,
+      retryAfterSeconds: retryAfterSecondsFrom(error.message),
+      cause: error,
+    );
+  }
+
   @override
   Future<void> resendEmailConfirmation({required String email}) async {
     try {
       await _client.auth.resend(
         type: OtpType.signup,
-        email: email.trim(),
+        email: normalizeEmail(email),
         emailRedirectTo: _emailRedirectTo,
       );
     } on AuthException catch (error) {
-      throw AuthFailure(error.message);
+      throw emailRateLimitOr(error);
     } catch (error) {
       throw const AuthFailure('Unable to resend the email right now.');
     }
+  }
+
+  /// Auth's "too many emails" refusal becomes [EmailRateLimitedFailure];
+  /// anything else stays an [AuthFailure] with Auth's message.
+  @visibleForTesting
+  static AuthFailure emailRateLimitOr(AuthException error) {
+    if (error.statusCode == '429' ||
+        error.code == 'over_email_send_rate_limit' ||
+        error.code == 'over_request_rate_limit') {
+      return EmailRateLimitedFailure(
+        error.message,
+        retryAfterSeconds: retryAfterSecondsFrom(error.message),
+        cause: error,
+      );
+    }
+    return AuthFailure(error.message, cause: error);
   }
 
   @override
@@ -334,9 +376,8 @@ class AuthRepositoryImpl implements AuthRepository {
       // Removes this user's locally-cached sensitive data (cycle/prayer/
       // pregnancy). Any category that fails is retried on the next app
       // start (see `retryPendingLocalSensitiveDataCleanups` in main.dart).
-      cleanupLocal: () => cleanUpLocalSensitiveDataForDeletedAccount(
-        deletedUserId,
-      ),
+      cleanupLocal: () =>
+          cleanUpLocalSensitiveDataForDeletedAccount(deletedUserId),
       // The RPC deletes `auth.users` server-side — it does not by itself
       // invalidate this client's locally-cached session/tokens or fire
       // Supabase's auth-state-change stream (the mechanism `AuthController`

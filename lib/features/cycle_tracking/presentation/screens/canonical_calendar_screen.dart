@@ -146,12 +146,28 @@ class _CanonicalCalendarScreenState extends State<CanonicalCalendarScreen> {
   }
 
   Future<void> _onDayTap(DateTime day, _DayEvidence evidence) async {
+    final episode = evidence.episode;
     final refreshNeeded = await showObservationDetailSheet(
       context,
       day: day,
-      episodeForDay: evidence.episode,
+      episodeForDay: episode,
       observationsForDay: evidence.rawObservations,
       repository: _repository,
+      supersededElsewhere: {
+        for (final o in _observations)
+          if (o.supersedesId != null) o.supersedesId!,
+      },
+      isLatestEpisode:
+          episode != null &&
+          !_episodes.any(
+            (e) => e.id != episode.id && e.startDate.isAfter(episode.startDate),
+          ),
+      hasOpenEpisode: _episodes.any(
+        (e) => e.lifecycleStatus == LifecycleStatus.open,
+      ),
+      onEpisodeChanged: () {
+        if (mounted) unawaited(_load());
+      },
     );
     // A successful save must be visible in the calendar without relying
     // on the legacy projection — re-fetching canonical data directly is
@@ -460,8 +476,14 @@ class _CanonicalMonthGrid extends StatelessWidget {
                     (e) =>
                         !dayKey.isBefore(DateUtils.dateOnly(e.startDate)) &&
                         !dayKey.isAfter(DateUtils.dateOnly(today)) &&
-                        (e.endDate == null ||
-                            !dayKey.isAfter(DateUtils.dateOnly(e.endDate!))),
+                        // An unknown end (PT-002) covers only its start
+                        // day; it is never shown as running to today.
+                        (e.endUnknown
+                            ? !dayKey.isAfter(DateUtils.dateOnly(e.startDate))
+                            : e.endDate == null ||
+                                  !dayKey.isAfter(
+                                    DateUtils.dateOnly(e.endDate!),
+                                  )),
                   )
                   .firstOrNull;
 
@@ -587,11 +609,7 @@ class _CanonicalMonthGrid extends StatelessWidget {
       const [],
       asOf: today,
       canonicalEpisodes: [
-        for (final episode in episodes)
-          CanonicalEpisodeTiming(
-            startDate: episode.startDate,
-            endDate: episode.endDate,
-          ),
+        for (final episode in episodes) CanonicalEpisodeTiming.of(episode),
       ],
       statedBaseline: statedBaseline,
     );

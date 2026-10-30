@@ -122,6 +122,7 @@ void main() {
     await h.scrollToTop();
     await h.tapVisible(find.text('Community'), last: true);
     await h.settle(3);
+    await h.acceptCommunityTermsIfShown();
     await h.tapVisible(find.bySemanticsLabel('Create post'));
     await h.settle(2);
     await tester.enterText(find.byType(TextField).last, body);

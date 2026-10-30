@@ -69,7 +69,10 @@ class WellbeingPeriodSplit {
       final start = calendarDay(episode.startDate);
       // endDate is the first clean day, so it is not a bleeding day.
       final cap = addCalendarDays(start, openEpisodeMaxDays);
-      final end = episode.endDate == null
+      // An unknown end (PT-002): only the start day is known.
+      final end = episode.endUnknown
+          ? addCalendarDays(start, 1)
+          : episode.endDate == null
           ? (todayDay.isBefore(cap) ? addCalendarDays(todayDay, 1) : cap)
           : calendarDay(episode.endDate!);
       for (var day = start; day.isBefore(end); day = addCalendarDays(day, 1)) {

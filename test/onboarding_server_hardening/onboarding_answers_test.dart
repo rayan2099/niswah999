@@ -205,8 +205,8 @@ void main() {
   );
 
   testWidgets(
-    'R2-ONB-3: "No, it has stopped" + "not sure exactly when" is not saved '
-    'as a possibly-still-ongoing (open) episode',
+    'R2-ONB-3 / PT-002: "No, it has stopped" + "not sure exactly when" '
+    'saves the known start as an ended period with an unknown end',
     (tester) async {
       await _pumpAt(tester, 5);
       await _pickDay(tester, 1);
@@ -215,8 +215,8 @@ void main() {
       await _tap(tester, find.text('I’m not sure exactly when'));
       await _finishFromPredictionsGate(tester);
 
-      // The episode model has no "ended, end date unknown" state, so the
-      // truthful outcome is no episode at all (baseline only, if any).
+      // PT-002: an ended episode with the start she knows and an unknown
+      // end; no end date is invented.
       final openEpisodes = rpcBodies
           .where((b) => b['p_lifecycle_status'] == 'open')
           .toList();
@@ -227,6 +227,18 @@ void main() {
             'she said bleeding has stopped, yet an open ("may still be '
             'bleeding") episode was sent: $openEpisodes',
       );
+      final sent = rpcBodies.single;
+      final now = DateTime.now();
+      expect(
+        sent['p_start_date'],
+        '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-01',
+        reason: 'PT-002: the start she picked must be saved',
+      );
+      expect(sent['p_lifecycle_status'], 'ended');
+      expect(sent['p_end_precision'], 'unknown');
+      expect(sent.containsKey('p_end_date'), isFalse);
+      expect(sent.containsKey('p_continuation_certainty'), isFalse);
     },
   );
 

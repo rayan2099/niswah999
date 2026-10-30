@@ -22,10 +22,13 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## docs
 
+- [NISWAH_APP_WIDE_300_ACCEPTANCE_JOURNEYS.md](../../docs/NISWAH_APP_WIDE_300_ACCEPTANCE_JOURNEYS.md)
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
 - [account-tracking-candidate-2026-10-30.md](../../docs/account-tracking-candidate-2026-10-30.md)
 - [account-tracking-integration-2026-10-30.md](../../docs/account-tracking-integration-2026-10-30.md)
+- [combined-schema-security-2026-10-30.md](../../docs/combined-schema-security-2026-10-30.md)
+- [community-ugc-safety.md](../../docs/community-ugc-safety.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
 - [cycle-sync-ack-owner-2026-10-30.md](../../docs/cycle-sync-ack-owner-2026-10-30.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
@@ -33,13 +36,16 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
 - [launch-audit-2026-10-29.md](../../docs/launch-audit-2026-10-29.md)
+- [launch-source-candidate-2026-10-30.md](../../docs/launch-source-candidate-2026-10-30.md)
 - [local-cycle-save-owner-2026-10-30.md](../../docs/local-cycle-save-owner-2026-10-30.md)
 - [menstrual-data-integrity-contract.md](../../docs/menstrual-data-integrity-contract.md)
+- [migration-version-collision-2026-10-30.md](../../docs/migration-version-collision-2026-10-30.md)
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
 - [parity-checklist.md](../../docs/parity-checklist.md)
 - [password-recovery.md](../../docs/password-recovery.md)
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
+- [physical-sign-in-ui-2026-10-27.md](../../docs/physical-sign-in-ui-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
 - [report-cycle-history-owner-2026-10-30.md](../../docs/report-cycle-history-owner-2026-10-30.md)
@@ -50,6 +56,20 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [app-wide-notifications.md](../../docs/engineering/app-wide-notifications.md)
 - [notification-reliability.md](../../docs/engineering/notification-reliability.md)
 - [prayer-time-integrity.md](../../docs/engineering/prayer-time-integrity.md)
+
+## docs/journeys
+
+- [NISWAH_JOURNEY_COVERAGE.csv](../../docs/journeys/NISWAH_JOURNEY_COVERAGE.csv)
+- [NISWAH_JOURNEY_VERIFICATION_REPORT.md](../../docs/journeys/NISWAH_JOURNEY_VERIFICATION_REPORT.md)
+- [NISWAH_LAUNCH_SCOPE.md](../../docs/journeys/NISWAH_LAUNCH_SCOPE.md)
+
+## docs/period-tracking
+
+- [PERIOD_TRACKING_200_CASES.md](../../docs/period-tracking/PERIOD_TRACKING_200_CASES.md)
+- [PERIOD_TRACKING_COVERAGE.csv](../../docs/period-tracking/PERIOD_TRACKING_COVERAGE.csv)
+- [PERIOD_TRACKING_EXTERNAL_DEPENDENCIES.md](../../docs/period-tracking/PERIOD_TRACKING_EXTERNAL_DEPENDENCIES.md)
+- [PERIOD_TRACKING_IMPLEMENTATION_PLAN.md](../../docs/period-tracking/PERIOD_TRACKING_IMPLEMENTATION_PLAN.md)
+- [PERIOD_TRACKING_VERIFICATION_REPORT.md](../../docs/period-tracking/PERIOD_TRACKING_VERIFICATION_REPORT.md)
 
 ## production-readiness-results/master
 
@@ -84,10 +104,13 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [build_kb_production_candidates.py](../../scripts/build_kb_production_candidates.py)
 - [check_account_deletion_cascade.sh](../../scripts/check_account_deletion_cascade.sh)
 - [check_ai_rate_limit_objects.sh](../../scripts/check_ai_rate_limit_objects.sh)
+- [check_migration_versions.py](../../scripts/check_migration_versions.py)
 - [deploy_kb_v1.sh](../../scripts/deploy_kb_v1.sh)
 - [generate_release_manifest.sh](../../scripts/generate_release_manifest.sh)
 - [ingest_geo_madhhab_review.py](../../scripts/ingest_geo_madhhab_review.py)
+- [journey_register.py](../../scripts/journey_register.py)
 - [local_env.sh](../../scripts/local_env.sh)
+- [period_tracking_register.py](../../scripts/period_tracking_register.py)
 - [pregnancy_status_parity.mjs](../../scripts/pregnancy_status_parity.mjs)
 - [provision_local_test_backend.sh](../../scripts/provision_local_test_backend.sh)
 - [provision_staging_secrets.py](../../scripts/provision_staging_secrets.py)
@@ -109,6 +132,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [sync_project_vault.py](../../scripts/sync_project_vault.py)
 - [test_assert_test_backend.py](../../scripts/test_assert_test_backend.py)
 - [test_build_kb_production_candidates.py](../../scripts/test_build_kb_production_candidates.py)
+- [test_migration_versions.py](../../scripts/test_migration_versions.py)
 - [test_secret_redaction.py](../../scripts/test_secret_redaction.py)
 - [test_select_release_env_secret.py](../../scripts/test_select_release_env_secret.py)
 - [test_sync_project_vault.py](../../scripts/test_sync_project_vault.py)
@@ -173,6 +197,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_composer_keyboard_test.dart](../../test/community_composer_keyboard_test.dart)
 - [community_language_gate_test.dart](../../test/community_language_gate_test.dart)
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
+- [community_safety_contract_test.dart](../../test/community_safety_contract_test.dart)
+- [community_safety_flows_test.dart](../../test/community_safety_flows_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
 - [correction_sheet_test.dart](../../test/correction_sheet_test.dart)
 - [cycle_calculation_asof_boundary_test.dart](../../test/cycle_calculation_asof_boundary_test.dart)
@@ -271,6 +297,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [secure_local_store_test.dart](../../test/secure_local_store_test.dart)
 - [sign_in_consent_gating_test.dart](../../test/sign_in_consent_gating_test.dart)
 - [sign_in_google_ios_test.dart](../../test/sign_in_google_ios_test.dart)
+- [sign_in_language_selection_test.dart](../../test/sign_in_language_selection_test.dart)
 - [sign_in_rtl_test.dart](../../test/sign_in_rtl_test.dart)
 - [start_bleeding_sheet_test.dart](../../test/start_bleeding_sheet_test.dart)
 - [sync_status_banner_test.dart](../../test/sync_status_banner_test.dart)
@@ -285,6 +312,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [account_boundary_test.dart](../../test/account_isolation/account_boundary_test.dart)
 - [entry_draft_after_session_end_test.dart](../../test/account_isolation/entry_draft_after_session_end_test.dart)
+
+## test/auth
+
+- [signup_email_guidance_test.dart](../../test/auth/signup_email_guidance_test.dart)
 
 ## test/fiqh_hardening
 
@@ -358,6 +389,15 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [04_account_deletion_completeness.sql](../../test/onboarding_server_hardening/sql/04_account_deletion_completeness.sql)
 - [run_sql_checks.sh](../../test/onboarding_server_hardening/sql/run_sql_checks.sh)
 
+## test/period_tracking
+
+- [end_unknown_test.dart](../../test/period_tracking/end_unknown_test.dart)
+- [episode_edit_test.dart](../../test/period_tracking/episode_edit_test.dart)
+- [episode_split_merge_test.dart](../../test/period_tracking/episode_split_merge_test.dart)
+- [no_qadha_from_predictions_test.dart](../../test/period_tracking/no_qadha_from_predictions_test.dart)
+- [observation_remove_test.dart](../../test/period_tracking/observation_remove_test.dart)
+- [prediction_no_data_test.dart](../../test/period_tracking/prediction_no_data_test.dart)
+
 ## test/prediction_efficiency
 
 - [prediction_efficiency_test.dart](../../test/prediction_efficiency/prediction_efficiency_test.dart)
@@ -424,6 +464,11 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [00_bootstrap_stub_supabase.sql](../../test/security/00_bootstrap_stub_supabase.sql)
 - [app_rls_initplan_and_notification_cleanup_cron.sql](../../test/security/app_rls_initplan_and_notification_cleanup_cron.sql)
+- [bleeding_episode_corrections.sql](../../test/security/bleeding_episode_corrections.sql)
+- [bleeding_episode_end_unknown.sql](../../test/security/bleeding_episode_end_unknown.sql)
+- [bleeding_episode_split_merge.sql](../../test/security/bleeding_episode_split_merge.sql)
+- [bleeding_observation_removal.sql](../../test/security/bleeding_observation_removal.sql)
+- [community_ugc_safety.sql](../../test/security/community_ugc_safety.sql)
 - [revoke_anon_security_definer_execute.sql](../../test/security/revoke_anon_security_definer_execute.sql)
 - [run_sql_checks.sh](../../test/security/run_sql_checks.sh)
 - [tracking_rls_initplan_and_fk_indexes.sql](../../test/security/tracking_rls_initplan_and_fk_indexes.sql)

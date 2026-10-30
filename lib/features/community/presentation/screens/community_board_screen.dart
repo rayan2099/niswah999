@@ -17,6 +17,11 @@ import '../../../private_messaging/presentation/viewmodels/conversations_view_mo
 import '../../../private_messaging/presentation/widgets/unread_messages_badge.dart';
 import '../../../private_messaging/private_messaging_locator.dart';
 import '../../domain/entities/community_post.dart';
+import '../../safety/community_guidelines_screen.dart';
+import '../../safety/community_safety_actions.dart';
+import '../../safety/community_safety_controller.dart';
+import '../../safety/community_safety_models.dart';
+import '../../safety/community_write_error.dart';
 import '../community_palette.dart';
 import '../viewmodels/community_feed_view_model.dart';
 import '../widgets/community_category_chip_bar.dart';
@@ -188,20 +193,35 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
           ),
         ),
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _co(
-              'Could not open a conversation with this author.',
-              'تعذر فتح محادثة مع هذا العضو.',
-            ),
+            CommunityWriteError.from(error)?.message() ??
+                _co(
+                  'Could not open a conversation with this author.',
+                  'تعذر فتح محادثة مع هذا العضو.',
+                ),
           ),
         ),
       );
     }
   }
+
+  void _reportPost(CommunityPost post) => showCommunityReportSheet(
+    context,
+    targetType: ReportTargetType.post,
+    targetId: post.id,
+  );
+
+  /// Anonymous authors can still be blocked (by id); her name is never
+  /// stored or shown for an anonymous post.
+  Future<bool> _blockAuthor(CommunityPost post) => confirmBlockMember(
+    context,
+    userId: post.userId,
+    displayName: post.isAnonymous ? null : post.authorName,
+  );
 
   Future<void> _openPost(CommunityPost post) async {
     final result = await Navigator.of(context).push<bool>(
@@ -216,6 +236,12 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
               ? () => _messagePostAuthor(post)
               : null,
           onAuthorTap: post.isAnonymous ? null : () => _openMemberPreview(post),
+          onReport: post.userId == _currentUserId
+              ? null
+              : () => _reportPost(post),
+          onBlock: post.userId == _currentUserId
+              ? null
+              : () => _blockAuthor(post),
         ),
       ),
     );
@@ -305,6 +331,35 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
                     foregroundColor: onBlush,
                   ),
                 ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          showCommunityReportSheet(
+                            context,
+                            targetType: ReportTargetType.user,
+                            targetId: post.userId,
+                          );
+                        },
+                        icon: const Icon(Icons.flag_outlined),
+                        label: Text(_co('Report member', 'الإبلاغ عن العضوة')),
+                      ),
+                    ),
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _blockAuthor(post);
+                        },
+                        icon: const Icon(Icons.block_rounded),
+                        label: Text(_co('Block member', 'حظر العضوة')),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ],
           ),
@@ -315,11 +370,18 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _viewModel,
+    animation: Listenable.merge([
+      _viewModel,
+      CommunitySafetyController.instance,
+    ]),
     builder: (context, _) {
       final palette = CommunityPalette.of(context);
       final query = _searchController.text.trim().toLowerCase();
+      final safety = CommunitySafetyController.instance;
+      // The server already hides blocked members' posts; this removes them
+      // the moment she blocks, without waiting for a reload.
       final posts = _viewModel.posts
+          .where((post) => !safety.isBlocked(post.userId))
           .where(
             (post) =>
                 query.isEmpty ||
@@ -379,7 +441,29 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
                               textAlign: TextAlign.center,
                             ),
                           ),
-                          const SizedBox(height: 20),
+                          TextButton.icon(
+                            key: const ValueKey('community-guidelines-link'),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    const CommunityGuidelinesScreen(),
+                              ),
+                            ),
+                            icon: Icon(
+                              Icons.shield_outlined,
+                              size: 16,
+                              color: palette.blush,
+                            ),
+                            label: Text(
+                              _co('Community guidelines', 'إرشادات المجتمع'),
+                              style: TextStyle(
+                                color: palette.blush,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                           ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 360),
                             child: Row(
@@ -594,6 +678,12 @@ class _CommunityBoardScreenState extends State<CommunityBoardScreen> {
                                 onAuthorTap: post.isAnonymous
                                     ? null
                                     : () => _openMemberPreview(post),
+                                onReport: isOwnPost
+                                    ? null
+                                    : () => _reportPost(post),
+                                onBlock: isOwnPost
+                                    ? null
+                                    : () => _blockAuthor(post),
                               );
                             },
                           ),
