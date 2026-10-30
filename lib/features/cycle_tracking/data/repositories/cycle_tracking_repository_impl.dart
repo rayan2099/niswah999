@@ -206,7 +206,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       await upsertCycleLog(log);
       // Not a blind upsert of `log`: a newer save of the same row that
       // finished first must not be overwritten by this older one.
-      await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.synced);
+      await _localDataSource.setSyncStatusIfUnchanged(
+        log,
+        SyncStatus.synced,
+        userId: localOwner,
+      );
       return SyncStatus.synced;
     } on NetworkFailure catch (error, stack) {
       // Local save is authoritative for the UI; remote sync is eventually-
@@ -230,7 +234,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       // `pending` — automatic retry must not hammer a request that can
       // never succeed ("do not retry non-retryable errors blindly").
       if (!error.retryable) {
-        await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.failed);
+        await _localDataSource.setSyncStatusIfUnchanged(
+          log,
+          SyncStatus.failed,
+          userId: localOwner,
+        );
         return SyncStatus.failed;
       }
       return SyncStatus.pending;
@@ -341,6 +349,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       );
     }
 
+    final syncOwner = SecureLocalStore.currentUserId();
     final localLogs = await _localDataSource.loadLogs();
     final toRetry = localLogs
         .where((log) => log.syncStatus == SyncStatus.pending)
@@ -360,7 +369,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         // `log` is this pass's snapshot: an edit she saved while the
         // upload was in flight stays pending (it is newer than what the
         // server now holds) instead of being replaced by the snapshot.
-        await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.synced);
+        await _localDataSource.setSyncStatusIfUnchanged(
+          log,
+          SyncStatus.synced,
+          userId: syncOwner,
+        );
         synced++;
       } on NetworkFailure catch (error, stack) {
         AppErrorReporter.report(
@@ -376,6 +389,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
           await _localDataSource.setSyncStatusIfUnchanged(
             log,
             SyncStatus.failed,
+            userId: syncOwner,
           );
           permanentlyFailed++;
         }

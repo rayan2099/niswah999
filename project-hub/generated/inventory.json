@@ -8,6 +8,7 @@
     "docs/UI_PARITY_TEST_PLAN.md",
     "docs/acceptance-test-runbook.md",
     "docs/cycle-prediction-model.md",
+    "docs/cycle-sync-ack-owner-2026-10-30.md",
     "docs/database-migration-strategy.md",
     "docs/engineering/app-wide-notifications.md",
     "docs/engineering/notification-reliability.md",
