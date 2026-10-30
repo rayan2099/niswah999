@@ -306,23 +306,20 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
 
   @override
   Future<void> deleteCycleLog(String id) async {
-    await _localDataSource.delete(id);
+    // The delete belongs to the account that initiated it. Local storage
+    // awaits must not let a later sign-in choose its server filter/token.
     final client = _client;
-    if (client == null) {
-      return;
-    }
-
-    final sessionUser = client.auth.currentUser;
-    if (sessionUser == null) {
-      return;
-    }
+    final session = client?.auth.currentSession;
+    await _localDataSource.delete(id);
+    if (client == null || session == null) return;
 
     try {
       await client
           .from('cycle_entries')
           .delete()
           .eq('id', id)
-          .eq('user_id', sessionUser.id);
+          .eq('user_id', session.user.id)
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
     } on PostgrestException catch (error) {
       throw NetworkFailure(error.message);
     }
