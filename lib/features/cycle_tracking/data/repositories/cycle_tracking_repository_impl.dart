@@ -203,19 +203,27 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         'Sign in to the original account before saving this record.',
       );
     }
+    // Freeze transport timestamps once: toJson() supplies wall-clock
+    // defaults for missing timestamps, so serializing an unstamped object
+    // separately for cache/upload/ack would create different revisions.
+    final now = DateTime.now();
+    final snapshot = log.copyWith(
+      createdAt: log.createdAt ?? now,
+      updatedAt: log.updatedAt ?? now,
+    );
     // Saved locally as `pending` first (formData.toCycleLog defaults to
     // SyncStatus.pending) — if the remote attempt below fails retryably,
     // this pending marker is exactly what makes it eligible for automatic
     // retry via syncPendingLogs(); see main.dart's app-start/app-resume
     // wiring, which is what makes retry actually automatic rather than a
     // dead-code promise.
-    await _localDataSource.upsert(log);
+    await _localDataSource.upsert(snapshot);
     try {
-      await upsertCycleLog(log);
+      await upsertCycleLog(snapshot);
       // Not a blind upsert of `log`: a newer save of the same row that
       // finished first must not be overwritten by this older one.
       await _localDataSource.setSyncStatusIfUnchanged(
-        log,
+        snapshot,
         SyncStatus.synced,
         userId: localOwner,
       );
@@ -243,7 +251,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       // never succeed ("do not retry non-retryable errors blindly").
       if (!error.retryable) {
         await _localDataSource.setSyncStatusIfUnchanged(
-          log,
+          snapshot,
           SyncStatus.failed,
           userId: localOwner,
         );
