@@ -170,6 +170,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [correction_sheet_test.dart](../../test/correction_sheet_test.dart)
 - [cycle_calculation_asof_boundary_test.dart](../../test/cycle_calculation_asof_boundary_test.dart)
 - [cycle_calculation_canonical_episodes_test.dart](../../test/cycle_calculation_canonical_episodes_test.dart)
+- [cycle_calculation_completed_authority_test.dart](../../test/cycle_calculation_completed_authority_test.dart)
 - [cycle_calculation_service_test.dart](../../test/cycle_calculation_service_test.dart)
 - [cycle_calendar_legacy_provenance_test.dart](../../test/cycle_calendar_legacy_provenance_test.dart)
 - [cycle_entries_projection_test.dart](../../test/cycle_entries_projection_test.dart)

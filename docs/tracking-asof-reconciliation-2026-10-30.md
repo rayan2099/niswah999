@@ -32,3 +32,9 @@ Local Dart formatting/parser, whitespace, project-map generation/check and four 
 Public-launch GO is not established. Signed-device recovery/tracking, required environment rollout and specialist evidence remain independent gates. No prediction accuracy, clinical/scholarly approval, signed-device pass, deployment or overall PT/NJ coverage total is established by this code change.
 
 Navigation: [tracking](../project-hub/generated/feature-cycle_tracking.md), [quality](../project-hub/generated/Quality-and-Release.md).
+
+## Completed canonical authority follow-up
+
+A focused follow-up now handles a completed canonical period adjacent to an earlier compatibility start. The existing one-day deduplication policy remains; when the canonical candidate has a measured duration, both its explicit date and duration replace the earlier projected pair. This preserves a known five-day period that previously disappeared from duration statistics, or was replaced by a conflicting nine-day projection. Two regressions in `test/cycle_calculation_completed_authority_test.dart` assert the corrected 27-day interval and equal-weight mean duration. This is derived-statistics precedence, not a change to stored observations or a religious/medical classification. Unknown/open canonical timings and broader conflicts remain unreconciled.
+
+The historical-cutoff portion at bcc611f is independently verified by CI 40972953852 (1,603 passed, 7 skipped, all jobs green). The completed-authority follow-up is parsed/formatted and statically checked locally; its behavioral CI is pending. The earlier table's blanket canonical-precedence blocker is narrowed only for completed canonical periods with a measured end; no broader closure is claimed.
