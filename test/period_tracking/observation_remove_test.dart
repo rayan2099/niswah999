@@ -236,6 +236,55 @@ void main() {
       expect(logs.deleted, isEmpty);
     });
 
+    test('PT-164: reminders are re-planned once after a saved change, '
+        'never after a refused one', () async {
+      final refreshed = <String>[];
+      Future<void> refresh(String userId) async => refreshed.add(userId);
+
+      final ok = FakeSupabase(
+        (name, body) async => jsonResponse([
+          {'episode_id': _episodeId, 'revision_id': 'rev-r'},
+        ]),
+      );
+      ok.onTable = (request) async =>
+          jsonResponse([_obsJson('o-start', '2026-10-10', 'medium')]);
+      final saved =
+          await EpisodeCorrectionRepository(
+            client: ok.client,
+            cycleLogs: _RecordingCycleLogs(),
+            refreshReminders: refresh,
+            currentUserId: () => 'user-1',
+          ).removeObservation(
+            clientOperationId: 'op-r',
+            episodeId: _episodeId,
+            observationId: 'o-mid',
+            revisionToken: _token,
+          );
+      await Future<void>.delayed(Duration.zero);
+      expect(saved.saved, isTrue);
+      expect(refreshed, ['user-1']);
+
+      final refused = FakeSupabase(
+        (name, body) async => pgError('NW409', 'episode changed'),
+      );
+      refused.onTable = ok.onTable;
+      await EpisodeCorrectionRepository(
+        client: refused.client,
+        cycleLogs: _RecordingCycleLogs(),
+        refreshReminders: refresh,
+        currentUserId: () => 'user-1',
+      ).removeObservation(
+        clientOperationId: 'op-r2',
+        episodeId: _episodeId,
+        observationId: 'o-mid',
+        revisionToken: _token,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(refreshed, [
+        'user-1',
+      ], reason: 'nothing changed, nothing re-planned');
+    });
+
     test('a stale token (NW409) is "changed elsewhere"; no answer is '
         '"offline"', () async {
       final stale =

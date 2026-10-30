@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../notifications/domain/services/notification_refresh_coordinator.dart';
 import '../../domain/entities/bleeding_episode.dart';
 import '../../domain/entities/load_result.dart';
 import 'bleeding_episode_repository_impl.dart';
@@ -81,7 +84,16 @@ class EpisodeCorrectionRepository {
     BleedingEpisodeRepositoryImpl? episodes,
     CycleTrackingRepositoryImpl? cycleLogs,
     CycleEntriesProjection? projection,
+    Future<void> Function(String userId)? refreshReminders,
+    String? Function()? currentUserId,
   }) : _client = client ?? NiswahSupabase.clientOrNull,
+       _signedInUserId =
+           currentUserId ??
+           (() =>
+               (client ?? NiswahSupabase.clientOrNull)?.auth.currentUser?.id),
+       _refreshReminders =
+           refreshReminders ??
+           ((userId) => NotificationRefreshCoordinator.refresh(userId: userId)),
        _episodesOverride = episodes,
        _cycleLogsOverride = cycleLogs,
        _projectionOverride = projection;
@@ -90,6 +102,12 @@ class EpisodeCorrectionRepository {
   final BleedingEpisodeRepositoryImpl? _episodesOverride;
   final CycleTrackingRepositoryImpl? _cycleLogsOverride;
   final CycleEntriesProjection? _projectionOverride;
+
+  /// PT-164: reminders derived from her periods (the active-bleeding one,
+  /// the estimated fertile window) are re-planned right after a saved
+  /// change, not at the next app start.
+  final Future<void> Function(String userId) _refreshReminders;
+  final String? Function() _signedInUserId;
 
   BleedingEpisodeRepositoryImpl get _episodes =>
       _episodesOverride ?? BleedingEpisodeRepositoryImpl(client: _client);
@@ -340,6 +358,21 @@ class EpisodeCorrectionRepository {
         context: 'EpisodeCorrectionRepository._resyncMirror',
         feature: 'cycle_tracking',
         recordId: id,
+      );
+    }
+    final userId = _signedInUserId();
+    if (userId != null) {
+      unawaited(
+        Future.sync(() => _refreshReminders(userId))
+            .catchError((Object error, StackTrace stack) {
+              AppErrorReporter.report(
+                error,
+                stack,
+                context: 'EpisodeCorrectionRepository.refreshReminders',
+                feature: 'cycle_tracking',
+                recordId: id,
+              );
+            }),
       );
     }
     return EpisodeEditResult(EpisodeEditStatus.saved, revisionId: revisionId);

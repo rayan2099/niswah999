@@ -12,8 +12,8 @@ report summarizes it and must not contradict it.
 | Status | Count |
 | --- | --- |
 | VERIFIED | 50 |
-| IMPLEMENTED — UNVERIFIED | 85 |
-| IMPLEMENTATION REQUIRED | 32 |
+| IMPLEMENTED — UNVERIFIED | 87 |
+| IMPLEMENTATION REQUIRED | 30 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 33 |
 | NOT ASSESSED | 0 |
 
