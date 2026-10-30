@@ -199,7 +199,7 @@ NJ-013|IN|IU|P|-|NR|NR|-|H|-|AUTHCTL TRACK|{draft} (day-log input kept for its a
 NJ-014|IN|IU|P|-|NR|NR|-|C|PT-152 PT-153|AUTHCTL STORE NOTIF|{acct}; {prefs}; {notifacct}; {chatacct}|AI context and drafts on switch not covered by one test; device A→B run pending (gate A15).
 NJ-015|IN|IU|PP|-|NR|NR|-|H|PT-001|ONB|{onbans}; {onbui}|Dashboard consistency after onboarding not asserted end to end.
 NJ-016|IN|IU|PP|-|NR|NR|-|H|PT-004|ONB CALC|{onbans}|No-history path saves nothing invented; prediction "unavailable" proven in {nodata}.
-NJ-017|IN|IU|P|NR|NR|NR|-|H|PT-002|ONB TRACK MIG|{onbans} (R2-ONB-3 / PT-002); {endunksql}; {endunk}|Migration 20261029130000 not yet on staging.
+NJ-017|IN|IU|P|P|NR|NR|-|H|PT-002|ONB TRACK MIG|{onbans} (R2-ONB-3 / PT-002); {endunksql}; {endunk}; staging kit 09/10 passed 2026-10-30|Signed-device runs pending; not on production.
 NJ-018|IN|IR|N|-|NR|NR|BX|H|PT-003|ONB TRACK|-|No approximate-date precision; prediction policy needs clinical input (PT-003).
 NJ-019|IN|IU|P|-|NR|NR|-|H|PT-101|MADHHAB|{madhhabres}|Device run pending.
 NJ-020|IN|IU|PP|-|NR|NR|-|M|-|ONB|{onbans} (changed answer gets a fresh operation id)|Resume after kill not asserted.
@@ -283,10 +283,10 @@ NJ-097|IN|IU|PP|-|NR|NR|-|M|PT-019|TRACK|{calendar}|Daily timeline readability n
 NJ-098|IN|IU|N|-|NR|NR|-|M|-|TRACK|-|Not asserted.
 NJ-099|IN|IU|P|PP|NR|NR|-|H|PT-055|TRACK MIG|{obsrm}; {obsrmsql} (start/end protected; rest unchanged)|120000 on staging; behaviour script not confirmed run.
 NJ-100|IN|IU|P|PP|NR|NR|-|H|PT-060|TRACK MIG|{obsrmsql} (stale token NW409)|Device run pending.
-NJ-101|IN|IU|P|NR|NR|NR|-|M|PT-045|TRACK MIG|{split}; {splitsql} sections 1-4|Migration 20261030090000 not applied anywhere; staging and device runs pending.
-NJ-102|IN|IU|P|NR|NR|NR|-|M|PT-046|TRACK MIG|{split}; {splitsql} sections 5-7|Migration 20261030090000 not applied anywhere; staging and device runs pending.
-NJ-103|IN|IU|P|NR|NR|NR|-|L|PT-045 PT-046|TRACK MIG|{split} (cancelled preview saves nothing); {splitsql} sections 1 and 5 (preview changes nothing)|Staging and device runs pending.
-NJ-104|IN|IU|PP|NR|NR|NR|-|M|PT-045 PT-046|MIG|{splitsql} (each RPC is one transaction; refusals leave the count and entries unchanged)|Atomic by construction; an injected mid-transaction failure is not tested.
+NJ-101|IN|IU|P|P|NR|NR|-|M|PT-045|TRACK MIG|{split}; {splitsql} sections 1-4; staging kit 12/13 passed 2026-10-30|Signed-device runs pending; not on production.
+NJ-102|IN|IU|P|P|NR|NR|-|M|PT-046|TRACK MIG|{split}; {splitsql} sections 5-7; staging kit 12/13 passed 2026-10-30|Signed-device runs pending; not on production.
+NJ-103|IN|IU|P|P|NR|NR|-|L|PT-045 PT-046|TRACK MIG|{split} (cancelled preview saves nothing); {splitsql} sections 1 and 5 (preview changes nothing); staging kit 12/13 passed 2026-10-30|Signed-device runs pending; not on production.
+NJ-104|IN|IU|PP|P|NR|NR|-|M|PT-045 PT-046|MIG|{splitsql} (each RPC is one transaction; refusals leave the count and entries unchanged); staging kit 12/13 passed 2026-10-30|Atomic by construction and staging behavior check passed; an injected mid-transaction failure is not tested. Signed-device runs pending.
 NJ-105|IN|IU|PP|-|-|-|-|M|-|TRACK|test/logging_sync_hardening/legacy_log_provenance_test.dart|Contradictory legacy boundaries partly covered.
 NJ-106|IN|IU|PP|-|NR|NR|-|M|PT-064|CAL|{caldst}|Year boundary not explicitly asserted.
 NJ-107|OUT|OOS|-|-|-|-|-|L|-|-|-|Out of scope for launch: rayan decided 2026-10-30 (deferred). No history search or filter exists. Scope decision needed.
@@ -461,7 +461,7 @@ NJ-275|DEFER|BX|N|-|-|-|-|L|-|-|-|Qadha deferred.
 NJ-276|IN|IU|N|-|NR|NR|-|M|-|TRACK LOCALE|-|Not asserted.
 NJ-277|OUT|OOS|N|-|-|-|-|L|-|-|-|Out of scope for launch: rayan decided 2026-10-30 (deferred). No purchases.
 NJ-278|IN|IR|N|-|-|-|-|M|-|EXPORT|-|Export reads sections one after another with no snapshot or scope disclosure.
-NJ-279|IN|IU|P|NR|NR|NR|-|L|PT-045 PT-046|MIG|{splitsql} (stale version NW409, undo refused after a new entry)|Staging and device runs pending.
+NJ-279|IN|IU|P|P|NR|NR|-|L|PT-045 PT-046|MIG|{splitsql} (stale version NW409, undo refused after a new entry); staging kit 12/13 passed 2026-10-30|Signed-device runs pending; not on production.
 NJ-280|IN|IR|-|-|-|-|-|M|PT-196|AI|-|In launch scope: rayan decided 2026-10-30 to build the remote fiqh switch-off with PT-196.
 NJ-281|OPS|BX|-|-|NR|-|-|H|-|-|-|Signed iPhone run needed.
 NJ-282|OPS|BX|-|-|-|NR|-|H|-|-|-|Signed Android run needed.

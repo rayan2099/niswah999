@@ -11,13 +11,13 @@ report summarizes it and must not contradict it.
 
 | Status | Count |
 | --- | --- |
-| VERIFIED | 50 |
-| IMPLEMENTED — UNVERIFIED | 89 |
+| VERIFIED | 49 |
+| IMPLEMENTED — UNVERIFIED | 90 |
 | IMPLEMENTATION REQUIRED | 28 |
 | BLOCKED — EXTERNAL EVIDENCE REQUIRED | 33 |
 | NOT ASSESSED | 0 |
 
-These counts do not mean that 50 cases work on a phone today. See "What
+These counts do not mean that 49 cases work on a phone today. See "What
 VERIFIED means" below.
 
 ## What VERIFIED means here
@@ -36,10 +36,12 @@ It does not mean:
   migration was also applied to staging and the same behavior checks passed
   there (rolled back, synthetic accounts). It is not on production, and no
   case has been run in the app against staging yet. PT-055 (deleting one
-  day's entry) needs the follow-up migration
-  `20261029120000_bleeding_observation_removal.sql`, verified on scratch
-  Postgres only; it is not on staging or production yet. The same holds
-  for PT-002 and `20261029130000_bleeding_episode_end_unknown.sql`.
+  day's entry), PT-002 (unknown end) and PT-045/046 (split, join) need
+  migrations 20261029120000, 20261029130000 and the split/merge migration.
+  All three are on staging (2026-10-30: install checks and rolled-back
+  behavior checks passed, no synthetic rows left) and not on production.
+  PT-002 and PT-045/046 need a signed-device run before they count as
+  VERIFIED (rayan).
 
 CI passing is not a claim that all 200 cases are covered.
 
@@ -69,7 +71,7 @@ CI passing is not a claim that all 200 cases are covered.
 | PT-112 | No proof | Structural test: no tracking, prediction or reminder code touches qadha; no qadha table exists; prayer status is never inferred |
 | PT-150 | (new path) | A transport failure during an edit reports "offline", queues nothing and changes nothing |
 | PT-178 | Edit sheets closed on Back and dropped the change | "Discard this change?" on the period editor, correction and past-day sheets |
-| PT-045, PT-046 | Two periods recorded as one (or one as two) could not be fixed | "Split into two periods" and "Join with the next period": preview with the number of entries that move, confirm, Undo; entries moved never rewritten, unrecorded days stay unanswered, stale versions refused (NW409), delayed operations tombstoned. Needs migration 20261030090000, not applied anywhere |
+| PT-045, PT-046 | Two periods recorded as one (or one as two) could not be fixed | "Split into two periods" and "Join with the next period": preview with the number of entries that move, confirm, Undo; entries moved never rewritten, unrecorded days stay unanswered, stale versions refused (NW409), delayed operations tombstoned. On staging (checks passed 2026-10-30), not production; signed-device run pending |
 
 ## Highest-priority remaining defects
 
