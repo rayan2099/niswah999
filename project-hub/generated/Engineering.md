@@ -24,6 +24,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## lib/core/auth
 
+- [account_route_boundary.dart](../../lib/core/auth/account_route_boundary.dart)
 - [auth_controller.dart](../../lib/core/auth/auth_controller.dart)
 
 ## lib/core/config

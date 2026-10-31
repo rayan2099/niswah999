@@ -68,25 +68,56 @@ class _DataExportScreenState extends State<DataExportScreen> {
     // unit-testable with a fake ExportSectionFetcher, without needing a
     // live/mocked SupabaseClient (Reliability Evidence Closure wave,
     // 2026-09-06).
-    final result = await buildDataExport(
-      fetcher: SupabaseExportSectionFetcher(client),
-      userId: userId,
-      onSectionError: (error, stack, section) {
-        AppErrorReporter.report(
-          error,
-          stack,
-          context: 'DataExportScreen._load',
-          feature: 'data_export',
-          recordId: section,
-        );
-      },
-    );
+    bool stillCurrent() =>
+        NiswahSupabase.clientOrNull?.auth.currentUser?.id == userId;
+    final DataExportResult result;
+    try {
+      result = await buildDataExport(
+        fetcher: SupabaseExportSectionFetcher(client),
+        userId: userId,
+        isCurrentAccount: stillCurrent,
+        onSectionError: (error, stack, section) {
+          AppErrorReporter.report(
+            error,
+            stack,
+            context: 'DataExportScreen._load',
+            feature: 'data_export',
+            recordId: section,
+          );
+        },
+      );
+    } on ExportAccountChanged {
+      _showAccountChanged();
+      return;
+    }
 
+    if (!mounted) return;
+    // NJ-232: an export begun as one account is never shown, or offered for
+    // copying, after another account signed in or the session ended.
+    if (!stillCurrent()) {
+      _showAccountChanged();
+      return;
+    }
     setState(() {
       _loading = false;
       _json = const JsonEncoder.withIndent('  ').convert(result.export);
       _error = null;
       _partialFailureSections = result.failedSections;
+    });
+  }
+
+  void _showAccountChanged() {
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _json = null;
+      _error = _pr(
+        'The account changed while your export was being prepared, so it '
+            'was discarded. Open Export My Data again from the account you '
+            'want to export.',
+        'تغيّر الحساب أثناء تجهيز التصدير، لذلك تم تجاهله. افتحي «تصدير '
+            'بياناتي» مرة أخرى من الحساب الذي تريدين تصديره.',
+      );
     });
   }
 
