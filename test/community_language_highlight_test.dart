@@ -63,9 +63,13 @@ void main() {
     await tester.pumpAndSettle();
     final ar = find.byKey(const Key('community-language-ar'));
     final en = find.byKey(const Key('community-language-en'));
-    // Follow this control's scroll ancestors; the community safety UI adds
-    // a nested non-scrollable list that is unrelated to this setting.
-    await tester.ensureVisible(ar);
+    // Build the lazy profile row by scrolling its outer viewport, rather
+    // than the nested non-scrollable community safety list.
+    final profileScroll = find.descendant(
+      of: find.byType(CustomScrollView),
+      matching: find.byType(Scrollable),
+    ).first;
+    await tester.scrollUntilVisible(ar, 300, scrollable: profileScroll);
     await tester.pumpAndSettle();
 
     expect(tester.getSemantics(en).flagsCollection.isSelected, Tristate.isTrue);
