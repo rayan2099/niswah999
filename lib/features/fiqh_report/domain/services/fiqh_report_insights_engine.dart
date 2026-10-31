@@ -29,6 +29,9 @@ enum ReportEvidenceNote {
   /// stop date) — the same "Unable to verify" Today shows.
   evidenceUnverified,
 
+  /// PT-002: her most recent period's end date is unknown, so no ruling.
+  lastPeriodEndUnknown,
+
   /// A Shafi'i or Maliki user is bleeding on day 41..60 after the logged
   /// birth: her school may still count it as nifas (up to 60 days), so the
   /// report states no ruling and asks her to consult a scholar
@@ -267,6 +270,8 @@ class FiqhReportInsightsEngine {
             CanonicalFiqhVerdict.evaluated => ReportEvidenceNote.none,
             CanonicalFiqhVerdict.insufficientHistory =>
               ReportEvidenceNote.openEpisodeUnresolved,
+            CanonicalFiqhVerdict.lastEndUnknown =>
+              ReportEvidenceNote.lastPeriodEndUnknown,
             CanonicalFiqhVerdict.evidenceUnresolved =>
               canonical.hasOpenEpisode
                   ? ReportEvidenceNote.openEpisodeUnresolved

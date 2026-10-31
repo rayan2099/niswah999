@@ -109,10 +109,7 @@ class ReportCanonicalEvidence {
       effectiveLogs: CanonicalFiqhEvidenceAdapter.buildEffectiveLogs(
         observations: observations,
       ),
-      episodes: [
-        for (final e in episodes)
-          CanonicalEpisodeTiming(startDate: e.startDate, endDate: e.endDate),
-      ],
+      episodes: [for (final e in episodes) CanonicalEpisodeTiming.of(e)],
       hasOpenEpisode: status.state == RingFactualState.factualOpenEpisode,
       evidenceUnresolved:
           quarantined > 0 ||

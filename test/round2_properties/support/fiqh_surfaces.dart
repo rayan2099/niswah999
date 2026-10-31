@@ -51,10 +51,7 @@ CanonicalInputs canonicalInputs(
       observations: observations,
       openEpisodeStart: status.openEpisode?.startDate,
     ),
-    timing: [
-      for (final e in episodes)
-        CanonicalEpisodeTiming(startDate: e.startDate, endDate: e.endDate),
-    ],
+    timing: [for (final e in episodes) CanonicalEpisodeTiming.of(e)],
     episodes: episodes,
   );
 }
@@ -66,6 +63,7 @@ String dashboardLabel(CanonicalInputs c, Madhhab? m, DateTime now) {
   return switch (a.verdict) {
     CanonicalFiqhVerdict.evidenceUnresolved => 'evidenceUnresolved',
     CanonicalFiqhVerdict.insufficientHistory => 'insufficientHistory',
+    CanonicalFiqhVerdict.lastEndUnknown => 'lastEndUnknown',
     CanonicalFiqhVerdict.evaluated => switch (a.snapshot.state) {
       FiqhCycleState.insufficientHistory => 'tahara', // mapped in the UI
       final s => s.name,
@@ -97,6 +95,7 @@ String? aiLabel(CanonicalInputs c, Madhhab? m, DateTime now) {
     CanonicalFiqhVerdict.insufficientHistory =>
       FiqhCycleState.insufficientHistory.name,
     CanonicalFiqhVerdict.evidenceUnresolved => null,
+    CanonicalFiqhVerdict.lastEndUnknown => null,
   };
 }
 

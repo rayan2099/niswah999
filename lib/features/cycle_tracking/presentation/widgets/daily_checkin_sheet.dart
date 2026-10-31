@@ -11,6 +11,7 @@ import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
 import '../../data/repositories/cycle_entries_projection.dart';
 import '../../domain/entities/bleeding_episode.dart';
+import 'discard_edit_guard.dart';
 import 'start_bleeding_sheet.dart'
     show cancelActiveBleedingReminders, rejectedWriteMessage;
 
@@ -707,7 +708,13 @@ class _BackfillObservationSheetState extends State<_BackfillObservationSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => Directionality(
+  Widget build(BuildContext context) => DiscardEditGuard(
+    hasUnsavedChange: _flow != null || _observedDate != widget.initialDate,
+    saving: _saving,
+    child: _buildSheet(context),
+  );
+
+  Widget _buildSheet(BuildContext context) => Directionality(
     textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
     child: Padding(
       padding: EdgeInsetsDirectional.only(
