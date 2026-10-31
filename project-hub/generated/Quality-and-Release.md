@@ -148,6 +148,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [ai_chat_reliability_test.dart](../../test/ai_chat_reliability_test.dart)
 - [ai_chat_routing_test.dart](../../test/ai_chat_routing_test.dart)
 - [ai_chat_screen_feedback_test.dart](../../test/ai_chat_screen_feedback_test.dart)
+- [ai_feedback2_screenshot_test.dart](../../test/ai_feedback2_screenshot_test.dart)
 - [ai_malformed_response_test.dart](../../test/ai_malformed_response_test.dart)
 - [android_release_manifest_contract_test.dart](../../test/android_release_manifest_contract_test.dart)
 - [app_error_reporter_sentry_test.dart](../../test/app_error_reporter_sentry_test.dart)
