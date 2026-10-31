@@ -24,10 +24,16 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
+- [account-tracking-candidate-2026-10-30.md](../../docs/account-tracking-candidate-2026-10-30.md)
+- [account-tracking-integration-2026-10-30.md](../../docs/account-tracking-integration-2026-10-30.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
+- [cycle-sync-ack-owner-2026-10-30.md](../../docs/cycle-sync-ack-owner-2026-10-30.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
+- [entry-draft-deletion-fence.md](../../docs/entry-draft-deletion-fence.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
+- [launch-audit-2026-10-29.md](../../docs/launch-audit-2026-10-29.md)
+- [local-cycle-save-owner-2026-10-30.md](../../docs/local-cycle-save-owner-2026-10-30.md)
 - [menstrual-data-integrity-contract.md](../../docs/menstrual-data-integrity-contract.md)
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
@@ -36,6 +42,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
+- [report-cycle-history-owner-2026-10-30.md](../../docs/report-cycle-history-owner-2026-10-30.md)
+- [tracking-asof-reconciliation-2026-10-30.md](../../docs/tracking-asof-reconciliation-2026-10-30.md)
 
 ## docs/ai
 
@@ -176,7 +184,9 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
 - [correction_sheet_test.dart](../../test/correction_sheet_test.dart)
+- [cycle_calculation_asof_boundary_test.dart](../../test/cycle_calculation_asof_boundary_test.dart)
 - [cycle_calculation_canonical_episodes_test.dart](../../test/cycle_calculation_canonical_episodes_test.dart)
+- [cycle_calculation_completed_authority_test.dart](../../test/cycle_calculation_completed_authority_test.dart)
 - [cycle_calculation_service_test.dart](../../test/cycle_calculation_service_test.dart)
 - [cycle_calendar_legacy_provenance_test.dart](../../test/cycle_calendar_legacy_provenance_test.dart)
 - [cycle_entries_projection_test.dart](../../test/cycle_entries_projection_test.dart)
@@ -184,6 +194,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [cycle_log_strict_parsing_test.dart](../../test/cycle_log_strict_parsing_test.dart)
 - [cycle_prediction_estimate_test.dart](../../test/cycle_prediction_estimate_test.dart)
 - [cycle_repository_account_switch_regression_test.dart](../../test/cycle_repository_account_switch_regression_test.dart)
+- [cycle_save_owner_boundary_test.dart](../../test/cycle_save_owner_boundary_test.dart)
+- [cycle_sync_snapshot_test.dart](../../test/cycle_sync_snapshot_test.dart)
 - [cycle_tracking_controller_test.dart](../../test/cycle_tracking_controller_test.dart)
 - [cycle_tracking_ui_flow_test.dart](../../test/cycle_tracking_ui_flow_test.dart)
 - [dashboard_canonical_degraded_evidence_test.dart](../../test/dashboard_canonical_degraded_evidence_test.dart)
@@ -264,6 +276,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [profile_update_observability_test.dart](../../test/profile_update_observability_test.dart)
 - [provenance_badge_test.dart](../../test/provenance_badge_test.dart)
 - [report_canonical_evidence_test.dart](../../test/report_canonical_evidence_test.dart)
+- [report_cycle_history_owner_test.dart](../../test/report_cycle_history_owner_test.dart)
 - [resource_library_test.dart](../../test/resource_library_test.dart)
 - [rtl_directional_padding_lint_test.dart](../../test/rtl_directional_padding_lint_test.dart)
 - [secure_local_store_test.dart](../../test/secure_local_store_test.dart)
@@ -278,6 +291,11 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [wellbeing_period_split_test.dart](../../test/wellbeing_period_split_test.dart)
 - [wellbeing_report_pdf_builder_test.dart](../../test/wellbeing_report_pdf_builder_test.dart)
 - [widget_test.dart](../../test/widget_test.dart)
+
+## test/account_isolation
+
+- [account_boundary_test.dart](../../test/account_isolation/account_boundary_test.dart)
+- [entry_draft_after_session_end_test.dart](../../test/account_isolation/entry_draft_after_session_end_test.dart)
 
 ## test/fiqh_hardening
 

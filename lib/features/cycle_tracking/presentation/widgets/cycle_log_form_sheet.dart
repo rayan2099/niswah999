@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/preferences/madhhab_controller.dart';
+import '../../../../core/storage/secure_local_store.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_clock.dart';
 import '../../../../core/widgets/rating_scale_row.dart';
 import '../../../madhhab_resolution/presentation/madhhab_resolution_screen.dart';
+import '../../data/local/cycle_log_draft_store.dart';
 import '../../domain/entities/cycle_log.dart';
 import '../../domain/services/cycle_calculation_service.dart';
 import '../../domain/services/cycle_symptom_decoder.dart';
@@ -119,6 +123,14 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
   final TextEditingController _customColorController = TextEditingController();
   bool _saving = false;
 
+  // NJ-013: the account this sheet was opened for, its starting values, and
+  // whether it ended in a save. If the account changes before a save, what
+  // she typed is kept as a draft for that account only.
+  String? _ownerId;
+  late Map<String, Object?> _initialValues;
+  bool _saved = false;
+  CycleLogDraft? _offeredDraft;
+
   bool get _isPeriodMode => widget.mode == CycleLogSheetMode.period;
 
   /// What actually gets saved for blood color: the free-text description
@@ -157,10 +169,99 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
       _symptoms.addAll(decoded.symptomSeverities);
       _notesController.text = decoded.notes ?? '';
     }
+    _initialValues = _values();
+    if (SecureLocalStore.hasSession) {
+      _ownerId = SecureLocalStore.currentUserId();
+      unawaited(_loadDraft(_ownerId!));
+    }
+  }
+
+  String get _formKey {
+    final existing = widget.existingLog;
+    final date = existing?.date ?? widget.date;
+    final day =
+        '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    return '${widget.mode.name}|$day|${existing?.id ?? 'new'}';
+  }
+
+  Map<String, Object?> _values() => {
+    'flow': _flow.name,
+    'blood_color': _bloodColor,
+    'custom_color': _customColorController.text,
+    'energy': _energy,
+    'sleep': _sleep,
+    'mood': _mood,
+    'symptoms': Map<String, int>.from(_symptoms),
+    'notes': _notesController.text,
+  };
+
+  bool get _changed => _values().toString() != _initialValues.toString();
+
+  Future<void> _loadDraft(String ownerId) async {
+    final draft = await CycleLogDraftStore.read(ownerId);
+    if (!mounted || draft == null || draft.formKey != _formKey) return;
+    if (SecureLocalStore.currentUserId() != ownerId) return;
+    setState(() => _offeredDraft = draft);
+  }
+
+  void _restoreDraft() {
+    final values = _offeredDraft!.values;
+    setState(() {
+      _flow = FlowLevel.values.firstWhere(
+        (f) => f.name == values['flow'],
+        orElse: () => _flow,
+      );
+      if (values['blood_color'] is String) {
+        _bloodColor = values['blood_color']! as String;
+      }
+      _customColorController.text = '${values['custom_color'] ?? ''}';
+      _energy = values['energy'] is int ? values['energy']! as int : _energy;
+      _sleep = values['sleep'] is int ? values['sleep']! as int : _sleep;
+      _mood = values['mood'] is int ? values['mood']! as int : _mood;
+      final symptoms = values['symptoms'];
+      if (symptoms is Map) {
+        _symptoms
+          ..clear()
+          ..addAll({
+            for (final e in symptoms.entries)
+              if (e.value is int) '${e.key}': e.value as int,
+          });
+      }
+      _notesController.text = '${values['notes'] ?? ''}';
+      _offeredDraft = null;
+    });
+    // Restoring fills the form only; the draft stays until she saves, so
+    // a second session end before Save loses nothing.
+  }
+
+  void _discardDraft() {
+    setState(() => _offeredDraft = null);
+    final owner = _ownerId;
+    if (owner != null) unawaited(CycleLogDraftStore.clearForUser(owner));
   }
 
   @override
   void dispose() {
+    final owner = _ownerId;
+    // Kept only when the sheet closed because the account changed or the
+    // session ended, never when she closed it herself.
+    if (owner != null &&
+        !_saved &&
+        _changed &&
+        SecureLocalStore.currentUserId() != owner) {
+      unawaited(
+        CycleLogDraftStore.write(
+          owner,
+          CycleLogDraft(
+            formKey: _formKey,
+            values: _values(),
+            savedAt: DateTime.now(),
+          ),
+        ),
+      );
+    }
     _notesController.dispose();
     _customColorController.dispose();
     super.dispose();
@@ -196,6 +297,10 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
                   padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
                   children: [
                     _header(),
+                    if (_offeredDraft != null) ...[
+                      const SizedBox(height: 16),
+                      _draftBanner(),
+                    ],
                     const SizedBox(height: 26),
                     if (_isPeriodMode) ...[
                       _sectionCard(
@@ -727,6 +832,45 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
     );
   }
 
+  Widget _draftBanner() => Container(
+    key: const Key('cycle_log_draft_banner'),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFF7E6),
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          _cl(
+            'Your session ended before this entry was saved. Restore what '
+                'you had entered? Nothing was saved yet.',
+            'انتهت جلستكِ قبل حفظ هذا الإدخال. هل تريدين استعادة ما أدخلتِه؟ '
+                'لم يُحفظ شيء بعد.',
+          ),
+          style: const TextStyle(fontSize: 13, height: 1.4),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          alignment: WrapAlignment.end,
+          children: [
+            TextButton(
+              key: const Key('cycle_log_draft_discard'),
+              onPressed: _discardDraft,
+              child: Text(_cl('Discard', 'تجاهل')),
+            ),
+            FilledButton(
+              key: const Key('cycle_log_draft_restore'),
+              onPressed: _restoreDraft,
+              child: Text(_cl('Restore', 'استعادة')),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
   Widget _notesCard() => _sectionCard(
     title: _cl('Notes', 'ملاحظات'),
     subtitle: _cl(
@@ -795,6 +939,9 @@ class _CycleLogSheetState extends State<_CycleLogSheet> {
         ),
         existingLog: existing,
       );
+      _saved = true;
+      final owner = _ownerId;
+      if (owner != null) unawaited(CycleLogDraftStore.clearForUser(owner));
       if (mounted) {
         final messenger = ScaffoldMessenger.of(context);
         // Wording depends on the *actual* sync outcome — must not claim

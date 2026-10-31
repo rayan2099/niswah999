@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**173 existing Markdown documents**, grouped by source folder.
+**181 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -25,10 +25,16 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [UI_PARITY_TEST_PLAN.md](../../docs/UI_PARITY_TEST_PLAN.md)
 - [acceptance-test-runbook.md](../../docs/acceptance-test-runbook.md)
+- [account-tracking-candidate-2026-10-30.md](../../docs/account-tracking-candidate-2026-10-30.md)
+- [account-tracking-integration-2026-10-30.md](../../docs/account-tracking-integration-2026-10-30.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
+- [cycle-sync-ack-owner-2026-10-30.md](../../docs/cycle-sync-ack-owner-2026-10-30.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
+- [entry-draft-deletion-fence.md](../../docs/entry-draft-deletion-fence.md)
 - [final-owner-launch-checklist.md](../../docs/final-owner-launch-checklist.md)
 - [founder-launch-confidence-dashboard.md](../../docs/founder-launch-confidence-dashboard.md)
+- [launch-audit-2026-10-29.md](../../docs/launch-audit-2026-10-29.md)
+- [local-cycle-save-owner-2026-10-30.md](../../docs/local-cycle-save-owner-2026-10-30.md)
 - [menstrual-data-integrity-contract.md](../../docs/menstrual-data-integrity-contract.md)
 - [niswah-master-verification-addendum.md](../../docs/niswah-master-verification-addendum.md)
 - [owner-e4-menstrual-journey.md](../../docs/owner-e4-menstrual-journey.md)
@@ -37,6 +43,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [physical-qa-account-isolation-2026-10-27.md](../../docs/physical-qa-account-isolation-2026-10-27.md)
 - [release-manifest-template.md](../../docs/release-manifest-template.md)
 - [reliability-contract.md](../../docs/reliability-contract.md)
+- [report-cycle-history-owner-2026-10-30.md](../../docs/report-cycle-history-owner-2026-10-30.md)
+- [tracking-asof-reconciliation-2026-10-30.md](../../docs/tracking-asof-reconciliation-2026-10-30.md)
 
 ## docs/ai
 

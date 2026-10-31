@@ -89,7 +89,7 @@ String fakeSessionJson(String userId) {
   });
 }
 
-http.Response jsonResponse(Object body, [int status = 200]) => http.Response(
+http.Response jsonResponse(Object? body, [int status = 200]) => http.Response(
   jsonEncode(body),
   status,
   headers: {'content-type': 'application/json'},

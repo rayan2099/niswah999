@@ -14,6 +14,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
+import 'core/auth/account_route_boundary.dart';
 import 'core/auth/auth_controller.dart';
 import 'core/config/acceptance_gate.dart';
 import 'core/config/app_environment.dart';
@@ -218,6 +219,10 @@ Future<void> _runApp() async {
   // still reported, by that same outer zone's handler.
   await NiswahSupabase.initialize();
   AuthController.instance.init();
+  AccountRouteBoundary(
+    auth: AuthController.instance,
+    currentAccount: () => AuthController.instance.authenticatedUserId,
+  );
   // Best-effort retry of any account-deletion local cleanup that didn't
   // fully complete on a prior run — not startup-critical, so deliberately
   // not awaited; failures are reported internally via AppErrorReporter
@@ -461,7 +466,7 @@ class NiswahApp extends StatelessWidget {
               )
             : baseDarkTheme;
         return MaterialApp(
-          navigatorObservers: [appRouteObserver],
+          navigatorObservers: [appRouteObserver, appNavigatorObserver],
           title: 'Niswah',
           debugShowCheckedModeBanner: false,
           theme: theme,

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/app_error_reporter.dart';
 import '../../../../core/errors/failures.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../../core/storage/secure_local_store.dart';
 import '../../../doctor_report/domain/entities/report_source_status.dart';
 import '../datasources/local_cycle_tracking_data_source.dart';
 import '../../domain/entities/cycle_log.dart';
@@ -102,27 +103,34 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   @override
   Future<CycleLog?> getCycleLogById(String id) async {
     final client = _client;
-    if (client == null) {
-      return _localDataSource.getById(id);
+    final session = client?.auth.currentSession;
+    final owner = session?.user.id;
+    void requireOriginalSession() {
+      if (client != null && client.auth.currentSession?.user.id != owner) {
+        throw StateError('Account changed during cycle entry read.');
+      }
     }
 
-    final sessionUser = client.auth.currentUser;
-    if (sessionUser == null) {
+    Future<CycleLog?> readLocal() async {
+      requireOriginalSession();
       final local = await _localDataSource.getById(id);
+      requireOriginalSession();
       return local;
     }
+
+    if (client == null || session == null) return readLocal();
 
     try {
       final response = await client
           .from('cycle_entries')
           .select()
           .eq('id', id)
-          .eq('user_id', sessionUser.id)
-          .maybeSingle();
+          .eq('user_id', session.user.id)
+          .maybeSingle()
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
+      requireOriginalSession();
 
-      if (response == null) {
-        return await _localDataSource.getById(id);
-      }
+      if (response == null) return readLocal();
       try {
         return CycleLog.fromJson(response);
       } on CycleLogParseException catch (error, stack) {
@@ -133,9 +141,10 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
           feature: 'cycle_tracking',
           recordId: id,
         );
-        return await _localDataSource.getById(id);
+        return readLocal();
       }
     } on PostgrestException catch (error) {
+      requireOriginalSession();
       throw NetworkFailure(error.message);
     }
   }
@@ -184,6 +193,16 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
 
   @override
   Future<SyncStatus> saveCycleLog(CycleLog log) async {
+    // Reject a stale form/async callback before it enters another account's
+    // local cache. The remote guard below runs only after the local save.
+    final localOwner = SecureLocalStore.currentUserId();
+    final sessionOwner = _client?.auth.currentSession?.user.id;
+    if ((SecureLocalStore.hasSession && log.userId != localOwner) ||
+        (sessionOwner != null && log.userId != sessionOwner)) {
+      throw const NetworkFailure(
+        'Sign in to the original account before saving this record.',
+      );
+    }
     // Saved locally as `pending` first (formData.toCycleLog defaults to
     // SyncStatus.pending) — if the remote attempt below fails retryably,
     // this pending marker is exactly what makes it eligible for automatic
@@ -195,7 +214,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       await upsertCycleLog(log);
       // Not a blind upsert of `log`: a newer save of the same row that
       // finished first must not be overwritten by this older one.
-      await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.synced);
+      await _localDataSource.setSyncStatusIfUnchanged(
+        log,
+        SyncStatus.synced,
+        userId: localOwner,
+      );
       return SyncStatus.synced;
     } on NetworkFailure catch (error, stack) {
       // Local save is authoritative for the UI; remote sync is eventually-
@@ -219,7 +242,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       // `pending` — automatic retry must not hammer a request that can
       // never succeed ("do not retry non-retryable errors blindly").
       if (!error.retryable) {
-        await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.failed);
+        await _localDataSource.setSyncStatusIfUnchanged(
+          log,
+          SyncStatus.failed,
+          userId: localOwner,
+        );
         return SyncStatus.failed;
       }
       return SyncStatus.pending;
@@ -330,6 +357,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       );
     }
 
+    final syncOwner = SecureLocalStore.currentUserId();
     final localLogs = await _localDataSource.loadLogs();
     final toRetry = localLogs
         .where((log) => log.syncStatus == SyncStatus.pending)
@@ -349,7 +377,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         // `log` is this pass's snapshot: an edit she saved while the
         // upload was in flight stays pending (it is newer than what the
         // server now holds) instead of being replaced by the snapshot.
-        await _localDataSource.setSyncStatusIfUnchanged(log, SyncStatus.synced);
+        await _localDataSource.setSyncStatusIfUnchanged(
+          log,
+          SyncStatus.synced,
+          userId: syncOwner,
+        );
         synced++;
       } on NetworkFailure catch (error, stack) {
         AppErrorReporter.report(
@@ -365,6 +397,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
           await _localDataSource.setSyncStatusIfUnchanged(
             log,
             SyncStatus.failed,
+            userId: syncOwner,
           );
           permanentlyFailed++;
         }
@@ -392,8 +425,19 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
   Future<ReportSourceResult<List<CycleLog>>> getCycleLogsForReport({
     int limit = 1000,
   }) async {
-    final localLogs = await _localDataSource.loadLogs();
     final client = _client;
+    final session = client?.auth.currentSession;
+    final localOwner = SecureLocalStore.currentUserId();
+    bool current() =>
+        SecureLocalStore.currentUserId() == localOwner &&
+        client?.auth.currentSession?.user.id == session?.user.id;
+    const rejected = ReportSourceResult<List<CycleLog>>(
+      status: ReportSourceStatus.failed,
+      data: [],
+    );
+
+    final localLogs = await _localDataSource.loadLogs();
+    if (!current()) return rejected;
     if (client == null) {
       return ReportSourceResult(
         status: localLogs.isEmpty
@@ -403,8 +447,7 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       );
     }
 
-    final sessionUser = client.auth.currentUser;
-    if (sessionUser == null) {
+    if (session == null) {
       return ReportSourceResult(
         status: localLogs.isEmpty
             ? ReportSourceStatus.empty
@@ -417,9 +460,11 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
       final response = await client
           .from('cycle_entries')
           .select()
-          .eq('user_id', sessionUser.id)
+          .eq('user_id', session.user.id)
           .order('date', ascending: false)
-          .limit(limit);
+          .limit(limit)
+          .setHeader('Authorization', 'Bearer ${session.accessToken}');
+      if (!current()) return rejected;
       final remote = _parseCycleEntries(response as List<dynamic>);
 
       final merged = _mergeLocalAndRemote(localLogs, remote);
@@ -433,6 +478,8 @@ class CycleTrackingRepositoryImpl implements CycleTrackingRepository {
         data: ordered,
       );
     } catch (error, stack) {
+      // A stale account's cache is not a safe fallback for the next account.
+      if (!current()) return rejected;
       AppErrorReporter.report(
         error,
         stack,
