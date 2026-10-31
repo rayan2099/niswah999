@@ -51,10 +51,23 @@ class FiqhCitation {
 }
 
 class FiqhAnswer {
-  const FiqhAnswer({required this.text, this.citations = const [], this.kind});
+  const FiqhAnswer({
+    required this.text,
+    this.citations = const [],
+    this.kind,
+    this.notice,
+    this.route,
+  });
 
   final String text;
   final List<FiqhCitation> citations;
+
+  /// The server's notice facts for this answer (TestFlight Feedback 2):
+  /// `{aiGenerated, verify, topic}`, or null from an older deployment.
+  final Map<String, dynamic>? notice;
+
+  /// 'health' when the advisor suggests continuing with Doctor Niswah.
+  final String? route;
 
   /// Which path produced the answer ('grounded', 'small_talk',
   /// 'madhhab_unset', 'state_unresolved', 'no_evidence_*'); null from a
@@ -95,6 +108,10 @@ class AiAdvisorService {
     /// understood and searched with the question it follows.
     List<Map<String, String>> history = const [],
     String? requestId,
+
+    /// The chat that sent her here ('general' or 'health'), so the advisor
+    /// does not send her straight back.
+    String? routedFrom,
   }) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
@@ -114,6 +131,7 @@ class AiAdvisorService {
         'madhhab_state': madhhabState.name,
         'clientFiqhState': ?clientFiqhState,
         if (history.isNotEmpty) 'history': history,
+        'routed_from': ?routedFrom,
       },
     );
     final citations = (data['citations'] as List<dynamic>? ?? [])
@@ -124,6 +142,10 @@ class AiAdvisorService {
       text: AiFunctionGateway.requireText(data, 'text', 'Fiqh advisor'),
       citations: citations,
       kind: data['kind']?.toString(),
+      notice: data['notice'] is Map
+          ? Map<String, dynamic>.from(data['notice'] as Map)
+          : null,
+      route: data['route'] == 'health' ? 'health' : null,
     );
   }
 }

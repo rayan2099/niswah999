@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/network/supabase_client.dart';
+import '../../../ai_assistant/domain/entities/chat_thread.dart';
 import '../../../ai_assistant/presentation/screens/dr_niswah_chat_screen.dart';
 import '../../../auth/presentation/screens/profile_screen.dart';
 import '../../../community/domain/entities/community_post.dart';
@@ -116,15 +117,22 @@ class NotificationNavigator {
         case NotificationDestination.aiChat:
           final row = await client
               .from('chat_threads')
-              .select('id,user_id')
+              .select('id,user_id,thread_type')
               .eq('id', target.targetId!)
               .eq('user_id', target.userId)
               .maybeSingle()
               .timeout(const Duration(seconds: 10));
           if (!current()) return;
           if (row == null) throw StateError('Unavailable');
+          // Open the thread in the chat it belongs to, so its title,
+          // assistant and backend function agree (TestFlight Feedback 2).
+          final type = ChatThreadType.values
+              .where((t) => t.name == row['thread_type'])
+              .firstOrNull;
+          final mode = type == null ? null : assistantModeForThreadType(type);
+          if (mode == null) throw StateError('Unavailable');
           screen = DrNiswahChatScreen(
-            mode: NiswahAssistantMode.health,
+            mode: mode,
             initialThreadId: target.targetId,
           );
       }

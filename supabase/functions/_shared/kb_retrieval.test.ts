@@ -196,9 +196,12 @@ Deno.test('citationsForAnswer — one card per source, only for the items the an
     hit({ knowledge_key: 'H1', version_id: 'v4', source_key: 'NHS-BIRTH', source_url: 'https://www.nhs.uk/birth', locator: 'd' }),
     hit({ knowledge_key: 'H2', version_id: 'v5', source_key: 'CDC', source_url: 'https://www.cdc.gov/x', locator: 'e' }),
   ];
-  const all = citationsForAnswer(hits, null);
+  const all = citationsForAnswer(hits, new Set(['S1', 'S2', 'S3', 'H1', 'H2']));
   assertEquals(all.map((c) => c.sourceKey), ['NHS-URGENT', 'NHS-BIRTH', 'CDC']);
   assertEquals(all[0].locator, 'a');
+  // TestFlight Feedback 2: no [[used:]] line cites nothing, never everything
+  // (an unrelated CDC warning-signs card under a question about intercourse).
+  assertEquals(citationsForAnswer(hits, null).length, 0);
   const used = citationsForAnswer(hits, new Set(['S2', 'H2']));
   assertEquals(used.map((c) => c.knowledgeKey), ['S2', 'H2']);
   assertEquals(citationsForAnswer(hits, new Set()).length, 0);

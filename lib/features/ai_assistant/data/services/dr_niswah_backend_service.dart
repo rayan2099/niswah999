@@ -10,7 +10,16 @@ class DrNiswahBackendResponse {
     this.citations = const [],
     this.knowledgeGrounded = false,
     this.kind,
+    this.notice,
+    this.route,
   });
+
+  /// `{aiGenerated, verify, topic}` (TestFlight Feedback 2), or null from
+  /// an older deployment.
+  final Map<String, dynamic>? notice;
+
+  /// 'fiqh' when Doctor Niswah suggests continuing with the Fiqh advisor.
+  final String? route;
 
   final String reply;
   final bool urgent;
@@ -49,6 +58,10 @@ class DrNiswahBackendResponse {
         .toList();
     final knowledgeGrounded = data['knowledgeGrounded'] == true;
     final kind = data['kind']?.toString();
+    final notice = data['notice'] is Map
+        ? Map<String, dynamic>.from(data['notice'] as Map)
+        : null;
+    final route = data['route'] == 'fiqh' ? 'fiqh' : null;
     if (reply is! String || reply.trim().isEmpty) {
       if (!urgent) {
         throw AiFailure(
@@ -62,6 +75,7 @@ class DrNiswahBackendResponse {
         citations: citations,
         knowledgeGrounded: knowledgeGrounded,
         kind: kind,
+        notice: notice,
       );
     }
     return DrNiswahBackendResponse(
@@ -70,6 +84,8 @@ class DrNiswahBackendResponse {
       citations: citations,
       knowledgeGrounded: knowledgeGrounded,
       kind: kind,
+      notice: notice,
+      route: route,
     );
   }
 }
@@ -95,6 +111,7 @@ class DrNiswahBackendService {
     required String content,
     String? clientMessageId,
     List<Map<String, String>> history = const [],
+    String? routedFrom,
   }) async {
     final client = NiswahSupabase.clientOrNull;
     if (client == null) {
@@ -110,6 +127,7 @@ class DrNiswahBackendService {
         'content': content,
         'clientMessageId': ?clientMessageId,
         if (history.isNotEmpty) 'history': history,
+        'routed_from': ?routedFrom,
       },
     );
     return DrNiswahBackendResponse.fromBackendJson(data);

@@ -51,6 +51,15 @@ class ChatViewModel extends ChangeNotifier {
   List<ChatMessage> messages = const <ChatMessage>[];
   String? currentThreadId;
 
+  /// The chat that handed this conversation over ('general', 'health' or
+  /// 'fiqh'), set when she opened this chat from a suggestion button. Sent
+  /// with the first exchange only, so the receiving chat answers instead of
+  /// sending her straight back (TestFlight Feedback 2).
+  String? routedFrom;
+
+  String? get _routedFromForNextSend =>
+      messages.any((m) => m.role == ChatRole.assistant) ? null : routedFrom;
+
   static const _redFlagNotificationBaseId = 900;
 
   /// Fires an immediate local notification + logs a feed entry the
@@ -275,6 +284,7 @@ class ChatViewModel extends ChangeNotifier {
             content: message.content,
             clientMessageId: message.id,
             history: history,
+            routedFrom: _routedFromForNextSend,
           );
         case ChatThreadType.fiqhAdvisory:
           await _sendViaFiqhAdvisor(message, history, stillCurrent);
@@ -371,6 +381,7 @@ class ChatViewModel extends ChangeNotifier {
     required String content,
     String? clientMessageId,
     List<Map<String, String>> history = const [],
+    String? routedFrom,
   }) async {
     // Independent of the network call below, so a red-flag symptom is
     // never silently dropped if the backend is unreachable.
@@ -385,6 +396,7 @@ class ChatViewModel extends ChangeNotifier {
         content: content,
         clientMessageId: clientMessageId,
         history: history,
+        routedFrom: routedFrom,
       );
       // A delayed reply belongs to the session that sent it. It must not
       // add an alert or private feed entry after sign-out/account change.
@@ -406,6 +418,11 @@ class ChatViewModel extends ChangeNotifier {
           // locally-built optimistic message previously never populated it.
           'citations': response.citations.map((c) => c.toJson()).toList(),
           if (response.kind != null) 'kind': response.kind,
+          'notice': ?response.notice,
+          if (response.route != null) ...{
+            'route': response.route,
+            'route_question': content,
+          },
         },
         createdAt: DateTime.now(),
       );
@@ -472,6 +489,7 @@ class ChatViewModel extends ChangeNotifier {
       clientFiqhState: clientFiqhState,
       history: history,
       requestId: message.id,
+      routedFrom: _routedFromForNextSend,
     );
     if (!stillCurrent()) return;
 
@@ -482,6 +500,11 @@ class ChatViewModel extends ChangeNotifier {
       'madhhab_state': madhhabState.name,
       'citations': result.citations.map((item) => item.toJson()).toList(),
       if (result.kind != null) 'kind': result.kind,
+      'notice': ?result.notice,
+      if (result.route != null) ...{
+        'route': result.route,
+        'route_question': message.content,
+      },
     };
     await showAssistantReplyAndPersistForTesting(
       threadId: message.threadId,
@@ -522,11 +545,13 @@ class ChatViewModel extends ChangeNotifier {
         'madhhab': MadhhabController.instance.selectedOrNull?.name,
         'madhhab_state': MadhhabController.instance.state.name,
         'history': history,
+        'routed_from': ?_routedFromForNextSend,
       },
     );
     final text = AiFunctionGateway.requireText(data, 'text', 'AI assistant');
     if (!stillCurrent()) return;
     final route = data['route'];
+    final notice = data['notice'];
 
     await showAssistantReplyAndPersistForTesting(
       threadId: message.threadId,
@@ -535,6 +560,7 @@ class ChatViewModel extends ChangeNotifier {
       metadata: {
         'source': 'openai',
         'grounded': false,
+        if (notice is Map) 'notice': Map<String, dynamic>.from(notice),
         // The general assistant pointed her to the Fiqh advisor or Doctor
         // Niswah; the screen shows a button that opens it with her question.
         if (route == 'fiqh' || route == 'health') ...{

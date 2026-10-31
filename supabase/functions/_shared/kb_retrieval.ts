@@ -156,8 +156,7 @@ export function citationPayload(hits: KnowledgeHit[]) {
 /**
  * The citations shown under an answer: only the knowledge items the model
  * said it relied on, one card per source document. `usedIds` null means the
- * model did not say, so every retrieved item counts; an empty set means it
- * used none. Hits arrive ranked, so the first locator kept for a source is
+ * model did not say, and nothing is cited; an empty set means it used none. Hits arrive ranked, so the first locator kept for a source is
  * its best match.
  *
  * Before this, citationPayload() kept one card per (item, source, locator),
@@ -166,7 +165,11 @@ export function citationPayload(hits: KnowledgeHit[]) {
  * 2026-10-30).
  */
 export function citationsForAnswer(hits: KnowledgeHit[], usedIds: Set<string> | null) {
-  const relevant = usedIds === null ? hits : hits.filter((h) => usedIds.has(h.knowledge_key));
+  // TestFlight Feedback 2 (2026-10-31): a missing [[used:]] line used to
+  // cite EVERY retrieved item, which is how unrelated safety items reached
+  // unrelated answers. Now nothing is cited unless the model names it.
+  if (usedIds === null) return [];
+  const relevant = hits.filter((h) => usedIds.has(h.knowledge_key));
   const seen = new Set<string>();
   const unique = relevant.filter((h) => {
     const key = (h.source_url || h.source_key).trim().toLowerCase();
