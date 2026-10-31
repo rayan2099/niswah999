@@ -121,164 +121,300 @@ String periodSummary(PeriodItem p) => switch (p.status) {
   ),
 };
 
-String _linkedSummary(PeriodItem p) {
-  final n = p.observations.length;
-  if (n == 1) {
-    final o = p.observations.single;
-    return _t(
-      'Daily record on ${historyDate(o.date, withYear: false)}: ${observationDescription(o)}',
-      'تسجيل يومي في ${historyDate(o.date, withYear: false)}: ${observationDescription(o)}',
-    );
-  }
-  return _t(
-    '$n daily records within this period',
-    n == 2
-        ? 'تسجيلان يوميان ضمن هذه الدورة'
-        : '$n تسجيلات يومية ضمن هذه الدورة',
-  );
-}
+const _railWidth = 36.0;
+const _nodeSize = 28.0;
+const _railColor = Color(0xFFF3D9DE);
+const _maxInlineRecords = 3;
 
-/// One entry of the history list. Tapping it opens its details.
+/// One entry of the history timeline. A period is a node on the line with
+/// its daily records listed under it, oldest first; a record outside every
+/// period is a small grey node of its own. Tapping opens the details.
 class PeriodHistoryTile extends StatelessWidget {
-  const PeriodHistoryTile({super.key, required this.item, required this.onTap});
+  const PeriodHistoryTile({
+    super.key,
+    required this.item,
+    required this.onTap,
+    this.isFirst = true,
+    this.isLast = true,
+  });
   final PeriodHistoryItem item;
   final VoidCallback onTap;
 
+  /// Whether the line runs above / below this entry's node.
+  final bool isFirst;
+  final bool isLast;
+
+  static Color statusColor(PeriodStatus status) => switch (status) {
+    PeriodStatus.ongoing => const Color(0xFFE91E4D),
+    PeriodStatus.completed => const Color(0xFF0F7B5F),
+    PeriodStatus.endUnknown => const Color(0xFF9A6700),
+  };
+
   @override
   Widget build(BuildContext context) => switch (item) {
-    final PeriodItem p => _tile(
+    final PeriodItem p => _entry(
       context,
-      icon: p.status == PeriodStatus.ongoing
-          ? Icons.water_drop_rounded
-          : Icons.water_drop_outlined,
-      iconColor: AppColors.brandSecondary,
+      node: _PeriodNode(status: p.status),
       title: periodDates(p),
       chip: periodStatusLabel(p),
-      chipColor: p.status == PeriodStatus.ongoing
-          ? const Color(0xFFE91E4D)
-          : p.status == PeriodStatus.completed
-          ? const Color(0xFF0F7B5F)
-          : const Color(0xFF9A6700),
-      lines: [
-        periodSummary(p),
-        if (p.observations.isNotEmpty) _linkedSummary(p),
-      ],
-      linked: p.observations.isNotEmpty,
+      chipColor: statusColor(p.status),
+      summary: periodSummary(p),
+      records: [...p.observations]..sort((a, b) => a.date.compareTo(b.date)),
     ),
-    final StandaloneObservationItem s => _tile(
+    final StandaloneObservationItem s => _entry(
       context,
-      icon: Icons.edit_calendar_outlined,
-      iconColor: AppColors.textTertiary,
+      node: const _RecordNode(),
       title: historyDate(s.observation.date),
       chip: _t('Separate record', 'تسجيل منفصل'),
       chipColor: const Color(0xFF6B7280),
-      lines: [
-        observationDescription(s.observation),
-        _t('Not part of a recorded period', 'ليس ضمن دورة مسجّلة'),
-      ],
-      linked: false,
+      summary: observationDescription(s.observation),
+      footnote: _t('Not part of a recorded period', 'ليس ضمن دورة مسجّلة'),
+      records: const [],
     ),
   };
 
-  Widget _tile(
+  Widget _entry(
     BuildContext context, {
-    required IconData icon,
-    required Color iconColor,
+    required Widget node,
     required String title,
     required String chip,
     required Color chipColor,
-    required List<String> lines,
-    required bool linked,
+    required String summary,
+    required List<HistoryObservation> records,
+    String? footnote,
   }) {
-    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final direction = Directionality.of(context);
+    final rtl = direction == TextDirection.rtl;
+    final inline = records.take(_maxInlineRecords).toList();
+    final hidden = records.length - inline.length;
+    final recordLines = [
+      for (final o in inline)
+        '${historyDate(o.date, withYear: false)}: ${observationDescription(o)}',
+    ];
+    const secondary = TextStyle(
+      color: AppColors.textSecondary,
+      fontSize: 12,
+      height: 1.4,
+    );
     return Semantics(
       button: true,
-      label: [title, chip, ...lines].join('. '),
+      label: [title, chip, summary, ...recordLines, ?footnote].join('. '),
       hint: _t('Double-tap for details', 'انقري مرتين للتفاصيل'),
       excludeSemantics: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 56),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Icon(icon, color: iconColor, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          _Chip(label: chip, color: chipColor),
-                        ],
-                      ),
-                      for (final (i, line) in lines.indexed) ...[
+        borderRadius: BorderRadius.circular(14),
+        child: Stack(
+          children: [
+            // The timeline: a line through every node, stopping at the
+            // first and last.
+            if (!(isFirst && isLast))
+              PositionedDirectional(
+                start: _railWidth / 2 - 1,
+                width: 2,
+                top: isFirst ? 6 + _nodeSize / 2 : 0,
+                bottom: isLast ? null : 0,
+                height: isLast ? 6 + _nodeSize / 2 : null,
+                child: const ColoredBox(color: _railColor),
+              ),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(top: 6, bottom: 14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: _railWidth,
+                    child: Align(alignment: Alignment.topCenter, child: node),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         const SizedBox(height: 3),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            if (linked && i == lines.length - 1) ...[
-                              Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: Icon(
-                                  rtl
-                                      ? Icons.subdirectory_arrow_left_rounded
-                                      : Icons.subdirectory_arrow_right_rounded,
-                                  size: 14,
-                                  color: AppColors.textTertiary,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                            ],
-                            Expanded(
-                              child: Text(
-                                line,
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 12,
-                                  height: 1.4,
-                                ),
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
+                            _Chip(label: chip, color: chipColor),
                           ],
                         ),
+                        const SizedBox(height: 3),
+                        Text(summary, style: secondary),
+                        if (footnote != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            footnote,
+                            style: secondary.copyWith(
+                              color: AppColors.textTertiary,
+                            ),
+                          ),
+                        ],
+                        for (final (i, o) in inline.indexed)
+                          _RecordLine(
+                            date: historyDate(o.date, withYear: false),
+                            text: observationDescription(o),
+                            highlight: o.isFirstCleanDay,
+                            first: i == 0,
+                          ),
+                        if (hidden > 0)
+                          Padding(
+                            padding: const EdgeInsetsDirectional.only(
+                              top: 4,
+                              start: 18,
+                            ),
+                            child: Text(
+                              _t(
+                                '+$hidden more daily records',
+                                hidden == 1
+                                    ? '+ تسجيل يومي آخر'
+                                    : '+ $hidden تسجيلات يومية أخرى',
+                              ),
+                              style: secondary.copyWith(
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                          ),
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                Icon(
-                  rtl
-                      ? Icons.chevron_left_rounded
-                      : Icons.chevron_right_rounded,
-                  color: AppColors.textTertiary,
-                  size: 20,
-                ),
-              ],
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Icon(
+                      rtl
+                          ? Icons.chevron_left_rounded
+                          : Icons.chevron_right_rounded,
+                      color: AppColors.textTertiary,
+                      size: 20,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
+}
+
+/// A period's node: filled while ongoing, tinted when completed or the end
+/// is not recorded.
+class _PeriodNode extends StatelessWidget {
+  const _PeriodNode({required this.status});
+  final PeriodStatus status;
+  @override
+  Widget build(BuildContext context) {
+    final ongoing = status == PeriodStatus.ongoing;
+    final color = status == PeriodStatus.endUnknown
+        ? PeriodHistoryTile.statusColor(status)
+        : AppColors.brandSecondary;
+    return Container(
+      width: _nodeSize,
+      height: _nodeSize,
+      decoration: BoxDecoration(
+        color: ongoing
+            ? color
+            : Color.alphaBlend(color.withValues(alpha: 0.12), Colors.white),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Icon(
+        ongoing ? Icons.water_drop_rounded : Icons.water_drop_outlined,
+        size: 15,
+        color: ongoing ? Colors.white : color,
+      ),
+    );
+  }
+}
+
+/// A record outside every period: a small hollow node.
+class _RecordNode extends StatelessWidget {
+  const _RecordNode();
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 6),
+    child: Container(
+      width: 14,
+      height: 14,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.textTertiary, width: 2),
+      ),
+    ),
+  );
+}
+
+/// A daily record listed under its period: "30 أكتوبر  توقف النزول ...".
+class _RecordLine extends StatelessWidget {
+  const _RecordLine({
+    required this.date,
+    required this.text,
+    required this.highlight,
+    required this.first,
+  });
+  final String date;
+  final String text;
+  final bool highlight;
+  final bool first;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(top: first ? 8 : 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 5),
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: highlight ? const Color(0xFF0F7B5F) : Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: highlight
+                    ? const Color(0xFF0F7B5F)
+                    : AppColors.brandSecondary,
+                width: 1.5,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '$date  ',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                TextSpan(text: text),
+              ],
+            ),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Chip extends StatelessWidget {
@@ -404,10 +540,13 @@ class PeriodHistoryBody extends StatelessWidget {
               style: const TextStyle(color: Color(0xFF9A6700), fontSize: 12),
             ),
           ),
-        for (final (i, item) in shown.indexed) ...[
-          if (i > 0) const Divider(height: 1, color: Color(0xFFF3E8E6)),
-          PeriodHistoryTile(item: item, onTap: () => onOpen(item)),
-        ],
+        for (final (i, item) in shown.indexed)
+          PeriodHistoryTile(
+            item: item,
+            onTap: () => onOpen(item),
+            isFirst: i == 0,
+            isLast: i == shown.length - 1,
+          ),
       ],
     );
   }
