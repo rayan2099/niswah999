@@ -12,7 +12,9 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## Implementation
 
+- [period_history.dart](../../lib/features/insights/domain/period_history.dart)
 - [insights_screen.dart](../../lib/features/insights/presentation/screens/insights_screen.dart)
+- [period_history_view.dart](../../lib/features/insights/presentation/widgets/period_history_view.dart)
 
 ## Test navigation hints
 

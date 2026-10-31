@@ -13,7 +13,10 @@ import '../../../cycle_tracking/domain/services/cycle_calculation_service.dart';
 import '../../../cycle_tracking/domain/services/cycle_symptom_decoder.dart';
 import '../../../cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
 import '../../../cycle_tracking/presentation/widgets/cycle_log_form_sheet.dart';
+import '../../../cycle_tracking/presentation/screens/canonical_calendar_screen.dart';
 import '../../../cycle_tracking/presentation/widgets/predicted_range_text.dart';
+import '../../domain/period_history.dart';
+import '../widgets/period_history_view.dart';
 import '../../../wellbeing/data/repositories/wellbeing_repository.dart';
 import '../../../wellbeing/domain/entities/wellbeing_log.dart';
 import '../../../wellbeing/domain/services/wellbeing_period_split.dart';
@@ -133,6 +136,46 @@ class InsightsScreen extends StatefulWidget {
 
 class _InsightsScreenState extends State<InsightsScreen> {
   late final CycleTrackingViewModel _viewModel;
+
+  /// TestFlight Feedback 2 (page 5): periods and daily records in one
+  /// chronological list, each record under the period it belongs to.
+  static const _historyPreview = 3;
+
+  List<PeriodHistoryItem> _history() => buildPeriodHistory(
+    periods: [
+      for (final e in _viewModel.canonicalEpisodes)
+        HistoryPeriodInput.fromTiming(e),
+    ],
+    logs: _viewModel.logs,
+    today: AppClock.now(),
+  );
+
+  void _openHistoryItem(PeriodHistoryItem item) =>
+      showPeriodHistoryDetails(context, item, onOpenCalendar: _openCalendar);
+
+  Future<void> _openCalendar() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => const CanonicalCalendarScreen(),
+      ),
+    );
+    if (mounted) await _viewModel.loadLogs();
+  }
+
+  void _openHistory() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => PeriodHistoryScreen(
+        listenable: _viewModel,
+        items: _history,
+        isLoading: () => _viewModel.isLoading,
+        error: () => _viewModel.errorMessage,
+        incomplete: () => !_viewModel.canonicalHistoryComplete,
+        onRetry: () => _viewModel.loadLogs(),
+        onOpenCalendar: _openCalendar,
+      ),
+    ),
+  );
   int _trendMonths = 3;
   int _wellbeingMonths = 3;
   int _wellbeingRefresh = 0;
@@ -299,20 +342,40 @@ class _InsightsScreenState extends State<InsightsScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           _SectionLabel(_in('CYCLE HISTORY', 'سجل الدورة')),
-                          Text(
-                            _in('VIEW ALL', 'عرض الكل'),
-                            style: TextStyle(
-                              color: AppColors.brandSecondary,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
+                          if (_history().length > _historyPreview)
+                            TextButton(
+                              key: const Key('period-history-view-all'),
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size(48, 44),
+                                foregroundColor: AppColors.brandSecondary,
+                              ),
+                              onPressed: _openHistory,
+                              child: Text(
+                                _in('VIEW ALL', 'عرض الكل'),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      _HistoryCard(
-                        logs: _viewModel.logs,
-                        canonicalEpisodes: _viewModel.canonicalEpisodes,
+                      _Card(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        child: PeriodHistoryBody(
+                          key: const Key('period-history'),
+                          items: _history(),
+                          isLoading: _viewModel.isLoading,
+                          error: _viewModel.errorMessage,
+                          incomplete: !_viewModel.canonicalHistoryComplete,
+                          onRetry: () => _viewModel.loadLogs(),
+                          onOpen: _openHistoryItem,
+                          limit: _historyPreview,
+                        ),
                       ),
                     ],
                   ),
@@ -1686,76 +1749,6 @@ class _GroupSwitch extends StatelessWidget {
       ),
     );
   }
-}
-
-class _HistoryCard extends StatelessWidget {
-  const _HistoryCard({required this.logs, this.canonicalEpisodes = const []});
-  final List<CycleLog> logs;
-
-  /// Periods the user reported (onboarding history or live tracking),
-  /// shown from their REAL start/end dates — never as invented daily rows.
-  final List<CanonicalEpisodeTiming> canonicalEpisodes;
-
-  static String _date(DateTime d) => '${d.day}/${d.month}/${d.year}';
-
-  @override
-  Widget build(BuildContext context) => _Card(
-    child: logs.isEmpty && canonicalEpisodes.isEmpty
-        ? Padding(
-            padding: const EdgeInsets.symmetric(vertical: 28),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.calendar_today_outlined,
-                  size: 44,
-                  color: Color(0xFFE5E7EB),
-                ),
-                SizedBox(height: 12),
-                Text(
-                  _in('No cycle history yet', 'لا يوجد سجل للدورة بعد'),
-                  style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
-                ),
-              ],
-            ),
-          )
-        : Column(
-            children: [
-              for (final episode in canonicalEpisodes.take(5))
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.event_note_outlined,
-                    color: AppColors.brandSecondary,
-                  ),
-                  title: Text(
-                    episode.endDate == null
-                        ? '${_in('Reported period', 'دورة مسجّلة')}: '
-                              '${_date(episode.startDate)}'
-                        : '${_in('Reported period', 'دورة مسجّلة')}: '
-                              '${_date(episode.startDate)} – '
-                              '${_date(episode.endDate!)}',
-                  ),
-                  subtitle: Text(
-                    episode.endDate == null
-                        ? _in('Started, not yet ended', 'بدأت ولم تنتهِ بعد')
-                        : _in('Completed', 'مكتملة'),
-                  ),
-                ),
-              for (final log in logs.take(5))
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.calendar_today_outlined,
-                    color: AppColors.brandSecondary,
-                  ),
-                  title: Text(_date(log.date)),
-                  subtitle: Text(
-                    '${_in('Cycle day', 'يوم الدورة')} ${log.cycleDay}',
-                  ),
-                ),
-            ],
-          ),
-  );
 }
 
 class _SectionLabel extends StatelessWidget {
