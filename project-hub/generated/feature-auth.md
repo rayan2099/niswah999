@@ -14,6 +14,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [auth_repository_impl.dart](../../lib/features/auth/data/repositories/auth_repository_impl.dart)
 - [account_deletion_orchestrator.dart](../../lib/features/auth/domain/account_deletion_orchestrator.dart)
+- [email_address.dart](../../lib/features/auth/domain/email_address.dart)
 - [app_user.dart](../../lib/features/auth/domain/entities/app_user.dart)
 - [auth_repository.dart](../../lib/features/auth/domain/repositories/auth_repository.dart)
 - [profile_form_data.dart](../../lib/features/auth/presentation/models/profile_form_data.dart)
@@ -23,6 +24,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [sign_in_screen.dart](../../lib/features/auth/presentation/screens/sign_in_screen.dart)
 - [profile_view_model.dart](../../lib/features/auth/presentation/viewmodels/profile_view_model.dart)
 - [account_settings_card.dart](../../lib/features/auth/presentation/widgets/account_settings_card.dart)
+- [email_confirmation_pending.dart](../../lib/features/auth/presentation/widgets/email_confirmation_pending.dart)
 
 ## Test navigation hints
 
