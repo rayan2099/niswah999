@@ -128,8 +128,11 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [ai_user_context.test.ts](../../supabase/functions/_shared/ai_user_context.test.ts)
 - [ai_user_context.ts](../../supabase/functions/_shared/ai_user_context.ts)
+- [answer_policy.test.ts](../../supabase/functions/_shared/answer_policy.test.ts)
+- [answer_policy.ts](../../supabase/functions/_shared/answer_policy.ts)
 - [chat_contract.test.ts](../../supabase/functions/_shared/chat_contract.test.ts)
 - [chat_contract.ts](../../supabase/functions/_shared/chat_contract.ts)
+- [chat_pipeline.test.ts](../../supabase/functions/_shared/chat_pipeline.test.ts)
 - [fiqh_state_guard.test.ts](../../supabase/functions/_shared/fiqh_state_guard.test.ts)
 - [fiqh_state_guard.ts](../../supabase/functions/_shared/fiqh_state_guard.ts)
 - [kb_relevance_gate.test.ts](../../supabase/functions/_shared/kb_relevance_gate.test.ts)

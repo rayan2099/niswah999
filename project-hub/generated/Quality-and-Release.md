@@ -39,6 +39,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## docs/ai
 
+- [ai-chat-testflight-feedback-2-2026-10-31.md](../../docs/ai/ai-chat-testflight-feedback-2-2026-10-31.md)
 - [ai-chat-testing-feedback-2026-10-30.md](../../docs/ai/ai-chat-testing-feedback-2026-10-30.md)
 
 ## docs/engineering
@@ -141,10 +142,13 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [accessibility_semantics_test.dart](../../test/accessibility_semantics_test.dart)
 - [accessibility_text_scaling_test.dart](../../test/accessibility_text_scaling_test.dart)
 - [account_deletion_resilience_test.dart](../../test/account_deletion_resilience_test.dart)
+- [ai_answer_notice_policy_test.dart](../../test/ai_answer_notice_policy_test.dart)
 - [ai_backend_citation_contract_test.dart](../../test/ai_backend_citation_contract_test.dart)
 - [ai_chat_persistence_resilience_test.dart](../../test/ai_chat_persistence_resilience_test.dart)
 - [ai_chat_reliability_test.dart](../../test/ai_chat_reliability_test.dart)
+- [ai_chat_routing_test.dart](../../test/ai_chat_routing_test.dart)
 - [ai_chat_screen_feedback_test.dart](../../test/ai_chat_screen_feedback_test.dart)
+- [ai_feedback2_screenshot_test.dart](../../test/ai_feedback2_screenshot_test.dart)
 - [ai_malformed_response_test.dart](../../test/ai_malformed_response_test.dart)
 - [android_release_manifest_contract_test.dart](../../test/android_release_manifest_contract_test.dart)
 - [app_error_reporter_sentry_test.dart](../../test/app_error_reporter_sentry_test.dart)

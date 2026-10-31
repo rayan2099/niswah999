@@ -1,3 +1,8 @@
+// NOT USED BY ANY CHAT since TestFlight Feedback 2 (2026-10-31): the chats
+// now let the model answer when the library has nothing (answer_policy.ts).
+// Kept only for _evals/offline_pipeline_eval.ts, which reports how the old
+// gate classified each eval message.
+//
 // Replies for a knowledge-grounded chat when no reviewed knowledge supports
 // an answer. The fail-closed rule is unchanged: the model is never called to
 // answer from its own knowledge. What changed (testing feedback 2026-10-30)

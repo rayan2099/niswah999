@@ -1007,9 +1007,16 @@ class DashboardScreenState extends State<DashboardScreen> {
                                 _openFullScreen(const DreamInterpreterScreen()),
                           ),
                           const SizedBox(height: 16),
+                          // TestFlight Feedback 2 (page 4): this fiqh
+                          // shortcut opened the general Niswah AI, which then
+                          // referred her elsewhere. It opens the Fiqh advisor
+                          // directly; Doctor Niswah has its own card above.
                           _AiQuickAccessCard(
-                            onTap: () =>
-                                _openFullScreen(const DrNiswahChatScreen()),
+                            onTap: () => _openFullScreen(
+                              const DrNiswahChatScreen(
+                                mode: NiswahAssistantMode.fiqhAdvisory,
+                              ),
+                            ),
                           ),
                           if (_viewModel.errorMessage != null) ...[
                             const SizedBox(height: 16),
@@ -4411,13 +4418,11 @@ class _AiQuickAccessCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _DashboardActionCard(
+    key: const Key('dashboard-fiqh-shortcut'),
     onTap: onTap,
-    icon: Icons.auto_awesome_rounded,
+    icon: Icons.menu_book_outlined,
     iconColor: AppColors.istihadah,
-    title: _l(
-      'Ask any Fiqh or health question...',
-      'اسألي أي سؤال فقهي أو صحي...',
-    ),
+    title: _l('Ask any Fiqh question...', 'اسألي أي سؤال فقهي...'),
     subtitle: _l(
       'Qadha Example: Missed Dhuhr',
       'مثال قضاء: صلاة الظهر الفائتة',
@@ -4428,6 +4433,7 @@ class _AiQuickAccessCard extends StatelessWidget {
 
 class _DashboardActionCard extends StatelessWidget {
   const _DashboardActionCard({
+    super.key,
     required this.onTap,
     required this.icon,
     required this.iconColor,

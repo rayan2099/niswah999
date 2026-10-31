@@ -17,6 +17,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [chat_message.dart](../../lib/features/ai_assistant/domain/entities/chat_message.dart)
 - [chat_thread.dart](../../lib/features/ai_assistant/domain/entities/chat_thread.dart)
 - [chat_repository.dart](../../lib/features/ai_assistant/domain/repositories/chat_repository.dart)
+- [answer_notice_policy.dart](../../lib/features/ai_assistant/domain/services/answer_notice_policy.dart)
 - [dr_niswah_red_flags.dart](../../lib/features/ai_assistant/domain/services/dr_niswah_red_flags.dart)
 - [dr_niswah_chat_screen.dart](../../lib/features/ai_assistant/presentation/screens/dr_niswah_chat_screen.dart)
 - [chat_view_model.dart](../../lib/features/ai_assistant/presentation/viewmodels/chat_view_model.dart)

@@ -12,6 +12,7 @@ import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../../core/network/ai_failure.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/chat_thread.dart';
+import '../../domain/services/answer_notice_policy.dart';
 import '../viewmodels/chat_view_model.dart';
 
 String _ai(String en, String ar) => AppLocaleController.instance.text(en, ar);
@@ -29,6 +30,24 @@ String _formatDate(DateTime date) {
 }
 
 enum NiswahAssistantMode { general, health, fiqhAdvisory }
+
+/// The name the AI functions use for each chat in `routed_from`.
+String assistantIdFor(NiswahAssistantMode mode) => switch (mode) {
+  NiswahAssistantMode.general => 'general',
+  NiswahAssistantMode.health => 'health',
+  NiswahAssistantMode.fiqhAdvisory => 'fiqh',
+};
+
+/// The chat a stored thread belongs to. A thread is only ever opened in the
+/// chat that matches its type, so its title, assistant, backend function
+/// and history always agree (TestFlight Feedback 2).
+NiswahAssistantMode? assistantModeForThreadType(ChatThreadType type) =>
+    switch (type) {
+      ChatThreadType.general => NiswahAssistantMode.general,
+      ChatThreadType.drNiswah => NiswahAssistantMode.health,
+      ChatThreadType.fiqhAdvisory => NiswahAssistantMode.fiqhAdvisory,
+      ChatThreadType.dreamInterpreter => null,
+    };
 
 ChatThreadType chatThreadTypeFor(NiswahAssistantMode mode) => switch (mode) {
   NiswahAssistantMode.health => ChatThreadType.drNiswah,
@@ -59,10 +78,14 @@ class DrNiswahChatScreen extends StatefulWidget {
     this.mode = NiswahAssistantMode.general,
     this.initialThreadId,
     this.initialDraft,
+    this.routedFrom,
     this.viewModelForTesting,
   });
 
   final NiswahAssistantMode mode;
+
+  /// The chat whose suggestion button opened this one, if any.
+  final NiswahAssistantMode? routedFrom;
   final String? initialThreadId;
 
   /// Text placed in the composer on open, for example the question the
@@ -97,6 +120,10 @@ class _DrNiswahChatScreenState extends State<DrNiswahChatScreen> {
   void initState() {
     super.initState();
     _model = widget.viewModelForTesting ?? ChatViewModel();
+    final routedFrom = widget.routedFrom;
+    _model.routedFrom = routedFrom == null || routedFrom == widget.mode
+        ? null
+        : assistantIdFor(routedFrom);
     _model.addListener(_followNewestMessage);
     final draft = widget.initialDraft;
     if (draft != null && draft.trim().isNotEmpty) {
@@ -107,8 +134,15 @@ class _DrNiswahChatScreenState extends State<DrNiswahChatScreen> {
     _model.loadThreads(userId: _currentUserId()).then((_) {
       if (!mounted) return;
       if (widget.initialThreadId != null && !_userNavigated) {
+        // Only a thread of THIS chat's type: a thread from another assistant
+        // would be answered by the wrong backend function under the wrong
+        // title. The account check is the repository's (user-scoped read).
         final thread = _model.threads
-            .where((t) => t.id == widget.initialThreadId)
+            .where(
+              (t) =>
+                  t.id == widget.initialThreadId &&
+                  t.threadType == chatThreadTypeFor(widget.mode),
+            )
             .firstOrNull;
         if (thread != null) {
           unawaited(_resumeFromPicker(thread));
@@ -260,7 +294,11 @@ class _DrNiswahChatScreenState extends State<DrNiswahChatScreen> {
         : NiswahAssistantMode.health;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => DrNiswahChatScreen(mode: mode, initialDraft: question),
+        builder: (_) => DrNiswahChatScreen(
+          mode: mode,
+          initialDraft: question,
+          routedFrom: widget.mode,
+        ),
       ),
     );
   }
@@ -324,13 +362,13 @@ class _ChatBody extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.verified_outlined, color: Color(0xFF9A6700)),
+              const Icon(Icons.menu_book_outlined, color: Color(0xFF9A6700)),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   _ai(
-                    'Answers come from Niswah\'s reviewed fiqh library for your selected madhhab. Unclear cases are referred to a qualified scholar.',
-                    'تستند الإجابات إلى مكتبة نسوة الفقهية المراجَعة وفق مذهبكِ المختار، وتُحال الحالات الملتبسة إلى عالِمة أو جهة إفتاء مؤهلة.',
+                    'Answers explain what the schools hold, with your madhhab first. Sources appear only when an answer uses Niswah\'s fiqh library.',
+                    'تشرح الإجابات أقوال المذاهب ومذهبكِ أولًا، وتظهر المصادر فقط عندما تستند الإجابة إلى مكتبة نسوة الفقهية.',
                   ),
                   style: const TextStyle(
                     color: Color(0xFF704D0A),
@@ -347,6 +385,7 @@ class _ChatBody extends StatelessWidget {
         child: model.messages.isEmpty
             ? _Welcome(
                 mode: mode,
+                onOpenFiqh: () => onOpenRoute('fiqh', ''),
                 onPrompt: (text) {
                   controller.text = text;
                   controller.selection = TextSelection.collapsed(
@@ -363,6 +402,8 @@ class _ChatBody extends StatelessWidget {
                 itemBuilder: (_, i) => i < model.messages.length
                     ? _Message(
                         message: model.messages[i],
+                        mode: mode,
+                        notice: noticeLinesFor(model.messages, i),
                         busy: model.isSending,
                         onRetry: onRetry,
                         onEdit: onEdit,
@@ -413,15 +454,15 @@ class _ChatBody extends StatelessWidget {
         child: Text(
           _ai(
             mode == NiswahAssistantMode.fiqhAdvisory
-                ? 'AI guidance is not a binding fatwa. Review cited sources and consult a qualified scholar for complex cases.'
+                ? 'Answers are generated by AI and may contain mistakes. They are not a personal fatwa.'
                 : mode == NiswahAssistantMode.health
-                ? 'Doctor Niswah offers health guidance, not diagnosis or emergency care. Consult a licensed clinician when needed.'
-                : 'Niswah AI offers general guidance, not medical diagnoses or religious rulings.',
+                ? 'Answers are generated by AI and may contain mistakes. Not a diagnosis or emergency care.'
+                : 'Answers are generated by AI and may contain mistakes.',
             mode == NiswahAssistantMode.fiqhAdvisory
-                ? 'الإرشاد الآلي ليس فتوى ملزمة. راجعي المصادر واستشيري مختصة شرعية للحالات المعقدة.'
+                ? 'الإجابات مولّدة بالذكاء الاصطناعي وقد تحتمل الخطأ، وليست فتوى شخصية.'
                 : mode == NiswahAssistantMode.health
-                ? 'الطبيبة نسوة تقدم إرشاداً صحياً عاماً، وليس تشخيصاً أو رعاية طارئة. راجعي طبيبة مختصة عند الحاجة.'
-                : 'نسوة AI للمعلومات العامة، وليست بديلاً عن التشخيص الطبي أو الفتوى الشرعية.',
+                ? 'الإجابات مولّدة بالذكاء الاصطناعي وقد تحتمل الخطأ، وليست تشخيصًا أو رعاية طارئة.'
+                : 'الإجابات مولّدة بالذكاء الاصطناعي وقد تحتمل الخطأ.',
           ),
           textAlign: TextAlign.center,
           style: TextStyle(
@@ -701,7 +742,7 @@ class _AiHeader extends StatelessWidget {
             mode == NiswahAssistantMode.health
                 ? _ai('Health guidance', 'إرشاد صحي')
                 : mode == NiswahAssistantMode.fiqhAdvisory
-                ? _ai('Source required', 'بانتظار المصادر')
+                ? _ai('Fiqh guidance', 'إرشاد فقهي')
                 : _ai('General assistant', 'مساعدة عامة'),
             style: const TextStyle(
               color: Color(0xFF9F3158),
@@ -738,9 +779,17 @@ class _AiHeader extends StatelessWidget {
 }
 
 class _Welcome extends StatelessWidget {
-  const _Welcome({required this.mode, required this.onPrompt});
+  const _Welcome({
+    required this.mode,
+    required this.onPrompt,
+    required this.onOpenFiqh,
+  });
   final NiswahAssistantMode mode;
   final ValueChanged<String> onPrompt;
+
+  /// The "فقه" tile in Doctor Niswah opens the Fiqh advisor itself, never a
+  /// general chat (TestFlight Feedback 2, page 4).
+  final VoidCallback onOpenFiqh;
 
   bool get _isPostpartum => PregnancyStatusController.instance.isNifasActive;
   bool get _isPregnant =>
@@ -905,9 +954,11 @@ class _Welcome extends StatelessWidget {
               const SizedBox(width: 9),
               Expanded(
                 child: _Topic(
+                  key: const Key('chat-topic-fiqh'),
                   icon: Icons.menu_book_outlined,
                   label: _ai('Fiqh', 'فقه'),
                   color: Color(0xFF14926D),
+                  onTap: onOpenFiqh,
                 ),
               ),
             ],
@@ -937,12 +988,32 @@ class _Welcome extends StatelessWidget {
 }
 
 class _Topic extends StatelessWidget {
-  const _Topic({required this.icon, required this.label, required this.color});
+  const _Topic({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.color,
+    this.onTap,
+  });
   final IconData icon;
   final String label;
   final Color color;
+  final VoidCallback? onTap;
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final tile = _tile();
+    if (onTap == null) return tile;
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: tile,
+      ),
+    );
+  }
+
+  Widget _tile() => Container(
     padding: const EdgeInsets.symmetric(vertical: 15),
     decoration: BoxDecoration(
       color: Colors.white,
@@ -1123,12 +1194,16 @@ class _Composer extends StatelessWidget {
 class _Message extends StatelessWidget {
   const _Message({
     required this.message,
+    required this.mode,
+    required this.notice,
     required this.busy,
     required this.onRetry,
     required this.onEdit,
     required this.onOpenRoute,
   });
   final ChatMessage message;
+  final NiswahAssistantMode mode;
+  final NoticeLines notice;
   final bool busy;
   final ValueChanged<ChatMessage> onRetry;
   final ValueChanged<ChatMessage> onEdit;
@@ -1142,9 +1217,14 @@ class _Message extends StatelessWidget {
   );
   bool get _urgent => message.metadata['urgent'] == true;
   bool get _failed => message.metadata[ChatViewModel.deliveryKey] == 'failed';
+
+  /// A suggestion to continue in another chat. Never a button to this
+  /// same chat (that would be a circular handoff).
   String? get _route {
     final route = message.metadata['route'];
-    return route == 'fiqh' || route == 'health' ? route as String : null;
+    if (route != 'fiqh' && route != 'health') return null;
+    if (route == assistantIdFor(mode)) return null;
+    return route as String;
   }
 
   @override
@@ -1284,6 +1364,10 @@ class _Message extends StatelessWidget {
                   if (!mine && _citations.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     _SourcesSection(citations: _citations),
+                  ],
+                  if (!mine && !notice.isEmpty) ...[
+                    const SizedBox(height: 8),
+                    _AnswerNoticeLines(lines: notice),
                   ],
                 ],
               ),
@@ -1527,6 +1611,60 @@ class _SourceLine extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The short notes under an answer (TestFlight Feedback 2): that a health
+/// or fiqh answer is AI-generated general information when no Niswah
+/// source supports it, and, when it touches a personal decision, where to
+/// verify it. Small and after the answer, so the answer is read first.
+class _AnswerNoticeLines extends StatelessWidget {
+  const _AnswerNoticeLines({required this.lines});
+  final NoticeLines lines;
+
+  @override
+  Widget build(BuildContext context) {
+    final texts = [
+      if (lines.aiGenerated)
+        _ai(
+          'General information generated by AI; it may contain mistakes.',
+          'معلومة عامة مولّدة بالذكاء الاصطناعي، وقد تحتمل الخطأ.',
+        ),
+      if (lines.verify == 'medical')
+        _ai(
+          'Check with a qualified doctor before making a treatment decision.',
+          'تأكدي من طبيبة مختصة قبل اتخاذ قرار علاجي.',
+        ),
+      if (lines.verify == 'fiqh')
+        _ai(
+          'To confirm the ruling for your own situation, ask a trusted fatwa authority or a scholar you trust.',
+          'وللتأكد من الحكم في حالتك، راجعي جهة إفتاء موثوقة أو عالمة تثقين بها.',
+        ),
+    ];
+    return Row(
+      key: const Key('chat-answer-notice'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsetsDirectional.only(top: 2, end: 6),
+          child: Icon(
+            Icons.info_outline_rounded,
+            size: 13,
+            color: Color(0xFFB08A80),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            texts.join(' '),
+            style: const TextStyle(
+              color: Color(0xFF9D7B72),
+              fontSize: 11,
+              height: 1.45,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

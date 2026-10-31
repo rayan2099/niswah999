@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**173 existing Markdown documents**, grouped by source folder.
+**174 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -40,6 +40,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 ## docs/ai
 
+- [ai-chat-testflight-feedback-2-2026-10-31.md](../../docs/ai/ai-chat-testflight-feedback-2-2026-10-31.md)
 - [ai-chat-testing-feedback-2026-10-30.md](../../docs/ai/ai-chat-testing-feedback-2026-10-30.md)
 
 ## docs/engineering

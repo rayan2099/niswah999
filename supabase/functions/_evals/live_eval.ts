@@ -12,8 +12,8 @@
 //   REPEATS=3 deno run --allow-net --allow-env --allow-read --allow-write \
 //     supabase/functions/_evals/live_eval.ts > eval-results.jsonl
 //
-// Not yet run: it needs a staging test account and model credentials on
-// staging, which this change does not provision.
+// Needs a staging test account and a working staging OPENAI_API_KEY.
+// Optional: CASES=TF2-01,TF2-03 to run a subset.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -24,6 +24,7 @@ interface EvalCase {
   feature: 'ai-assistant-chat' | 'dr-niswah-chat' | 'fiqh-advisor-chat' | 'dream-interpreter-chat';
   turns: string[];
   madhhab?: string;
+  madhhab_state?: 'selected' | 'unset' | 'unknown';
   checks: Record<string, unknown>;
 }
 
@@ -43,9 +44,12 @@ if (signInError) {
 }
 const userId = (await client.auth.getUser()).data.user!.id;
 const repeats = Number(Deno.env.get('REPEATS') ?? '3');
-const { cases } = JSON.parse(
+const { cases: allCases } = JSON.parse(
   await Deno.readTextFile(new URL('./ai_eval_cases.json', import.meta.url)),
 ) as { cases: EvalCase[] };
+// CASES=TF2-01,TF2-02 runs a subset.
+const only = (Deno.env.get('CASES') ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+const cases = only.length ? allCases.filter((c) => only.includes(c.id)) : allCases;
 
 const sentences = (t: string) => t.split(/[.!؟?\n]+/).filter((s) => s.trim().length > 2).length;
 const questions = (t: string) => (t.match(/[؟?]/g) ?? []).length;
@@ -67,7 +71,12 @@ for (const c of cases) {
       const body = c.feature === 'dr-niswah-chat'
         ? { threadId, content: turn, clientMessageId: requestId, history }
         : c.feature === 'fiqh-advisor-chat'
-        ? { question: turn, madhhab: c.madhhab, madhhab_state: 'selected', history }
+        ? {
+          question: turn,
+          madhhab: c.madhhab ?? null,
+          madhhab_state: c.madhhab_state ?? (c.madhhab ? 'selected' : 'unset'),
+          history,
+        }
         : c.feature === 'dream-interpreter-chat'
         ? { prompt: [...transcript, `User: ${turn}`, 'Assistant:'].join('\n') }
         : { content: turn, madhhab: null, madhhab_state: 'unset', history };
@@ -76,15 +85,20 @@ for (const c of cases) {
         headers: { 'x-niswah-request-id': requestId },
       });
       const reply: string = data?.reply ?? data?.text ?? '';
-      const citations: { url?: string }[] = data?.citations ?? [];
+      const citations: { url?: string; title?: string; knowledgeKey?: string }[] = data?.citations ?? [];
       const urls = citations.map((x) => x.url ?? '');
       console.log(JSON.stringify({
         case: c.id, feature: c.feature, run, turn: index + 1, message: turn, requestId,
         ms: Date.now() - started,
         error: error ? String(error.message ?? error) : null,
         kind: data?.kind ?? null, route: data?.route ?? null, urgent: data?.urgent ?? null,
+        notice: data?.notice ?? null,
+        sources: citations.map((x) => `${x.knowledgeKey ?? ''} ${x.title ?? ''} <${x.url ?? ''}>`),
         reply,
         auto: {
+          no_text_hits: ((c.checks.no_text as string[] | undefined) ?? []).filter((t) => reply.includes(t)),
+          bad_sources: ((c.checks.no_source_title as string[] | undefined) ?? [])
+            .filter((t) => citations.some((x) => (x.title ?? '').includes(t))),
           arabic: isArabic(reply),
           sentences: sentences(reply),
           questions: questions(reply),
@@ -93,7 +107,7 @@ for (const c of cases) {
           markdown: /(^|\n)\s*([#*-]|\d+\.)\s|\*\*/.test(reply),
         },
         rubric: Object.fromEntries(
-          ['relevance', 'helpfulness', 'arabic_naturalness', 'concision', 'grounding', 'clarification', 'safety']
+          ['directness', 'relevance', 'continuity', 'helpfulness', 'arabic_naturalness', 'concision', 'safety', 'uncertainty', 'citation_relevance', 'notice_fit']
             .map((k) => [k, null]),
         ),
       }));
