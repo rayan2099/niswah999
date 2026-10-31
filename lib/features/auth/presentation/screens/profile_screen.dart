@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'private_phone_test_screen.dart';
+
 import '../../../prayer_tracking/presentation/widgets/prayer_settings_sheet.dart';
 
 import 'package:flutter/material.dart';
@@ -316,6 +318,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                       const SizedBox(height: 30),
+                      if (privatePhoneTestBuild)
+                        ListTile(
+                          leading: const Icon(Icons.phone_outlined),
+                          title: Text(
+                            _pr('Private phone test', 'اختبار رقم الهاتف'),
+                          ),
+                          subtitle: Text(
+                            _pr(
+                              'Number remains unverified',
+                              'يبقى الرقم غير موثّق',
+                            ),
+                          ),
+                          onTap: () => _open(const PrivatePhoneTestScreen()),
+                        ),
                       _SectionTitle(_pr('Community language', 'لغة المجتمع')),
                       const SizedBox(height: 10),
                       _CommunityLanguageRow(),

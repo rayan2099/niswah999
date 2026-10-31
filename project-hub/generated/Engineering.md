@@ -197,3 +197,4 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [20261022084701_app_wide_notifications.sql](../../supabase/migrations/20261022084701_app_wide_notifications.sql)
 - [20261026090000_revoke_anon_security_definer_execute.sql](../../supabase/migrations/20261026090000_revoke_anon_security_definer_execute.sql)
 - [20261026160000_app_rls_initplan_and_notification_cleanup_cron.sql](../../supabase/migrations/20261026160000_app_rls_initplan_and_notification_cleanup_cron.sql)
+- [20261030210000_private_phone_testing.sql](../../supabase/migrations/20261030210000_private_phone_testing.sql)

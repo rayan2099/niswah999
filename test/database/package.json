@@ -1,0 +1,11 @@
+{
+  "name": "niswah-private-phone-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node private_phone_testing.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.13"
+  }
+}
