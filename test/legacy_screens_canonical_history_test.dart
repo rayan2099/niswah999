@@ -77,7 +77,9 @@ void main() {
     expect(find.text('Insufficient data'), findsOneWidget);
     // No "No cycle history yet" while a real reported period exists.
     expect(find.text('No cycle history yet'), findsNothing);
-    expect(find.textContaining('Reported period'), findsOneWidget);
+    // TestFlight Feedback 2: the reported period is a "Completed" period
+    // entry in the redesigned history (it used to read "Reported period").
+    expect(find.text('Completed'), findsOneWidget);
   });
 
   testWidgets('Calendar no longer says "log two cycle starts" for the same '
