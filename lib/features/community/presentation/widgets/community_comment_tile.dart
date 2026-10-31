@@ -13,11 +13,17 @@ class CommunityCommentTile extends StatelessWidget {
     required this.comment,
     required this.isOwnComment,
     this.onDelete,
+    this.onReport,
+    this.onBlock,
   });
 
   final CommunityComment comment;
   final bool isOwnComment;
   final VoidCallback? onDelete;
+
+  /// Report / block the commenter; offered on other members' comments.
+  final VoidCallback? onReport;
+  final VoidCallback? onBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -57,22 +63,43 @@ class CommunityCommentTile extends StatelessWidget {
               ],
             ),
           ),
-          if (isOwnComment && onDelete != null)
+          if ((isOwnComment && onDelete != null) ||
+              (!isOwnComment && (onReport != null || onBlock != null)))
             PopupMenuButton<String>(
+              key: const ValueKey('community-comment-menu'),
               padding: EdgeInsets.zero,
+              tooltip: _t('More options', 'خيارات أخرى'),
               icon: Icon(
                 Icons.more_horiz_rounded,
                 color: palette.textFaint,
                 size: 16,
               ),
               onSelected: (value) {
-                if (value == 'delete') onDelete!.call();
+                switch (value) {
+                  case 'delete':
+                    onDelete?.call();
+                  case 'report':
+                    onReport?.call();
+                  case 'block':
+                    onBlock?.call();
+                }
               },
               itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'delete',
-                  child: Text(_t('Delete', 'حذف')),
-                ),
+                if (isOwnComment)
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text(_t('Delete', 'حذف')),
+                  ),
+                if (!isOwnComment && onReport != null)
+                  PopupMenuItem(
+                    value: 'report',
+                    child: Text(_t('Report comment', 'الإبلاغ عن التعليق')),
+                  ),
+                if (!isOwnComment && onBlock != null)
+                  PopupMenuItem(
+                    value: 'block',
+                    child: Text(_t('Block member', 'حظر العضوة')),
+                  ),
               ],
             ),
         ],

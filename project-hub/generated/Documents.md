@@ -10,7 +10,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 [Project home](../Home.md)
 
-**190 existing Markdown documents**, grouped by source folder.
+**191 existing Markdown documents**, grouped by source folder.
 
 ## .
 
@@ -29,6 +29,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [account-tracking-candidate-2026-10-30.md](../../docs/account-tracking-candidate-2026-10-30.md)
 - [account-tracking-integration-2026-10-30.md](../../docs/account-tracking-integration-2026-10-30.md)
 - [combined-schema-security-2026-10-30.md](../../docs/combined-schema-security-2026-10-30.md)
+- [community-ugc-safety.md](../../docs/community-ugc-safety.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
 - [cycle-sync-ack-owner-2026-10-30.md](../../docs/cycle-sync-ack-owner-2026-10-30.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)

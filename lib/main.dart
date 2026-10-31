@@ -44,6 +44,8 @@ import 'features/auth/presentation/screens/sign_in_screen.dart';
 import 'features/auth/presentation/screens/password_recovery_screen.dart';
 import 'features/community/presentation/screens/community_board_screen.dart';
 import 'features/community/presentation/widgets/community_language_gate.dart';
+import 'features/community/safety/community_safety_controller.dart';
+import 'features/community/safety/community_terms_gate.dart';
 import 'features/cycle_tracking/data/repositories/bleeding_episode_repository_impl.dart';
 import 'features/cycle_tracking/presentation/screens/cycle_tracking_screen.dart';
 import 'features/cycle_tracking/presentation/viewmodels/cycle_tracking_view_model.dart';
@@ -695,6 +697,9 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
     // startup read twice — cycle_entries, bleeding_episodes and
     // cycle_baselines (proposed, prediction-efficiency audit 2026-10-21).
     _cycleViewModel = CycleTrackingViewModel();
+    // Blocks, community-terms state and moderator flag for this account,
+    // so blocked members disappear everywhere at once (guideline 1.2).
+    unawaited(CommunitySafetyController.instance.load());
     WidgetsBinding.instance.addObserver(this);
     _notificationTaps = NotificationService.instance.onTap.listen(
       (_) => unawaited(_routeNotification()),
@@ -825,6 +830,14 @@ class _NiswahHomeShellState extends State<NiswahHomeShell>
           if (index == 3 && !CommunityLanguageController.instance.isSelected) {
             final chosen = await showCommunityLanguageGate(context);
             if (chosen == null) return;
+          }
+          // App Store guideline 1.2: community terms (zero tolerance for
+          // objectionable content and abusive members) are accepted before
+          // any user-generated content is shown.
+          if (index == 3 &&
+              context.mounted &&
+              !await ensureCommunityTermsAccepted(context)) {
+            return;
           }
           if (!mounted) return;
           setState(() {

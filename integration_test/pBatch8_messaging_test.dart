@@ -79,6 +79,7 @@ void main() {
     await h.scrollToTop();
     await h.tapVisible(find.text('Community'), last: true);
     await h.settle(3);
+    await h.acceptCommunityTermsIfShown();
     await h.tapVisible(find.bySemanticsLabel('Create post'));
     await h.settle(2);
     await tester.enterText(find.byType(TextField).last, body);
@@ -101,6 +102,7 @@ void main() {
     await h.scrollToTop();
     await h.tapVisible(find.text('Community'), last: true);
     await h.settle(3);
+    await h.acceptCommunityTermsIfShown();
     final bSeesPost = (await texts('MB feed')).contains(body);
 
     // COMM-07: tap the author name -> preview sheet.
@@ -237,6 +239,7 @@ void main() {
     await h.scrollToTop();
     await h.tapVisible(find.text('Community'), last: true);
     await h.settle(3);
+    await h.acceptCommunityTermsIfShown();
     await texts('MA community with unread');
     await h.shot('M', 'A_community_unread');
     await h.tapVisible(find.text('Messages').first);

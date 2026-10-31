@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../community/safety/community_safety_controller.dart';
 import '../../domain/entities/private_conversation.dart';
 import '../conversation_title.dart';
 import '../viewmodels/conversations_view_model.dart';
@@ -73,10 +74,22 @@ class _ConversationsScreenState extends State<ConversationsScreen>
         centerTitle: true,
       ),
       body: AnimatedBuilder(
-        animation: widget.viewModel,
+        animation: Listenable.merge([
+          widget.viewModel,
+          CommunitySafetyController.instance,
+        ]),
         builder: (context, _) {
-          if (widget.viewModel.isLoading &&
-              widget.viewModel.conversations.isEmpty) {
+          // Conversations with blocked members are hidden (and the server
+          // refuses new messages either way).
+          final safety = CommunitySafetyController.instance;
+          final conversations = widget.viewModel.conversations
+              .where(
+                (conversation) => !safety.isBlocked(
+                  conversation.otherParticipant(widget.viewModel.currentUserId),
+                ),
+              )
+              .toList();
+          if (widget.viewModel.isLoading && conversations.isEmpty) {
             return Center(
               child: CircularProgressIndicator(
                 color: const Color(0xFFE91E4D),
@@ -87,8 +100,7 @@ class _ConversationsScreenState extends State<ConversationsScreen>
               ),
             );
           }
-          if (widget.viewModel.errorMessage != null &&
-              widget.viewModel.conversations.isEmpty) {
+          if (widget.viewModel.errorMessage != null && conversations.isEmpty) {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -113,7 +125,7 @@ class _ConversationsScreenState extends State<ConversationsScreen>
               ),
             );
           }
-          if (widget.viewModel.conversations.isEmpty) {
+          if (conversations.isEmpty) {
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -136,10 +148,10 @@ class _ConversationsScreenState extends State<ConversationsScreen>
             color: const Color(0xFFE91E4D),
             onRefresh: widget.viewModel.loadConversations,
             child: ListView.separated(
-              itemCount: widget.viewModel.conversations.length,
+              itemCount: conversations.length,
               separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (context, index) {
-                final conversation = widget.viewModel.conversations[index];
+                final conversation = conversations[index];
                 return ListTile(
                   leading: CircleAvatar(
                     backgroundColor: const Color(0xFFFFE4E6),

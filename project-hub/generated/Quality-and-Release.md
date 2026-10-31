@@ -28,6 +28,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [account-tracking-candidate-2026-10-30.md](../../docs/account-tracking-candidate-2026-10-30.md)
 - [account-tracking-integration-2026-10-30.md](../../docs/account-tracking-integration-2026-10-30.md)
 - [combined-schema-security-2026-10-30.md](../../docs/combined-schema-security-2026-10-30.md)
+- [community-ugc-safety.md](../../docs/community-ugc-safety.md)
 - [cycle-prediction-model.md](../../docs/cycle-prediction-model.md)
 - [cycle-sync-ack-owner-2026-10-30.md](../../docs/cycle-sync-ack-owner-2026-10-30.md)
 - [database-migration-strategy.md](../../docs/database-migration-strategy.md)
@@ -203,6 +204,8 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_language_gate_test.dart](../../test/community_language_gate_test.dart)
 - [community_language_highlight_test.dart](../../test/community_language_highlight_test.dart)
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
+- [community_safety_contract_test.dart](../../test/community_safety_contract_test.dart)
+- [community_safety_flows_test.dart](../../test/community_safety_flows_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
 - [correction_sheet_test.dart](../../test/correction_sheet_test.dart)
 - [cycle_calculation_asof_boundary_test.dart](../../test/cycle_calculation_asof_boundary_test.dart)
@@ -317,6 +320,10 @@ These links do not certify current runtime behavior, review approval, or launch 
 
 - [account_boundary_test.dart](../../test/account_isolation/account_boundary_test.dart)
 - [entry_draft_after_session_end_test.dart](../../test/account_isolation/entry_draft_after_session_end_test.dart)
+
+## test/auth
+
+- [signup_email_guidance_test.dart](../../test/auth/signup_email_guidance_test.dart)
 
 ## test/fiqh_hardening
 
