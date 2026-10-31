@@ -561,10 +561,7 @@ class NotificationRefreshCoordinator {
     if (result is LoadDegraded<List<BleedingEpisode>>) return null;
     return [
       for (final episode in result.dataOrNull ?? const <BleedingEpisode>[])
-        CanonicalEpisodeTiming(
-          startDate: episode.startDate,
-          endDate: episode.endDate,
-        ),
+        CanonicalEpisodeTiming.of(episode),
     ];
   }
 

@@ -12,6 +12,7 @@ import '../../../../core/widgets/niswah_loading_indicator.dart';
 import '../../../notifications/domain/services/notification_scheduler.dart';
 import '../../data/local/pending_bleeding_operation_store.dart';
 import '../../data/repositories/bleeding_episode_repository_impl.dart';
+import '../../data/repositories/episode_correction_repository.dart';
 import '../../data/repositories/cycle_entries_projection.dart';
 import '../../domain/entities/bleeding_episode.dart';
 
@@ -409,11 +410,19 @@ class _StartBleedingSheetState extends State<_StartBleedingSheet> {
 /// so the user cannot even attempt an impossible date (Blocker 11) — the
 /// canonical `end_bleeding_episode` RPC still re-validates this itself as
 /// defense in depth.
+///
+/// PT-027: once the end is saved on the server, a snackbar offers "Undo"
+/// for an end tapped by mistake; it reopens the episode through
+/// `reopen_episode` (the queued end's operation id is tombstoned there, so
+/// a late replay cannot end it again) and then runs [onUndone].
 Future<bool> showEndBleedingSheet(
   BuildContext context, {
   required String episodeId,
   required DateTime episodeStartDate,
+  VoidCallback? onUndone,
+  @visibleForTesting EpisodeCorrectionRepository? correctionsOverride,
 }) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
   final result = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -422,6 +431,45 @@ Future<bool> showEndBleedingSheet(
       episodeStartDate: episodeStartDate,
     ),
   );
+  if (result == true && messenger != null) {
+    final undoOperation = const Uuid().v4();
+    messenger.showSnackBar(
+      SnackBar(
+        key: const Key('end-bleeding-undo-snackbar'),
+        duration: const Duration(seconds: 8),
+        content: Text(_t('Period ended.', 'تم تسجيل انتهاء الحيض.')),
+        action: SnackBarAction(
+          label: _t('Undo', 'تراجع'),
+          onPressed: () async {
+            final undone =
+                await (correctionsOverride ?? EpisodeCorrectionRepository())
+                    .reopen(
+                      clientOperationId: undoOperation,
+                      episodeId: episodeId,
+                      revisionToken: null,
+                    );
+            onUndone?.call();
+            messenger.showSnackBar(
+              SnackBar(
+                content: Text(
+                  undone.saved
+                      ? _t(
+                          'Undone. Your period is ongoing.',
+                          'تم التراجع. حيضكِ مستمر.',
+                        )
+                      : _t(
+                          "Couldn't undo. You can change it from the cycle "
+                              'calendar.',
+                          'تعذّر التراجع. يمكنكِ تعديله من تقويم الدورة.',
+                        ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
   return result ?? false;
 }
 

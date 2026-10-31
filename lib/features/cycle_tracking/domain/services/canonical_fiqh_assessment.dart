@@ -21,6 +21,11 @@ enum CanonicalFiqhVerdict {
   /// An episode is factually open, but fewer than two cycles are recorded,
   /// so nothing can be worked out yet. Never a confident Tahara.
   insufficientHistory,
+
+  /// PT-002: her most recent period ended on a day she does not know, so
+  /// its length and every ruling since cannot be worked out without
+  /// inventing that end. No ruling until she adds the end.
+  lastEndUnknown,
 }
 
 /// The one combination of canonical episode status with
@@ -100,6 +105,17 @@ class CanonicalFiqhAssessment {
 
     if (evidenceUnresolved || hasOpenEpisode == null) {
       return result(CanonicalFiqhVerdict.evidenceUnresolved);
+    }
+    // PT-002: her most recent period ended on a day she does not know. Its
+    // length, and so any ruling on the days since, cannot be determined
+    // without inventing that end, so no ruling is shown until she adds it.
+    final latest = canonicalEpisodes.isEmpty
+        ? null
+        : canonicalEpisodes.reduce(
+            (a, b) => b.startDate.isAfter(a.startDate) ? b : a,
+          );
+    if (latest != null && latest.endUnknown) {
+      return result(CanonicalFiqhVerdict.lastEndUnknown);
     }
     if (hasOpenEpisode && !calculation.hasSufficientHistory) {
       return result(CanonicalFiqhVerdict.insufficientHistory);
