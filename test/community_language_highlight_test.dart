@@ -63,11 +63,9 @@ void main() {
     await tester.pumpAndSettle();
     final ar = find.byKey(const Key('community-language-ar'));
     final en = find.byKey(const Key('community-language-en'));
-    await tester.scrollUntilVisible(
-      ar,
-      300,
-      scrollable: find.byType(Scrollable).last,
-    );
+    // Follow this control's scroll ancestors; the community safety UI adds
+    // a nested non-scrollable list that is unrelated to this setting.
+    await tester.ensureVisible(ar);
     await tester.pumpAndSettle();
 
     expect(tester.getSemantics(en).flagsCollection.isSelected, Tristate.isTrue);
