@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/errors/app_error_reporter.dart';
+import '../../../community/safety/community_write_error.dart';
 import '../../domain/entities/private_message.dart';
 import '../../domain/repositories/private_messaging_repository_base.dart';
 
@@ -55,6 +56,9 @@ class ChatDetailViewModel extends ChangeNotifier {
   bool isSending = false;
   String? errorMessage;
 
+  /// Set when the last send was refused by a community safety rule.
+  CommunityWriteError? sendError;
+
   /// Stable id for the message currently being sent, reused across manual
   /// retries of the same submit so a retry after a timeout upserts the
   /// same row instead of creating a duplicate message — same pattern as
@@ -103,6 +107,7 @@ class ChatDetailViewModel extends ChangeNotifier {
     if (content.trim().isEmpty) return false;
     isSending = true;
     errorMessage = null;
+    sendError = null;
     notifyListeners();
     final messageId = _pendingMessageId ??= const Uuid().v4();
     try {
@@ -122,6 +127,10 @@ class ChatDetailViewModel extends ChangeNotifier {
       return true;
     } catch (e, stack) {
       errorMessage = e.toString();
+      sendError = CommunityWriteError.from(e);
+      // A safety refusal (blocked word, block, suspension) is an expected
+      // outcome, not a fault worth reporting.
+      if (sendError != null) return false;
       AppErrorReporter.report(
         e,
         stack,

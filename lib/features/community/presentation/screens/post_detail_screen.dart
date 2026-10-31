@@ -7,6 +7,9 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../domain/entities/community_category_x.dart';
 import '../../domain/entities/community_post.dart';
+import '../../safety/community_safety_actions.dart';
+import '../../safety/community_safety_controller.dart';
+import '../../safety/community_safety_models.dart';
 import '../community_palette.dart';
 import '../viewmodels/community_feed_view_model.dart';
 import '../viewmodels/post_detail_view_model.dart';
@@ -27,6 +30,8 @@ class PostDetailScreen extends StatefulWidget {
     required this.feedViewModel,
     this.onMessageAuthor,
     this.onAuthorTap,
+    this.onReport,
+    this.onBlock,
   });
 
   final CommunityPost post;
@@ -38,6 +43,10 @@ class PostDetailScreen extends StatefulWidget {
   final CommunityFeedViewModel feedViewModel;
   final VoidCallback? onMessageAuthor;
   final VoidCallback? onAuthorTap;
+
+  /// Report the post / block its author. Blocking closes this screen.
+  final VoidCallback? onReport;
+  final Future<bool> Function()? onBlock;
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
@@ -119,6 +128,15 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  Future<void> _blockPostAuthor() async {
+    final blocked = await widget.onBlock?.call() ?? false;
+    if (blocked && mounted) Navigator.pop(context, true);
+  }
+
+  Future<void> _blockCommenter(String userId, String name) async {
+    await confirmBlockMember(context, userId: userId, displayName: name);
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = CommunityPalette.of(context);
@@ -151,17 +169,41 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 final isOwnPost =
                     widget.currentUserId != null &&
                     _viewModel.post.userId == widget.currentUserId;
-                if (!isOwnPost) return const SizedBox.shrink();
+                if (!isOwnPost &&
+                    widget.onReport == null &&
+                    widget.onBlock == null) {
+                  return const SizedBox.shrink();
+                }
                 return PopupMenuButton<String>(
+                  key: const ValueKey('post-detail-menu'),
+                  tooltip: _t('More options', 'خيارات أخرى'),
                   icon: Icon(Icons.more_horiz_rounded, color: palette.text),
                   onSelected: (value) {
-                    if (value == 'delete') _handleDeletePost();
+                    switch (value) {
+                      case 'delete':
+                        _handleDeletePost();
+                      case 'report':
+                        widget.onReport?.call();
+                      case 'block':
+                        _blockPostAuthor();
+                    }
                   },
                   itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'delete',
-                      child: Text(_t('Delete post', 'حذف المنشور')),
-                    ),
+                    if (isOwnPost)
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Text(_t('Delete post', 'حذف المنشور')),
+                      ),
+                    if (!isOwnPost && widget.onReport != null)
+                      PopupMenuItem(
+                        value: 'report',
+                        child: Text(_t('Report post', 'الإبلاغ عن المنشور')),
+                      ),
+                    if (!isOwnPost && widget.onBlock != null)
+                      PopupMenuItem(
+                        value: 'block',
+                        child: Text(_t('Block member', 'حظر العضوة')),
+                      ),
                   ],
                 );
               },
@@ -170,9 +212,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         ),
         body: SafeArea(
           child: AnimatedBuilder(
-            animation: _viewModel,
+            animation: Listenable.merge([
+              _viewModel,
+              CommunitySafetyController.instance,
+            ]),
             builder: (context, _) {
               final post = _viewModel.post;
+              final safety = CommunitySafetyController.instance;
+              final comments = _viewModel.comments
+                  .where((comment) => !safety.isBlocked(comment.userId))
+                  .toList();
               final displayName = post.isAnonymous
                   ? _t('Visitor', 'زائرة')
                   : post.authorName;
@@ -321,7 +370,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               ),
                             ),
                           )
-                        else if (_viewModel.comments.isEmpty)
+                        else if (comments.isEmpty)
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 24),
                             child: Text(
@@ -336,18 +385,39 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             ),
                           )
                         else
-                          ..._viewModel.comments.map(
+                          ...comments.map(
                             (comment) => CommunityCommentTile(
                               comment: comment,
                               isOwnComment:
                                   widget.currentUserId != null &&
                                   comment.userId == widget.currentUserId,
                               onDelete: () => _deleteComment(comment.id),
+                              onReport: () => showCommunityReportSheet(
+                                context,
+                                targetType: ReportTargetType.comment,
+                                targetId: comment.id,
+                              ),
+                              onBlock: () => _blockCommenter(
+                                comment.userId,
+                                comment.authorName,
+                              ),
                             ),
                           ),
                       ],
                     ),
                   ),
+                  if (_viewModel.errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+                      child: Text(
+                        _viewModel.errorMessage!,
+                        key: const ValueKey('post-detail-error'),
+                        style: const TextStyle(
+                          color: AppColors.error,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ),
                   CommunityCommentComposer(
                     isSubmitting: _viewModel.isSubmittingComment,
                     onSubmit: _addComment,

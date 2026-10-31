@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/localization/app_locale_controller.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../community/safety/community_safety_actions.dart';
+import '../../../community/safety/community_safety_controller.dart';
+import '../../../community/safety/community_safety_models.dart';
 import '../../domain/entities/private_conversation.dart';
 import '../../private_messaging_locator.dart';
 import '../conversation_title.dart';
@@ -128,8 +131,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     if (text.trim().isEmpty) return;
     _inputController.clear();
     final sent = await _viewModel.sendMessage(text);
-    if (sent) _scrollToBottom();
+    if (sent) {
+      _scrollToBottom();
+    } else if (mounted && _inputController.text.isEmpty) {
+      // Keep what she wrote so she can edit it (e.g. a blocked word).
+      _inputController.text = text;
+    }
   }
+
+  String get _otherUserId =>
+      widget.conversation.otherParticipant(widget.currentUserId);
+
+  Future<void> _blockOther() async {
+    final blocked = await confirmBlockMember(
+      context,
+      userId: _otherUserId,
+      displayName: widget.otherDisplayName,
+    );
+    if (blocked && mounted) Navigator.of(context).pop();
+  }
+
+  void _reportMessage(String messageId) => showCommunityReportSheet(
+    context,
+    targetType: ReportTargetType.message,
+    targetId: messageId,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -139,6 +165,34 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       appBar: AppBar(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
+        actions: [
+          PopupMenuButton<String>(
+            key: const ValueKey('chat-detail-menu'),
+            tooltip: _pm('More options', 'خيارات أخرى'),
+            onSelected: (value) {
+              switch (value) {
+                case 'report':
+                  showCommunityReportSheet(
+                    context,
+                    targetType: ReportTargetType.user,
+                    targetId: _otherUserId,
+                  );
+                case 'block':
+                  _blockOther();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'report',
+                child: Text(_pm('Report member', 'الإبلاغ عن العضوة')),
+              ),
+              PopupMenuItem(
+                value: 'block',
+                child: Text(_pm('Block member', 'حظر العضوة')),
+              ),
+            ],
+          ),
+        ],
         title: Row(
           children: [
             CircleAvatar(
@@ -204,68 +258,73 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                     itemBuilder: (context, index) {
                       final message = _viewModel.messages[index];
                       final mine = _viewModel.isMine(message);
-                      return Align(
-                        alignment: mine
-                            ? AlignmentDirectional.centerEnd
-                            : AlignmentDirectional.centerStart,
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          constraints: BoxConstraints(
-                            maxWidth: MediaQuery.sizeOf(context).width * 0.75,
-                          ),
-                          decoration: BoxDecoration(
-                            color: mine
-                                ? const Color(0xFFE91E4D)
-                                : Colors.white,
-                            borderRadius: BorderRadiusDirectional.only(
-                              topStart: const Radius.circular(16),
-                              topEnd: const Radius.circular(16),
-                              bottomStart: Radius.circular(mine ? 16 : 4),
-                              bottomEnd: Radius.circular(mine ? 4 : 16),
+                      return GestureDetector(
+                        onLongPress: mine
+                            ? null
+                            : () => _reportMessage(message.id),
+                        child: Align(
+                          alignment: mine
+                              ? AlignmentDirectional.centerEnd
+                              : AlignmentDirectional.centerStart,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
                             ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                message.content,
-                                style: TextStyle(
-                                  color: mine ? Colors.white : Colors.black87,
-                                  fontSize: 14,
-                                  height: 1.4,
-                                ),
+                            constraints: BoxConstraints(
+                              maxWidth: MediaQuery.sizeOf(context).width * 0.75,
+                            ),
+                            decoration: BoxDecoration(
+                              color: mine
+                                  ? const Color(0xFFE91E4D)
+                                  : Colors.white,
+                              borderRadius: BorderRadiusDirectional.only(
+                                topStart: const Radius.circular(16),
+                                topEnd: const Radius.circular(16),
+                                bottomStart: Radius.circular(mine ? 16 : 4),
+                                bottomEnd: Radius.circular(mine ? 4 : 16),
                               ),
-                              const SizedBox(height: 3),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    _formatTime(message.createdAt),
-                                    style: TextStyle(
-                                      color: mine
-                                          ? Colors.white70
-                                          : AppColors.textSecondary,
-                                      fontSize: 9,
-                                    ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  message.content,
+                                  style: TextStyle(
+                                    color: mine ? Colors.white : Colors.black87,
+                                    fontSize: 14,
+                                    height: 1.4,
                                   ),
-                                  if (mine) ...[
-                                    const SizedBox(width: 4),
-                                    Icon(
-                                      message.isRead
-                                          ? Icons.done_all_rounded
-                                          : Icons.done_rounded,
-                                      size: 12,
-                                      color: Colors.white70,
+                                ),
+                                const SizedBox(height: 3),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      _formatTime(message.createdAt),
+                                      style: TextStyle(
+                                        color: mine
+                                            ? Colors.white70
+                                            : AppColors.textSecondary,
+                                        fontSize: 9,
+                                      ),
                                     ),
+                                    if (mine) ...[
+                                      const SizedBox(width: 4),
+                                      Icon(
+                                        message.isRead
+                                            ? Icons.done_all_rounded
+                                            : Icons.done_rounded,
+                                        size: 12,
+                                        color: Colors.white70,
+                                      ),
+                                    ],
                                   ],
-                                ],
-                              ),
-                            ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -283,7 +342,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Text(
-                    _pm('Message failed to send', 'فشل إرسال الرسالة'),
+                    _viewModel.sendError?.message() ??
+                        _pm('Message failed to send', 'فشل إرسال الرسالة'),
                     style: const TextStyle(
                       color: Color(0xFFE91E4D),
                       fontSize: 11,
@@ -292,65 +352,82 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 );
               },
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _inputController,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _send(),
-                      decoration: InputDecoration(
-                        hintText: _pm('Write a message…', 'اكتبي رسالة…'),
-                        filled: true,
-                        fillColor: Colors.white,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
+            AnimatedBuilder(
+              animation: CommunitySafetyController.instance,
+              builder: (context, composer) =>
+                  CommunitySafetyController.instance.isBlocked(_otherUserId)
+                  ? Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        _pm(
+                          'You blocked this member. Unblock her from Profile → Blocked members to message again.',
+                          'لقد حظرتِ هذه العضوة. ألغي الحظر من الملف الشخصي ← العضوات المحظورات لمراسلتها مجدداً.',
                         ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFFFE4E6),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                    )
+                  : composer!,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _inputController,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _send(),
+                        decoration: InputDecoration(
+                          hintText: _pm('Write a message…', 'اكتبي رسالة…'),
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
                           ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFFFE4E6),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(22),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFFFE4E6),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(22),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFFFE4E6),
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  AnimatedBuilder(
-                    animation: _viewModel,
-                    builder: (context, _) {
-                      return FloatingActionButton.small(
-                        heroTag: 'send-private-message',
-                        onPressed: _viewModel.isSending ? null : _send,
-                        backgroundColor: const Color(0xFFE91E4D),
-                        foregroundColor: Colors.white,
-                        child: _viewModel.isSending
-                            ? SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                  semanticsLabel: _pm(
-                                    'Sending message',
-                                    'جارٍ إرسال الرسالة',
+                    const SizedBox(width: 8),
+                    AnimatedBuilder(
+                      animation: _viewModel,
+                      builder: (context, _) {
+                        return FloatingActionButton.small(
+                          heroTag: 'send-private-message',
+                          onPressed: _viewModel.isSending ? null : _send,
+                          backgroundColor: const Color(0xFFE91E4D),
+                          foregroundColor: Colors.white,
+                          child: _viewModel.isSending
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                    semanticsLabel: _pm(
+                                      'Sending message',
+                                      'جارٍ إرسال الرسالة',
+                                    ),
                                   ),
-                                ),
-                              )
-                            : const Icon(Icons.send_rounded, size: 18),
-                      );
-                    },
-                  ),
-                ],
+                                )
+                              : const Icon(Icons.send_rounded, size: 18),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

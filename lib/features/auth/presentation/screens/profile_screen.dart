@@ -22,6 +22,11 @@ import '../../../madhhab/presentation/widgets/madhhab_change_confirmation.dart';
 import '../../../madhhab/presentation/widgets/madhhab_selector.dart';
 import '../../../madhhab_resolution/presentation/madhhab_resolution_screen.dart';
 import '../../../legal/presentation/screens/privacy_policy_screen.dart';
+import '../../../community/safety/blocked_members_screen.dart';
+import '../../../community/safety/community_guidelines_screen.dart';
+import '../../../community/safety/community_safety_controller.dart';
+import '../../../community/safety/community_terms_gate.dart';
+import '../../../community/safety/moderation_queue_screen.dart';
 import 'sign_in_screen.dart';
 import '../../../private_messaging/presentation/screens/conversations_screen.dart';
 import '../../../private_messaging/domain/repositories/private_messaging_repository_base.dart';
@@ -77,6 +82,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       PregnancyStatusController.instance,
       TtcModeController.instance,
       AppThemeController.instance,
+      CommunitySafetyController.instance,
     ]),
     builder: (context, _) {
       final user = _viewModel.user;
@@ -152,6 +158,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               repository: _messagingRepository,
                             ),
                           ),
+                          _ActionRow(
+                            icon: Icons.shield_outlined,
+                            title: _pr(
+                              'Community guidelines',
+                              'إرشادات المجتمع',
+                            ),
+                            onTap: () =>
+                                _open(const CommunityGuidelinesScreen()),
+                          ),
+                          _ActionRow(
+                            icon: Icons.block_rounded,
+                            title: _pr('Blocked members', 'العضوات المحظورات'),
+                            onTap: () => _open(const BlockedMembersScreen()),
+                          ),
+                          if (CommunitySafetyController.instance.isModerator)
+                            _ActionRow(
+                              icon: Icons.gavel_rounded,
+                              title: _pr('Moderation queue', 'قائمة الإشراف'),
+                              onTap: () => _open(const ModerationQueueScreen()),
+                            ),
                           _ActionRow(
                             icon: Icons.share_outlined,
                             title: _pr('Invite a Friend', 'دعوة صديقة'),
@@ -615,7 +641,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   PrivateMessagingRepositoryBase get _messagingRepository =>
       privateMessagingRepository;
 
-  void _openPrivateMessages() {
+  Future<void> _openPrivateMessages() async {
     final userId = NiswahSupabase.clientOrNull?.auth.currentUser?.id;
     if (userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -630,6 +656,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
       return;
     }
+    // Private messages are user-generated content too (guideline 1.2).
+    if (!await ensureCommunityTermsAccepted(context) || !mounted) return;
     Navigator.of(context)
         .push(
           MaterialPageRoute<void>(

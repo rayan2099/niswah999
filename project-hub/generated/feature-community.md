@@ -31,6 +31,16 @@ These links do not certify current runtime behavior, review approval, or launch 
 - [community_engagement_bar.dart](../../lib/features/community/presentation/widgets/community_engagement_bar.dart)
 - [community_language_gate.dart](../../lib/features/community/presentation/widgets/community_language_gate.dart)
 - [community_post_card.dart](../../lib/features/community/presentation/widgets/community_post_card.dart)
+- [blocked_members_screen.dart](../../lib/features/community/safety/blocked_members_screen.dart)
+- [community_guidelines_screen.dart](../../lib/features/community/safety/community_guidelines_screen.dart)
+- [community_safety_actions.dart](../../lib/features/community/safety/community_safety_actions.dart)
+- [community_safety_controller.dart](../../lib/features/community/safety/community_safety_controller.dart)
+- [community_safety_models.dart](../../lib/features/community/safety/community_safety_models.dart)
+- [community_safety_repository.dart](../../lib/features/community/safety/community_safety_repository.dart)
+- [community_terms.dart](../../lib/features/community/safety/community_terms.dart)
+- [community_terms_gate.dart](../../lib/features/community/safety/community_terms_gate.dart)
+- [community_write_error.dart](../../lib/features/community/safety/community_write_error.dart)
+- [moderation_queue_screen.dart](../../lib/features/community/safety/moderation_queue_screen.dart)
 
 ## Test navigation hints
 
@@ -41,6 +51,8 @@ Filename matches only; inspect imports and behavior to establish actual coverage
 - [community_language_gate_test.dart](../../test/community_language_gate_test.dart)
 - [community_language_highlight_test.dart](../../test/community_language_highlight_test.dart)
 - [community_repository_idempotency_test.dart](../../test/community_repository_idempotency_test.dart)
+- [community_safety_contract_test.dart](../../test/community_safety_contract_test.dart)
+- [community_safety_flows_test.dart](../../test/community_safety_flows_test.dart)
 - [community_text_only_ui_test.dart](../../test/community_text_only_ui_test.dart)
 - [community_ar_390x844.png](../../test/goldens/community_ar_390x844.png)
 - [community_en_390x844.png](../../test/goldens/community_en_390x844.png)

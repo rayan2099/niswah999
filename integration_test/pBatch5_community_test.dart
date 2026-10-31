@@ -52,6 +52,7 @@ void main() {
     await h.scrollToTop();
     await h.tapVisible(find.text('Community'), last: true);
     await h.settle(3);
+    await h.acceptCommunityTermsIfShown();
     await h.shot('C', 'community_empty');
     final emptyTexts = await texts('C community initial');
     final postsBefore = (await myPosts()).length;
