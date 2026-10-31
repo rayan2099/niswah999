@@ -133,6 +133,7 @@ These links do not certify current runtime behavior, review approval, or launch 
 ## scripts/notifications
 
 - [activate_dispatch.sql](../../scripts/notifications/activate_dispatch.sql)
+- [bundle_ios_firebase.sh](../../scripts/notifications/bundle_ios_firebase.sh)
 - [check_client_config.py](../../scripts/notifications/check_client_config.py)
 - [test_client_config.py](../../scripts/notifications/test_client_config.py)
 
